@@ -87,12 +87,47 @@ See [Deployment Guide](docs/DEPLOYMENT.md) for detailed production instructions.
 - **POST /api/orchestrator/models/:model/unload** - Unload a model
 - **POST /api/orchestrator/models/:model/cancel** - Cancel warmup
 
+### Circuit Breaker Management
+
+- **GET /api/orchestrator/circuit-breakers/:serverId/:model** - Get breaker details for server:model
+- **GET /api/orchestrator/circuit-breakers/:serverId** - Get all breakers for a server
+- **GET /api/orchestrator/servers/:serverId/models/:model/circuit-breaker** - Get circuit breaker info
+- **POST /api/orchestrator/circuit-breakers/:serverId/:model/reset** - Reset circuit breaker
+- **POST /api/orchestrator/circuit-breakers/:serverId/:model/open** - Force open circuit breaker
+- **POST /api/orchestrator/circuit-breakers/:serverId/:model/close** - Force close circuit breaker
+- **POST /api/orchestrator/circuit-breakers/:serverId/:model/half-open** - Force half-open state
+- **POST /api/orchestrator/circuit-breakers/:serverId/reset** - Reset all breakers for server
+- **POST /api/orchestrator/servers/:serverId/models/:model/recovery-test** - Trigger manual recovery test
+
 ### Health and Monitoring
 
 - **GET /api/orchestrator/health** - Orchestrator health
 - **POST /api/orchestrator/health-check** - Trigger health checks
 - **GET /api/orchestrator/stats** - Comprehensive stats
 - **GET /api/orchestrator/circuit-breakers** - Circuit breaker status
+
+### Server-Specific Inference
+
+Route requests directly to a specific server (bypasses load balancer for debugging/testing):
+
+- **POST /api/generate--:serverId** - Generate to specific server
+- **POST /api/chat--:serverId** - Chat to specific server
+- **POST /api/embeddings--:serverId** - Embeddings to specific server
+- **POST /v1/chat/completions--:serverId** - Chat completions to specific server
+- **POST /v1/completions--:serverId** - Completions to specific server
+- **POST /v1/embeddings--:serverId** - Embeddings to specific server
+
+### Recovery Failure Tracking
+
+- **GET /api/orchestrator/recovery-failures** - Get recovery failures summary
+- **GET /api/orchestrator/recovery-failures/stats/all** - Get all server recovery stats
+- **GET /api/orchestrator/recovery-failures/recent** - Get recent failure records
+- **GET /api/orchestrator/recovery-failures/:serverId** - Get recovery stats for specific server
+- **GET /api/orchestrator/recovery-failures/:serverId/history** - Get failure history for server
+- **GET /api/orchestrator/recovery-failures/:serverId/analysis** - Analyze server failures
+- **GET /api/orchestrator/recovery-failures/:serverId/circuit-breaker-impact** - Get CB impact analysis
+- **GET /api/orchestrator/recovery-failures/:serverId/circuit-breaker-transitions** - Get CB transitions
+- **POST /api/orchestrator/recovery-failures/:serverId/reset** - Reset recovery stats
 
 ### Ban Management
 
@@ -111,9 +146,16 @@ See [Deployment Guide](docs/DEPLOYMENT.md) for detailed production instructions.
 ### Queue Management
 
 - **GET /api/orchestrator/queue** - Queue status
+- **GET /api/orchestrator/in-flight** - In-flight requests by server
 - **POST /api/orchestrator/queue/pause** - Pause queue
 - **POST /api/orchestrator/queue/resume** - Resume queue
-- **POST /api/orchestrator/drain** - Drain server
+- **POST /api/orchestrator/drain** - Drain all servers
+
+### Server Maintenance
+
+- **POST /api/orchestrator/servers/:id/drain** - Drain specific server
+- **POST /api/orchestrator/servers/:id/undrain** - Undrain specific server
+- **POST /api/orchestrator/servers/:id/maintenance** - Set server maintenance mode
 
 ### Configuration
 
@@ -141,6 +183,23 @@ See [Deployment Guide](docs/DEPLOYMENT.md) for detailed production instructions.
 - **GET /api/orchestrator/analytics/capacity** - Capacity data
 - **GET /api/orchestrator/analytics/trends/:metric** - Metric trends
 - **GET /api/orchestrator/analytics/summary** - Analytics summary
+
+### Decision History
+
+- **GET /api/orchestrator/analytics/decisions** - Get decision history
+- **GET /api/orchestrator/analytics/decisions/trends/:serverId/:model** - Decision trends for server:model
+- **GET /api/orchestrator/analytics/selection-stats** - Load balancer selection statistics
+- **GET /api/orchestrator/analytics/algorithms** - Algorithm performance stats
+- **GET /api/orchestrator/analytics/score-timeline** - Score timeline data
+- **GET /api/orchestrator/analytics/metrics-impact** - Metrics impact analysis
+
+### Request History
+
+- **GET /api/orchestrator/analytics/servers-with-history** - Servers with request history
+- **GET /api/orchestrator/analytics/requests/:serverId** - Request history for server
+- **GET /api/orchestrator/analytics/request-stats/:serverId** - Request stats for server
+- **GET /api/orchestrator/analytics/request-timeline** - Request timeline data
+- **GET /api/orchestrator/analytics/requests/search** - Search request history
 
 ### Logging
 
