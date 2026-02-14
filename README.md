@@ -59,6 +59,7 @@ See [Deployment Guide](docs/DEPLOYMENT.md) for detailed production instructions.
 - [API Reference](docs/API.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
 - [Operations Guide](docs/OPERATIONS.md)
+- [Examples & Usage](docs/EXAMPLES.md)
 - [Contributing Guide](CONTRIBUTING.md)
 
 ## API Endpoints
