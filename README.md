@@ -11,6 +11,93 @@ The Ollama Orchestrator is a production-ready Express.js-based API gateway in Ty
 - **Node.js**: v18 or higher
 - **Docker**: For containerized deployment (optional but recommended)
 
+### Project Structure
+
+```
+ollama-orchestrator/
+├── src/                      # Main application source
+│   ├── controllers/          # Request handlers
+│   │   ├── analyticsController.ts
+│   │   ├── circuitBreakerController.ts
+│   │   ├── configController.ts
+│   │   ├── logsController.ts
+│   │   ├── metricsController.ts
+│   │   ├── modelController.ts
+│   │   ├── ollamaController.ts
+│   │   ├── openaiController.ts
+│   │   ├── queueController.ts
+│   │   ├── recoveryFailureController.ts
+│   │   ├── serverModelsController.ts
+│   │   └── serversController.ts
+│   ├── config/               # Configuration management
+│   │   ├── config.ts
+│   │   ├── configManager.ts
+│   │   ├── envMapper.ts
+│   │   ├── jsonFileHandler.ts
+│   │   └── schema.ts
+│   ├── analytics/            # Analytics and reporting
+│   │   ├── analytics-engine.ts
+│   │   ├── recovery-failure-tracker.ts
+│   │   └── index.ts
+│   ├── metrics/              # Metrics collection
+│   │   ├── metrics-aggregator.ts
+│   │   ├── metrics-persistence.ts
+│   │   ├── prometheus-exporter.ts
+│   │   └── index.ts
+│   ├── middleware/           # Express middleware
+│   │   ├── auth.ts
+│   │   ├── rateLimiter.ts
+│   │   └── validation.ts
+│   ├── queue/                # Request queue
+│   │   ├── request-queue.ts
+│   │   └── index.ts
+│   ├── utils/                # Utility functions
+│   │   ├── fetchWithTimeout.ts
+│   │   ├── logger.ts
+│   │   ├── ollamaError.ts
+│   │   └── urlUtils.ts
+│   ├── circuit-breaker.ts    # Circuit breaker implementation
+│   ├── health-check-scheduler.ts
+│   ├── intelligent-recovery-manager.ts
+│   ├── load-balancer.ts
+│   ├── model-manager.ts
+│   ├── orchestrator.ts       # Main orchestration logic
+│   ├── recovery-test-coordinator.ts
+│   ├── streaming.ts
+│   └── index.ts              # Application entry point
+├── tests/                    # Test suite
+│   ├── unit/                 # Unit tests
+│   ├── integration/          # Integration tests
+│   ├── e2e/                  # End-to-end tests
+│   ├── chaos/                # Chaos engineering tests
+│   ├── performance/          # Load/stress tests
+│   └── fixtures/             # Test fixtures
+├── frontend/                 # React dashboard
+│   ├── src/
+│   │   ├── components/       # Reusable UI components
+│   │   ├── pages/            # Dashboard pages
+│   │   │   ├── Analytics.tsx
+│   │   │   ├── CircuitBreakers.tsx
+│   │   │   ├── Dashboard.tsx
+│   │   │   ├── Logs.tsx
+│   │   │   ├── Models.tsx
+│   │   │   ├── Queue.tsx
+│   │   │   ├── Servers.tsx
+│   │   │   └── Settings.tsx
+│   │   └── ...
+│   └── package.json
+├── docs/                     # Documentation
+│   ├── API.md
+│   ├── DEPLOYMENT.md
+│   ├── OPERATIONS.md
+│   └── EXAMPLES.md
+├── scripts/                  # Utility scripts
+├── docker-compose.yml        # Development setup
+├── docker-compose.prod.yml   # Production setup
+├── Dockerfile
+└── package.json
+```
+
 ### Installation
 
 1.  **Clone the repository:**
