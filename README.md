@@ -291,7 +291,8 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 
 - Max size: 1000
 - Timeout: 5m
-- Priority boosting: 30s intervals, 5-point boosts
+- Priority boosting: 5s intervals, 5-point boosts
+- Max priority: 100
 
 ### Load Balancer Weights
 
@@ -300,12 +301,25 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - Load: 20%
 - Capacity: 15%
 
+### Load Balancer Advanced
+
+- Latency blend (recent/historical): 60%/40%
+- Load factor multiplier: 0.5
+- Default fallback latency: 1000ms
+- Default max concurrency: 4
+- Streaming optimization: TTFT 60%, duration 40%
+- Algorithms: weighted, round-robin, least-connections
+
 ### Circuit Breaker
 
-- Failure threshold: 5-10
+- Failure threshold: 5-10 (adaptive)
+- Open timeout: 30s
+- Half-open timeout: 60s
+- Half-open max requests: 5
+- Recovery success threshold: 3
 - Error window: 60s
 - Error rate threshold: 50%
-- Adaptive: enabled
+- Adaptive thresholds: enabled
 
 ### Health Check
 
@@ -332,12 +346,50 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 ### Metrics
 
 - Enabled: true
+- Prometheus enabled: true
 - Prometheus port: 9090
 - History: 60m
+- Decay enabled: true
+- Decay half-life: 5m
+- Stale threshold: 2m
 
 ### Streaming
 
 - Enabled: true
+- Max concurrent streams: 100
+- Timeout: 5m
+- Buffer: 1024 bytes
+- TTFT weight: 0.6
+- Duration weight: 0.4
+
+### Tags Aggregation
+
+- Cache TTL: 30s
+- Max concurrent: 10
+- Batch delay: 50ms
+- Request timeout: 5s
+
+### Model Manager
+
+- Max retries: 3
+- Retry delay: 1000ms
+- Warmup timeout: 60s
+- Idle threshold: 30m
+- Memory safety margin: 1.2x
+- GB per billion params: 0.75
+
+### Cooldown
+
+- Failure cooldown: 2m
+- Default max concurrency: 4
+
+### Security
+
+- CORS origins: '\*' (configurable)
+- Rate limit: 100 req/15min (configurable)
+- Rate limit window: 15min
+- API keys: optional
+- Admin API keys: optional
 - Max streams: 100
 - Timeout: 5m
 - Buffer: 1024 bytes
