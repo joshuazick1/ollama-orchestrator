@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  ollama-orchestrator:
+    build: .
+    ports:
+      - '5100:5100'
+      - '9090:9090' # Prometheus metrics
+    environment:
+      - NODE_ENV=production
+      - ORCHESTRATOR_PORT=5100
+      - ORCHESTRATOR_HOST=0.0.0.0
+      - ORCHESTRATOR_LOG_LEVEL=info
+      - ORCHESTRATOR_ENABLE_QUEUE=true
+      - ORCHESTRATOR_ENABLE_CIRCUIT_BREAKER=true
+      - ORCHESTRATOR_ENABLE_METRICS=true
+      - ORCHESTRATOR_ENABLE_STREAMING=true
+      - ORCHESTRATOR_ENABLE_PERSISTENCE=true
+      - ORCHESTRATOR_PROMETHEUS_ENABLED=true
+      - ORCHESTRATOR_PROMETHEUS_PORT=9090
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:5100/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 256M
+    networks:
+      - ollama-network
+
+  # Example Ollama servers
+  ollama-server-1:
+    image: ollama/ollama:0.1.20
+    ports:
+      - '11434:11434'
+    volumes:
+      - ollama-data-1:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'ollama', 'list']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G # LLMs need memory
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    networks:
+      - ollama-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ollama-network
+
+  # Grafana for dashboards
+  grafana:
+    image: grafana/grafana:10.0.0
+    ports:
+      - '3000:3000'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ollama-network
+
+volumes:
+  ollama-data-1:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  ollama-network:
+    driver: bridge
