@@ -15,7 +15,7 @@ Thank you for your interest in contributing to the Ollama Orchestrator project! 
 1.  **Clone the repository:**
 
     ```bash
-    git clone https://github.com/ollama-orchestrator/ollama-orchestrator.git
+    git clone https://github.com/joshuazick1/ollama-orchestrator.git
     cd ollama-orchestrator
     ```
 
