@@ -1,8 +1,48 @@
-# Ollama Orchestrator API and Capabilities Documentation
+# Ollama Orchestrator
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/joshuazick1/ollama-orchestrator)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue)](https://www.typescriptlang.org/)
 
 ## Overview
 
 The Ollama Orchestrator is a production-ready Express.js-based API gateway in TypeScript/Node.js that routes Ollama inference requests across multiple server instances. It provides intelligent load balancing, failover, and concurrency management.
+
+## Key Features
+
+- **Intelligent Load Balancing** - Weighted scoring based on latency, success rate, load, and capacity
+- **Automatic Failover** - Routes requests to healthy servers when failures occur
+- **Circuit Breaker Protection** - Prevents cascading failures with adaptive thresholds
+- **Request Queue** - Priority queue with configurable concurrency limits
+- **Model Management** - Proactive warmup, unload idle models, fleet-wide control
+- **Comprehensive Metrics** - Prometheus export, analytics dashboard, trend analysis
+- **OpenAI-Compatible API** - Drop-in replacement for OpenAI client libraries
+- **React Dashboard** - Web UI for monitoring and management
+- **Docker Support** - Production-ready containerized deployment
+
+## Architecture
+
+```
+                    ┌─────────────────┐
+                    │   Clients       │
+                    │ (any HTTP)     │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  Orchestrator   │
+                    │   (Port 5100)   │
+                    └────────┬────────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+┌───────▼───────┐  ┌───────▼───────┐  ┌───────▼───────┐
+│ Ollama Server │  │ Ollama Server │  │ Ollama Server │
+│   (11434)     │  │   (11434)     │  │   (11434)     │
+└───────────────┘  └───────────────┘  └───────────────┘
+```
+
+The orchestrator sits between clients and multiple Ollama servers, automatically selecting the best server based on real-time metrics, handling failures gracefully, and distributing load evenly.
 
 ## Getting Started
 
@@ -10,6 +50,23 @@ The Ollama Orchestrator is a production-ready Express.js-based API gateway in Ty
 
 - **Node.js**: v18 or higher
 - **Docker**: For containerized deployment (optional but recommended)
+
+## Table of Contents
+
+- [Key Features](#key-features)
+- [Architecture](#architecture)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [Project Structure](#project-structure)
+  - [Installation](#installation)
+  - [Running Locally](#running-locally)
+  - [Running with Docker](#running-with-docker)
+- [Documentation](#documentation)
+- [API Endpoints](#api-endpoints)
+- [Key Capabilities](#key-capabilities)
+- [Concurrent Request Handling](#concurrent-request-handling)
+- [Configuration Options](#configuration-options)
+- [Concurrent Request Flow](#concurrent-request-flow)
 
 ### Project Structure
 
