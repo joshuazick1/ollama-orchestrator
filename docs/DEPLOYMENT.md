@@ -4,89 +4,153 @@ This guide covers deploying the Ollama Orchestrator in production environments w
 
 ## Prerequisites
 
-- Docker and Docker Compose
+- **Node.js**: v18 or higher
+- **Docker and Docker Compose** (optional, for containerized deployment)
 - At least 4GB RAM per Ollama server
 - Network connectivity to Ollama servers
-- Persistent storage for metrics/logs (optional)
+- Persistent storage for metrics/logs
 
-## Production Deployment
+## Quick Start
 
-### Using Docker Compose
+### Option 1: Docker Compose (Recommended)
 
-The recommended production setup includes the orchestrator, multiple Ollama servers, Prometheus metrics collection, and Grafana dashboards.
+1. **Clone the repository:**
 
-1.  **Clone the repository:**
+   ```bash
+   git clone https://github.com/joshuazick1/ollama-orchestrator.git
+   cd ollama-orchestrator
+   ```
 
-    ```bash
-    git clone https://github.com/your-org/ollama-orchestrator.git
-    cd ollama-orchestrator
-    ```
+2. **Configure Environment:**
 
-2.  **Configure Environment:**
-    Create a `.env` file from the example:
+   ```bash
+   cp .env.example .env
+   ```
 
-    ```bash
-    cp .env.example .env
-    ```
+3. **Start production stack:**
 
-    **Important:** Edit `.env` and set a secure `GRAFANA_ADMIN_PASSWORD`.
+   ```bash
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
 
-3.  **Start production stack:**
+4. **Verify services are running:**
+   ```bash
+   docker-compose -f docker-compose.prod.yml ps
+   ```
 
-    ```bash
-    docker-compose -f docker-compose.prod.yml up -d
-    ```
+### Option 2: Node.js (Non-Docker)
 
-4.  **Verify services are running:**
-    ```bash
-    docker-compose -f docker-compose.prod.yml ps
-    ```
+1. **Clone and install:**
 
-### Service Endpoints
+   ```bash
+   git clone https://github.com/joshuazick1/ollama-orchestrator.git
+   cd ollama-orchestrator
+   npm install
+   ```
+
+2. **Configure environment:**
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your settings
+   ```
+
+3. **Build and start:**
+
+   ```bash
+   npm run build
+   npm start
+   ```
+
+4. **Run in development mode:**
+   ```bash
+   npm run dev
+   ```
+
+## Service Endpoints
+
+### Docker Compose
 
 - **Orchestrator API**: `http://localhost:5100`
 - **Prometheus**: `http://localhost:9090`
-- **Grafana**: `http://localhost:3000` (User: `admin`, Password: Value of `GRAFANA_ADMIN_PASSWORD` from `.env`)
-- **Ollama Server 1**: `http://localhost:11434`
-- **Ollama Server 2**: `http://localhost:11435`
+- **Grafana**: `http://localhost:3000` (User: `admin`, Password: set in `.env`)
+- **Ollama Server**: `http://localhost:11434`
 
-### Health Checks
+### Non-Docker
 
-```bash
-# Orchestrator health
-curl http://localhost:5100/health
-
-# Orchestrator internal health
-curl http://localhost:5100/api/orchestrator/health
-
-# Prometheus readiness
-curl http://localhost:9090/-/ready
-```
+- **Orchestrator API**: `http://localhost:5100`
+- **Prometheus Metrics**: `http://localhost:9090/metrics` (if enabled)
 
 ## Configuration
 
 ### Environment Variables
 
+The orchestrator supports many environment variables. Here are the most common:
+
 ```bash
-# Server configuration
+# Server settings
 ORCHESTRATOR_PORT=5100
 ORCHESTRATOR_HOST=0.0.0.0
-
-# Logging
 ORCHESTRATOR_LOG_LEVEL=info
-ORCHESTRATOR_LOG_FORMAT=json
 
-# Metrics
-ORCHESTRATOR_METRICS_RETENTION_HOURS=24
-ORCHESTRATOR_METRICS_PERSISTENCE_ENABLED=true
+# Feature toggles
+ORCHESTRATOR_ENABLE_QUEUE=true
+ORCHESTRATOR_ENABLE_CIRCUIT_BREAKER=true
+ORCHESTRATOR_ENABLE_METRICS=true
+ORCHESTRATOR_ENABLE_STREAMING=true
+ORCHESTRATOR_ENABLE_PERSISTENCE=true
 
-# Circuit breaker
-ORCHESTRATOR_CIRCUIT_BREAKER_FAILURE_THRESHOLD=0.5
-ORCHESTRATOR_CIRCUIT_BREAKER_RECOVERY_TIMEOUT=30000
-
-# Queue
+# Queue settings
 ORCHESTRATOR_QUEUE_MAX_SIZE=1000
-ORCHESTRATOR_QUEUE_TIMEOUT=30000
+ORCHESTRATOR_QUEUE_TIMEOUT=300000
+ORCHESTRATOR_QUEUE_PRIORITY_BOOST_INTERVAL=5000
+ORCHESTRATOR_QUEUE_MAX_PRIORITY=100
+
+# Load balancer weights (must sum to 1.0)
+ORCHESTRATOR_LB_WEIGHT_LATENCY=0.35
+ORCHESTRATOR_LB_WEIGHT_SUCCESS_RATE=0.30
+ORCHESTRATOR_LB_WEIGHT_LOAD=0.20
+ORCHESTRATOR_LB_WEIGHT_CAPACITY=0.15
+
+# Circuit breaker settings
+ORCHESTRATOR_CB_FAILURE_THRESHOLD=5
+ORCHESTRATOR_CB_MAX_FAILURE_THRESHOLD=10
+ORCHESTRATOR_CB_OPEN_TIMEOUT=30000
+ORCHESTRATOR_CB_HALF_OPEN_TIMEOUT=60000
+ORCHESTRATOR_CB_ADAPTIVE_THRESHOLDS=true
+
+# Security settings
+ORCHESTRATOR_CORS_ORIGINS=*
+ORCHESTRATOR_RATE_LIMIT_WINDOW=900000
+ORCHESTRATOR_RATE_LIMIT_MAX=100
+ORCHESTRATOR_API_KEYS=key1,key2
+ORCHESTRATOR_ADMIN_API_KEYS=admin-key
+
+# Metrics settings
+ORCHESTRATOR_METRICS_ENABLED=true
+ORCHESTRATOR_METRICS_PROMETHEUS_ENABLED=true
+ORCHESTRATOR_METRICS_PROMETHEUS_PORT=9090
+ORCHESTRATOR_METRICS_HISTORY_WINDOW=60
+
+# Streaming settings
+ORCHESTRATOR_STREAMING_ENABLED=true
+ORCHESTRATOR_STREAMING_MAX_CONCURRENT=100
+ORCHESTRATOR_STREAMING_TIMEOUT=300000
+ORCHESTRATOR_STREAMING_TTFT_WEIGHT=0.6
+ORCHESTRATOR_STREAMING_DURATION_WEIGHT=0.4
+
+# Health check settings
+ORCHESTRATOR_HC_ENABLED=true
+ORCHESTRATOR_HC_INTERVAL=30000
+ORCHESTRATOR_HC_TIMEOUT=5000
+ORCHESTRATOR_HC_MAX_CONCURRENT=10
+ORCHESTRATOR_HC_FAILURE_THRESHOLD=3
+
+# Retry settings
+ORCHESTRATOR_RETRY_MAX_RETRIES=2
+ORCHESTRATOR_RETRY_DELAY=500
+ORCHESTRATOR_RETRY_BACKOFF_MULTIPLIER=2
+ORCHESTRATOR_RETRY_MAX_DELAY=5000
 ```
 
 ### Config File
@@ -97,33 +161,119 @@ Create a `config.yaml` file:
 server:
   port: 5100
   host: '0.0.0.0'
-
-logging:
-  level: 'info'
-  format: 'json'
-
-metrics:
-  retentionHours: 24
-  persistence:
-    enabled: true
-
-circuitBreaker:
-  failureThreshold: 0.5
-  recoveryTimeout: 30000
+  logLevel: 'info'
 
 queue:
+  enabled: true
   maxSize: 1000
-  timeout: 30000
+  timeout: 300000
+  priorityBoostInterval: 5000
+  priorityBoostAmount: 5
+  maxPriority: 100
+
+loadBalancer:
+  weights:
+    latency: 0.35
+    successRate: 0.30
+    load: 0.20
+    capacity: 0.15
+  thresholds:
+    maxP95Latency: 5000
+    minSuccessRate: 0.95
+
+circuitBreaker:
+  enabled: true
+  baseFailureThreshold: 5
+  maxFailureThreshold: 10
+  minFailureThreshold: 3
+  openTimeout: 30000
+  halfOpenTimeout: 60000
+  halfOpenMaxRequests: 5
+  recoverySuccessThreshold: 3
+  adaptiveThresholds: true
+
+healthCheck:
+  enabled: true
+  intervalMs: 30000
+  timeoutMs: 5000
+  maxConcurrentChecks: 10
+  failureThreshold: 3
+  successThreshold: 2
+
+metrics:
+  enabled: true
+  prometheusEnabled: true
+  prometheusPort: 9090
+  historyWindowMinutes: 60
+
+streaming:
+  enabled: true
+  maxConcurrentStreams: 100
+  timeoutMs: 300000
+
+security:
+  corsOrigins:
+    - '*'
+  rateLimitWindowMs: 900000
+  rateLimitMax: 100
+```
+
+## Adding Ollama Servers
+
+### Via API (Both Docker and Non-Docker)
+
+```bash
+curl -X POST http://localhost:5100/api/orchestrator/servers/add \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "ollama-1",
+    "url": "http://ollama-server-1:11434",
+    "maxConcurrency": 4
+  }'
+```
+
+### Via Config File
+
+Add servers to your config.yaml:
+
+```yaml
+servers:
+  - id: ollama-1
+    url: http://ollama-1:11434
+    maxConcurrency: 4
+  - id: ollama-2
+    url: http://ollama-2:11434
+    maxConcurrency: 4
+```
+
+## Health Checks
+
+```bash
+# Orchestrator health
+curl http://localhost:5100/health
+
+# Orchestrator internal health
+curl http://localhost:5100/api/orchestrator/health
+
+# Server status
+curl http://localhost:5100/api/orchestrator/servers
+
+# Queue status
+curl http://localhost:5100/api/orchestrator/queue
 ```
 
 ## Monitoring Setup
 
 ### Prometheus Configuration
 
-The production compose file includes Prometheus with pre-configured scrape targets:
+The production compose file includes Prometheus with pre-configured scrape targets. If running non-Docker, add this to your prometheus.yml:
 
-- Orchestrator metrics: `http://orchestrator:5100/metrics`
-- Ollama servers: Health checks via orchestrator
+```yaml
+scrape_configs:
+  - job_name: 'orchestrator'
+    static_configs:
+      - targets: ['localhost:9090']
+```
 
 ### Grafana Dashboards
 
@@ -134,7 +284,7 @@ Pre-built dashboards are included for:
 - **Queue Management**: Queue depth, processing rates
 - **Circuit Breaker Status**: Breaker states and recovery metrics
 
-Access Grafana at `http://localhost:3000` and import dashboards from the `monitoring/` directory.
+Access Grafana at `http://localhost:3000` (Docker) and import dashboards.
 
 ### Key Metrics to Monitor
 
@@ -167,14 +317,50 @@ Increase resources in docker-compose.prod.yml:
 
 ```yaml
 services:
-  ollama-1:
+  ollama-orchestrator:
     deploy:
       resources:
         limits:
-          memory: 8g
-        reservations:
-          memory: 4g
+          memory: 2G
 ```
+
+## Production Deployment Checklist
+
+### Docker
+
+- [ ] Use `docker-compose.prod.yml` for production
+- [ ] Set appropriate memory limits
+- [ ] Configure restart policies
+- [ ] Enable health checks
+- [ ] Set up log rotation
+- [ ] Configure Prometheus and Grafana
+- [ ] Set secure API keys
+- [ ] Configure CORS origins
+- [ ] Set up reverse proxy with SSL (nginx/caddy)
+
+### Non-Docker/Node.js
+
+- [ ] Use process manager (systemd, PM2)
+- [ ] Set up log rotation (logrotate)
+- [ ] Configure Prometheus endpoint
+- [ ] Set secure API keys
+- [ ] Configure CORS origins
+- [ ] Set up reverse proxy with SSL (nginx/caddy)
+- [ ] Configure persistence path
+- [ ] Set up monitoring
+
+## Security Considerations
+
+- Run behind reverse proxy (nginx/caddy) for SSL termination
+- Use internal networks for service communication
+- Restrict API access with authentication
+- Regularly update base images for security patches
+- Monitor for unusual request patterns
+- Configure API keys for production use:
+  ```bash
+  ORCHESTRATOR_API_KEYS=key1,key2
+  ORCHESTRATOR_ADMIN_API_KEYS=admin-key
+  ```
 
 ## Backup and Recovery
 
@@ -183,15 +369,20 @@ services:
 ```bash
 # Backup current config
 curl http://localhost:5100/api/orchestrator/config > config-backup.json
+
+# Restore config
+curl -X POST http://localhost:5100/api/orchestrator/config \
+  -H "Content-Type: application/json" \
+  -d @config-backup.json
 ```
 
-### Metrics Data
+### Data Backup
 
-Metrics are persisted to `./data/metrics/` by default. Backup this directory for historical data.
+Metrics and runtime data are stored in `./data/` (non-Docker) or mounted volume (Docker). Backup this directory for recovery.
 
 ### Logs
 
-Use Docker logging drivers for centralized logging:
+Docker: Use logging drivers:
 
 ```yaml
 services:
@@ -203,14 +394,47 @@ services:
         max-file: '3'
 ```
 
-## Security Considerations
+Non-Docker: Use logrotate:
 
-- Run behind reverse proxy (nginx/caddy) for SSL termination
-- Use internal networks for service communication
-- Restrict API access with authentication if needed
-- Regularly update base images for security patches
-- Monitor for unusual request patterns
+```bash
+# /etc/logrotate.d/ollama-orchestrator
+/var/log/ollama-orchestrator.log {
+  daily
+  rotate 7
+  compress
+  delaycompress
+  missingok
+  notifempty
+  create 0640 root root
+}
+```
 
 ## Troubleshooting
 
 See [Operations Guide](OPERATIONS.md) for common issues and resolution steps.
+
+### Docker Issues
+
+```bash
+# Check logs
+docker-compose -f docker-compose.prod.yml logs orchestrator
+
+# Restart service
+docker-compose -f docker-compose.prod.yml restart orchestrator
+
+# Rebuild and restart
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+
+### Non-Docker Issues
+
+```bash
+# Check logs
+npm start 2>&1 | tee logs/orchestrator.log
+
+# Check process status
+ps aux | grep node
+
+# Restart
+pkill -f "node dist/index.js" && npm start &
+```
