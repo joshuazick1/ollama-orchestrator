@@ -28,6 +28,28 @@ curl http://localhost:5100/api/orchestrator/servers
 - `servers`: Count of healthy/total servers
 - `queue`: Current queue depth
 
+### Extended Monitoring
+
+```bash
+# Queue status
+curl http://localhost:5100/api/orchestrator/queue
+
+# In-flight requests by server
+curl http://localhost:5100/api/orchestrator/in-flight
+
+# Server status
+curl http://localhost:5100/api/orchestrator/servers
+
+# Circuit breakers
+curl http://localhost:5100/api/orchestrator/circuit-breakers
+
+# Model status across fleet
+curl http://localhost:5100/api/orchestrator/models/status
+
+# Analytics summary
+curl http://localhost:5100/api/orchestrator/analytics/summary
+```
+
 ## Common Issues and Solutions
 
 ### High Latency or Timeouts
@@ -79,7 +101,11 @@ curl http://localhost:5100/api/orchestrator/analytics/errors
 
 1. Investigate root cause (server down, network issues)
 2. Adjust failure threshold if needed
-3. Manually reset breaker: `POST /api/orchestrator/servers/{id}/reset-breaker`
+3. Manually reset breaker:
+
+```bash
+curl -X POST http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/{model}/reset
+```
 
 ### Queue Backlog
 
@@ -132,6 +158,121 @@ curl -X POST http://localhost:5100/api/orchestrator/servers/add \
   -d '{"id": "new-server", "url": "http://new-server:11434", "maxConcurrency": 4}'
 ```
 
+### Server Drain/Undrain
+
+**Symptoms:**
+
+- Need to take a server offline for maintenance
+- Gradual traffic reduction before shutdown
+
+**Operations:**
+
+```bash
+# Drain a specific server (stop accepting new requests, wait for completion)
+curl -X POST http://localhost:5100/api/orchestrator/servers/{serverId}/drain
+
+# Check drain status
+curl http://localhost:5100/api/orchestrator/servers
+
+# Undrain a server (resume accepting requests)
+curl -X POST http://localhost:5100/api/orchestrator/servers/{serverId}/undrain
+
+# Alternative: set maintenance mode
+curl -X POST http://localhost:5100/api/orchestrator/servers/{serverId}/maintenance \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true, "reason": "planned maintenance"}'
+```
+
+### Circuit Breaker Management
+
+**Symptoms:**
+
+- Server stuck in open/half-open state
+- Need to force circuit breaker state for testing
+
+**Operations:**
+
+```bash
+# Get all circuit breakers
+curl http://localhost:5100/api/orchestrator/circuit-breakers
+
+# Get specific breaker details
+curl http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/{model}
+
+# Force circuit breaker open (block traffic)
+curl -X POST http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/{model}/open
+
+# Force circuit breaker closed (allow traffic)
+curl -X POST http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/{model}/close
+
+# Force circuit breaker half-open (test recovery)
+curl -X POST http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/{model}/half-open
+
+# Reset circuit breaker to normal
+curl -X POST http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/{model}/reset
+
+# Reset all breakers for a server
+curl -X POST http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/reset
+```
+
+### Recovery Failure Analysis
+
+**Symptoms:**
+
+- Multiple recovery test failures
+- Server repeatedly failing health checks
+
+**Diagnosis:**
+
+```bash
+# Get recovery failures summary
+curl http://localhost:5100/api/orchestrator/recovery-failures
+
+# Get stats for specific server
+curl http://localhost:5100/api/orchestrator/recovery-failures/{serverId}
+
+# Get failure history
+curl http://localhost:5100/api/orchestrator/recovery-failures/{serverId}/history
+
+# Analyze server failures
+curl http://localhost:5100/api/orchestrator/recovery-failures/{serverId}/analysis
+
+# Get circuit breaker impact
+curl http://localhost:5100/api/orchestrator/recovery-failures/{serverId}/circuit-breaker-impact
+
+# Trigger manual recovery test
+curl -X POST http://localhost:5100/api/orchestrator/servers/{serverId}/models/{model}/recovery-test
+
+# Reset recovery stats for a server
+curl -X POST http://localhost:5100/api/orchestrator/recovery-failures/{serverId}/reset
+```
+
+### Ban Management
+
+**Symptoms:**
+
+- Server consistently failing for specific model
+- Want to temporarily block server:model combinations
+
+**Operations:**
+
+```bash
+# Get all active bans
+curl http://localhost:5100/api/orchestrator/bans
+
+# Clear all bans
+curl -X DELETE http://localhost:5100/api/orchestrator/bans
+
+# Clear bans for specific server
+curl -X DELETE http://localhost:5100/api/orchestrator/bans/server/{serverId}
+
+# Clear bans for specific model
+curl -X DELETE http://localhost:5100/api/orchestrator/bans/model/{model}
+
+# Remove specific ban
+curl -X DELETE http://localhost:5100/api/orchestrator/bans/{serverId}/{model}
+```
+
 ### Memory Issues
 
 **Symptoms:**
@@ -174,10 +315,12 @@ curl http://localhost:5100/api/orchestrator/config
 curl http://localhost:5100/api/orchestrator/config/schema
 
 # Reload from file
-curl -X POST http://localhost:5100/api/orchestrator/config/reload
+curl -X POST http://localhost:5100/api/orchestrator/config/reload \
+  -H "Content-Type: application/json" \
+  -d '{"configPath": "/path/to/config.yaml"}'
 
-# Reset to defaults
-curl -X POST http://localhost:5100/api/orchestrator/config/reset
+# Save current config to file
+curl -X POST http://localhost:5100/api/orchestrator/config/save
 ```
 
 ## Maintenance Procedures
@@ -185,8 +328,10 @@ curl -X POST http://localhost:5100/api/orchestrator/config/reset
 ### Rolling Updates
 
 ```bash
-# Enable maintenance mode
-curl -X POST http://localhost:5100/api/orchestrator/maintenance/enable
+# Enable maintenance mode for a specific server
+curl -X POST http://localhost:5100/api/orchestrator/servers/{serverId}/maintenance \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
 
 # Wait for queue to drain
 watch curl http://localhost:5100/api/orchestrator/queue
@@ -195,7 +340,9 @@ watch curl http://localhost:5100/api/orchestrator/queue
 docker-compose -f docker-compose.prod.yml up -d orchestrator
 
 # Disable maintenance mode
-curl -X POST http://localhost:5100/api/orchestrator/maintenance/disable
+curl -X POST http://localhost:5100/api/orchestrator/servers/{serverId}/maintenance \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
 ```
 
 ### Log Rotation
@@ -212,13 +359,13 @@ docker-compose -f docker-compose.prod.yml restart orchestrator
 
 ```bash
 # Check disk usage
-du -sh ./data/metrics/
+du -sh ./data/
 
-# Clean old metrics (keeps last 24h)
-curl -X POST http://localhost:5100/api/orchestrator/metrics/cleanup
-
-# Reset all metrics
-curl -X POST http://localhost:5100/api/orchestrator/metrics/reset
+# Metrics are automatically managed based on historyWindowMinutes setting
+# Default is 60 minutes. To reduce disk usage, decrease this in config:
+curl -X PATCH http://localhost:5100/api/orchestrator/config/metrics \
+  -H "Content-Type: application/json" \
+  -d '{"historyWindowMinutes": 30}'
 ```
 
 ## Monitoring Alerts
