@@ -100,7 +100,12 @@ export const getServers = async (): Promise<AIServer[]> => {
   });
 };
 
-export const addServer = async (server: { id: string; url: string; maxConcurrency?: number }) => {
+export const addServer = async (server: {
+  id: string;
+  url: string;
+  maxConcurrency?: number;
+  apiKey?: string;
+}) => {
   return apiCall(async () => {
     const response = await api.post('/servers/add', server);
     return response.data;

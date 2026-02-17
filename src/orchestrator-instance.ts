@@ -108,8 +108,17 @@ export function getOrchestratorInstance(): AIOrchestrator {
               addedServer.healthy = server.healthy;
               addedServer.models = server.models;
               addedServer.lastResponseTime = server.lastResponseTime;
+              if (server.supportsOllama !== undefined) {
+                addedServer.supportsOllama = server.supportsOllama;
+              }
               if (server.supportsV1 !== undefined) {
                 addedServer.supportsV1 = server.supportsV1;
+              }
+              if (server.v1Models !== undefined) {
+                addedServer.v1Models = server.v1Models;
+              }
+              if (server.apiKey !== undefined) {
+                addedServer.apiKey = server.apiKey;
               }
             }
           }

@@ -118,6 +118,13 @@ export interface AIServer {
   models: string[];
   maxConcurrency?: number;
   version?: string;
+  // NEW: Endpoint capabilities
+  supportsOllama?: boolean;
+  supportsV1?: boolean;
+  // NEW: OpenAI-compatible models
+  v1Models?: string[];
+  // NEW: Optional API key (redacted in responses)
+  apiKey?: string;
 }
 
 export interface ServerModelBenchmark {

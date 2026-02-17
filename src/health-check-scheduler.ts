@@ -8,6 +8,39 @@ import type { AIServer } from './orchestrator.types.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 
+/**
+ * Resolve API key from string (supports env:VARNAME format)
+ */
+function resolveApiKey(apiKey?: string): string | undefined {
+  if (!apiKey) return undefined;
+  if (apiKey.startsWith('env:')) {
+    const envVar = apiKey.substring(4);
+    return process.env[envVar];
+  }
+  return apiKey;
+}
+
+/**
+ * Fetch with optional API key authentication
+ */
+async function fetchWithAuth(
+  url: string,
+  apiKey?: string,
+  options?: { timeout?: number }
+): Promise<Response> {
+  const resolvedKey = resolveApiKey(apiKey);
+  const headers: Record<string, string> = {};
+
+  if (resolvedKey) {
+    headers['Authorization'] = `Bearer ${resolvedKey}`;
+  }
+
+  return fetchWithTimeout(url, {
+    ...options,
+    headers,
+  });
+}
+
 export interface HealthCheckResult {
   serverId: string;
   success: boolean;
@@ -16,7 +49,11 @@ export interface HealthCheckResult {
   timestamp: number;
   models?: string[];
   version?: string;
+  // NEW: Endpoint capabilities
+  supportsOllama?: boolean; // Whether server supports /api/* Ollama endpoints
   supportsV1?: boolean; // Whether server supports /v1/* OpenAI-compatible endpoints
+  // NEW: OpenAI-compatible models
+  v1Models?: string[];
   // Loaded model information from /api/ps
   loadedModels?: {
     name: string;
@@ -268,40 +305,59 @@ export class HealthCheckScheduler {
 
     try {
       // Query /api/tags, /api/ps, and /v1/models in parallel
+      // Server is healthy if either /api/tags OR /v1/models responds
       const [tagsResponse, psResponse, v1Response] = await Promise.all([
-        fetchWithTimeout(`${server.url}/api/tags`, {
+        fetchWithAuth(`${server.url}/api/tags`, server.apiKey, {
           timeout: this.config.timeoutMs,
-        }),
-        fetchWithTimeout(`${server.url}/api/ps`, {
+        }).catch(() => null),
+        fetchWithAuth(`${server.url}/api/ps`, server.apiKey, {
           timeout: 5000, // Shorter timeout for ps - don't fail health check if ps is slow
         }).catch(() => null), // Don't fail health check if ps endpoint fails
-        fetchWithTimeout(`${server.url}/v1/models`, {
+        fetchWithAuth(`${server.url}/v1/models`, server.apiKey, {
           timeout: 5000, // Shorter timeout for v1 - don't fail health check if not supported
         }).catch(() => null), // Don't fail health check if v1 endpoint fails
       ]);
 
       const responseTime = Date.now() - startTime;
 
-      if (!tagsResponse.ok) {
-        throw new Error(`HTTP ${tagsResponse.status}`);
-      }
-
-      // Check if server supports OpenAI-compatible /v1/* endpoints
+      // Check which endpoints are supported
+      const supportsOllama = tagsResponse?.ok ?? false;
       const supportsV1 = v1Response?.ok ?? false;
+
+      // Update capability flags
+      if (supportsOllama !== server.supportsOllama) {
+        logger.info(`Server ${server.id} Ollama support changed: ${supportsOllama}`);
+        server.supportsOllama = supportsOllama;
+      }
       if (supportsV1 !== server.supportsV1) {
         logger.info(`Server ${server.id} /v1/* support changed: ${supportsV1}`);
         server.supportsV1 = supportsV1;
       }
 
-      const data = (await tagsResponse.json()) as { models?: unknown };
-
-      // Basic validation of response
-      if (!data || typeof data !== 'object' || !('models' in data)) {
-        throw new Error('Invalid response format');
+      // Server is healthy if at least one endpoint works
+      if (!supportsOllama && !supportsV1) {
+        throw new Error('Neither /api/tags nor /v1/models responded');
       }
 
-      // Extract model names from response
-      const models = this.extractModels(data.models);
+      // Extract Ollama models if available
+      let models: string[] = [];
+      if (tagsResponse?.ok) {
+        const data = (await tagsResponse.json()) as { models?: unknown };
+        if (data && typeof data === 'object' && 'models' in data) {
+          models = this.extractModels(data.models);
+        }
+      }
+
+      // Extract OpenAI models if available
+      let v1Models: string[] = [];
+      if (v1Response?.ok) {
+        const data = (await v1Response.json()) as { data?: Array<{ id?: string }> };
+        if (data && Array.isArray(data.data)) {
+          v1Models = data.data
+            .map((m: { id?: string }) => m.id)
+            .filter((id): id is string => typeof id === 'string');
+        }
+      }
 
       // Parse ps data if available
       let loadedModels: { name: string; sizeVram: number; expiresAt: string; digest: string }[] =
@@ -337,8 +393,10 @@ export class HealthCheckScheduler {
         responseTime,
         timestamp: Date.now(),
         models,
+        v1Models,
         loadedModels,
         totalVramUsed,
+        supportsOllama,
         supportsV1,
       };
 

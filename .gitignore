@@ -54,3 +54,6 @@ load-servers.mjs
 load-servers-fixed.mjs
 verify-setup.sh
 load-test.sh
+
+# Design documents (not for commit)
+docs/DESIGN-*.md

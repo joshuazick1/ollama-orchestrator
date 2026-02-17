@@ -13,6 +13,32 @@ import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTi
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
 
+/**
+ * Resolve API key from string (supports env:VARNAME format)
+ */
+function resolveApiKey(apiKey?: string): string | undefined {
+  if (!apiKey) return undefined;
+  if (apiKey.startsWith('env:')) {
+    const envVar = apiKey.substring(4);
+    return process.env[envVar];
+  }
+  return apiKey;
+}
+
+/**
+ * Get headers for backend requests including optional auth
+ */
+function getBackendHeaders(server: AIServer): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  const resolvedKey = resolveApiKey(server.apiKey);
+  if (resolvedKey) {
+    headers['Authorization'] = `Bearer ${resolvedKey}`;
+  }
+  return headers;
+}
+
 // OpenAI API Types
 interface OpenAIChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -350,12 +376,14 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer) => {
+        const headers = getBackendHeaders(server);
+
         if (stream) {
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}/v1/chat/completions`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers,
               body: JSON.stringify({
                 model,
                 messages,
@@ -394,7 +422,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         // Non-streaming request - proxy to Ollama's OpenAI endpoint
         const response = await fetchWithTimeout(`${server.url}/v1/chat/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             model,
             messages,
@@ -412,7 +440,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
         return (await response.json()) as Record<string, unknown>;
       },
-      stream
+      stream,
+      'generate',
+      'openai'
     );
 
     // Send non-streaming response
@@ -498,12 +528,14 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer) => {
+        const headers = getBackendHeaders(server);
+
         if (stream) {
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}/v1/completions`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers,
               body: JSON.stringify({
                 model,
                 prompt: promptText,
@@ -542,7 +574,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
         // Non-streaming
         const response = await fetchWithTimeout(`${server.url}/v1/completions`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             model,
             prompt: promptText,
@@ -560,7 +592,9 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
 
         return (await response.json()) as Record<string, unknown>;
       },
-      stream
+      stream,
+      'generate',
+      'openai'
     );
 
     if (!stream && result && !result._streamed) {
@@ -616,9 +650,10 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer) => {
+        const headers = getBackendHeaders(server);
         const response = await fetchWithTimeout(`${server.url}/v1/embeddings`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             model,
             input,
@@ -635,7 +670,9 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
 
         return (await response.json()) as Record<string, unknown>;
       },
-      false
+      false,
+      'embeddings',
+      'openai'
     );
 
     res.json(result);
@@ -659,32 +696,8 @@ export async function handleListModels(req: Request, res: Response): Promise<voi
   const orchestrator = getOrchestratorInstance();
 
   try {
-    const tags = await orchestrator.getAggregatedTags();
-
-    const models: OpenAIModelObject[] = (tags.models as OllamaModelEntry[]).map(
-      (model: OllamaModelEntry) => {
-        // Extract owner from model name (e.g., "library/llama2" -> "library")
-        const nameParts = model.name?.split('/') ?? [];
-        const ownedBy = nameParts.length > 1 ? nameParts[0] : 'library';
-
-        // Use modified_at or default to current time
-        const created = model.modified_at
-          ? Math.floor(new Date(model.modified_at).getTime() / 1000)
-          : Math.floor(Date.now() / 1000);
-
-        return {
-          id: model.name ?? model.model ?? '',
-          object: 'model' as const,
-          created,
-          owned_by: ownedBy ?? 'library',
-        };
-      }
-    );
-
-    res.json({
-      object: 'list',
-      data: models,
-    });
+    const result = orchestrator.getAggregatedOpenAIModels();
+    res.json(result);
   } catch (error) {
     logger.error('Failed to list models:', { error });
     res.status(500).json({
@@ -706,11 +719,8 @@ export async function handleGetModel(req: Request, res: Response): Promise<void>
   const orchestrator = getOrchestratorInstance();
 
   try {
-    const tags = await orchestrator.getAggregatedTags();
-
-    const modelInfo = (tags.models as OllamaModelEntry[]).find(
-      (m: OllamaModelEntry) => m.name === model || m.model === model
-    );
+    const result = orchestrator.getAggregatedOpenAIModels();
+    const modelInfo = result.data.find(m => m.id === model);
 
     if (!modelInfo) {
       res.status(404).json({
@@ -724,20 +734,7 @@ export async function handleGetModel(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const modelName = modelInfo.name ?? String(model);
-    const nameParts = modelName.split('/');
-    const ownedBy = nameParts.length > 1 ? nameParts[0] : 'library';
-
-    const created = modelInfo.modified_at
-      ? Math.floor(new Date(modelInfo.modified_at).getTime() / 1000)
-      : Math.floor(Date.now() / 1000);
-
-    res.json({
-      id: modelName,
-      object: 'model',
-      created,
-      owned_by: ownedBy,
-    });
+    res.json(modelInfo);
   } catch (error) {
     logger.error('Failed to get model info:', { error, model });
     res.status(500).json({

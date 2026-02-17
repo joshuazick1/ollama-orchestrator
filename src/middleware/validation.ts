@@ -74,6 +74,7 @@ export const addServerSchema = z.object({
   url: z.string().url('Invalid URL format'),
   maxConcurrency: z.number().int().min(1).max(1000).optional().default(4),
   type: z.enum(['ollama']).optional().default('ollama'),
+  apiKey: z.string().optional(),
 });
 
 export const updateServerSchema = z.object({

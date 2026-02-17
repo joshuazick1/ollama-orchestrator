@@ -17,6 +17,7 @@ export const serverConfigSchema = z.object({
   url: z.string().url(),
   type: z.enum(['ollama']).default('ollama'),
   maxConcurrency: z.number().int().min(1).max(1000).default(4),
+  apiKey: z.string().optional(),
 });
 
 /**
