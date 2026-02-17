@@ -172,19 +172,42 @@ export class AIOrchestrator {
         server.healthy = true;
         server.lastResponseTime = result.responseTime ?? Infinity;
 
+        // Track if anything changed that needs persistence
+        let needsPersistence = false;
+
         // Update models from health check result
-        if (result.models) {
+        if (result.models && JSON.stringify(result.models) !== JSON.stringify(server.models)) {
           server.models = result.models;
+          needsPersistence = true;
         }
 
-        // Update /v1/* OpenAI-compatible endpoint support
+        // Update endpoint capability flags
+        if (
+          result.supportsOllama !== undefined &&
+          result.supportsOllama !== server.supportsOllama
+        ) {
+          server.supportsOllama = result.supportsOllama;
+          logger.info(`Server ${server.id} Ollama support updated to: ${result.supportsOllama}`);
+          needsPersistence = true;
+        }
         if (result.supportsV1 !== undefined && result.supportsV1 !== server.supportsV1) {
           server.supportsV1 = result.supportsV1;
           logger.info(`Server ${server.id} /v1/* support updated to: ${result.supportsV1}`);
-          // Save to disk when support changes
-          if (this.config.enablePersistence) {
-            saveServersToDisk(this.servers);
-          }
+          needsPersistence = true;
+        }
+
+        // Update OpenAI models from health check result
+        if (
+          result.v1Models &&
+          JSON.stringify(result.v1Models) !== JSON.stringify(server.v1Models)
+        ) {
+          server.v1Models = result.v1Models;
+          needsPersistence = true;
+        }
+
+        // Save to disk when anything changes
+        if (needsPersistence && this.config.enablePersistence) {
+          saveServersToDisk(this.servers);
         }
 
         // Update loaded model information from /api/ps
@@ -851,7 +874,7 @@ export class AIOrchestrator {
       return { models: this.tagsCache.data };
     }
 
-    const healthyServers = this.servers.filter(s => s.healthy);
+    const healthyServers = this.servers.filter(s => s.healthy && s.supportsOllama !== false);
 
     if (healthyServers.length === 0) {
       // Return cached data if available, even if stale
@@ -1096,6 +1119,38 @@ export class AIOrchestrator {
   }
 
   /**
+   * Get aggregated OpenAI models from servers supporting /v1/* endpoints
+   */
+  getAggregatedOpenAIModels(): {
+    object: string;
+    data: Array<{ id: string; object: string; created: number; owned_by: string }>;
+  } {
+    const models: Array<{ id: string; object: string; created: number; owned_by: string }> = [];
+    const seenModels = new Set<string>();
+
+    for (const server of this.servers) {
+      if (server.healthy && server.supportsV1 && server.v1Models) {
+        for (const modelId of server.v1Models) {
+          if (!seenModels.has(modelId)) {
+            seenModels.add(modelId);
+            models.push({
+              id: modelId,
+              object: 'model',
+              created: Date.now(),
+              owned_by: server.id,
+            });
+          }
+        }
+      }
+    }
+
+    return {
+      object: 'list',
+      data: models,
+    };
+  }
+
+  /**
    * Resolve model name by appending :latest tag if needed
    */
   private resolveModelName(model: string, availableModels: string[]): string | null {
@@ -1296,12 +1351,21 @@ export class AIOrchestrator {
     model: string,
     fn: (server: AIServer) => Promise<T>,
     isStreaming: boolean = false,
-    endpoint: 'generate' | 'embeddings' = 'generate'
+    endpoint: 'generate' | 'embeddings' = 'generate',
+    requiredCapability?: 'ollama' | 'openai'
   ): Promise<T> {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
 
     // Get candidate servers using load balancer with historical metrics
     const eligibleServers = this.servers.filter(s => {
+      // Check capability requirement
+      if (requiredCapability === 'ollama' && s.supportsOllama === false) {
+        return false;
+      }
+      if (requiredCapability === 'openai' && s.supportsV1 === false) {
+        return false;
+      }
+
       return (
         s.healthy &&
         s.models.includes(model) &&

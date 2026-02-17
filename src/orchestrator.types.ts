@@ -19,7 +19,13 @@ export interface AIServer {
   models: string[];
   maxConcurrency?: number;
   version?: string;
+  // NEW: Endpoint capabilities
+  supportsOllama?: boolean; // Whether server supports /api/* Ollama endpoints
   supportsV1?: boolean; // Whether server supports /v1/* OpenAI-compatible endpoints
+  // NEW: OpenAI-compatible models (from /v1/models)
+  v1Models?: string[];
+  // NEW: Optional API key for authentication
+  apiKey?: string;
   // Operational state
   draining?: boolean;
   maintenance?: boolean;

@@ -13,8 +13,13 @@ import { normalizeServerUrl, areUrlsEquivalent } from '../utils/urlUtils.js';
  * POST /api/orchestrator/servers/add
  */
 export function addServer(req: Request, res: Response): void {
-  const body = (req.body ?? {}) as { id?: string; url?: string; maxConcurrency?: number };
-  const { id, url, maxConcurrency } = body;
+  const body = (req.body ?? {}) as {
+    id?: string;
+    url?: string;
+    maxConcurrency?: number;
+    apiKey?: string;
+  };
+  const { id, url, maxConcurrency, apiKey } = body;
 
   if (!id || !url) {
     res.status(400).json({ error: 'id and url are required' });
@@ -50,6 +55,7 @@ export function addServer(req: Request, res: Response): void {
     url,
     type: 'ollama',
     maxConcurrency,
+    apiKey,
   });
 
   res.status(200).json({
@@ -125,6 +131,10 @@ export function getServers(req: Request, res: Response): void {
       models: s.models,
       maxConcurrency: s.maxConcurrency,
       version: s.version,
+      supportsOllama: s.supportsOllama,
+      supportsV1: s.supportsV1,
+      v1Models: s.v1Models,
+      apiKey: s.apiKey ? '***REDACTED***' : undefined,
     })),
   });
 }

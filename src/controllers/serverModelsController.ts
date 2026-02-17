@@ -64,6 +64,11 @@ export async function listServerModels(req: Request, res: Response): Promise<voi
     return;
   }
 
+  if (server.supportsOllama === false) {
+    res.status(400).json({ error: `Server '${id}' does not support Ollama model management` });
+    return;
+  }
+
   try {
     const response = await fetchWithTimeout(`${server.url}/api/tags`, {
       timeout: 10000, // 10 second timeout
@@ -123,6 +128,11 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
 
   if (!server.healthy) {
     res.status(503).json({ error: `Server '${id}' is not healthy` });
+    return;
+  }
+
+  if (server.supportsOllama === false) {
+    res.status(400).json({ error: `Server '${id}' does not support Ollama model management` });
     return;
   }
 
@@ -189,6 +199,11 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
 
   if (!server.healthy) {
     res.status(503).json({ error: `Server '${id}' is not healthy` });
+    return;
+  }
+
+  if (server.supportsOllama === false) {
+    res.status(400).json({ error: `Server '${id}' does not support Ollama model management` });
     return;
   }
 
@@ -260,11 +275,29 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
     return;
   }
 
+  if (targetServer.supportsOllama === false) {
+    res
+      .status(400)
+      .json({
+        error: `Target server '${targetServerId}' does not support Ollama model management`,
+      });
+    return;
+  }
+
   // If source server specified, verify it has the model
   if (sourceServerId) {
     const sourceServer = orchestrator.getServers().find(s => s.id === sourceServerId);
     if (!sourceServer) {
       res.status(404).json({ error: `Source server '${sourceServerId}' not found` });
+      return;
+    }
+
+    if (sourceServer.supportsOllama === false) {
+      res
+        .status(400)
+        .json({
+          error: `Source server '${sourceServerId}' does not support Ollama model management`,
+        });
       return;
     }
 

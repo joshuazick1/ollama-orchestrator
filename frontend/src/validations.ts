@@ -14,6 +14,15 @@ export const serverUrlSchema = z
     }
   }, 'Must be an HTTP or HTTPS URL');
 
+// API key validation - allows plain key or "env:VARIABLE_NAME" format
+export const apiKeySchema = z
+  .string()
+  .regex(
+    /^(env:[A-Z_][A-Z0-9_]*|sk-[a-zA-Z0-9-_]*)?$/,
+    'API key must be "env:VARIABLE_NAME" or start with "sk-"'
+  )
+  .optional();
+
 // Add server form schema
 export const addServerSchema = z.object({
   url: serverUrlSchema,
@@ -22,6 +31,7 @@ export const addServerSchema = z.object({
     .min(1, 'Concurrency must be at least 1')
     .max(100, 'Concurrency cannot exceed 100')
     .optional(),
+  apiKey: apiKeySchema,
 });
 
 // Model name validation

@@ -234,7 +234,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
         return (await response.json()) as Record<string, unknown>;
       },
-      useStreaming
+      useStreaming,
+      'generate',
+      'ollama'
     );
 
     // Only send JSON response if not streaming
@@ -384,7 +386,9 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
         return (await response.json()) as Record<string, unknown>;
       },
-      useStreaming
+      useStreaming,
+      'generate',
+      'ollama'
     );
 
     // Only send JSON response if not streaming
@@ -447,7 +451,8 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
         return (await response.json()) as Record<string, unknown>;
       },
       false,
-      'embeddings'
+      'embeddings',
+      'ollama'
     );
 
     res.json(result);
@@ -465,7 +470,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
  */
 export async function handlePs(req: Request, res: Response): Promise<void> {
   const orchestrator = getOrchestratorInstance();
-  const servers = orchestrator.getServers().filter(s => s.healthy);
+  const servers = orchestrator.getServers().filter(s => s.healthy && s.supportsOllama !== false);
 
   try {
     const allModels: Array<PsModelEntry & { server: string }> = [];

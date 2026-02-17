@@ -18,6 +18,7 @@ export const Servers = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newServerUrl, setNewServerUrl] = useState('');
   const [newServerConcurrency, setNewServerConcurrency] = useState<number | ''>('');
+  const [newServerApiKey, setNewServerApiKey] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [expandedServerId, setExpandedServerId] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{
@@ -34,6 +35,7 @@ export const Servers = () => {
       setIsAddModalOpen(false);
       setNewServerUrl('');
       setNewServerConcurrency('');
+      setNewServerApiKey('');
       setValidationErrors({});
     },
   });
@@ -51,6 +53,7 @@ export const Servers = () => {
     const formData = {
       url: newServerUrl,
       maxConcurrency: newServerConcurrency === '' ? undefined : newServerConcurrency,
+      apiKey: newServerApiKey || undefined,
     };
 
     const validation = validateForm(addServerSchema, formData);
@@ -69,6 +72,7 @@ export const Servers = () => {
       id,
       url: newServerUrl,
       maxConcurrency: newServerConcurrency === '' ? undefined : newServerConcurrency,
+      apiKey: newServerApiKey || undefined,
     });
   };
 
@@ -222,6 +226,23 @@ export const Servers = () => {
                             <span>•</span>
                             <span>{server.version || 'v?'}</span>
                           </div>
+                          <div className="flex items-center space-x-2 mt-1">
+                            {server.supportsOllama !== false && (
+                              <span className="px-2 py-0.5 rounded text-xs bg-purple-500/20 text-purple-400">
+                                Ollama
+                              </span>
+                            )}
+                            {server.supportsV1 && (
+                              <span className="px-2 py-0.5 rounded text-xs bg-orange-500/20 text-orange-400">
+                                OpenAI
+                              </span>
+                            )}
+                            {server.apiKey && (
+                              <span className="text-xs" title="API Key configured">
+                                🔑
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -276,6 +297,12 @@ export const Servers = () => {
                                 {server.maxConcurrency || 4}
                               </span>
                             </div>
+                            <div className="flex justify-between p-3 bg-gray-900/50 rounded-lg">
+                              <span className="text-gray-400">API Key</span>
+                              <span className="text-white font-mono">
+                                {server.apiKey ? '***REDACTED***' : 'Not set'}
+                              </span>
+                            </div>
                           </div>
 
                           <div className="pt-4">
@@ -283,15 +310,17 @@ export const Servers = () => {
                               Actions
                             </h4>
                             <div className="flex space-x-3">
-                              <button
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  setModelManagerServer(server);
-                                }}
-                                className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 py-2 rounded-lg text-sm transition-colors border border-blue-600/20"
-                              >
-                                Manage Models
-                              </button>
+                              {server.supportsOllama !== false && (
+                                <button
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setModelManagerServer(server);
+                                  }}
+                                  className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 py-2 rounded-lg text-sm transition-colors border border-blue-600/20"
+                                >
+                                  Manage Models
+                                </button>
+                              )}
                               <button
                                 onClick={e => {
                                   e.stopPropagation();
@@ -382,6 +411,26 @@ export const Servers = () => {
             {validationErrors.maxConcurrency && (
               <p className="mt-1 text-sm text-red-400">{validationErrors.maxConcurrency}</p>
             )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              API Key (optional)
+            </label>
+            <input
+              type="text"
+              value={newServerApiKey}
+              onChange={e => setNewServerApiKey(e.target.value)}
+              placeholder="env:MY_API_KEY or sk-..."
+              className={`w-full bg-gray-900 border rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500 ${
+                validationErrors.apiKey ? 'border-red-500' : 'border-gray-700'
+              }`}
+            />
+            {validationErrors.apiKey && (
+              <p className="mt-1 text-sm text-red-400">{validationErrors.apiKey}</p>
+            )}
+            <p className="mt-1 text-xs text-gray-500">
+              Use "env:VAR_NAME" to reference environment variables
+            </p>
           </div>
           <div className="flex justify-end space-x-3 mt-6">
             <button
