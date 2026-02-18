@@ -6,18 +6,13 @@
 import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
+import { TTFTTracker } from '../metrics/ttft-tracker.js';
 import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
-import {
-  streamResponse,
-  isStreamingRequest,
-  handleStreamWithRetry,
-  type TTFTOptions,
-} from '../streaming.js';
+import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../streaming.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
-import { TTFTTracker } from '../metrics/ttft-tracker.js';
 
 /** Request body for /api/generate */
 interface GenerateRequestBody {

@@ -3219,7 +3219,7 @@ export class AIOrchestrator {
     serverId: string,
     model: string
   ): void {
-    if (!context) return;
+    if (!context) {return;}
 
     context.selectedServerId = serverId;
 

@@ -26,7 +26,7 @@ export class JsonFileHandler {
       createBackups: options.createBackups ?? true,
       maxBackups: options.maxBackups ?? 5,
       validateJson: options.validateJson ?? true,
-      validator: options.validator ?? (() => true),
+      validator: options.validator ?? ((): boolean => true),
     };
 
     // Ensure directory exists

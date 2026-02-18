@@ -187,7 +187,11 @@ export function optionalAuth(
 /**
  * Create authentication middleware with custom config
  */
-export function createAuthMiddleware(config: Partial<AuthConfig> = {}) {
+export function createAuthMiddleware(config: Partial<AuthConfig> = {}): {
+  requireAuth: ReturnType<typeof requireAuth>;
+  requireAdmin: ReturnType<typeof requireAdmin>;
+  optionalAuth: ReturnType<typeof optionalAuth>;
+} {
   const finalConfig = { ...DEFAULT_AUTH_CONFIG, ...config };
   return {
     requireAuth: requireAuth(finalConfig),

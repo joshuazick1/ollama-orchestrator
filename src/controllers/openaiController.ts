@@ -43,7 +43,9 @@ function addDebugHeaders(req: Request, res: Response, context: RoutingContext): 
  * Resolve API key from string (supports env:VARNAME format)
  */
 function resolveApiKey(apiKey?: string): string | undefined {
-  if (!apiKey) return undefined;
+  if (!apiKey) {
+    return undefined;
+  }
   if (apiKey.startsWith('env:')) {
     const envVar = apiKey.substring(4);
     return process.env[envVar];
@@ -119,7 +121,7 @@ interface OpenAIEmbeddingRequest {
   dimensions?: number;
 }
 
-interface OpenAIModelObject {
+interface _OpenAIModelObject {
   id: string;
   object: 'model';
   created: number;
@@ -136,7 +138,7 @@ interface OllamaStreamChunk {
 }
 
 /** Model entry returned from Ollama's aggregated tags */
-interface OllamaModelEntry {
+interface _OllamaModelEntry {
   name?: string;
   model?: string;
   modified_at?: string;
@@ -733,12 +735,13 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
 /**
  * Handle GET /v1/models - List all available models in OpenAI format
  */
-export async function handleListModels(req: Request, res: Response): Promise<void> {
+export function handleListModels(req: Request, res: Response): Promise<void> {
   const orchestrator = getOrchestratorInstance();
 
   try {
     const result = orchestrator.getAggregatedOpenAIModels();
     res.json(result);
+    return Promise.resolve();
   } catch (error) {
     logger.error('Failed to list models:', { error });
     res.status(500).json({
@@ -748,13 +751,14 @@ export async function handleListModels(req: Request, res: Response): Promise<voi
         code: 'internal_error',
       },
     });
+    return Promise.resolve();
   }
 }
 
 /**
  * Handle GET /v1/models/:model - Get specific model info
  */
-export async function handleGetModel(req: Request, res: Response): Promise<void> {
+export function handleGetModel(req: Request, res: Response): Promise<void> {
   const { model } = req.params;
 
   const orchestrator = getOrchestratorInstance();
@@ -772,10 +776,11 @@ export async function handleGetModel(req: Request, res: Response): Promise<void>
           code: 'model_not_found',
         },
       });
-      return;
+      return Promise.resolve();
     }
 
     res.json(modelInfo);
+    return Promise.resolve();
   } catch (error) {
     logger.error('Failed to get model info:', { error, model });
     res.status(500).json({
@@ -785,6 +790,7 @@ export async function handleGetModel(req: Request, res: Response): Promise<void>
         code: 'internal_error',
       },
     });
+    return Promise.resolve();
   }
 }
 

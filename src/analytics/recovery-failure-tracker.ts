@@ -4,8 +4,6 @@
  * Includes circuit breaker state transition tracking
  */
 
-import path from 'path';
-
 import { JsonFileHandler } from '../config/jsonFileHandler.js';
 import { logger } from '../utils/logger.js';
 
@@ -675,12 +673,12 @@ export class RecoveryFailureTracker {
    */
   async persistToDisk(): Promise<void> {
     if (!this.config.persistenceEnabled) {
-      return;
+      return Promise.resolve();
     }
 
     const now = Date.now();
     if (now - this.lastPersistenceTime < 30000 && !this.persistenceDirty) {
-      return;
+      return Promise.resolve();
     }
 
     this.lastPersistenceTime = now;
@@ -714,7 +712,7 @@ export class RecoveryFailureTracker {
    */
   private async loadFromDisk(): Promise<void> {
     if (!this.config.persistenceEnabled || !this.fileHandler) {
-      return;
+      return Promise.resolve();
     }
 
     try {

@@ -12,11 +12,11 @@ import {
 } from './orchestrator-persistence.js';
 import { AIOrchestrator, type RoutingContext } from './orchestrator.js';
 import type { AIServer } from './orchestrator.types.js';
-
-export type { RoutingContext };
 import { getRequestHistory } from './request-history.js';
 import { logger } from './utils/logger.js';
 import { normalizeServerUrl } from './utils/urlUtils.js';
+
+export type { RoutingContext };
 
 // Singleton instance
 let orchestrator: AIOrchestrator | null = null;

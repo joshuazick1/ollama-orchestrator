@@ -3,6 +3,7 @@
  * Historical metrics tracking with sliding windows
  */
 
+import { featureFlags } from '../config/feature-flags.js';
 import type {
   MetricsWindow,
   ServerModelMetrics,
@@ -12,10 +13,9 @@ import type {
   GlobalMetrics,
   MetricsExport,
 } from '../orchestrator.types.js';
+import { Statistics } from '../utils/statistics.js';
 
 import { MetricsPersistence, type MetricsData } from './metrics-persistence.js';
-import { Statistics } from '../utils/statistics.js';
-import { featureFlags } from '../config/feature-flags.js';
 
 /**
  * Configuration for metrics decay

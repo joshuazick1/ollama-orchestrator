@@ -5,9 +5,9 @@
 
 import path from 'path';
 
+import { JsonFileHandler } from './config/jsonFileHandler.js';
 import type { ServerScore } from './load-balancer.js';
 import type { AIServer } from './orchestrator.types.js';
-import { JsonFileHandler } from './config/jsonFileHandler.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -423,7 +423,7 @@ export class DecisionHistory {
     }
 
     // Normalize correlations
-    const normalize = (val: number) => Math.max(-1, Math.min(1, (val / count) * 4));
+    const normalize = (val: number): number => Math.max(-1, Math.min(1, (val / count) * 4));
 
     return {
       latency: { correlation: normalize(latencyCorrelation), weight: 0.35 },
@@ -453,7 +453,7 @@ export class DecisionHistory {
   /**
    * Persist events to storage
    */
-  async persist(): Promise<void> {
+  persist(): Promise<void> {
     if (this.config.persistenceEnabled) {
       try {
         // Save events
@@ -469,18 +469,21 @@ export class DecisionHistory {
         } else {
           logger.debug('Decision history persisted', { eventCount: this.events.length });
         }
+        return Promise.resolve();
       } catch (error) {
         logger.error('Failed to persist decision history:', { error });
+        return Promise.resolve();
       }
     }
+    return Promise.resolve();
   }
 
   /**
    * Load persisted decision history
    */
-  async load(): Promise<void> {
+  load(): Promise<void> {
     if (!this.config.persistenceEnabled || !this.fileHandler) {
-      return;
+      return Promise.resolve();
     }
 
     try {
@@ -490,10 +493,12 @@ export class DecisionHistory {
         this.events = data.events;
         logger.info('Decision history loaded', { eventCount: this.events.length });
       }
+      return Promise.resolve();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         logger.error('Failed to load decision history:', { error });
       }
+      return Promise.resolve();
     }
   }
 

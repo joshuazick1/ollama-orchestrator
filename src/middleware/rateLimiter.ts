@@ -49,7 +49,8 @@ export function defaultKeyGenerator(req: Request): string {
  * Create rate limiter middleware
  * More restrictive for admin endpoints, less for inference
  */
-export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createRateLimiter(config: Partial<RateLimitConfig> = {}): any {
   const finalConfig = { ...DEFAULT_RATE_LIMIT_CONFIG, ...config };
 
   if (!finalConfig.enabled) {
@@ -89,7 +90,8 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
 /**
  * Monitoring endpoint rate limiter - very permissive for dashboard polling
  */
-export function createMonitoringRateLimiter() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createMonitoringRateLimiter(): any {
   return createRateLimiter({
     windowMs: 5 * 60 * 1000, // 5 minutes
     maxRequests: 300, // 300 requests per 5 minutes (1 per second average)
@@ -99,7 +101,8 @@ export function createMonitoringRateLimiter() {
 /**
  * Admin endpoint rate limiter - more restrictive
  */
-export function createAdminRateLimiter() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createAdminRateLimiter(): any {
   return createRateLimiter({
     windowMs: 5 * 60 * 1000, // 5 minutes
     maxRequests: 50, // 50 requests per 5 minutes
@@ -109,7 +112,8 @@ export function createAdminRateLimiter() {
 /**
  * Inference endpoint rate limiter - more permissive
  */
-export function createInferenceRateLimiter() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createInferenceRateLimiter(): any {
   return createRateLimiter({
     windowMs: 1 * 60 * 1000, // 1 minute
     maxRequests: 60, // 60 requests per minute
@@ -119,7 +123,8 @@ export function createInferenceRateLimiter() {
 /**
  * Authentication endpoint rate limiter - very restrictive to prevent brute force
  */
-export function createAuthRateLimiter() {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createAuthRateLimiter(): any {
   return createRateLimiter({
     windowMs: 15 * 60 * 1000, // 15 minutes
     maxRequests: 10, // 10 attempts per 15 minutes

@@ -26,7 +26,7 @@ export function pruneByAge<T extends Timestamped>(
  * Keep only the most recent maxSize items
  */
 export function pruneByMaxSize<T>(items: T[], maxSize: number): T[] {
-  if (items.length <= maxSize) return items;
+  if (items.length <= maxSize) {return items;}
   return items.slice(-maxSize);
 }
 
