@@ -7,6 +7,7 @@ import {
   warmupModel,
   getWarmupRecommendations,
   resetCircuitBreaker,
+  getAllModelsStatus,
 } from '../api';
 import {
   Server,
@@ -44,6 +45,23 @@ interface InFlightServer {
   byModel: Record<string, { regular: number; bypass: number }>;
 }
 
+interface ModelServerStatus {
+  loaded: boolean;
+  loading: boolean;
+  lastUsed?: number;
+  loadTime?: number;
+  gpuMemory?: number;
+}
+
+interface ModelStatus {
+  totalServers: number;
+  loadedOn: number;
+  loadingOn: number;
+  notLoadedOn: number;
+  failedOn: number;
+  servers: Record<string, ModelServerStatus>;
+}
+
 const SortIcon = ({ columnKey, sortConfig }: { columnKey: SortKey; sortConfig: SortConfig }) => {
   if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-4 h-4 text-gray-600" />;
   return sortConfig.direction === 'asc' ? (
@@ -58,18 +76,24 @@ const ServerBadge = ({
   model,
   circuitBreaker,
   inFlightData,
+  modelStatus,
   onReset,
 }: {
   server: AIServer;
   model: string;
   circuitBreaker?: CircuitBreakerInfo;
   inFlightData?: InFlightServer;
+  modelStatus?: ModelServerStatus;
   onReset?: () => void;
 }) => {
   // Get in-flight count for this server:model
   const inFlightCount = inFlightData?.byModel?.[model]?.regular || 0;
   const bypassCount = inFlightData?.byModel?.[model]?.bypass || 0;
   const totalInFlight = inFlightCount + bypassCount;
+
+  // Check if model is loaded in memory
+  const isLoaded = modelStatus?.loaded || false;
+  const isLoading = modelStatus?.loading || false;
 
   // Determine state
   const isCircuitOpen = circuitBreaker?.state === 'OPEN';
@@ -78,7 +102,7 @@ const ServerBadge = ({
   const hasInFlight = totalInFlight > 0;
 
   // Determine badge styling based on priority
-  // Priority: Testing > Open > Half-Open > In-Flight > Normal
+  // Priority: Testing > Open > Half-Open > In-Flight > Loaded > Normal
   let badgeClass = 'bg-gray-700 text-gray-300';
   let icon = <Server className="w-3 h-3" />;
   const label = server.url;
@@ -104,6 +128,16 @@ const ServerBadge = ({
     badgeClass = 'bg-blue-500/20 text-blue-400 border border-blue-500/50';
     icon = <Zap className="w-3 h-3" />;
     tooltip = `${server.url} - ${totalInFlight} in-flight request${totalInFlight !== 1 ? 's' : ''}`;
+  } else if (isLoaded) {
+    // E: Model loaded in memory
+    badgeClass = 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50';
+    icon = <Box className="w-3 h-3" />;
+    tooltip = `${server.url} - Model loaded in memory`;
+  } else if (isLoading) {
+    // Loading state
+    badgeClass = 'bg-blue-500/20 text-blue-400 border border-blue-500/50';
+    icon = <Loader2 className="w-3 h-3 animate-spin" />;
+    tooltip = `${server.url} - Loading model`;
   }
 
   return (
@@ -141,6 +175,10 @@ const ServerBadge = ({
 
 const Legend = () => (
   <div className="flex flex-wrap gap-4 text-xs text-gray-400 bg-gray-900/50 rounded-lg p-4 border border-gray-700/50">
+    <div className="flex items-center space-x-2">
+      <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/50" />
+      <span>Loaded</span>
+    </div>
     <div className="flex items-center space-x-2">
       <div className="w-3 h-3 rounded-full bg-blue-500/20 border border-blue-500/50" />
       <span>In-Flight</span>
@@ -201,6 +239,12 @@ export const Models = () => {
     refetchInterval: 60000,
   });
 
+  const { data: modelsStatusData } = useQuery({
+    queryKey: ['all-models-status'],
+    queryFn: getAllModelsStatus,
+    refetchInterval: 5000,
+  });
+
   const warmupMutation = useMutation({
     mutationFn: ({ model, servers }: { model: string; servers?: string[] }) =>
       warmupModel(model, servers),
@@ -245,6 +289,17 @@ export const Models = () => {
     });
     return map;
   }, [inFlightData]);
+
+  const modelStatusMap = useMemo(() => {
+    const map = new Map<string, Record<string, ModelServerStatus>>();
+    const modelsData = modelsStatusData as { models?: Record<string, ModelStatus> } | undefined;
+    if (modelsData?.models) {
+      Object.entries(modelsData.models).forEach(([model, status]) => {
+        map.set(model, status.servers);
+      });
+    }
+    return map;
+  }, [modelsStatusData]);
 
   if (mapLoading || serversLoading || circuitLoading || inFlightLoading) {
     return <div className="text-white">Loading...</div>;
@@ -365,6 +420,7 @@ export const Models = () => {
                             model={model}
                             circuitBreaker={circuitBreakerMap.get(`${server.id}:${model}`)}
                             inFlightData={inFlightMap.get(server.id)}
+                            modelStatus={modelStatusMap.get(model)?.[server.id]}
                             onReset={() => resetCbMutation.mutate({ serverId: server.id, model })}
                           />
                         ))}
