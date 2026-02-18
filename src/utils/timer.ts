@@ -16,7 +16,7 @@ export class Timer {
   private lastLapTime: number;
 
   constructor() {
-    this.startTime = performance.now();
+    this.startTime = Date.now();
     this.lastLapTime = this.startTime;
   }
 
@@ -24,17 +24,17 @@ export class Timer {
    * Get total elapsed time in milliseconds
    */
   elapsed(): number {
-    return Math.round(performance.now() - this.startTime);
+    return Date.now() - this.startTime;
   }
 
   /**
    * Record a named lap time
    */
   lap(name: string): TimerLap {
-    const now = performance.now();
+    const now = Date.now();
     const lap: TimerLap = {
       name,
-      elapsed: Math.round(now - this.startTime),
+      elapsed: now - this.startTime,
       timestamp: now,
     };
     this.laps.set(name, lap);
@@ -60,14 +60,14 @@ export class Timer {
    * Get time since last lap
    */
   sinceLastLap(): number {
-    return Math.round(performance.now() - this.lastLapTime);
+    return Date.now() - this.lastLapTime;
   }
 
   /**
    * Reset the timer
    */
   reset(): void {
-    this.startTime = performance.now();
+    this.startTime = Date.now();
     this.lastLapTime = this.startTime;
     this.laps.clear();
   }
