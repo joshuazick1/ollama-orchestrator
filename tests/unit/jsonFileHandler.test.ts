@@ -226,9 +226,11 @@ describe('JsonFileHandler', () => {
         maxBackups: 5,
       });
 
-      // Write multiple times to create backups
+      // Write multiple times to create backups (with delay to ensure unique timestamps)
       for (let i = 0; i < 3; i++) {
         handler.write({ version: i + 2 });
+        const start = Date.now();
+        while (Date.now() - start < 2) {} // Ensure unique timestamp
       }
 
       const dir = path.dirname(testFilePath);
