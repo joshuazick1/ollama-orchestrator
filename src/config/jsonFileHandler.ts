@@ -97,7 +97,7 @@ export class JsonFileHandler {
 
   private createBackup(): void {
     try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = Date.now();
       const backupPath = `${this.filePath}.backup.${timestamp}`;
 
       fs.copyFileSync(this.filePath, backupPath);
