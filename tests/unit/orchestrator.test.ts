@@ -145,17 +145,17 @@ describe('AIOrchestrator', () => {
       const bans = new Set(['server-1:model-1']);
       orchestrator.loadBans(bans);
 
-      expect(orchestrator.getBans().has('server-1:model-1')).toBe(true);
+      const details = orchestrator.getBanDetails();
+      expect(details).toContainEqual(expect.objectContaining({ key: 'server-1:model-1' }));
     });
 
-    it('should return copy of bans', () => {
+    it('should return ban details', () => {
       orchestrator.loadBans(new Set(['server-1:model-1']));
 
-      const bans1 = orchestrator.getBans();
-      const bans2 = orchestrator.getBans();
+      const details1 = orchestrator.getBanDetails();
+      const details2 = orchestrator.getBanDetails();
 
-      expect(bans1).not.toBe(bans2);
-      expect(bans1).toEqual(bans2);
+      expect(details1).toEqual(details2);
     });
   });
 

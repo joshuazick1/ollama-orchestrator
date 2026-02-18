@@ -63,7 +63,7 @@ describe('Load Balancer', () => {
       };
 
       const score = calculateServerScore(mockServer, 'llama3:latest', 0, 0, metrics);
-      
+
       // High latency should result in low latency score
       expect(score.breakdown.latencyScore).toBeLessThan(50);
     });
@@ -88,7 +88,7 @@ describe('Load Balancer', () => {
       };
 
       const score = calculateServerScore(mockServer, 'llama3:latest', 0, 0, metrics);
-      
+
       // Low success rate should result in low success rate score
       expect(score.breakdown.successRateScore).toBeLessThan(50);
     });
@@ -114,14 +114,14 @@ describe('Load Balancer', () => {
 
       const lowLoadScore = calculateServerScore(mockServer, 'llama3:latest', 0, 0, metrics);
       const highLoadScore = calculateServerScore(mockServer, 'llama3:latest', 3, 3, metrics);
-      
+
       // Lower load should have higher load score
       expect(lowLoadScore.breakdown.loadScore).toBeGreaterThan(highLoadScore.breakdown.loadScore);
     });
 
     it('should fallback to lastResponseTime when no metrics', () => {
       const score = calculateServerScore(mockServer, 'llama3:latest', 0, 0, undefined);
-      
+
       // Should still calculate a score using lastResponseTime
       expect(score.totalScore).toBeGreaterThan(0);
     });
@@ -171,9 +171,9 @@ describe('Load Balancer', () => {
   });
 
   describe('LoadBalancer Class', () => {
-    it('should use weighted algorithm by default', () => {
+    it('should use fastest-response algorithm by default', () => {
       const lb = new LoadBalancer();
-      expect(lb.getAlgorithm()).toBe('weighted');
+      expect(lb.getAlgorithm()).toBe('fastest-response');
     });
 
     it('should support round-robin algorithm', () => {
@@ -202,7 +202,7 @@ describe('Load Balancer', () => {
     it('should support round-robin selection', () => {
       const lb = new LoadBalancer();
       lb.setAlgorithm('round-robin');
-      
+
       const servers = [
         { ...mockServer, id: 'server-1' },
         { ...mockServer, id: 'server-2' },
@@ -228,7 +228,7 @@ describe('Load Balancer', () => {
     it('should support least-connections selection', () => {
       const lb = new LoadBalancer();
       lb.setAlgorithm('least-connections');
-      
+
       const servers = [
         { ...mockServer, id: 'server-1' },
         { ...mockServer, id: 'server-2' },
@@ -264,44 +264,50 @@ describe('Load Balancer', () => {
   describe('Integration with Metrics', () => {
     it('should prefer server with better historical metrics', () => {
       const lb = new LoadBalancer();
-      
+
       const servers = [
         { ...mockServer, id: 'good-server' },
         { ...mockServer, id: 'bad-server' },
       ];
 
       const metricsMap = new Map<string, ServerModelMetrics>([
-        ['good-server:llama3:latest', {
-          serverId: 'good-server',
-          model: 'llama3:latest',
-          inFlight: 0,
-          queued: 0,
-          windows: {} as any,
-          percentiles: { p50: 100, p95: 150, p99: 200 },
-          successRate: 0.99,
-          throughput: 20,
-          avgTokensPerRequest: 50,
-          lastUpdated: Date.now(),
-          recentLatencies: [],
-        }],
-        ['bad-server:llama3:latest', {
-          serverId: 'bad-server',
-          model: 'llama3:latest',
-          inFlight: 0,
-          queued: 0,
-          windows: {} as any,
-          percentiles: { p50: 500, p95: 1000, p99: 2000 },
-          successRate: 0.80,
-          throughput: 5,
-          avgTokensPerRequest: 50,
-          lastUpdated: Date.now(),
-          recentLatencies: [],
-        }],
+        [
+          'good-server:llama3:latest',
+          {
+            serverId: 'good-server',
+            model: 'llama3:latest',
+            inFlight: 0,
+            queued: 0,
+            windows: {} as any,
+            percentiles: { p50: 100, p95: 150, p99: 200 },
+            successRate: 0.99,
+            throughput: 20,
+            avgTokensPerRequest: 50,
+            lastUpdated: Date.now(),
+            recentLatencies: [],
+          },
+        ],
+        [
+          'bad-server:llama3:latest',
+          {
+            serverId: 'bad-server',
+            model: 'llama3:latest',
+            inFlight: 0,
+            queued: 0,
+            windows: {} as any,
+            percentiles: { p50: 500, p95: 1000, p99: 2000 },
+            successRate: 0.8,
+            throughput: 5,
+            avgTokensPerRequest: 50,
+            lastUpdated: Date.now(),
+            recentLatencies: [],
+          },
+        ],
       ]);
 
       const getLoad = () => 0;
       const getTotalLoad = () => 0;
-      const getMetrics = (serverId: string, model: string) => 
+      const getMetrics = (serverId: string, model: string) =>
         metricsMap.get(`${serverId}:${model}`);
 
       // Good server should be selected

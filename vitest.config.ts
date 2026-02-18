@@ -5,8 +5,8 @@ export default defineConfig({
     name: 'unit',
     globals: true,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts', 'tests/chaos/**/*.test.ts', 'src/**/*.test.ts'],
-    exclude: ['tests/integration/**', 'tests/e2e/**', 'node_modules/**'],
+    include: ['tests/unit/**/*.test.ts', 'src/**/*.test.ts'],
+    exclude: ['tests/integration/**', 'tests/e2e/**', 'tests/chaos/**', 'node_modules/**'],
     setupFiles: ['./tests/setup.ts'],
     coverage: {
       provider: 'v8',

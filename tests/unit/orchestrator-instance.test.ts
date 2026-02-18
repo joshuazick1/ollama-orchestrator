@@ -64,16 +64,14 @@ describe('Orchestrator Instance', () => {
     });
 
     it('should verify initialization catch block exists', () => {
-      // This test verifies line 29-31 (catch block) exists in the source
       const fs = require('fs');
       const path = require('path');
       const sourceFile = path.join(__dirname, '../../src/orchestrator-instance.ts');
       const content = fs.readFileSync(sourceFile, 'utf-8');
 
-      // Verify the catch block is present
-      expect(content).toContain('.catch(error => {');
+      expect(content).toContain('.catch((error: unknown) => {');
       expect(content).toContain('logger.error');
-      expect(content).toContain('Failed to initialize metrics persistence');
+      expect(content).toContain('Failed to load persisted data');
     });
   });
 

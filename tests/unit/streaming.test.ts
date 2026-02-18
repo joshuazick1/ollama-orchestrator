@@ -87,10 +87,16 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(['data: test\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(mockUpstreamResponse as any, mockResponse as Response, undefined, onComplete);
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete
+    );
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledWith(
+      expect.any(Number),
       expect.any(Number),
       expect.any(Number)
     );
@@ -139,9 +145,11 @@ describe('streamResponse', () => {
     await streamResponse(mockUpstreamResponse, mockResponse as Response);
 
     expect(mockResponse.status).toHaveBeenCalledWith(500);
-    expect(mockResponse.json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'Streaming failed',
-    }));
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: 'Streaming failed',
+      })
+    );
   });
 
   it('should handle error with headers already sent', async () => {
@@ -166,10 +174,12 @@ describe('streamResponse', () => {
 
     // Error should be caught and sent as JSON response
     expect(mockResponse.status).toHaveBeenCalledWith(500);
-    expect(mockResponse.json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'Streaming failed',
-      details: 'No response body to stream',
-    }));
+    expect(mockResponse.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: 'Streaming failed',
+        details: 'No response body to stream',
+      })
+    );
   });
 });
 
@@ -184,9 +194,7 @@ describe('parseSSEData', () => {
   });
 
   it('should parse multiple SSE events', () => {
-    const data = new TextEncoder().encode(
-      'data: {"msg": 1}\n\ndata: {"msg": 2}\n\n'
-    );
+    const data = new TextEncoder().encode('data: {"msg": 1}\n\ndata: {"msg": 2}\n\n');
     const events = parseSSEData(data);
 
     expect(events).toHaveLength(2);
@@ -255,7 +263,8 @@ describe('handleStreamWithRetry', () => {
   });
 
   it('should retry on failure and succeed', async () => {
-    const fn = vi.fn()
+    const fn = vi
+      .fn()
       .mockRejectedValueOnce(new Error('First failure'))
       .mockRejectedValueOnce(new Error('Second failure'))
       .mockResolvedValue('success');
@@ -292,7 +301,8 @@ describe('handleStreamWithRetry', () => {
 
   it('should apply exponential backoff', async () => {
     const startTime = Date.now();
-    const fn = vi.fn()
+    const fn = vi
+      .fn()
       .mockRejectedValueOnce(new Error('Retry 1'))
       .mockRejectedValueOnce(new Error('Retry 2'))
       .mockResolvedValue('success');

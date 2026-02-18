@@ -224,7 +224,7 @@ describe('Config Controller', () => {
 
   describe('reloadConfig', () => {
     it('should reload configuration successfully', async () => {
-      const configPath = '/custom/config.json';
+      const configPath = process.cwd() + '/config.json';
       const reloadedConfig = { port: 3000 };
       mockReq.body = { configPath };
       mockConfigManager.getConfig.mockReturnValue(reloadedConfig);
@@ -240,14 +240,12 @@ describe('Config Controller', () => {
       });
     });
 
-    it('should use environment variable if no configPath provided', async () => {
-      mockReq.body = {};
-      const reloadedConfig = { port: 3000 };
-      mockConfigManager.getConfig.mockReturnValue(reloadedConfig);
+    it('should return 400 for invalid config path', async () => {
+      mockReq.body = { configPath: '/custom/config.json' };
 
       await reloadConfig(mockReq as Request, mockRes as Response);
 
-      expect(mockConfigManager.loadFromFile).toHaveBeenCalledWith('/path/to/config.json');
+      expect(mockRes.status).toHaveBeenCalledWith(400);
     });
 
     it('should return 400 if no config file specified', async () => {
@@ -269,7 +267,7 @@ describe('Config Controller', () => {
       mockConfigManager.loadFromFile.mockImplementation(() => {
         throw error;
       });
-      mockReq.body = { configPath: '/path/to/config.json' };
+      mockReq.body = { configPath: process.cwd() + '/config.json' };
 
       await reloadConfig(mockReq as Request, mockRes as Response);
 
@@ -283,7 +281,7 @@ describe('Config Controller', () => {
 
   describe('saveConfig', () => {
     it('should save configuration successfully', async () => {
-      const configPath = '/custom/config.json';
+      const configPath = process.cwd() + '/config.json';
       mockReq.body = { configPath };
 
       await saveConfig(mockReq as Request, mockRes as Response);
@@ -297,12 +295,12 @@ describe('Config Controller', () => {
       });
     });
 
-    it('should use environment variable if no configPath provided', async () => {
-      mockReq.body = {};
+    it('should return 400 for invalid config path', async () => {
+      mockReq.body = { configPath: '/custom/config.json' };
 
       await saveConfig(mockReq as Request, mockRes as Response);
 
-      expect(mockConfigManager.saveToFile).toHaveBeenCalledWith('/path/to/config.json');
+      expect(mockRes.status).toHaveBeenCalledWith(400);
     });
 
     it('should return 400 if no config file specified', async () => {
@@ -324,7 +322,7 @@ describe('Config Controller', () => {
       mockConfigManager.saveToFile.mockImplementation(() => {
         throw error;
       });
-      mockReq.body = { configPath: '/path/to/config.json' };
+      mockReq.body = { configPath: process.cwd() + '/config.json' };
 
       await saveConfig(mockReq as Request, mockRes as Response);
 
