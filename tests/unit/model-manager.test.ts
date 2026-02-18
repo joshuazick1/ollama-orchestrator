@@ -391,21 +391,21 @@ describe('ModelManager', () => {
   });
 
   describe('Model Unloading', () => {
-    it('should unload a model from a server', () => {
+    it('should unload a model from a server', async () => {
       modelManager.updateModelState('server-1', 'llama3:latest', {
         loaded: true,
         lastUsed: Date.now(),
       });
 
-      const success = modelManager.unloadModel('server-1', 'llama3:latest');
+      const success = await modelManager.unloadModel('server-1', 'llama3:latest');
       expect(success).toBe(true);
 
       const state = modelManager.getModelState('server-1', 'llama3:latest');
       expect(state?.loaded).toBe(false);
     });
 
-    it('should return false for non-existent model', () => {
-      const success = modelManager.unloadModel('server-1', 'unknown-model');
+    it('should return false for non-existent model', async () => {
+      const success = await modelManager.unloadModel('server-1', 'unknown-model');
       expect(success).toBe(false);
     });
   });

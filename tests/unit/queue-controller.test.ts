@@ -32,6 +32,8 @@ describe('queueController', () => {
     // Mock orchestrator instance
     mockOrchestrator = {
       getQueueStats: vi.fn(),
+      getQueueItems: vi.fn().mockReturnValue([]),
+      getInFlightByServer: vi.fn().mockReturnValue({}),
       pauseQueue: vi.fn(),
       resumeQueue: vi.fn(),
       drain: vi.fn(),
@@ -52,16 +54,20 @@ describe('queueController', () => {
     it('should return queue stats successfully', () => {
       const mockStats = { pending: 5, processing: 2, completed: 10 };
       mockOrchestrator.getQueueStats.mockReturnValue(mockStats);
+      mockOrchestrator.getQueueItems.mockReturnValue([]);
+      mockOrchestrator.getInFlightByServer.mockReturnValue({});
 
       getQueueStatus(mockReq as Request, mockRes as Response);
 
       expect(mockGetOrchestratorInstance).toHaveBeenCalledTimes(1);
       expect(mockOrchestrator.getQueueStats).toHaveBeenCalledTimes(1);
       expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        queue: mockStats,
-      });
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          queue: expect.objectContaining(mockStats),
+        })
+      );
     });
 
     it('should handle errors when getting queue status', () => {

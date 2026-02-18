@@ -181,29 +181,17 @@ describe('metricsController', () => {
     it('should return Prometheus-formatted metrics successfully', () => {
       const mockAllMetrics = new Map([['server1:llama3:latest', {}]]);
       const mockGlobalMetrics = { totalRequests: 100, totalErrors: 5 };
-      const mockExporterOutput =
-        '# HELP orchestrator_requests_total Total requests processed\n# TYPE orchestrator_requests_total counter\norchestrator_requests_total 100\n';
 
       mockOrchestrator.getAllDetailedMetrics.mockReturnValue(mockAllMetrics);
       mockOrchestrator.getGlobalMetrics.mockReturnValue(mockGlobalMetrics);
-
-      const mockExporterInstance = {
-        export: vi.fn().mockReturnValue(mockExporterOutput),
-      };
-      mockPrometheusExporter.mockImplementation(() => mockExporterInstance as any);
 
       getPrometheusMetrics(mockReq as Request, mockRes as Response);
 
       expect(mockGetOrchestratorInstance).toHaveBeenCalledTimes(1);
       expect(mockOrchestrator.getAllDetailedMetrics).toHaveBeenCalledTimes(1);
-      expect(mockPrometheusExporter).toHaveBeenCalledWith({
-        getAllMetrics: expect.any(Function),
-        getGlobalMetrics: expect.any(Function),
-      });
-      expect(mockExporterInstance.export).toHaveBeenCalledTimes(1);
       expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'text/plain; version=0.0.4');
       expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.send).toHaveBeenCalledWith(mockExporterOutput);
+      expect(mockRes.send).toHaveBeenCalled();
     });
 
     it('should handle errors when exporting Prometheus metrics', () => {

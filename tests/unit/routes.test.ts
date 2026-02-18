@@ -4,19 +4,22 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import orchestratorRoutes from '../../src/routes/orchestrator.js';
+import * as orchestratorRoutes from '../../src/routes/orchestrator.js';
 
 describe('Orchestrator Routes', () => {
   it('should load routes module', () => {
     expect(orchestratorRoutes).toBeDefined();
   });
 
-  it('should export an Express Router', () => {
-    expect(orchestratorRoutes).toBeDefined();
-    expect(typeof orchestratorRoutes).toBe('function');
-    expect(orchestratorRoutes.get).toBeDefined();
-    expect(orchestratorRoutes.post).toBeDefined();
-    expect(orchestratorRoutes.patch).toBeDefined();
-    expect(orchestratorRoutes.delete).toBeDefined();
+  it('should export monitoring router', () => {
+    expect(orchestratorRoutes.monitoringRouter).toBeDefined();
+    expect(typeof orchestratorRoutes.monitoringRouter).toBe('function');
+    expect(orchestratorRoutes.monitoringRouter.get).toBeDefined();
+  });
+
+  it('should export admin router', () => {
+    expect(orchestratorRoutes.adminRouter).toBeDefined();
+    expect(typeof orchestratorRoutes.adminRouter).toBe('function');
+    expect(orchestratorRoutes.adminRouter.get).toBeDefined();
   });
 });

@@ -328,11 +328,11 @@ describe('Model Controller', () => {
       mockOrchestrator.getServers.mockReturnValue(mockServers);
     });
 
-    it('should unload model from specified server successfully', () => {
+    it('should unload model from specified server successfully', async () => {
       mockReq.body = { serverId: 'server1' };
-      mockModelManager.unloadModel.mockReturnValue(true);
+      mockModelManager.unloadModel.mockResolvedValue(true);
 
-      unloadModel(mockReq as Request, mockRes as Response);
+      await unloadModel(mockReq as Request, mockRes as Response);
 
       expect(mockModelManager.registerServer).toHaveBeenCalledTimes(1);
       expect(mockModelManager.unloadModel).toHaveBeenCalledWith('server1', 'llama3:latest');
@@ -349,11 +349,11 @@ describe('Model Controller', () => {
       });
     });
 
-    it('should unload model from all servers where loaded', () => {
+    it('should unload model from all servers where loaded', async () => {
       mockModelManager.getServersWithModelLoaded.mockReturnValue(['server1', 'server2']);
-      mockModelManager.unloadModel.mockReturnValueOnce(true).mockReturnValueOnce(false);
+      mockModelManager.unloadModel.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 
-      unloadModel(mockReq as Request, mockRes as Response);
+      await unloadModel(mockReq as Request, mockRes as Response);
 
       expect(mockModelManager.getServersWithModelLoaded).toHaveBeenCalledWith('llama3:latest');
       expect(mockModelManager.unloadModel).toHaveBeenCalledTimes(2);
