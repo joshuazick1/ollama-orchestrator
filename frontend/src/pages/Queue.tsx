@@ -1,38 +1,14 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getQueueStatus, getInFlightByServer } from '../api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getQueueStatus, getInFlightByServer, pauseQueue, resumeQueue } from '../api';
 import { Clock, Layers, Zap, Pause, Play } from 'lucide-react';
 import { useState } from 'react';
-
-const StatCard = ({
-  title,
-  value,
-  subtext,
-  icon: Icon,
-  color,
-}: {
-  title: string;
-  value: string | number;
-  subtext?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-}) => (
-  <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg">
-    <div className="flex justify-between items-start">
-      <div>
-        <p className="text-gray-400 text-sm font-medium">{title}</p>
-        <h3 className="text-3xl font-bold mt-2 text-white">{value}</h3>
-        {subtext && <p className="text-gray-500 text-sm mt-1">{subtext}</p>}
-      </div>
-      <div className={`p-3 rounded-lg bg-opacity-20 ${color.replace('text-', 'bg-')} ${color}`}>
-        <Icon className="w-6 h-6" />
-      </div>
-    </div>
-  </div>
-);
+import { StatCard } from '../components/StatCard';
+import { formatDuration } from '../utils/formatting';
+import { toastSuccess, toastError } from '../utils/toast';
 
 export const Queue = () => {
   const [activeTab, setActiveTab] = useState<'queued' | 'inflight'>('queued');
+  const queryClient = useQueryClient();
 
   const { data: queueData, isLoading: queueLoading } = useQuery({
     queryKey: ['queue-detailed'],
@@ -46,21 +22,61 @@ export const Queue = () => {
     refetchInterval: 2000,
   });
 
+  const pauseMutation = useMutation({
+    mutationFn: pauseQueue,
+    onSuccess: () => {
+      toastSuccess('Queue paused');
+      queryClient.invalidateQueries({ queryKey: ['queue-detailed'] });
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to pause queue');
+    },
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: resumeQueue,
+    onSuccess: () => {
+      toastSuccess('Queue resumed');
+      queryClient.invalidateQueries({ queryKey: ['queue-detailed'] });
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to resume queue');
+    },
+  });
+
   const queue = queueData?.queue;
   const inFlight = inFlightData?.inFlight || [];
   const totalInFlight = inFlightData?.total || 0;
-
-  const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
-    return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
-  };
+  const isPaused = queue?.paused ?? false;
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-white mb-2">Request Queue</h2>
-        <p className="text-gray-400">Monitor queued requests and in-flight operations</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-2">Request Queue</h2>
+          <p className="text-gray-400">Monitor queued requests and in-flight operations</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {isPaused ? (
+            <button
+              onClick={() => resumeMutation.mutate()}
+              disabled={resumeMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+            >
+              <Play className="w-4 h-4" />
+              <span>Resume Queue</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => pauseMutation.mutate()}
+              disabled={pauseMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+            >
+              <Pause className="w-4 h-4" />
+              <span>Pause Queue</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
@@ -133,8 +149,8 @@ export const Queue = () => {
           {queueLoading ? (
             <div className="p-8 text-center text-gray-400">Loading...</div>
           ) : queue?.items?.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+              <table className="w-full min-w-[700px]">
                 <thead className="bg-gray-900">
                   <tr>
                     <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
@@ -152,7 +168,7 @@ export const Queue = () => {
                     <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
                       Wait Time
                     </th>
-                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3 hidden md:table-cell">
                       Enqueued
                     </th>
                   </tr>
@@ -192,7 +208,7 @@ export const Queue = () => {
                         <td className="px-6 py-4 text-sm text-gray-300">
                           {formatDuration(item.waitTime)}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
+                        <td className="px-6 py-4 text-sm text-gray-500 hidden md:table-cell">
                           {new Date(item.enqueueTime).toLocaleTimeString()}
                         </td>
                       </tr>

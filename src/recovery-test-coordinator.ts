@@ -13,6 +13,8 @@
 import { CircuitBreaker } from './circuit-breaker.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
+import { Timer } from './utils/timer.js';
+import { featureFlags } from './config/feature-flags.js';
 
 interface ServerTestState {
   lastTestTime: number;
@@ -270,8 +272,11 @@ export class RecoveryTestCoordinator {
     const serverId = this.getServerId(breakerName);
     const state = this.getServerState(serverId);
 
+    const useTimer = featureFlags.get('useTimerUtility');
+    const timer = useTimer ? new Timer() : null;
+    const startTime = timer ? undefined : Date.now();
+
     state.currentTestBreakerId = breakerName;
-    const startTime = Date.now();
 
     try {
       logger.debug(`Starting server-level recovery test for ${breakerName}`);
@@ -287,7 +292,7 @@ export class RecoveryTestCoordinator {
         timeout: 5000,
       });
 
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
       state.lastTestTime = Date.now();
       state.currentTestBreakerId = null;
 
@@ -306,7 +311,7 @@ export class RecoveryTestCoordinator {
         return false;
       }
     } catch (error) {
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
       state.lastTestTime = Date.now();
       state.currentTestBreakerId = null;
 
@@ -330,8 +335,11 @@ export class RecoveryTestCoordinator {
     const breakerName = (breaker as any).name || 'unknown';
     const state = this.getServerState(serverId);
 
+    const useTimer = featureFlags.get('useTimerUtility');
+    const timer = useTimer ? new Timer() : null;
+    const startTime = timer ? undefined : Date.now();
+
     state.currentTestBreakerId = breakerName;
-    const startTime = Date.now();
 
     // Increment in-flight count for recovery test
     if (this.incrementInFlight) {
@@ -414,7 +422,7 @@ export class RecoveryTestCoordinator {
         timeout: this.config.modelTestTimeoutMs,
       });
 
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
       state.lastTestTime = Date.now();
       state.currentTestBreakerId = null;
 
@@ -470,7 +478,7 @@ export class RecoveryTestCoordinator {
         return false;
       }
     } catch (error) {
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
       state.lastTestTime = Date.now();
       state.currentTestBreakerId = null;
 

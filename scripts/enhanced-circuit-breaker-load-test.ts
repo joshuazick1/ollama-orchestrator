@@ -8,8 +8,9 @@
  * 3. Verify adaptive timeouts and backoff strategies
  * 4. Analyze load balancer effectiveness at avoiding open circuits
  * 5. Gather time-series data on circuit breaker behavior under pressure
+ * 6. Ensure all servers get exercised during testing
  *
- * Usage: node scripts/enhanced-circuit-breaker-load-test.ts [--duration 300] [--concurrency 50] [--mode mixed]
+ * Usage: node scripts/enhanced-circuit-breaker-load-test.ts [--duration 300] [--concurrency 50] [--mode mixed] [--models 30]
  */
 
 import { promises as fs } from 'fs';
@@ -80,20 +81,30 @@ class EnhancedCircuitBreakerLoadTest {
   private startTime: number = 0;
   private modelsToTest: string[] = [];
   private modelServerMap: Map<string, string[]> = new Map();
+  private allServers: Set<string> = new Set();
+  private serversHit: Set<string> = new Set();
+  private serversPendingCoverage: Set<string> = new Set();
   private activeRequests: number = 0;
   private maxConcurrency: number;
   private duration: number;
   private mode: TestMode;
+  private modelCount: number;
   private requestCount: number = 0;
   private successCount: number = 0;
   private failureCount: number = 0;
   private circuitBlockedCount: number = 0;
   private lastCircuitStats: any = null;
 
-  constructor(options: { duration?: number; concurrency?: number; mode?: TestMode }) {
+  constructor(options: {
+    duration?: number;
+    concurrency?: number;
+    mode?: TestMode;
+    modelCount?: number;
+  }) {
     this.duration = options.duration || 300; // 5 minutes default
     this.maxConcurrency = options.concurrency || 50;
     this.mode = options.mode || 'mixed';
+    this.modelCount = options.modelCount || 30; // Default to 30 models
   }
 
   async run(): Promise<void> {
@@ -104,6 +115,7 @@ class EnhancedCircuitBreakerLoadTest {
     console.log(`Duration: ${this.duration} seconds`);
     console.log(`Max Concurrency: ${this.maxConcurrency}`);
     console.log(`Test Mode: ${this.mode}`);
+    console.log(`Models to Test: ${this.modelCount}`);
     console.log('');
 
     // Fetch available models and circuit breaker info
@@ -115,6 +127,13 @@ class EnhancedCircuitBreakerLoadTest {
     this.selectModels(modelInfo);
     console.log(`Selected ${this.modelsToTest.length} models for testing:`);
     this.modelsToTest.forEach((m, i) => console.log(`  ${i + 1}. ${m}`));
+    console.log('');
+
+    // Warmup phase: Ensure every server with tested models gets at least one request
+    // This builds their metrics so the load balancer will consider them
+    console.log('Running warmup phase to exercise all servers...');
+    await this.warmupServers();
+    console.log('Warmup complete, starting main test...');
     console.log('');
 
     // Run load test
@@ -270,6 +289,15 @@ class EnhancedCircuitBreakerLoadTest {
       }
       if (!serversResponse.ok) {
         throw new Error(`Failed to fetch servers: ${serversResponse.status}`);
+      }
+
+      // Track all available servers
+      const serversData = await serversResponse.json();
+      if (serversData.servers) {
+        for (const server of serversData.servers) {
+          this.allServers.add(server.id);
+          this.serversPendingCoverage.add(server.id);
+        }
       }
 
       const modelMapData = await modelMapResponse.json();
@@ -465,34 +493,157 @@ class EnhancedCircuitBreakerLoadTest {
     });
   }
 
-  private selectModels(modelInfo: Map<string, ModelInfo>): void {
-    const sortedModels = Array.from(modelInfo.values()).sort(
-      (a, b) => b.serverCount - a.serverCount
+  private isEmbeddingModel(modelName: string): boolean {
+    const lower = modelName.toLowerCase();
+    return (
+      lower.includes('embed') ||
+      lower.includes('nomic') ||
+      lower.includes('text-embedding') ||
+      lower.includes('e5-') ||
+      lower.includes('bge-') ||
+      lower.includes('sentence-transformer')
     );
+  }
 
+  private selectModels(modelInfo: Map<string, ModelInfo>): void {
+    // Filter out embedding models and models with only 1 node
+    const eligibleModels = Array.from(modelInfo.values()).filter(m => {
+      if (m.serverCount < 2) return false;
+      if (this.isEmbeddingModel(m.name)) return false;
+      return true;
+    });
+
+    // Sort by server count descending
+    const sortedModels = eligibleModels.sort((a, b) => b.serverCount - a.serverCount);
+
+    console.log(`Total eligible models (non-embedding, >=2 nodes): ${sortedModels.length}`);
     console.log('Top models by server count:');
     sortedModels.slice(0, 30).forEach((m, i) => {
       console.log(`  ${i + 1}. ${m.name} (${m.serverCount} servers)`);
     });
     console.log('');
 
-    // Pick top 20 models
-    const topModels = sortedModels.slice(0, 20).map(m => m.name);
+    // Calculate how many models to pick from top vs random
+    const halfCount = Math.floor(this.modelCount / 2);
 
-    // Pick 10 random models from remaining that have at least 2 nodes
-    const remainingModels = sortedModels.slice(20).filter(m => m.serverCount >= 2);
+    // Pick top models by server count
+    const topModels = sortedModels.slice(0, halfCount).map(m => m.name);
+
+    // Pick remaining from random eligible models
+    const remainingModels = sortedModels.slice(halfCount);
     const randomModels: string[] = [];
 
-    while (randomModels.length < 10 && remainingModels.length > 0) {
+    while (randomModels.length < this.modelCount - halfCount && remainingModels.length > 0) {
       const index = Math.floor(Math.random() * remainingModels.length);
       const model = remainingModels.splice(index, 1)[0];
       randomModels.push(model.name);
     }
 
-    this.modelsToTest = [...topModels, ...randomModels];
+    this.modelsToTest = [...topModels, ...randomModels].slice(0, this.modelCount);
+  }
+
+  private async warmupServers(): Promise<void> {
+    // Get all servers that have any of our test models
+    const serversToWarmup = new Set<string>();
+    for (const model of this.modelsToTest) {
+      const servers = this.modelServerMap.get(model) || [];
+      for (const server of servers) {
+        serversToWarmup.add(server);
+      }
+    }
+
+    console.log(`  Warming up ${serversToWarmup.size} servers with test models...`);
+
+    // Send one request per server to build metrics
+    let warmedUp = 0;
+    const warmupPromises: Promise<void>[] = [];
+
+    for (const serverId of serversToWarmup) {
+      // Find a model this server has
+      let targetModel: string | undefined;
+      for (const model of this.modelsToTest) {
+        const servers = this.modelServerMap.get(model) || [];
+        if (servers.includes(serverId)) {
+          targetModel = model;
+          break;
+        }
+      }
+
+      if (!targetModel) continue;
+
+      // Send a single warmup request
+      warmupPromises.push(
+        (async () => {
+          const isEmbedding = this.isEmbeddingModel(targetModel!);
+          const endpoint = isEmbedding ? '/api/embeddings' : '/api/generate';
+          const body = isEmbedding
+            ? JSON.stringify({ model: targetModel, prompt: 'test' })
+            : JSON.stringify({
+                model: targetModel,
+                prompt: 'hi',
+                stream: false,
+                options: { num_predict: 5 },
+              });
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+
+          try {
+            const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Include-Debug-Info': 'true' },
+              body,
+              signal: controller.signal,
+            });
+            clearTimeout(timeout);
+
+            if (response.ok) {
+              warmedUp++;
+            }
+          } catch (error) {
+            clearTimeout(timeout);
+          }
+        })()
+      );
+    }
+
+    // Wait for all warmup requests to complete
+    await Promise.all(warmupPromises);
+    console.log(`  Successfully warmed up ${warmedUp}/${serversToWarmup.size} servers`);
   }
 
   private getRandomModel(): string {
+    // If there are still servers that haven't been hit, prioritize models that include those servers
+    if (this.serversPendingCoverage.size > 0) {
+      // Find models that have servers not yet covered
+      const modelsWithUncoveredServers = this.modelsToTest.filter(model => {
+        const servers = this.modelServerMap.get(model) || [];
+        return servers.some(s => this.serversPendingCoverage.has(s));
+      });
+
+      // If we have models with uncovered servers, pick one with higher weight
+      if (modelsWithUncoveredServers.length > 0) {
+        // Bias towards models with more uncovered servers
+        const weightedModels = modelsWithUncoveredServers.map(model => {
+          const servers = this.modelServerMap.get(model) || [];
+          const uncoveredCount = servers.filter(s => this.serversPendingCoverage.has(s)).length;
+          return { model, weight: uncoveredCount };
+        });
+
+        // Weighted random selection
+        const totalWeight = weightedModels.reduce((sum, m) => sum + m.weight, 0);
+        let random = Math.random() * totalWeight;
+
+        for (const { model, weight } of weightedModels) {
+          random -= weight;
+          if (random <= 0) {
+            return model;
+          }
+        }
+      }
+    }
+
+    // Fall back to uniform random
     return this.modelsToTest[Math.floor(Math.random() * this.modelsToTest.length)];
   }
 
@@ -528,6 +679,7 @@ class EnhancedCircuitBreakerLoadTest {
         headers: {
           'Content-Type': 'application/json',
           'X-Request-ID': requestId,
+          'X-Include-Debug-Info': 'true',
         },
         body,
       });
@@ -566,6 +718,12 @@ class EnhancedCircuitBreakerLoadTest {
         retryCount,
         endpoint,
       });
+
+      // Track server coverage
+      if (selectedServer && selectedServer !== 'unknown') {
+        this.serversHit.add(selectedServer);
+        this.serversPendingCoverage.delete(selectedServer);
+      }
 
       // Log interesting events
       if (!success && response.status === 503) {
@@ -621,6 +779,22 @@ class EnhancedCircuitBreakerLoadTest {
       `Circuit Blocked: ${this.circuitBlockedCount} (${((this.circuitBlockedCount / this.requestCount) * 100).toFixed(1)}%)`
     );
     console.log(`Average RPS: ${rps.toFixed(1)}`);
+    console.log('');
+
+    // Server Coverage Analysis
+    console.log('SERVER COVERAGE ANALYSIS');
+    console.log('-'.repeat(80));
+    console.log(`Total Available Servers: ${this.allServers.size}`);
+    console.log(`Servers Hit During Test: ${this.serversHit.size}`);
+    console.log(
+      `Server Coverage: ${((this.serversHit.size / this.allServers.size) * 100).toFixed(1)}%`
+    );
+    if (this.serversPendingCoverage.size > 0) {
+      console.log(`Servers NOT hit (${this.serversPendingCoverage.size}):`);
+      for (const server of this.serversPendingCoverage) {
+        console.log(`  - ${server}`);
+      }
+    }
     console.log('');
 
     // Circuit Breaker Summary
@@ -707,7 +881,14 @@ class EnhancedCircuitBreakerLoadTest {
             circuitBlocked: this.circuitBlockedCount,
             rps,
             mode: this.mode,
+            modelCount: this.modelCount,
             models: this.modelsToTest,
+            serverCoverage: {
+              totalServers: this.allServers.size,
+              serversHit: this.serversHit.size,
+              coveragePercent: (this.serversHit.size / this.allServers.size) * 100,
+              serversNotHit: Array.from(this.serversPendingCoverage),
+            },
           },
           circuitBreakerSummary: {
             totalOpenEvents: totalOpenCount,
@@ -818,6 +999,106 @@ class EnhancedCircuitBreakerLoadTest {
       console.log(`  - Successfully avoided: ${totalWithCircuitInfo - routedToOpen}`);
     }
 
+    // Failure breakdown analysis
+    console.log('');
+    console.log('FAILURE BREAKDOWN:');
+    console.log('-'.repeat(80));
+
+    const failuresByType = {
+      circuitBlocked: 0,
+      serverError: 0,
+      timeout: 0,
+      other: 0,
+    };
+
+    const serverErrorPatterns = [
+      '500',
+      '502',
+      '503',
+      '504', // HTTP errors
+      'connection refused',
+      'ECONNREFUSED',
+      'timeout',
+      'ETIMEDOUT',
+      'unavailable',
+      'unhealthy',
+    ];
+
+    for (const result of this.results) {
+      if (!result.success) {
+        const error = result.error?.toLowerCase() || '';
+
+        if (error.includes('503') || result.wasRoutedToOpenCircuit) {
+          failuresByType.circuitBlocked++;
+        } else if (serverErrorPatterns.some(p => error.includes(p.toLowerCase()))) {
+          failuresByType.serverError++;
+        } else if (error.includes('timeout') || error.includes('timed out')) {
+          failuresByType.timeout++;
+        } else {
+          failuresByType.other++;
+        }
+      }
+    }
+
+    console.log(
+      `  Circuit Breaker Blocked: ${failuresByType.circuitBlocked} (${((failuresByType.circuitBlocked / this.failureCount) * 100).toFixed(1)}%)`
+    );
+    console.log(
+      `  Server Errors (5xx):     ${failuresByType.serverError} (${((failuresByType.serverError / this.failureCount) * 100).toFixed(1)}%)`
+    );
+    console.log(
+      `  Timeouts:                ${failuresByType.timeout} (${((failuresByType.timeout / this.failureCount) * 100).toFixed(1)}%)`
+    );
+    console.log(
+      `  Other Errors:            ${failuresByType.other} (${((failuresByType.other / this.failureCount) * 100).toFixed(1)}%)`
+    );
+
+    // Per-server analysis
+    console.log('');
+    console.log('PER-SERVER ANALYSIS:');
+    console.log('-'.repeat(80));
+    console.log(
+      `${'Server ID'.padEnd(35)} ${'Requests'.padStart(10)} ${'Success'.padStart(10)} ${'Fail'.padStart(10)} ${'Success%'.padStart(10)}`
+    );
+    console.log('-'.repeat(80));
+
+    const serverStats = new Map<
+      string,
+      { requests: number; successes: number; failures: number }
+    >();
+
+    for (const result of this.results) {
+      if (result.serverId && result.serverId !== 'unknown') {
+        const stats = serverStats.get(result.serverId) || {
+          requests: 0,
+          successes: 0,
+          failures: 0,
+        };
+        stats.requests++;
+        if (result.success) {
+          stats.successes++;
+        } else {
+          stats.failures++;
+        }
+        serverStats.set(result.serverId, stats);
+      }
+    }
+
+    const sortedServerStats = Array.from(serverStats.entries()).sort(
+      (a, b) => b[1].requests - a[1].requests
+    );
+
+    for (const [serverId, stats] of sortedServerStats) {
+      const successRate = stats.requests > 0 ? (stats.successes / stats.requests) * 100 : 0;
+      console.log(
+        `${serverId.slice(0, 35).padEnd(35)} ` +
+          `${stats.requests.toString().padStart(10)} ` +
+          `${stats.successes.toString().padStart(10)} ` +
+          `${stats.failures.toString().padStart(10)} ` +
+          `${successRate.toFixed(1).padStart(10)}%`
+      );
+    }
+
     // Analyze server distribution for models with multiple servers
     const multiServerModels = this.results.filter(r => {
       const servers = this.modelServerMap.get(r.model) || [];
@@ -826,7 +1107,8 @@ class EnhancedCircuitBreakerLoadTest {
 
     if (multiServerModels.length > 0) {
       console.log('');
-      console.log('Server Distribution Analysis (multi-server models):');
+      console.log('Server Distribution by Model (multi-server models):');
+      console.log('-'.repeat(80));
 
       const modelServerUsage = new Map<string, Map<string, number>>();
       for (const result of multiServerModels) {
@@ -841,12 +1123,50 @@ class EnhancedCircuitBreakerLoadTest {
         const total = Array.from(serverMap.values()).reduce((a, b) => a + b, 0);
         const entries = Array.from(serverMap.entries());
         if (entries.length > 1) {
+          // Calculate distribution statistics
+          const counts = entries.map(([, count]) => count);
+          const avg = counts.reduce((a, b) => a + b, 0) / counts.length;
+          const max = Math.max(...counts);
+          const min = Math.min(...counts);
+          const spread = max - min;
+
           const distribution = entries
-            .map(([server, count]) => `${server}:${((count / total) * 100).toFixed(0)}%`)
+            .map(
+              ([server, count]) => `${server.slice(0, 8)}:${((count / total) * 100).toFixed(0)}%`
+            )
             .join(', ');
-          console.log(`  ${model.slice(0, 30)}: ${distribution}`);
+
+          console.log(
+            `  ${model.slice(0, 25).padEnd(25)} spread:${spread.toString().padStart(3)} ${distribution}`
+          );
         }
       }
+
+      // Calculate load balancing quality score
+      console.log('');
+      console.log('LOAD BALANCING QUALITY:');
+      let totalVariance = 0;
+      let modelCount = 0;
+
+      for (const [model, serverMap] of modelServerUsage.entries()) {
+        const counts = Array.from(serverMap.values());
+        if (counts.length > 1) {
+          const total = counts.reduce((a, b) => a + b, 0);
+          const ideal = total / counts.length;
+          const variance =
+            counts.reduce((sum, c) => sum + Math.pow(c - ideal, 2), 0) / counts.length;
+          const stdDev = Math.sqrt(variance);
+          const coefficientOfVariation = ideal > 0 ? stdDev / ideal : 0;
+          totalVariance += coefficientOfVariation;
+          modelCount++;
+        }
+      }
+
+      const avgCoefficientOfVariation = modelCount > 0 ? totalVariance / modelCount : 0;
+      // CV of 0 = perfect balance, CV > 1 = high imbalance
+      const balanceScore = Math.max(0, Math.min(100, (1 - avgCoefficientOfVariation) * 100));
+      console.log(`  Balance Score: ${balanceScore.toFixed(1)}% (0%=worst, 100%=perfect)`);
+      console.log(`  Coefficient of Variation: ${avgCoefficientOfVariation.toFixed(2)}`);
     }
 
     console.log('');
@@ -909,7 +1229,8 @@ class EnhancedCircuitBreakerLoadTest {
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-const options: { duration?: number; concurrency?: number; mode?: TestMode } = {};
+const options: { duration?: number; concurrency?: number; mode?: TestMode; modelCount?: number } =
+  {};
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--duration' && args[i + 1]) {
@@ -923,6 +1244,9 @@ for (let i = 0; i < args.length; i++) {
     if (['uniform', 'targeted', 'spike', 'mixed'].includes(mode)) {
       options.mode = mode;
     }
+    i++;
+  } else if (args[i] === '--models' && args[i + 1]) {
+    options.modelCount = parseInt(args[i + 1], 10);
     i++;
   }
 }

@@ -45,6 +45,16 @@ import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
+/** Routing context for debug headers - tracks which server was selected and circuit breaker states */
+export interface RoutingContext {
+  selectedServerId?: string;
+  serverCircuitState?: string;
+  modelCircuitState?: string;
+  availableServerCount?: number;
+  routedToOpenCircuit?: boolean;
+  retryCount?: number;
+}
+
 export class AIOrchestrator {
   private servers: AIServer[] = [];
   private inFlight: Map<string, number> = new Map(); // serverId:model -> count
@@ -92,6 +102,9 @@ export class AIOrchestrator {
 
   // Escalation check interval handle for cleanup
   private escalationIntervalId?: NodeJS.Timeout;
+
+  // Suppress persistence during bulk operations (e.g., loading from disk)
+  private _suppressPersistence = false;
 
   constructor(
     loadBalancerConfig?: LoadBalancerConfig,
@@ -631,8 +644,8 @@ export class AIOrchestrator {
     // Invalidate cache since we added a new server
     this.invalidateTagsCache();
 
-    // Persist servers to disk if enabled
-    if (this.config.enablePersistence) {
+    // Persist servers to disk if enabled and not suppressed
+    if (this.config.enablePersistence && !this._suppressPersistence) {
       saveServersToDisk(this.servers);
     }
 
@@ -679,6 +692,13 @@ export class AIOrchestrator {
       seen.add(s.id);
       return true;
     });
+  }
+
+  /**
+   * Suppress persistence during bulk operations to prevent partial writes on interruption
+   */
+  setSuppressPersistence(value: boolean): void {
+    this._suppressPersistence = value;
   }
 
   /**
@@ -934,26 +954,34 @@ export class AIOrchestrator {
 
     const models = Array.from(allTags.values());
 
+    // Filter out models that have no closed circuit breaker
+    const filteredModels = models.filter(model => {
+      const servers = model.servers as string[];
+      const modelName = (model.name as string) ?? (model.model as string);
+      // Use full model name (including tag like :latest) to match circuit breaker keys
+      return this.hasClosedCircuitBreaker(modelName, servers);
+    });
+
     // Cache the results
     this.tagsCache = {
-      data: models,
+      data: filteredModels,
       timestamp: now,
       metadata: {
         totalRequests,
         successfulRequests,
         failedRequests,
         serverCount: healthyServers.length,
-        modelCount: models.length,
+        modelCount: filteredModels.length,
         errors: errors.slice(0, 10), // Keep only first 10 errors
       },
     };
 
     // Log summary
     logger.debug(
-      `Tags aggregation completed: ${successfulRequests}/${totalRequests} successful requests, ${models.length} unique models`
+      `Tags aggregation completed: ${successfulRequests}/${totalRequests} successful requests, ${filteredModels.length} unique models`
     );
 
-    return { models };
+    return { models: filteredModels };
   }
 
   /**
@@ -1125,22 +1153,34 @@ export class AIOrchestrator {
     object: string;
     data: Array<{ id: string; object: string; created: number; owned_by: string }>;
   } {
-    const models: Array<{ id: string; object: string; created: number; owned_by: string }> = [];
-    const seenModels = new Set<string>();
+    // First pass: collect all servers that have each model
+    const modelToServers = new Map<string, string[]>();
 
     for (const server of this.servers) {
       if (server.healthy && server.supportsV1 && server.v1Models) {
         for (const modelId of server.v1Models) {
-          if (!seenModels.has(modelId)) {
-            seenModels.add(modelId);
-            models.push({
-              id: modelId,
-              object: 'model',
-              created: Date.now(),
-              owned_by: server.id,
-            });
+          if (!modelToServers.has(modelId)) {
+            modelToServers.set(modelId, []);
+          }
+          const servers = modelToServers.get(modelId)!;
+          if (!servers.includes(server.id)) {
+            servers.push(server.id);
           }
         }
+      }
+    }
+
+    // Second pass: filter to only include models with closed circuit breaker
+    const models: Array<{ id: string; object: string; created: number; owned_by: string }> = [];
+
+    for (const [modelId, servers] of modelToServers) {
+      if (this.hasClosedCircuitBreaker(modelId, servers)) {
+        models.push({
+          id: modelId,
+          object: 'model',
+          created: Date.now(),
+          owned_by: servers[0], // Use first server as owner
+        });
       }
     }
 
@@ -1148,6 +1188,21 @@ export class AIOrchestrator {
       object: 'list',
       data: models,
     };
+  }
+
+  /**
+   * Check if a model has at least one closed circuit breaker across servers
+   * Treats missing circuit breakers as closed
+   */
+  private hasClosedCircuitBreaker(modelName: string, serverIds: string[]): boolean {
+    for (const serverId of serverIds) {
+      const key = `${serverId}:${modelName}`;
+      const breaker = this.circuitBreakerRegistry.get(key);
+      if (!breaker || breaker.getState() === 'closed') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1352,7 +1407,8 @@ export class AIOrchestrator {
     fn: (server: AIServer) => Promise<T>,
     isStreaming: boolean = false,
     endpoint: 'generate' | 'embeddings' = 'generate',
-    requiredCapability?: 'ollama' | 'openai'
+    requiredCapability?: 'ollama' | 'openai',
+    routingContext?: RoutingContext
   ): Promise<T> {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
 
@@ -1437,6 +1493,12 @@ export class AIOrchestrator {
     }
 
     const initialServer = candidates[0];
+
+    // Populate routing context with available server count
+    if (routingContext) {
+      routingContext.availableServerCount = candidates.length;
+    }
+
     logger.info(`Selected server ${initialServer.id} for model ${model}`, {
       totalCandidates: candidates.length,
       initialServer: initialServer.id,
@@ -1445,6 +1507,7 @@ export class AIOrchestrator {
     });
 
     const retryConfig = this.config.retry;
+    let retryCount = 0;
 
     // Phase 1: Try each candidate once (failover-first strategy)
     logger.info(`Phase 1: Trying ${candidates.length} candidate(s) once each`, { model });
@@ -1464,9 +1527,14 @@ export class AIOrchestrator {
       const result = await this.tryRequestOnServerNoRetry(server, model, fn, isStreaming, errors);
 
       if (result.success) {
+        if (routingContext) {
+          routingContext.retryCount = retryCount;
+        }
+        this.populateRoutingContext(routingContext, server.id, model);
         return result.value;
       }
 
+      retryCount++;
       logger.info(`Server ${server.id} failed, failing over to next candidate`, { model });
     }
 
@@ -1483,8 +1551,13 @@ export class AIOrchestrator {
       const result = await this.tryRequestOnServerNoRetry(server, model, fn, isStreaming, errors);
 
       if (result.success) {
+        if (routingContext) {
+          routingContext.retryCount = retryCount;
+        }
+        this.populateRoutingContext(routingContext, server.id, model);
         return result.value;
       }
+      retryCount++;
     }
 
     // Phase 3: All servers exhausted twice, now try same-server retries on initial server only
@@ -1507,6 +1580,10 @@ export class AIOrchestrator {
       );
 
       if (result.success) {
+        if (routingContext) {
+          routingContext.retryCount = retryCount;
+        }
+        this.populateRoutingContext(routingContext, initialServer.id, model);
         return result.value;
       }
     }
@@ -2728,16 +2805,14 @@ export class AIOrchestrator {
    */
   getTimeout(serverId: string, model: string): number {
     // Check if any circuit breaker is half-open (doing active test)
+    // During half-open, use stored timeout - the scheduler handles doubling for active tests
     const serverCb = this.getCircuitBreaker(serverId);
     const modelCb = this.getModelCircuitBreaker(serverId, model);
 
     if (serverCb.getState() === 'half-open' || modelCb.getState() === 'half-open') {
-      // Use adaptive timeout for active tests instead of fixed 5-minute timeout
-      const adaptiveTimeout = this.calculateAdaptiveActiveTestTimeout(serverId, model);
-      logger.info(
-        `Calculated adaptive timeout ${adaptiveTimeout}ms for active test ${serverId}:${model} (based on model size, historical performance, and server health)`
-      );
-      return adaptiveTimeout;
+      // Use stored timeout - scheduler handles adaptive timeout calculation for active tests
+      const key = `${serverId}:${model}`;
+      return this.timeouts.get(key) ?? 60000;
     }
 
     // Use configured timeout
@@ -2968,7 +3043,7 @@ export class AIOrchestrator {
     const halfOpenModels: Array<{
       model: string;
       failureReason: string;
-      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent';
+      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
       halfOpenStartedAt: number;
     }> = [];
 
@@ -3030,6 +3105,11 @@ export class AIOrchestrator {
         (serverId: string, model: string) => {
           const modelCb = this.getModelCircuitBreaker(serverId, model);
           modelCb.endActiveTest();
+        },
+        // getCurrentTimeout: get stored timeout (not adaptive) for active test scaling
+        (serverId: string, model: string) => {
+          const key = `${serverId}:${model}`;
+          return this.timeouts.get(key) ?? 60000; // Default 60s
         }
       );
 
@@ -3129,6 +3209,36 @@ export class AIOrchestrator {
 
       logger.info(`Circuit breaker state changed: ${oldState} -> ${newState}`);
     });
+  }
+
+  /**
+   * Populate routing context with circuit breaker and server info after successful request
+   */
+  private populateRoutingContext(
+    context: RoutingContext | undefined,
+    serverId: string,
+    model: string
+  ): void {
+    if (!context) return;
+
+    context.selectedServerId = serverId;
+
+    // Get server-level circuit breaker state
+    const serverCb = this.circuitBreakerRegistry.get(serverId);
+    if (serverCb) {
+      context.serverCircuitState = serverCb.getState();
+    }
+
+    // Get model-level circuit breaker state
+    const modelCb = this.circuitBreakerRegistry.get(`${serverId}:${model}`);
+    if (modelCb) {
+      context.modelCircuitState = modelCb.getState();
+    }
+
+    // Check if we routed to an open circuit
+    if (context.serverCircuitState === 'open' || context.modelCircuitState === 'open') {
+      context.routedToOpenCircuit = true;
+    }
   }
 
   /**

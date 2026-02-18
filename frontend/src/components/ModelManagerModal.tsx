@@ -20,6 +20,7 @@ import {
   getFleetModelStats,
 } from '../api';
 import type { AIServer } from '../types';
+import { formatBytes, formatDate } from '../utils/formatting';
 
 interface ModelManagerModalProps {
   isOpen: boolean;
@@ -33,18 +34,6 @@ interface ServerModel {
   size?: number;
   digest?: string;
 }
-
-const formatBytes = (bytes?: number) => {
-  if (!bytes) return '-';
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
-};
-
-const formatDate = (dateStr?: string) => {
-  if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString();
-};
 
 export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModalProps) => {
   const queryClient = useQueryClient();

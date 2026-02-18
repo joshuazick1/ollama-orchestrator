@@ -10,8 +10,10 @@ import {
   loadBansFromDisk,
   saveServersToDisk,
 } from './orchestrator-persistence.js';
-import { AIOrchestrator } from './orchestrator.js';
+import { AIOrchestrator, type RoutingContext } from './orchestrator.js';
 import type { AIServer } from './orchestrator.types.js';
+
+export type { RoutingContext };
 import { getRequestHistory } from './request-history.js';
 import { logger } from './utils/logger.js';
 import { normalizeServerUrl } from './utils/urlUtils.js';
@@ -92,6 +94,9 @@ export function getOrchestratorInstance(): AIOrchestrator {
           saveServersToDisk(deduplicatedServers);
         }
 
+        // Suppress persistence during bulk load to prevent partial writes on interruption
+        orchestrator.setSuppressPersistence(true);
+
         // Load servers (using deduplicated list)
         for (const server of deduplicatedServers) {
           // Only add if not already present
@@ -123,6 +128,10 @@ export function getOrchestratorInstance(): AIOrchestrator {
             }
           }
         }
+
+        // Re-enable persistence and save once with all servers
+        orchestrator.setSuppressPersistence(false);
+        saveServersToDisk(orchestrator.getServers());
 
         // Load bans
         orchestrator.loadBans(persistedBans);

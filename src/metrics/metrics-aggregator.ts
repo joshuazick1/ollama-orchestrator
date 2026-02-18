@@ -14,6 +14,8 @@ import type {
 } from '../orchestrator.types.js';
 
 import { MetricsPersistence, type MetricsData } from './metrics-persistence.js';
+import { Statistics } from '../utils/statistics.js';
+import { featureFlags } from '../config/feature-flags.js';
 
 /**
  * Configuration for metrics decay
@@ -533,6 +535,17 @@ export class MetricsAggregator {
    * Calculate percentiles from latency array
    */
   private calculatePercentiles(latencies: number[]): LatencyPercentiles {
+    // Use centralized Statistics utility if feature flag is enabled
+    if (featureFlags.get('useStatisticsUtility')) {
+      const result = Statistics.calculatePercentiles(latencies);
+      return {
+        p50: result.p50,
+        p95: result.p95,
+        p99: result.p99,
+      };
+    }
+
+    // Legacy implementation
     if (latencies.length === 0) {
       return { p50: 0, p95: 0, p99: 0 };
     }

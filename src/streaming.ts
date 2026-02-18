@@ -5,6 +5,7 @@
 
 import type { Response } from 'express';
 
+import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
 import { logger } from './utils/logger.js';
 
 export interface StreamResponseOptions {
@@ -14,7 +15,12 @@ export interface StreamResponseOptions {
   onComplete?: (duration: number, tokens: number) => void;
   /** Callback on each chunk received (useful for resetting activity timeout) */
   onChunk?: () => void;
+  /** TTFT tracking options */
+  ttftOptions?: TTFTOptions;
 }
+
+// Re-export TTFTOptions for convenience
+export type { TTFTOptions } from './metrics/ttft-tracker.js';
 
 /**
  * Try to parse and extract info from a streaming chunk
@@ -69,8 +75,10 @@ export async function streamResponse(
   clientResponse: Response,
   onFirstToken?: () => void,
   onComplete?: (duration: number, tokensGenerated: number, tokensPrompt: number) => void,
-  onChunk?: () => void
+  onChunk?: () => void,
+  ttftOptions?: TTFTOptions
 ): Promise<void> {
+  const ttftTracker = new TTFTTracker(ttftOptions);
   const startTime = Date.now();
   let firstTokenTime: number | undefined;
   let firstContentTime: number | undefined;
@@ -158,6 +166,10 @@ export async function streamResponse(
       if (!firstTokenTime) {
         firstTokenTime = Date.now();
         onFirstToken?.();
+
+        // Track with TTFTTracker
+        ttftTracker.markFirstChunk(value.length);
+
         logger.debug('First chunk received', {
           timeToFirstChunk: firstTokenTime - startTime,
           chunkSize: value.length,
@@ -169,10 +181,19 @@ export async function streamResponse(
       // Track first actual content
       if (!firstContentTime && chunkInfo.hasContent) {
         firstContentTime = Date.now();
+
+        // Track with TTFTTracker
+        ttftTracker.markFirstContent(chunkInfo.preview);
+
         logger.debug('First content chunk received', {
           timeToFirstContent: firstContentTime - startTime,
           chunkNumber: chunkCount,
         });
+      }
+
+      // Increment chunk counter in tracker
+      if (firstTokenTime) {
+        ttftTracker.incrementChunk();
       }
 
       // Log progress periodically for long streams
@@ -233,6 +254,10 @@ export async function streamResponse(
     }
 
     const duration = Date.now() - startTime;
+
+    // Get TTFT metrics from tracker if enabled
+    const ttftMetrics = ttftTracker.getMetrics();
+
     onComplete?.(duration, tokensGenerated, tokensPrompt);
 
     logger.info('Stream completed', {
@@ -240,8 +265,11 @@ export async function streamResponse(
       totalBytes,
       estimatedTokens: Math.floor(tokenCount),
       duration,
-      timeToFirstToken: firstTokenTime ? firstTokenTime - startTime : undefined,
-      timeToFirstContent: firstContentTime ? firstContentTime - startTime : undefined,
+      timeToFirstToken:
+        ttftMetrics?.ttft ?? (firstTokenTime ? firstTokenTime - startTime : undefined),
+      timeToFirstContent:
+        ttftMetrics?.timeToFirstContent ??
+        (firstContentTime ? firstContentTime - startTime : undefined),
       maxChunkGap,
       avgChunkSize: chunkCount > 0 ? Math.round(totalBytes / chunkCount) : 0,
       doneChunkReceived,

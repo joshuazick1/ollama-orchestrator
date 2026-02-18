@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   getTopModels,
@@ -16,6 +16,8 @@ import {
   getServerRequestHistory,
   getServerRequestStats,
   getCircuitBreakers,
+  getRecoveryFailuresSummary,
+  getAllServerRecoveryStats,
   type CircuitBreakerInfo,
 } from '../api';
 import {
@@ -56,16 +58,163 @@ import {
   Zap,
   BarChart2,
   HeartPulse,
+  Download,
+  FileSpreadsheet,
+  FileJson,
+  FileText,
 } from 'lucide-react';
+import { formatDurationMs, formatTimeAgo } from '../utils/formatting';
+import { getCircuitBreakerStateColor } from '../utils/circuitBreaker';
+import {
+  exportPerformanceMetricsToCSV,
+  exportTopModelsToCSV,
+  exportCircuitBreakersToCSV,
+  exportToHTMLReport,
+  downloadJSON,
+} from '../utils/export';
 
 interface ExpandedRequest {
   [key: string]: boolean;
 }
 
+interface ExportDropdownProps {
+  timeRange: string;
+  serverPerformance?: Array<{
+    id: string;
+    requests: number;
+    avgLatency: number;
+    p95Latency: number;
+    errorRate: number;
+    throughput: number;
+    score: number;
+  }>;
+  topModels?: Array<{ model: string; requests: number }>;
+  circuitBreakers?: CircuitBreakerInfo[];
+  summary?: {
+    global?: {
+      totalRequests: number;
+      errorRate: number;
+      avgLatency: number;
+      requestsPerSecond: number;
+    };
+  };
+}
+
+const ExportDropdown = ({
+  timeRange,
+  serverPerformance,
+  topModels,
+  circuitBreakers,
+  summary,
+}: ExportDropdownProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleExport = (type: 'csv' | 'json' | 'html') => {
+    switch (type) {
+      case 'csv':
+        if (serverPerformance && serverPerformance.length > 0) {
+          exportPerformanceMetricsToCSV(serverPerformance, timeRange);
+        } else if (topModels && topModels.length > 0) {
+          exportTopModelsToCSV(topModels, timeRange);
+        } else if (circuitBreakers && circuitBreakers.length > 0) {
+          exportCircuitBreakersToCSV(
+            circuitBreakers.map(cb => ({
+              serverId: cb.serverId,
+              state: cb.state,
+              failureCount: cb.failureCount,
+              successCount: cb.successCount,
+              errorRate: cb.errorRate,
+              consecutiveSuccesses: cb.consecutiveSuccesses,
+              lastFailure: cb.lastFailure ? new Date(cb.lastFailure).toISOString() : undefined,
+            }))
+          );
+        }
+        break;
+      case 'json':
+        downloadJSON(
+          { serverPerformance, topModels, circuitBreakers, summary, timeRange },
+          `analytics-${timeRange}-${Date.now()}`
+        );
+        break;
+      case 'html':
+        if (summary?.global) {
+          exportToHTMLReport(
+            'Analytics Report',
+            [
+              {
+                title: 'Summary',
+                content: [
+                  ['Total Requests', String(summary.global.totalRequests)],
+                  ['Error Rate', `${(summary.global.errorRate * 100).toFixed(2)}%`],
+                  ['Avg Latency', `${summary.global.avgLatency.toFixed(2)}ms`],
+                  ['Requests/sec', summary.global.requestsPerSecond.toFixed(2)],
+                ],
+              },
+            ],
+            timeRange,
+            `analytics-report-${timeRange}`
+          );
+        }
+        break;
+    }
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm hover:border-gray-600 transition-colors"
+      >
+        <Download className="w-4 h-4" />
+        Export
+        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50">
+          <button
+            onClick={() => handleExport('csv')}
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 rounded-t-lg transition-colors"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-green-400" />
+            Export CSV
+          </button>
+          <button
+            onClick={() => handleExport('json')}
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+          >
+            <FileJson className="w-4 h-4 text-yellow-400" />
+            Export JSON
+          </button>
+          <button
+            onClick={() => handleExport('html')}
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 rounded-b-lg transition-colors"
+          >
+            <FileText className="w-4 h-4 text-blue-400" />
+            Export Report
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const Analytics = () => {
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '24h' | '7d'>('24h');
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'performance' | 'health' | 'decisions' | 'requests'
+    'overview' | 'performance' | 'health' | 'decisions' | 'requests' | 'recovery'
   >('overview');
   const [selectedServer, setSelectedServer] = useState<string>('');
   const [expandedRequests, setExpandedRequests] = useState<ExpandedRequest>({});
@@ -157,6 +306,19 @@ export const Analytics = () => {
     enabled: !!selectedServer && activeTab === 'requests',
   });
 
+  // Recovery failure data
+  const { data: recoverySummary } = useQuery({
+    queryKey: ['recoveryFailuresSummary'],
+    queryFn: getRecoveryFailuresSummary,
+    refetchInterval: activeTab === 'recovery' ? 10000 : false,
+  });
+
+  const { data: recoveryStats } = useQuery({
+    queryKey: ['allServerRecoveryStats'],
+    queryFn: getAllServerRecoveryStats,
+    refetchInterval: activeTab === 'recovery' ? 10000 : false,
+  });
+
   const isLoading =
     topModelsLoading ||
     summaryLoading ||
@@ -244,24 +406,6 @@ export const Analytics = () => {
     }));
   };
 
-  const formatDuration = (ms: number) => {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
-  };
-
-  const getStateColor = (state: string) => {
-    switch (state) {
-      case 'OPEN':
-        return 'text-red-400 bg-red-400/10 border-red-400/20';
-      case 'HALF-OPEN':
-        return 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20';
-      case 'CLOSED':
-        return 'text-green-400 bg-green-400/10 border-green-400/20';
-      default:
-        return 'text-gray-400 bg-gray-400/10 border-gray-400/20';
-    }
-  };
-
   return (
     <div className="space-y-8 pb-10">
       {/* Header */}
@@ -329,6 +473,22 @@ export const Analytics = () => {
               <Server className="w-4 h-4 inline mr-2" />
               Logs
             </button>
+            <button
+              onClick={() => setActiveTab('recovery')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                activeTab === 'recovery'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+              }`}
+            >
+              <Activity className="w-4 h-4 inline mr-2" />
+              Recovery
+              {recoverySummary && recoverySummary.serversWithFailures > 0 && (
+                <span className="ml-2 bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full text-xs">
+                  {recoverySummary.serversWithFailures}
+                </span>
+              )}
+            </button>
           </div>
 
           <select
@@ -341,6 +501,14 @@ export const Analytics = () => {
             <option value="24h">Last 24 Hours</option>
             <option value="7d">Last 7 Days</option>
           </select>
+
+          <ExportDropdown
+            timeRange={timeRange}
+            serverPerformance={serverPerformance}
+            topModels={topModels}
+            circuitBreakers={circuitBreakers}
+            summary={summary}
+          />
         </div>
       </div>
 
@@ -759,7 +927,7 @@ export const Analytics = () => {
                     .map((breaker: CircuitBreakerInfo, idx: number) => (
                       <div
                         key={idx}
-                        className={`p-3 rounded border flex justify-between items-center ${getStateColor(breaker.state)}`}
+                        className={`p-3 rounded border flex justify-between items-center ${getCircuitBreakerStateColor(breaker.state)}`}
                       >
                         <div className="flex flex-col">
                           <span className="font-mono text-sm font-medium text-white">
@@ -1057,7 +1225,7 @@ export const Analytics = () => {
                 <div className="bg-gray-900/50 p-3 rounded border border-gray-700/50">
                   <div className="text-xs text-gray-500 uppercase">Avg Latency</div>
                   <div className="text-xl font-bold text-blue-400">
-                    {formatDuration(serverRequestStats.stats.avgDuration)}
+                    {formatDurationMs(serverRequestStats.stats.avgDuration)}
                   </div>
                 </div>
                 <div className="bg-gray-900/50 p-3 rounded border border-gray-700/50">
@@ -1117,7 +1285,7 @@ export const Analytics = () => {
                               </td>
                               <td className="py-3 text-white font-medium">{req.model}</td>
                               <td className="py-3 text-right text-gray-300 font-mono">
-                                {formatDuration(req.duration)}
+                                {formatDurationMs(req.duration)}
                               </td>
                               <td className="py-3 text-center">
                                 {req.success ? (
@@ -1139,7 +1307,7 @@ export const Analytics = () => {
                                     </div>
                                     <div>
                                       <span className="text-gray-600 block mb-1">TTFT</span>{' '}
-                                      {req.ttft ? formatDuration(req.ttft) : '-'}
+                                      {req.ttft ? formatDurationMs(req.ttft) : '-'}
                                     </div>
                                     <div>
                                       <span className="text-gray-600 block mb-1">
@@ -1196,6 +1364,138 @@ export const Analytics = () => {
                 {selectedServer
                   ? 'No requests found for this server.'
                   : 'Please select a server to view logs.'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recovery Tab */}
+      {activeTab === 'recovery' && (
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-400 text-sm">Total Servers</p>
+                  <p className="text-3xl font-bold text-white">
+                    {recoverySummary?.totalServers || 0}
+                  </p>
+                </div>
+                <Server className="w-10 h-10 text-blue-500/50" />
+              </div>
+            </div>
+            <div className="bg-gray-800 rounded-xl border border-red-500/30 p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-400 text-sm">Servers with Failures</p>
+                  <p className="text-3xl font-bold text-red-400">
+                    {recoverySummary?.serversWithFailures || 0}
+                  </p>
+                </div>
+                <AlertTriangle className="w-10 h-10 text-red-500/50" />
+              </div>
+            </div>
+            <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-400 text-sm">Total Failures</p>
+                  <p className="text-3xl font-bold text-white">
+                    {recoverySummary?.totalFailures || 0}
+                  </p>
+                </div>
+                <Minus className="w-10 h-10 text-gray-500/50" />
+              </div>
+            </div>
+            <div className="bg-gray-800 rounded-xl border border-yellow-500/30 p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-400 text-sm">Recent Failures</p>
+                  <p className="text-3xl font-bold text-yellow-400">
+                    {recoverySummary?.recentFailures || 0}
+                  </p>
+                </div>
+                <TrendingUp className="w-10 h-10 text-yellow-500/50" />
+              </div>
+            </div>
+          </div>
+
+          {/* Server Recovery Stats Table */}
+          <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+            <div className="p-6 border-b border-gray-700">
+              <h3 className="text-lg font-semibold text-white">Server Recovery Statistics</h3>
+              <p className="text-sm text-gray-400 mt-1">Failure and recovery metrics per server</p>
+            </div>
+            {recoveryStats && recoveryStats.length > 0 ? (
+              <table className="w-full">
+                <thead className="bg-gray-900">
+                  <tr>
+                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                      Server
+                    </th>
+                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                      Failures
+                    </th>
+                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                      Last Failure
+                    </th>
+                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                      Recovery Attempts
+                    </th>
+                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                      Successful Recoveries
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {recoveryStats.map(
+                    (server: {
+                      serverId: string;
+                      failureCount: number;
+                      lastFailure: number;
+                      recoveryAttempts: number;
+                      successfulRecoveries: number;
+                    }) => (
+                      <tr key={server.serverId} className="hover:bg-gray-750">
+                        <td className="px-6 py-4 text-sm text-white font-mono">
+                          {server.serverId}
+                        </td>
+                        <td className="px-6 py-4 text-sm">
+                          <span
+                            className={`px-2 py-1 rounded text-xs font-medium ${
+                              server.failureCount > 0
+                                ? 'bg-red-500/20 text-red-400'
+                                : 'bg-green-500/20 text-green-400'
+                            }`}
+                          >
+                            {server.failureCount}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-400">
+                          {server.lastFailure > 0 ? formatTimeAgo(server.lastFailure) : 'Never'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-white">{server.recoveryAttempts}</td>
+                        <td className="px-6 py-4 text-sm">
+                          <span
+                            className={`${
+                              server.successfulRecoveries > 0 ? 'text-green-400' : 'text-gray-400'
+                            }`}
+                          >
+                            {server.successfulRecoveries}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <div className="p-12 text-center text-gray-500">
+                <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No recovery data available</p>
+                <p className="text-sm mt-1">
+                  Recovery statistics will appear here when servers experience failures
+                </p>
               </div>
             )}
           </div>

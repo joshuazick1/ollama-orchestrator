@@ -22,6 +22,8 @@ export interface CircuitBreakerStats {
   state: CircuitState;
   failureCount: number;
   successCount: number;
+  totalRequestCount?: number; // Total requests attempted (including blocked) - optional for backward compatibility
+  blockedRequestCount?: number; // Requests blocked by open circuit breaker - optional for backward compatibility
   lastFailure: number;
   lastSuccess: number;
   nextRetryAt: number;
@@ -164,6 +166,7 @@ class SlidingWindow {
       'non-retryable': 0,
       transient: 0,
       permanent: 0,
+      rateLimited: 0,
     };
 
     for (const entry of this.window) {
@@ -190,6 +193,8 @@ export class CircuitBreaker {
   private state: CircuitState = 'closed';
   private failureCount = 0;
   private successCount = 0;
+  private totalRequestCount = 0; // Total requests attempted (including blocked)
+  private blockedRequestCount = 0; // Requests blocked by open circuit breaker
   private lastFailure = 0;
   private lastSuccess = 0;
   private nextRetryAt = 0;
@@ -203,6 +208,8 @@ export class CircuitBreaker {
   private lastErrorType?: ErrorType; // Track error type for adaptive backoff
   private halfOpenAttempts = 0; // Track how many times we've tried half-open recovery
   private consecutiveFailedRecoveries = 0; // Track consecutive failed recovery attempts
+  private rateLimitConsecutiveFailures = 0; // Track consecutive rate limit failures
+  private learnedRateLimitBackoff: number | undefined; // Successfully learned backoff for rate limits
 
   private window: SlidingWindow;
   private config: CircuitBreakerConfig;
@@ -231,6 +238,7 @@ export class CircuitBreaker {
    */
   canExecute(): boolean {
     const now = Date.now();
+    this.totalRequestCount++; // Track all requests attempted
 
     switch (this.state) {
       case 'closed':
@@ -269,6 +277,7 @@ export class CircuitBreaker {
             // Don't transition to half-open if we've had too many failures
             // This prevents the flapping behavior
             if (this.consecutiveFailedRecoveries >= 5) {
+              this.blockedRequestCount++; // Track blocked request
               return false;
             }
           }
@@ -278,15 +287,18 @@ export class CircuitBreaker {
           this.halfOpenRequestCount = 0;
           return true;
         }
+        this.blockedRequestCount++; // Track blocked request when circuit is open
         return false;
 
       case 'half-open': {
         // In half-open state, do not allow direct requests
         // Recovery testing should be handled separately by calling performRecoveryTest()
+        this.blockedRequestCount++; // Track blocked request when circuit is half-open
         return false;
       }
 
       default:
+        this.blockedRequestCount++; // Track blocked request for unknown states
         return false;
     }
   }
@@ -327,6 +339,25 @@ export class CircuitBreaker {
         this.halfOpenRequestCount = 0;
         this.activeTestsInProgress = 0;
         this.consecutiveFailedRecoveries = 0; // Reset failed recovery counter on success
+
+        // If we recovered from a rate limit, record the learned backoff for future use
+        if (this.lastErrorType === 'rateLimited' && this.rateLimitConsecutiveFailures > 0) {
+          const backoffUsed = this.getRateLimitBackoff();
+          this.learnedRateLimitBackoff = backoffUsed;
+          logger.info(
+            `Circuit breaker ${this.name} recovered from rate limit. Learned backoff: ${backoffUsed}ms`,
+            {
+              learnedBackoff: backoffUsed,
+              consecutiveFailures: this.rateLimitConsecutiveFailures,
+            }
+          );
+        }
+
+        // Reset rate limit failure counter on successful recovery
+        if (this.rateLimitConsecutiveFailures > 0) {
+          this.rateLimitConsecutiveFailures = 0;
+        }
+
         // Note: Don't clear the window - let time-based eviction handle it
         logger.info(`Circuit breaker ${this.name} closed after ${successes} consecutive successes`);
       }
@@ -370,7 +401,17 @@ export class CircuitBreaker {
       this.lastFailureReason = error instanceof Error ? error.message : String(error);
       this.lastErrorType = classifiedType;
 
+      // Track rate limit failures for adaptive backoff
+      if (classifiedType === 'rateLimited') {
+        this.rateLimitConsecutiveFailures++;
+      }
+
       return;
+    }
+
+    // Track rate limit failures for adaptive backoff (even when circuit breaking)
+    if (classifiedType === 'rateLimited') {
+      this.rateLimitConsecutiveFailures++;
     }
 
     if (this.state === 'half-open') {
@@ -445,6 +486,8 @@ export class CircuitBreaker {
       state: this.state,
       failureCount: this.failureCount,
       successCount: this.successCount,
+      totalRequestCount: this.totalRequestCount,
+      blockedRequestCount: this.blockedRequestCount,
       lastFailure: this.lastFailure,
       lastSuccess: this.lastSuccess,
       nextRetryAt: this.nextRetryAt,
@@ -639,6 +682,8 @@ export class CircuitBreaker {
       this.state = stats.state;
       this.failureCount = stats.failureCount;
       this.successCount = stats.successCount;
+      this.totalRequestCount = stats.totalRequestCount || 0;
+      this.blockedRequestCount = stats.blockedRequestCount || 0;
       this.lastFailure = stats.lastFailure;
       this.lastSuccess = stats.lastSuccess;
       this.nextRetryAt = stats.nextRetryAt;
@@ -720,10 +765,36 @@ export class CircuitBreaker {
         return 172800000; // 48 hours - auth/config errors need time for fixes
       case 'retryable':
         return 43200000; // 12 hours - memory/overload might resolve with restarts
+      case 'rateLimited':
+        return this.getRateLimitBackoff();
       case 'transient':
       default:
         return this.config.openTimeout; // Keep default 2 minutes for network/transient
     }
+  }
+
+  /**
+   * Calculate adaptive backoff for rate limit errors
+   * Uses learned backoff if available, otherwise exponential from 5min base
+   */
+  private getRateLimitBackoff(): number {
+    const baseBackoff = 300000; // 5 minutes
+    const maxBackoff = 3600000; // 60 minutes
+    const multiplier = 3;
+
+    // If we have a learned backoff that worked before, use it
+    if (this.learnedRateLimitBackoff && this.rateLimitConsecutiveFailures === 0) {
+      return this.learnedRateLimitBackoff;
+    }
+
+    // Calculate backoff based on consecutive failures
+    // Each failure increases the backoff: 5min, 15min, 45min, 60min (capped)
+    const backoff = Math.min(
+      baseBackoff * Math.pow(multiplier, this.rateLimitConsecutiveFailures),
+      maxBackoff
+    );
+
+    return backoff;
   }
 
   /**

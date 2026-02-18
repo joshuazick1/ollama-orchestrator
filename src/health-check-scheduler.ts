@@ -7,6 +7,8 @@ import type { HealthCheckConfig } from './config/config.js';
 import type { AIServer } from './orchestrator.types.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
+import { Timer } from './utils/timer.js';
+import { featureFlags } from './config/feature-flags.js';
 
 /**
  * Resolve API key from string (supports env:VARNAME format)
@@ -94,7 +96,7 @@ export class HealthCheckScheduler {
       testCount: number;
       consecutiveFailures: number;
       failureReason?: string;
-      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent';
+      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
     }
   > = new Map();
 
@@ -301,7 +303,9 @@ export class HealthCheckScheduler {
    * Perform health check on a single server with retry logic
    */
   async checkServerHealth(server: AIServer, retryCount = 0): Promise<HealthCheckResult> {
-    const startTime = Date.now();
+    const useTimer = featureFlags.get('useTimerUtility');
+    const timer = useTimer ? new Timer() : null;
+    const startTime = timer ? undefined : Date.now();
 
     try {
       // Query /api/tags, /api/ps, and /v1/models in parallel
@@ -318,7 +322,7 @@ export class HealthCheckScheduler {
         }).catch(() => null), // Don't fail health check if v1 endpoint fails
       ]);
 
-      const responseTime = Date.now() - startTime;
+      const responseTime = timer ? timer.elapsed() : Date.now() - startTime!;
 
       // Check which endpoints are supported
       const supportsOllama = tagsResponse?.ok ?? false;
@@ -537,7 +541,7 @@ export class HealthCheckScheduler {
     halfOpenModels: Array<{
       model: string;
       failureReason?: string;
-      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent';
+      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
     }>,
     runTestFn: (
       serverId: string,
@@ -545,7 +549,8 @@ export class HealthCheckScheduler {
       timeoutMs: number
     ) => Promise<{ success: boolean; duration: number; error?: string; [key: string]: any }>,
     onTestStart?: (serverId: string, model: string) => void,
-    onTestEnd?: (serverId: string, model: string) => void
+    onTestEnd?: (serverId: string, model: string) => void,
+    getCurrentTimeout?: (serverId: string, model: string) => number
   ): Promise<
     Array<{ model: string; success: boolean; duration: number; error?: string; [key: string]: any }>
   > {
@@ -582,8 +587,8 @@ export class HealthCheckScheduler {
         continue;
       }
 
-      // Calculate appropriate timeout based on failure reason
-      const timeoutMs = this.calculateActiveTestTimeout(state, server, model);
+      // Calculate appropriate timeout based on current timeout (doubling each test attempt)
+      const timeoutMs = this.calculateActiveTestTimeout(state, server, model, getCurrentTimeout);
 
       logger.info(`Running active test for ${stateKey}`, {
         attempt: state.testCount + 1,
@@ -645,7 +650,7 @@ export class HealthCheckScheduler {
   private calculateBackoffDelay(
     testCount: number,
     failureReason?: string,
-    errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent'
+    errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited'
   ): number {
     const failureReasonLower = failureReason?.toLowerCase() || '';
 
@@ -736,18 +741,25 @@ export class HealthCheckScheduler {
   }
 
   /**
-   * Calculate appropriate timeout for active test based on failure reason, error type, and server state
+   * Calculate appropriate timeout for active test based on current circuit timeout
+   * Doubles the current timeout for each test attempt to allow for model loading
    */
   private calculateActiveTestTimeout(
     state: {
       failureReason?: string;
       testCount: number;
-      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent';
+      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
     },
-    _server: AIServer,
-    _model: string
+    server: AIServer,
+    model: string,
+    getCurrentTimeout?: (serverId: string, model: string) => number
   ): number {
-    const baseTimeout = 30000; // 30 seconds base
+    // Get current timeout as base, defaulting to 60 seconds
+    let baseTimeout = 60000; // 60 seconds default
+    if (getCurrentTimeout) {
+      baseTimeout = getCurrentTimeout(server.id, model);
+    }
+
     const failureReasonLower = state.failureReason?.toLowerCase() || '';
 
     // Check for model capability errors - these fail immediately, no need for long timeout
@@ -788,10 +800,11 @@ export class HealthCheckScheduler {
     // Different strategies based on failure reason
     switch (state.failureReason) {
       case 'timeout': {
-        // For timeouts, use exponential timeout increase
-        // Start at 30s, double each attempt up to 10 minutes
-        const timeoutMultiplier = Math.pow(2, Math.min(state.testCount, 5));
-        return Math.min(baseTimeout * timeoutMultiplier, 10 * 60 * 1000);
+        // For timeouts, double the current timeout each attempt
+        // Start at current timeout * 2, then * 4, * 8, etc.
+        const timeoutMultiplier = Math.pow(2, Math.min(state.testCount + 1, 10));
+        const maxTimeout = 15 * 60 * 1000; // 15 minutes max
+        return Math.min(baseTimeout * timeoutMultiplier, maxTimeout);
       }
 
       case 'model_not_found': {
@@ -800,14 +813,15 @@ export class HealthCheckScheduler {
       }
 
       case 'connection_refused': {
-        // Connection issues - moderate test
-        return 15000; // 15 seconds
+        // Connection issues - moderate test based on current timeout
+        return baseTimeout;
       }
 
       default: {
-        // Unknown/other errors - moderate timeout
-        const defaultMultiplier = Math.pow(1.5, Math.min(state.testCount, 6));
-        return Math.min(baseTimeout * defaultMultiplier, 5 * 60 * 1000);
+        // Unknown/other errors - double current timeout each attempt
+        const timeoutMultiplier = Math.pow(2, Math.min(state.testCount + 1, 10));
+        const maxTimeout = 15 * 60 * 1000; // 15 minutes max
+        return Math.min(baseTimeout * timeoutMultiplier, maxTimeout);
       }
     }
   }
