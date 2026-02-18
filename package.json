@@ -23,6 +23,7 @@
     "test:performance": "k6 run tests/performance/load-test.js",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest --watch",
+    "test:chaos": "vitest run --config vitest.chaos.config.ts",
     "test:circuit-breaker": "tsx scripts/circuit-breaker-load-test.ts",
     "test:circuit-breaker:long": "tsx scripts/circuit-breaker-load-test.ts --duration 600 --concurrency 100",
     "security:audit": "npm audit --audit-level=moderate",

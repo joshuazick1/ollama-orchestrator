@@ -59,6 +59,7 @@ function logToConsole(level: string, message: string, meta?: unknown): void {
     } else if (level === 'warn') {
       console.warn(prefix, meta);
     } else {
+      // eslint-disable-next-line no-console
       console.log(prefix, meta);
     }
   } else {
@@ -67,6 +68,7 @@ function logToConsole(level: string, message: string, meta?: unknown): void {
     } else if (level === 'warn') {
       console.warn(prefix);
     } else {
+      // eslint-disable-next-line no-console
       console.log(prefix);
     }
   }

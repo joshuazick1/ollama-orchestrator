@@ -4,11 +4,11 @@
  */
 
 import { CircuitBreaker } from './circuit-breaker.js';
+import { featureFlags } from './config/feature-flags.js';
 import { ErrorCategory, ErrorSeverity, type RetryStrategy } from './utils/errorClassifier.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 import { Timer } from './utils/timer.js';
-import { featureFlags } from './config/feature-flags.js';
 
 export interface RecoveryContext {
   strategy: 'lightweight' | 'full' | 'resource-aware';

@@ -56,12 +56,13 @@ export class CircuitBreakerPersistence {
   /**
    * Initialize persistence - ensure directory exists
    */
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
     try {
       // JsonFileHandler constructor already ensures directory exists
       logger.info('Circuit breaker persistence initialized', {
         filePath: this.fileHandler['filePath'],
       });
+      return Promise.resolve();
     } catch (error) {
       logger.error('Failed to initialize circuit breaker persistence:', { error });
       throw error;
@@ -71,7 +72,7 @@ export class CircuitBreakerPersistence {
   /**
    * Save circuit breaker data to disk
    */
-  async save(data: CircuitBreakerData): Promise<void> {
+  save(data: CircuitBreakerData): Promise<void> {
     try {
       const success = this.fileHandler.write(data);
 
@@ -83,6 +84,7 @@ export class CircuitBreakerPersistence {
       logger.debug('Circuit breakers saved to disk', {
         count: Object.keys(data.breakers).length,
       });
+      return Promise.resolve();
     } catch (error) {
       logger.error('Failed to save circuit breakers:', { error });
       throw error;
@@ -92,26 +94,26 @@ export class CircuitBreakerPersistence {
   /**
    * Load circuit breaker data from disk
    */
-  async load(): Promise<CircuitBreakerData | null> {
+  load(): Promise<CircuitBreakerData | null> {
     try {
       const data = this.fileHandler.read<CircuitBreakerData>();
 
       if (!data) {
         logger.info('No existing circuit breaker file found, starting fresh');
-        return null;
+        return Promise.resolve(null);
       }
 
       logger.info('Circuit breakers loaded from disk', {
         count: Object.keys(data.breakers).length,
       });
-      return data;
+      return Promise.resolve(data);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         logger.info('No existing circuit breaker file found, starting fresh');
-        return null;
+        return Promise.resolve(null);
       }
       logger.error('Failed to load circuit breakers:', { error });
-      return null;
+      return Promise.resolve(null);
     }
   }
 

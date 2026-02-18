@@ -11,10 +11,10 @@
  */
 
 import { CircuitBreaker } from './circuit-breaker.js';
+import { featureFlags } from './config/feature-flags.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 import { Timer } from './utils/timer.js';
-import { featureFlags } from './config/feature-flags.js';
 
 interface ServerTestState {
   lastTestTime: number;

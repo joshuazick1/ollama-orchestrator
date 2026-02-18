@@ -5,8 +5,8 @@
 
 import path from 'path';
 
-import type { ServerModelMetrics } from '../orchestrator.types.js';
 import { JsonFileHandler } from '../config/jsonFileHandler.js';
+import type { ServerModelMetrics } from '../orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 
 export interface MetricsData {
@@ -40,10 +40,11 @@ export class MetricsPersistence {
   /**
    * Initialize persistence - ensure directory exists
    */
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
     try {
       // JsonFileHandler constructor already ensures directory exists
       logger.info('Metrics persistence initialized');
+      return Promise.resolve();
     } catch (error) {
       logger.error('Failed to initialize metrics persistence:', { error });
       throw error;
@@ -53,7 +54,7 @@ export class MetricsPersistence {
   /**
    * Save metrics data to disk
    */
-  async save(data: MetricsData): Promise<void> {
+  save(data: MetricsData): Promise<void> {
     try {
       // Clean old data based on retention policy
       const cleanedData = this.cleanOldData(data);
@@ -66,6 +67,7 @@ export class MetricsPersistence {
 
       this.isDirty = false;
       logger.debug('Metrics saved to disk');
+      return Promise.resolve();
     } catch (error) {
       logger.error('Failed to save metrics:', { error });
       throw error;
@@ -75,24 +77,24 @@ export class MetricsPersistence {
   /**
    * Load metrics data from disk
    */
-  async load(): Promise<MetricsData | null> {
+  load(): Promise<MetricsData | null> {
     try {
       const data = this.fileHandler.read<MetricsData>();
 
       if (!data) {
         logger.info('No existing metrics file found, starting fresh');
-        return null;
+        return Promise.resolve(null);
       }
 
       logger.info('Metrics loaded from disk');
-      return data;
+      return Promise.resolve(data);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         logger.info('No existing metrics file found, starting fresh');
-        return null;
+        return Promise.resolve(null);
       }
       logger.error('Failed to load metrics:', { error });
-      return null;
+      return Promise.resolve(null);
     }
   }
 

@@ -80,7 +80,7 @@ export function createActivityTimeoutController(
   let resetCount = 0;
   let lastResetTime = Date.now();
 
-  const resetTimeout = () => {
+  const resetTimeout = (): void => {
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
@@ -99,7 +99,7 @@ export function createActivityTimeoutController(
     }, activityTimeout);
   };
 
-  const clearTimeoutFn = () => {
+  const clearTimeoutFn = (): void => {
     if (timeoutId) {
       clearTimeout(timeoutId);
       timeoutId = null;
@@ -183,7 +183,9 @@ export async function fetchWithActivityTimeout(
  * @param defaultTimeout - Default timeout in milliseconds
  * @returns Configured fetch function
  */
-export function createFetchWithTimeout(defaultTimeout: number) {
-  return (url: string, options?: FetchWithTimeoutOptions) =>
+export function createFetchWithTimeout(
+  defaultTimeout: number
+): (url: string, options?: FetchWithTimeoutOptions) => Promise<Response> {
+  return (url: string, options?: FetchWithTimeoutOptions): Promise<Response> =>
     fetchWithTimeout(url, { ...options, timeout: options?.timeout ?? defaultTimeout });
 }

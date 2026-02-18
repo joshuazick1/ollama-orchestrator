@@ -5,8 +5,10 @@
  */
 
 import type { Request } from 'express';
-import { clamp } from './math-helpers.js';
+
 import { featureFlags } from '../config/feature-flags.js';
+
+import { clamp } from './math-helpers.js';
 
 /**
  * Check if circuit breaker should be bypassed

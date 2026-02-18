@@ -5,9 +5,9 @@
  * Provides error isolation - one recorder failing doesn't break others
  */
 
+import { featureFlags } from '../config/feature-flags.js';
 import type { RequestContext } from '../orchestrator.types.js';
 import { logger } from '../utils/logger.js';
-import { featureFlags } from '../config/feature-flags.js';
 
 export interface MetricsRecorder {
   name: string;

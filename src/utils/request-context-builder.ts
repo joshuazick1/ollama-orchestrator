@@ -5,9 +5,11 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { RequestContext } from '../orchestrator.types.js';
-import { Timer } from './timer.js';
+
 import { featureFlags } from '../config/feature-flags.js';
+import type { RequestContext } from '../orchestrator.types.js';
+
+import { Timer } from './timer.js';
 
 export class RequestContextBuilder {
   private context: Partial<RequestContext> = {};

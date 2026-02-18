@@ -5,8 +5,8 @@
 
 import path from 'path';
 
-import type { RequestContext } from './orchestrator.types.js';
 import { JsonFileHandler } from './config/jsonFileHandler.js';
+import type { RequestContext } from './orchestrator.types.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -526,7 +526,7 @@ export class RequestHistory {
   /**
    * Persist requests to storage
    */
-  async persist(): Promise<void> {
+  persist(): Promise<void> {
     this.pruneOldRequests();
 
     if (this.config.enablePersistence) {
@@ -544,18 +544,21 @@ export class RequestHistory {
         } else {
           logger.debug('Request history persisted', { serverCount: this.requests.size });
         }
+        return Promise.resolve();
       } catch (error) {
         logger.error('Failed to persist request history:', { error });
+        return Promise.resolve();
       }
     }
+    return Promise.resolve();
   }
 
   /**
    * Load persisted request history
    */
-  async load(): Promise<void> {
+  load(): Promise<void> {
     if (!this.config.enablePersistence || !this.fileHandler) {
-      return;
+      return Promise.resolve();
     }
 
     try {
@@ -565,10 +568,12 @@ export class RequestHistory {
         this.requests = new Map(Object.entries(data.requests));
         logger.info('Request history loaded', { serverCount: this.requests.size });
       }
+      return Promise.resolve();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         logger.error('Failed to load request history:', { error });
       }
+      return Promise.resolve();
     }
   }
 
