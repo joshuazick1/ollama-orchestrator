@@ -4,6 +4,9 @@
  * Includes circuit breaker state transition tracking
  */
 
+import path from 'path';
+
+import { JsonFileHandler } from '../config/jsonFileHandler.js';
 import { logger } from '../utils/logger.js';
 
 export interface RecoveryFailureRecord {
@@ -99,9 +102,18 @@ export class RecoveryFailureTracker {
   private config: typeof DEFAULT_CONFIG;
   private lastPersistenceTime = 0;
   private persistenceDirty = false;
+  private fileHandler?: JsonFileHandler;
 
   constructor(config?: RecoveryFailureTrackerConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+
+    if (this.config.persistenceEnabled) {
+      this.fileHandler = new JsonFileHandler(this.config.persistencePath, {
+        createBackups: true,
+        maxBackups: 3,
+      });
+    }
+
     void this.loadFromDisk();
   }
 
@@ -685,9 +697,13 @@ export class RecoveryFailureTracker {
     };
 
     try {
-      const fs = await import('fs/promises');
-      await fs.writeFile(this.config.persistencePath, JSON.stringify(data, null, 2));
-      logger.debug(`Persisted recovery failure data to ${this.config.persistencePath}`);
+      const success = this.fileHandler?.write(data);
+
+      if (!success) {
+        logger.error('Failed to persist recovery failure data');
+      } else {
+        logger.debug(`Persisted recovery failure data to ${this.config.persistencePath}`);
+      }
     } catch (error) {
       logger.error('Failed to persist recovery failure data', { error });
     }
@@ -697,25 +713,22 @@ export class RecoveryFailureTracker {
    * Load data from disk
    */
   private async loadFromDisk(): Promise<void> {
-    if (!this.config.persistenceEnabled) {
+    if (!this.config.persistenceEnabled || !this.fileHandler) {
       return;
     }
 
     try {
-      const fs = await import('fs/promises');
-      await fs.access(this.config.persistencePath);
-      const content = await fs.readFile(this.config.persistencePath, 'utf-8');
-      const data = JSON.parse(content) as PersistenceData;
+      const data = this.fileHandler.read<PersistenceData>();
 
-      if (data.records) {
+      if (data?.records) {
         this.records = data.records;
       }
-      if (data.serverStats) {
+      if (data?.serverStats) {
         for (const [id, stats] of Object.entries(data.serverStats)) {
           this.serverStats.set(id, stats as ServerRecoveryStats);
         }
       }
-      if (data.circuitBreakerTransitions) {
+      if (data?.circuitBreakerTransitions) {
         this.circuitBreakerTransitions = data.circuitBreakerTransitions;
       }
 

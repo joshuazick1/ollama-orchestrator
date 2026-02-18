@@ -176,6 +176,8 @@ export interface CircuitBreakerInfo {
   state: 'OPEN' | 'CLOSED' | 'HALF-OPEN';
   failureCount: number;
   successCount: number;
+  totalRequestCount: number;
+  blockedRequestCount: number;
   lastFailure: number;
   lastSuccess: number;
   nextRetryAt: number;
@@ -185,6 +187,7 @@ export interface CircuitBreakerInfo {
     'non-retryable': number;
     transient: number;
     permanent: number;
+    rateLimited: number;
   };
   consecutiveSuccesses: number;
   modelType?: 'embedding' | 'generation';
@@ -192,11 +195,151 @@ export interface CircuitBreakerInfo {
   halfOpenStartedAt?: number;
   halfOpenAttempts?: number;
   lastErrorType?: string;
+  activeTestsInProgress?: number;
 }
 
 export const getCircuitBreakers = async () => {
   return apiCall(async () => {
     const response = await api.get('/circuit-breakers');
+    return response.data;
+  });
+};
+
+export const resetCircuitBreaker = async (serverId: string, model?: string) => {
+  return apiCall(async () => {
+    const endpoint = model
+      ? `/circuit-breakers/${serverId}/${encodeURIComponent(model)}/reset`
+      : `/circuit-breakers/${serverId}/reset`;
+    const response = await api.post(endpoint);
+    return response.data;
+  });
+};
+
+export const forceOpenCircuitBreaker = async (serverId: string, model?: string) => {
+  return apiCall(async () => {
+    const endpoint = model
+      ? `/circuit-breakers/${serverId}/${encodeURIComponent(model)}/open`
+      : `/circuit-breakers/${serverId}/open`;
+    const response = await api.post(endpoint);
+    return response.data;
+  });
+};
+
+export const forceCloseCircuitBreaker = async (serverId: string, model?: string) => {
+  return apiCall(async () => {
+    const endpoint = model
+      ? `/circuit-breakers/${serverId}/${encodeURIComponent(model)}/close`
+      : `/circuit-breakers/${serverId}/close`;
+    const response = await api.post(endpoint);
+    return response.data;
+  });
+};
+
+export const forceHalfOpenCircuitBreaker = async (serverId: string, model?: string) => {
+  return apiCall(async () => {
+    const endpoint = model
+      ? `/circuit-breakers/${serverId}/${encodeURIComponent(model)}/half-open`
+      : `/circuit-breakers/${serverId}/half-open`;
+    const response = await api.post(endpoint);
+    return response.data;
+  });
+};
+
+// === Ban Management API ===
+
+export interface BanEntry {
+  serverId: string;
+  model: string;
+  reason?: string;
+  bannedAt: number;
+  expiresAt?: number;
+}
+
+export const getBans = async (): Promise<BanEntry[]> => {
+  return apiCall(async () => {
+    const response = await api.get('/bans');
+    return response.data.bans;
+  });
+};
+
+export const removeBan = async (serverId: string, model: string) => {
+  return apiCall(async () => {
+    const response = await api.delete(
+      `/bans/${encodeURIComponent(serverId)}/${encodeURIComponent(model)}`
+    );
+    return response.data;
+  });
+};
+
+export const removeBansByServer = async (serverId: string) => {
+  return apiCall(async () => {
+    const response = await api.delete(`/bans/server/${encodeURIComponent(serverId)}`);
+    return response.data;
+  });
+};
+
+export const removeBansByModel = async (model: string) => {
+  return apiCall(async () => {
+    const response = await api.delete(`/bans/model/${encodeURIComponent(model)}`);
+    return response.data;
+  });
+};
+
+export const clearAllBans = async () => {
+  return apiCall(async () => {
+    const response = await api.delete('/bans');
+    return response.data;
+  });
+};
+
+// === Recovery Failure API ===
+
+export interface RecoveryFailureSummary {
+  totalServers: number;
+  serversWithFailures: number;
+  totalFailures: number;
+  recentFailures: number;
+}
+
+export interface ServerRecoveryStats {
+  serverId: string;
+  failureCount: number;
+  lastFailure: number;
+  recoveryAttempts: number;
+  successfulRecoveries: number;
+}
+
+export const getRecoveryFailuresSummary = async (): Promise<RecoveryFailureSummary> => {
+  return apiCall(async () => {
+    const response = await api.get('/recovery-failures');
+    return response.data;
+  });
+};
+
+export const getAllServerRecoveryStats = async (): Promise<ServerRecoveryStats[]> => {
+  return apiCall(async () => {
+    const response = await api.get('/recovery-failures/stats/all');
+    return response.data.stats;
+  });
+};
+
+export const getServerRecoveryStats = async (serverId: string): Promise<ServerRecoveryStats> => {
+  return apiCall(async () => {
+    const response = await api.get(`/recovery-failures/${encodeURIComponent(serverId)}`);
+    return response.data;
+  });
+};
+
+export const getRecentFailureRecords = async (limit = 50) => {
+  return apiCall(async () => {
+    const response = await api.get(`/recovery-failures/recent?limit=${limit}`);
+    return response.data;
+  });
+};
+
+export const resetServerRecoveryStats = async (serverId: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/recovery-failures/${encodeURIComponent(serverId)}/reset`);
     return response.data;
   });
 };
@@ -468,6 +611,112 @@ export const copyModelToServer = async (
 export const getFleetModelStats = async () => {
   return apiCall(async () => {
     const response = await api.get('/models/fleet-stats');
+    return response.data;
+  });
+};
+
+// === Queue Control API ===
+
+export const pauseQueue = async () => {
+  return apiCall(async () => {
+    const response = await api.post('/queue/pause');
+    return response.data;
+  });
+};
+
+export const resumeQueue = async () => {
+  return apiCall(async () => {
+    const response = await api.post('/queue/resume');
+    return response.data;
+  });
+};
+
+export const drainQueue = async () => {
+  return apiCall(async () => {
+    const response = await api.post('/drain');
+    return response.data;
+  });
+};
+
+// === Server Maintenance API ===
+
+export const drainServer = async (serverId: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/servers/${serverId}/drain`);
+    return response.data;
+  });
+};
+
+export const undrainServer = async (serverId: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/servers/${serverId}/undrain`);
+    return response.data;
+  });
+};
+
+export const setServerMaintenance = async (serverId: string, enabled: boolean) => {
+  return apiCall(async () => {
+    const response = await api.post(`/servers/${serverId}/maintenance`, { enabled });
+    return response.data;
+  });
+};
+
+// === Model Warmup API ===
+
+export const warmupModel = async (model: string, servers?: string[], priority?: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/models/${model}/warmup`, { servers, priority });
+    return response.data;
+  });
+};
+
+export const unloadModel = async (model: string, serverId?: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/models/${model}/unload`, { serverId });
+    return response.data;
+  });
+};
+
+export const cancelModelWarmup = async (model: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/models/${model}/cancel`);
+    return response.data;
+  });
+};
+
+export const getModelStatus = async (model: string) => {
+  return apiCall(async () => {
+    const response = await api.get(`/models/${model}/status`);
+    return response.data;
+  });
+};
+
+export const getAllModelsStatus = async () => {
+  return apiCall(async () => {
+    const response = await api.get('/models/status');
+    return response.data;
+  });
+};
+
+export const getWarmupRecommendations = async () => {
+  return apiCall(async () => {
+    const response = await api.get('/models/recommendations');
+    return response.data;
+  });
+};
+
+export const getIdleModels = async () => {
+  return apiCall(async () => {
+    const response = await api.get('/models/idle');
+    return response.data;
+  });
+};
+
+// === Health Check API ===
+
+export const triggerHealthCheck = async () => {
+  return apiCall(async () => {
+    const response = await api.post('/health-check');
     return response.data;
   });
 };

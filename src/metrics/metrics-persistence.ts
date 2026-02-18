@@ -3,10 +3,10 @@
  * Persistent storage for metrics data
  */
 
-import { promises as fs } from 'fs';
 import path from 'path';
 
 import type { ServerModelMetrics } from '../orchestrator.types.js';
+import { JsonFileHandler } from '../config/jsonFileHandler.js';
 import { logger } from '../utils/logger.js';
 
 export interface MetricsData {
@@ -21,14 +21,18 @@ export interface MetricsPersistenceOptions {
 }
 
 export class MetricsPersistence {
-  private filePath: string;
+  private fileHandler: JsonFileHandler;
   private retentionHours: number;
   private saveIntervalMs: number;
   private saveTimeout?: NodeJS.Timeout;
   private isDirty = false;
 
   constructor(options: MetricsPersistenceOptions = {}) {
-    this.filePath = options.filePath ?? path.join(process.cwd(), 'data', 'metrics.json');
+    const filePath = options.filePath ?? path.join(process.cwd(), 'data', 'metrics.json');
+    this.fileHandler = new JsonFileHandler(filePath, {
+      createBackups: true,
+      maxBackups: 3,
+    });
     this.retentionHours = options.retentionHours ?? 24;
     this.saveIntervalMs = options.saveIntervalMs ?? 30000; // 30 seconds
   }
@@ -38,9 +42,8 @@ export class MetricsPersistence {
    */
   async initialize(): Promise<void> {
     try {
-      const dir = path.dirname(this.filePath);
-      await fs.mkdir(dir, { recursive: true });
-      logger.info('Metrics persistence initialized', { filePath: this.filePath });
+      // JsonFileHandler constructor already ensures directory exists
+      logger.info('Metrics persistence initialized');
     } catch (error) {
       logger.error('Failed to initialize metrics persistence:', { error });
       throw error;
@@ -55,11 +58,14 @@ export class MetricsPersistence {
       // Clean old data based on retention policy
       const cleanedData = this.cleanOldData(data);
 
-      const json = JSON.stringify(cleanedData, null, 2);
-      await fs.writeFile(this.filePath, json, 'utf-8');
+      const success = this.fileHandler.write(cleanedData);
+
+      if (!success) {
+        throw new Error('Failed to write metrics data');
+      }
 
       this.isDirty = false;
-      logger.debug('Metrics saved to disk', { filePath: this.filePath, size: json.length });
+      logger.debug('Metrics saved to disk');
     } catch (error) {
       logger.error('Failed to save metrics:', { error });
       throw error;
@@ -71,10 +77,14 @@ export class MetricsPersistence {
    */
   async load(): Promise<MetricsData | null> {
     try {
-      const json = await fs.readFile(this.filePath, 'utf-8');
-      const data = JSON.parse(json) as MetricsData;
+      const data = this.fileHandler.read<MetricsData>();
 
-      logger.info('Metrics loaded from disk', { filePath: this.filePath });
+      if (!data) {
+        logger.info('No existing metrics file found, starting fresh');
+        return null;
+      }
+
+      logger.info('Metrics loaded from disk');
       return data;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

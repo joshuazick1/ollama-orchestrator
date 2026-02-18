@@ -3,8 +3,11 @@
  * Track load balancer decisions and scoring over time
  */
 
+import path from 'path';
+
 import type { ServerScore } from './load-balancer.js';
 import type { AIServer } from './orchestrator.types.js';
+import { JsonFileHandler } from './config/jsonFileHandler.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -74,11 +77,17 @@ export class DecisionHistory {
   private events: DecisionEvent[] = [];
   private config: DecisionHistoryConfig;
   private persistenceTimer?: NodeJS.Timeout;
+  private fileHandler?: JsonFileHandler;
 
   constructor(config: Partial<DecisionHistoryConfig> = {}) {
     this.config = { ...DEFAULT_DECISION_HISTORY_CONFIG, ...config };
 
     if (this.config.persistenceEnabled) {
+      const filePath = path.join(process.cwd(), 'data', 'decision-history.json');
+      this.fileHandler = new JsonFileHandler(filePath, {
+        createBackups: true,
+        maxBackups: 3,
+      });
       this.startPersistence();
     }
   }
@@ -445,24 +454,21 @@ export class DecisionHistory {
    * Persist events to storage
    */
   async persist(): Promise<void> {
-    this.pruneOldEvents();
-
     if (this.config.persistenceEnabled) {
       try {
-        const fs = await import('fs/promises');
-        const path = await import('path');
-        const filePath = path.join(process.cwd(), 'data', 'decision-history.json');
-
-        // Ensure directory exists
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-
         // Save events
         const data = {
           timestamp: Date.now(),
           events: this.events,
         };
-        await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
-        logger.debug('Decision history persisted', { eventCount: this.events.length });
+
+        const success = this.fileHandler?.write(data);
+
+        if (!success) {
+          logger.error('Failed to persist decision history');
+        } else {
+          logger.debug('Decision history persisted', { eventCount: this.events.length });
+        }
       } catch (error) {
         logger.error('Failed to persist decision history:', { error });
       }
@@ -473,19 +479,14 @@ export class DecisionHistory {
    * Load persisted decision history
    */
   async load(): Promise<void> {
-    if (!this.config.persistenceEnabled) {
+    if (!this.config.persistenceEnabled || !this.fileHandler) {
       return;
     }
 
     try {
-      const fs = await import('fs/promises');
-      const path = await import('path');
-      const filePath = path.join(process.cwd(), 'data', 'decision-history.json');
+      const data = this.fileHandler.read<{ events?: DecisionEvent[] }>();
 
-      const json = await fs.readFile(filePath, 'utf-8');
-      const data = JSON.parse(json) as { events?: DecisionEvent[] };
-
-      if (data.events && Array.isArray(data.events)) {
+      if (data?.events && Array.isArray(data.events)) {
         this.events = data.events;
         logger.info('Decision history loaded', { eventCount: this.events.length });
       }

@@ -1,34 +1,7 @@
-import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getHealth, getQueueStatus, getAnalyticsSummary } from '../api';
 import { Activity, Zap, Clock, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
-
-const StatCard = ({
-  title,
-  value,
-  subtext,
-  icon: Icon,
-  color,
-}: {
-  title: string;
-  value: string | number;
-  subtext?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-}) => (
-  <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg">
-    <div className="flex justify-between items-start">
-      <div>
-        <p className="text-gray-400 text-sm font-medium">{title}</p>
-        <h3 className="text-3xl font-bold mt-2 text-white">{value}</h3>
-        {subtext && <p className="text-gray-500 text-sm mt-1">{subtext}</p>}
-      </div>
-      <div className={`p-3 rounded-lg bg-opacity-20 ${color.replace('text-', 'bg-')} ${color}`}>
-        <Icon className="w-6 h-6" />
-      </div>
-    </div>
-  </div>
-);
+import { StatCard } from '../components/StatCard';
 
 export const Dashboard = () => {
   const {

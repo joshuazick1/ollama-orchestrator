@@ -1,12 +1,20 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getServers, addServer, removeServer } from '../api';
+import {
+  getServers,
+  addServer,
+  removeServer,
+  drainServer,
+  undrainServer,
+  setServerMaintenance,
+} from '../api';
 import { Modal } from '../components/Modal';
 import { ModelManagerModal } from '../components/ModelManagerModal';
 import { validateForm, addServerSchema } from '../validations';
 import { encodeUrlParam } from '../utils/security';
-import { Plus, Trash2, Server as ServerIcon } from 'lucide-react';
+import { Plus, Trash2, Server as ServerIcon, Power, PowerOff, Wrench } from 'lucide-react';
 import type { AIServer } from '../types';
+import { toastSuccess, toastError } from '../utils/toast';
 
 export const Servers = () => {
   const queryClient = useQueryClient();
@@ -44,6 +52,48 @@ export const Servers = () => {
     mutationFn: removeServer,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servers'] });
+      toastSuccess('Server removed');
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to remove server');
+    },
+  });
+
+  const drainMutation = useMutation({
+    mutationFn: drainServer,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['in-flight'] });
+      toastSuccess('Server drained');
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to drain server');
+    },
+  });
+
+  const undrainMutation = useMutation({
+    mutationFn: undrainServer,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['in-flight'] });
+      toastSuccess('Server undrained');
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to undrain server');
+    },
+  });
+
+  const maintenanceMutation = useMutation({
+    mutationFn: ({ serverId, enabled }: { serverId: string; enabled: boolean }) =>
+      setServerMaintenance(serverId, enabled),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      toastSuccess(
+        `Server ${variables.enabled ? 'in maintenance mode' : 'maintenance mode disabled'}`
+      );
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to set maintenance mode');
     },
   });
 
@@ -309,28 +359,75 @@ export const Servers = () => {
                             <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">
                               Actions
                             </h4>
-                            <div className="flex space-x-3">
-                              {server.supportsOllama !== false && (
+                            <div className="space-y-3">
+                              <div className="flex space-x-3">
+                                {server.supportsOllama !== false && (
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      setModelManagerServer(server);
+                                    }}
+                                    className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 py-2 rounded-lg text-sm transition-colors border border-blue-600/20"
+                                  >
+                                    Manage Models
+                                  </button>
+                                )}
                                 <button
                                   onClick={e => {
                                     e.stopPropagation();
-                                    setModelManagerServer(server);
+                                    removeMutation.mutate(server.id);
                                   }}
-                                  className="flex-1 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 py-2 rounded-lg text-sm transition-colors border border-blue-600/20"
+                                  className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 py-2 rounded-lg text-sm transition-colors border border-red-500/20 flex items-center justify-center space-x-2"
                                 >
-                                  Manage Models
+                                  <Trash2 className="w-4 h-4" />
+                                  <span>Remove</span>
                                 </button>
-                              )}
-                              <button
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  removeMutation.mutate(server.id);
-                                }}
-                                className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 py-2 rounded-lg text-sm transition-colors border border-red-500/20 flex items-center justify-center space-x-2"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                <span>Remove Server</span>
-                              </button>
+                              </div>
+
+                              {/* Server Maintenance Actions */}
+                              <div className="border-t border-gray-700/50 pt-3">
+                                <h5 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                                  Maintenance
+                                </h5>
+                                <div className="flex space-x-2">
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      drainMutation.mutate(server.id);
+                                    }}
+                                    disabled={drainMutation.isPending}
+                                    className="flex-1 bg-yellow-600/10 hover:bg-yellow-600/20 text-yellow-400 py-2 rounded-lg text-sm transition-colors border border-yellow-600/20 flex items-center justify-center space-x-2 disabled:opacity-50"
+                                  >
+                                    <Power className="w-4 h-4" />
+                                    <span>Drain</span>
+                                  </button>
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      undrainMutation.mutate(server.id);
+                                    }}
+                                    disabled={undrainMutation.isPending}
+                                    className="flex-1 bg-green-600/10 hover:bg-green-600/20 text-green-400 py-2 rounded-lg text-sm transition-colors border border-green-600/20 flex items-center justify-center space-x-2 disabled:opacity-50"
+                                  >
+                                    <PowerOff className="w-4 h-4" />
+                                    <span>Undrain</span>
+                                  </button>
+                                  <button
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      maintenanceMutation.mutate({
+                                        serverId: server.id,
+                                        enabled: true,
+                                      });
+                                    }}
+                                    disabled={maintenanceMutation.isPending}
+                                    className="flex-1 bg-purple-600/10 hover:bg-purple-600/20 text-purple-400 py-2 rounded-lg text-sm transition-colors border border-purple-600/20 flex items-center justify-center space-x-2 disabled:opacity-50"
+                                  >
+                                    <Wrench className="w-4 h-4" />
+                                    <span>Maintain</span>
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>

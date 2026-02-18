@@ -51,10 +51,13 @@ const Toggle = ({ label, checked, onChange, description }: ToggleProps) => (
       {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
     </div>
     <button
+      type="button"
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
         checked ? 'bg-blue-600' : 'bg-gray-600'
       }`}
+      role="switch"
+      aria-checked={checked}
     >
       <span
         className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -74,6 +77,7 @@ interface NumberInputProps {
   step?: number;
   description?: string;
   suffix?: string;
+  error?: string;
 }
 
 const NumberInput = ({
@@ -85,6 +89,7 @@ const NumberInput = ({
   step = 1,
   description,
   suffix,
+  error,
 }: NumberInputProps) => (
   <div>
     <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
@@ -97,10 +102,16 @@ const NumberInput = ({
         min={min}
         max={max}
         step={step}
-        className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className={`flex-1 bg-gray-900 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 transition-all ${
+          error
+            ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
+            : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
+        }`}
+        aria-invalid={!!error}
       />
       {suffix && <span className="text-gray-400 text-sm">{suffix}</span>}
     </div>
+    {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
   </div>
 );
 
@@ -110,16 +121,22 @@ interface SelectInputProps {
   onChange: (value: string) => void;
   options: string[];
   description?: string;
+  error?: string;
 }
 
-const SelectInput = ({ label, value, onChange, options, description }: SelectInputProps) => (
+const SelectInput = ({ label, value, onChange, options, description, error }: SelectInputProps) => (
   <div>
     <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
     {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      className={`w-full bg-gray-900 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 transition-all ${
+        error
+          ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
+          : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
+      }`}
+      aria-invalid={!!error}
     >
       {options.map(option => (
         <option key={option} value={option}>
@@ -127,6 +144,7 @@ const SelectInput = ({ label, value, onChange, options, description }: SelectInp
         </option>
       ))}
     </select>
+    {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
   </div>
 );
 
@@ -136,9 +154,10 @@ interface TextInputProps {
   onChange: (value: string) => void;
   description?: string;
   placeholder?: string;
+  error?: string;
 }
 
-const TextInput = ({ label, value, onChange, description, placeholder }: TextInputProps) => (
+const TextInput = ({ label, value, onChange, description, placeholder, error }: TextInputProps) => (
   <div>
     <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
     {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
@@ -147,8 +166,14 @@ const TextInput = ({ label, value, onChange, description, placeholder }: TextInp
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      className={`w-full bg-gray-900 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 transition-all ${
+        error
+          ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
+          : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
+      }`}
+      aria-invalid={!!error}
     />
+    {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
   </div>
 );
 

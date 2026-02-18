@@ -3,10 +3,10 @@
  * Persistent storage for circuit breaker states
  */
 
-import { promises as fs } from 'fs';
 import path from 'path';
 
 import type { CircuitState } from './circuit-breaker.js';
+import { JsonFileHandler } from './config/jsonFileHandler.js';
 import { logger } from './utils/logger.js';
 
 export interface CircuitBreakerData {
@@ -17,6 +17,8 @@ export interface CircuitBreakerData {
       state: CircuitState;
       failureCount: number;
       successCount: number;
+      totalRequestCount?: number; // Total requests attempted (including blocked)
+      blockedRequestCount?: number; // Requests blocked by open circuit breaker
       lastFailure: number;
       lastSuccess: number;
       nextRetryAt: number;
@@ -26,7 +28,7 @@ export interface CircuitBreakerData {
       halfOpenStartedAt: number; // Timestamp when entered half-open state
       lastFailureReason?: string; // Last failure reason when circuit opened
       modelType?: 'embedding' | 'generation'; // Detected model capability
-      lastErrorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent'; // Last error type
+      lastErrorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited'; // Last error type
     }
   >;
 }
@@ -37,13 +39,17 @@ export interface CircuitBreakerPersistenceOptions {
 }
 
 export class CircuitBreakerPersistence {
-  private filePath: string;
+  private fileHandler: JsonFileHandler;
   private saveIntervalMs: number;
   private saveTimeout?: NodeJS.Timeout;
   private isDirty = false;
 
   constructor(options: CircuitBreakerPersistenceOptions = {}) {
-    this.filePath = options.filePath ?? path.join(process.cwd(), 'data', 'circuit-breakers.json');
+    const filePath = options.filePath ?? path.join(process.cwd(), 'data', 'circuit-breakers.json');
+    this.fileHandler = new JsonFileHandler(filePath, {
+      createBackups: true,
+      maxBackups: 3,
+    });
     this.saveIntervalMs = options.saveIntervalMs ?? 30000; // 30 seconds
   }
 
@@ -52,9 +58,10 @@ export class CircuitBreakerPersistence {
    */
   async initialize(): Promise<void> {
     try {
-      const dir = path.dirname(this.filePath);
-      await fs.mkdir(dir, { recursive: true });
-      logger.info('Circuit breaker persistence initialized', { filePath: this.filePath });
+      // JsonFileHandler constructor already ensures directory exists
+      logger.info('Circuit breaker persistence initialized', {
+        filePath: this.fileHandler['filePath'],
+      });
     } catch (error) {
       logger.error('Failed to initialize circuit breaker persistence:', { error });
       throw error;
@@ -66,12 +73,14 @@ export class CircuitBreakerPersistence {
    */
   async save(data: CircuitBreakerData): Promise<void> {
     try {
-      const json = JSON.stringify(data, null, 2);
-      await fs.writeFile(this.filePath, json, 'utf-8');
+      const success = this.fileHandler.write(data);
+
+      if (!success) {
+        throw new Error('Failed to write circuit breaker data');
+      }
 
       this.isDirty = false;
       logger.debug('Circuit breakers saved to disk', {
-        filePath: this.filePath,
         count: Object.keys(data.breakers).length,
       });
     } catch (error) {
@@ -85,11 +94,14 @@ export class CircuitBreakerPersistence {
    */
   async load(): Promise<CircuitBreakerData | null> {
     try {
-      const json = await fs.readFile(this.filePath, 'utf-8');
-      const data = JSON.parse(json) as CircuitBreakerData;
+      const data = this.fileHandler.read<CircuitBreakerData>();
+
+      if (!data) {
+        logger.info('No existing circuit breaker file found, starting fresh');
+        return null;
+      }
 
       logger.info('Circuit breakers loaded from disk', {
-        filePath: this.filePath,
         count: Object.keys(data.breakers).length,
       });
       return data;

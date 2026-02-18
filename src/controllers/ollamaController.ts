@@ -6,12 +6,18 @@
 import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
-import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../streaming.js';
+import {
+  streamResponse,
+  isStreamingRequest,
+  handleStreamWithRetry,
+  type TTFTOptions,
+} from '../streaming.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { TTFTTracker } from '../metrics/ttft-tracker.js';
 
 /** Request body for /api/generate */
 interface GenerateRequestBody {
@@ -81,6 +87,32 @@ interface StreamingMetrics {
   };
 }
 
+/** Helper to add debug headers when requested (opt-in via X-Include-Debug-Info) */
+function addDebugHeaders(req: Request, res: Response, context: RoutingContext): void {
+  if (req.headers['x-include-debug-info'] !== 'true') {
+    return;
+  }
+
+  if (context.selectedServerId) {
+    res.setHeader('X-Selected-Server', context.selectedServerId);
+  }
+  if (context.serverCircuitState) {
+    res.setHeader('X-Server-Circuit-State', context.serverCircuitState);
+  }
+  if (context.modelCircuitState) {
+    res.setHeader('X-Model-Circuit-State', context.modelCircuitState);
+  }
+  if (context.availableServerCount !== undefined) {
+    res.setHeader('X-Available-Servers', context.availableServerCount.toString());
+  }
+  if (context.routedToOpenCircuit) {
+    res.setHeader('X-Routed-To-Open-Circuit', 'true');
+  }
+  if (context.retryCount !== undefined && context.retryCount > 0) {
+    res.setHeader('X-Retry-Count', context.retryCount.toString());
+  }
+}
+
 /**
  * Handle /api/tags - Get aggregated tags from all servers
  */
@@ -132,6 +164,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
   const orchestrator = getOrchestratorInstance();
   const useStreaming = isStreamingRequest(body);
   const config = getConfigManager().getConfig();
+  const routingContext: RoutingContext = {};
 
   try {
     const result = await orchestrator.tryRequestWithFailover(
@@ -159,6 +192,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             throw new Error(errorMessage);
           }
 
+          const ttftTracker = new TTFTTracker({ serverId: server.id, model });
           const streamStartTime = Date.now();
           let firstTokenAt: number | undefined;
           let tokenMetrics: { tokensGenerated: number; tokensPrompt: number } | undefined;
@@ -170,11 +204,18 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               () => {
                 // First token callback
                 firstTokenAt = Date.now();
+
+                // Track with TTFTTracker
+                ttftTracker.markFirstChunk(0);
+
                 logger.debug(`First token received for model ${model}`, {
                   timeToFirstToken: firstTokenAt - streamStartTime,
                 });
               },
               (duration, tokensGenerated, tokensPrompt) => {
+                // Get TTFT metrics from tracker
+                const ttftMetrics = ttftTracker.getMetrics();
+
                 // Stream complete callback - capture token metrics
                 logger.info(
                   `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}`
@@ -182,7 +223,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 tokenMetrics = { tokensGenerated, tokensPrompt };
                 const metrics: StreamingMetrics = {
                   _streamingMetrics: {
-                    ttft: firstTokenAt ? firstTokenAt - streamStartTime : undefined,
+                    ttft:
+                      ttftMetrics.ttft ??
+                      (firstTokenAt ? firstTokenAt - streamStartTime : undefined),
                     streamingDuration: duration,
                   },
                   _tokenMetrics: {
@@ -196,7 +239,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               () => {
                 // On each chunk, reset the activity timeout
                 activityController.resetTimeout();
-              }
+              },
+              // Pass TTFT options
+              ttftTracker ? { serverId: server.id, model } : undefined
             );
           } finally {
             activityController.clearTimeout();
@@ -236,8 +281,12 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       },
       useStreaming,
       'generate',
-      'ollama'
+      'ollama',
+      routingContext
     );
+
+    // Add debug headers if requested (before streaming starts for streaming requests)
+    addDebugHeaders(req, res, routingContext);
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
@@ -293,6 +342,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   const orchestrator = getOrchestratorInstance();
   const useStreaming = isStreamingRequest(body);
   const config = getConfigManager().getConfig();
+  const routingContext: RoutingContext = {};
 
   try {
     const result = await orchestrator.tryRequestWithFailover(
@@ -320,6 +370,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             throw new Error(errorMessage);
           }
 
+          const ttftTracker = new TTFTTracker({ serverId: server.id, model });
           const streamStartTime = Date.now();
           let firstTokenAt: number | undefined;
           let tokenMetrics: { tokensGenerated: number; tokensPrompt: number } | undefined;
@@ -331,34 +382,47 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               () => {
                 // First token callback
                 firstTokenAt = Date.now();
+
+                // Track with TTFTTracker
+                ttftTracker.markFirstChunk(0);
+
                 logger.debug(`First token received for chat model ${model}`, {
                   timeToFirstToken: firstTokenAt - streamStartTime,
                 });
               },
               (duration, tokensGenerated, tokensPrompt) => {
+                // Get TTFT metrics from tracker
+                const ttftMetrics = ttftTracker.getMetrics();
+
                 // Stream complete callback - capture token metrics
                 logger.debug(`Chat stream completed for model ${model}`, {
                   duration,
                   tokensGenerated,
                   tokensPrompt,
-                  timeToFirstToken: firstTokenAt ? firstTokenAt - streamStartTime : undefined,
+                  timeToFirstToken:
+                    ttftMetrics.ttft ?? (firstTokenAt ? firstTokenAt - streamStartTime : undefined),
                 });
                 tokenMetrics = { tokensGenerated, tokensPrompt };
               },
               () => {
                 // On each chunk, reset the activity timeout
                 activityController.resetTimeout();
-              }
+              },
+              // Pass TTFT options
+              { serverId: server.id, model }
             );
           } finally {
             activityController.clearTimeout();
           }
 
+          // Get final TTFT metrics
+          const ttftMetrics = ttftTracker.getMetrics();
+
           // Return streaming metrics and token metrics so orchestrator can record them
           const finalDuration = Date.now() - streamStartTime;
           return {
             _streamingMetrics: {
-              ttft: firstTokenAt ? firstTokenAt - streamStartTime : undefined,
+              ttft: ttftMetrics.ttft ?? (firstTokenAt ? firstTokenAt - streamStartTime : undefined),
               streamingDuration: finalDuration,
             },
             _tokenMetrics: tokenMetrics ?? {
@@ -388,8 +452,12 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       },
       useStreaming,
       'generate',
-      'ollama'
+      'ollama',
+      routingContext
     );
+
+    // Add debug headers if requested
+    addDebugHeaders(req, res, routingContext);
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
@@ -431,6 +499,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
   }
 
   const orchestrator = getOrchestratorInstance();
+  const routingContext: RoutingContext = {};
 
   try {
     const result = await orchestrator.tryRequestWithFailover(
@@ -452,8 +521,12 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
       },
       false,
       'embeddings',
-      'ollama'
+      'ollama',
+      routingContext
     );
+
+    // Add debug headers if requested
+    addDebugHeaders(req, res, routingContext);
 
     res.json(result);
   } catch (error) {
@@ -704,6 +777,7 @@ export async function handleStreamingGenerate(
       }
 
       let firstTokenReceived = false;
+      const ttftTracker = new TTFTTracker({ serverId: server.id, model });
 
       try {
         await streamResponse(
@@ -712,6 +786,10 @@ export async function handleStreamingGenerate(
           () => {
             if (!firstTokenReceived) {
               firstTokenReceived = true;
+
+              // Track with TTFTTracker
+              ttftTracker.markFirstChunk(0);
+
               logger.debug(`First token received from ${server.id}`);
             }
           },
@@ -721,7 +799,9 @@ export async function handleStreamingGenerate(
           () => {
             // Reset activity timeout on each chunk
             activityController.resetTimeout();
-          }
+          },
+          // Pass TTFT options
+          { serverId: server.id, model }
         );
       } finally {
         activityController.clearTimeout();

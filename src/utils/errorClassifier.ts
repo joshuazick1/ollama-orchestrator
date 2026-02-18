@@ -6,7 +6,7 @@
 /**
  * Error classification types
  */
-export type ErrorType = 'retryable' | 'non-retryable' | 'transient' | 'permanent';
+export type ErrorType = 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
 
 /**
  * Enhanced error categories for more detailed classification
@@ -295,6 +295,30 @@ export class ErrorClassifier {
           severity: ErrorSeverity.CRITICAL,
           retryStrategy: DEFAULT_RETRY_STRATEGIES[category],
           matchedPattern: this.patterns.nonRetryable[i],
+        };
+      }
+    }
+
+    // Check for rate limit patterns first (before general transient)
+    const rateLimitPatterns = ['rate limit', 'too many requests', 'throttled', '429'];
+    for (const pattern of rateLimitPatterns) {
+      if (errorLower.includes(pattern)) {
+        return {
+          type: 'rateLimited',
+          isRetryable: true,
+          isTransient: true,
+          isPermanent: false,
+          shouldCircuitBreak: true, // Rate limits should open circuit to stop traffic
+          category: ErrorCategory.NETWORK,
+          severity: ErrorSeverity.MEDIUM,
+          retryStrategy: {
+            initialDelay: 300000, // 5 minutes
+            backoffMultiplier: 3,
+            maxAttempts: 5,
+            testType: 'lightweight',
+            successThreshold: 1,
+          },
+          matchedPattern: pattern,
         };
       }
     }

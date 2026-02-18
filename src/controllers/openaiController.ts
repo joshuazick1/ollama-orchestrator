@@ -7,11 +7,37 @@
 import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+
+/** Helper to add debug headers when requested (opt-in via X-Include-Debug-Info) */
+function addDebugHeaders(req: Request, res: Response, context: RoutingContext): void {
+  if (req.headers['x-include-debug-info'] !== 'true') {
+    return;
+  }
+
+  if (context.selectedServerId) {
+    res.setHeader('X-Selected-Server', context.selectedServerId);
+  }
+  if (context.serverCircuitState) {
+    res.setHeader('X-Server-Circuit-State', context.serverCircuitState);
+  }
+  if (context.modelCircuitState) {
+    res.setHeader('X-Model-Circuit-State', context.modelCircuitState);
+  }
+  if (context.availableServerCount !== undefined) {
+    res.setHeader('X-Available-Servers', context.availableServerCount.toString());
+  }
+  if (context.routedToOpenCircuit) {
+    res.setHeader('X-Routed-To-Open-Circuit', 'true');
+  }
+  if (context.retryCount !== undefined && context.retryCount > 0) {
+    res.setHeader('X-Retry-Count', context.retryCount.toString());
+  }
+}
 
 /**
  * Resolve API key from string (supports env:VARNAME format)
@@ -341,6 +367,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
   const orchestrator = getOrchestratorInstance();
   const config = getConfigManager().getConfig();
+  const routingContext: RoutingContext = {};
   const responseId = generateId('chatcmpl');
 
   // Build Ollama options from OpenAI parameters
@@ -442,8 +469,12 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       },
       stream,
       'generate',
-      'openai'
+      'openai',
+      routingContext
     );
+
+    // Add debug headers if requested
+    addDebugHeaders(req, res, routingContext);
 
     // Send non-streaming response
     if (!stream && result && !result._streamed) {
@@ -495,6 +526,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
 
   const orchestrator = getOrchestratorInstance();
   const config = getConfigManager().getConfig();
+  const routingContext: RoutingContext = {};
   const responseId = generateId('cmpl');
 
   // Build Ollama options
@@ -594,8 +626,12 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
       },
       stream,
       'generate',
-      'openai'
+      'openai',
+      routingContext
     );
+
+    // Add debug headers if requested
+    addDebugHeaders(req, res, routingContext);
 
     if (!stream && result && !result._streamed) {
       res.json(result);
@@ -645,6 +681,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
   }
 
   const orchestrator = getOrchestratorInstance();
+  const routingContext: RoutingContext = {};
 
   try {
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
@@ -672,8 +709,12 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       },
       false,
       'embeddings',
-      'openai'
+      'openai',
+      routingContext
     );
+
+    // Add debug headers if requested
+    addDebugHeaders(req, res, routingContext);
 
     res.json(result);
   } catch (error) {

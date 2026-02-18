@@ -253,6 +253,8 @@ export function getCircuitBreakers(req: Request, res: Response): void {
       state: stats.state.toUpperCase(),
       failureCount: stats.failureCount,
       successCount: stats.successCount,
+      totalRequestCount: stats.totalRequestCount || 0,
+      blockedRequestCount: stats.blockedRequestCount || 0,
       lastFailure: stats.lastFailure,
       lastSuccess: stats.lastSuccess,
       nextRetryAt: stats.nextRetryAt,

@@ -3,7 +3,10 @@
  * Per-server request history tracking
  */
 
+import path from 'path';
+
 import type { RequestContext } from './orchestrator.types.js';
+import { JsonFileHandler } from './config/jsonFileHandler.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -93,11 +96,17 @@ export class RequestHistory {
   private requests: Map<string, RequestRecord[]> = new Map(); // serverId -> requests
   private config: RequestHistoryConfig;
   private persistenceTimer?: NodeJS.Timeout;
+  private fileHandler?: JsonFileHandler;
 
   constructor(config: Partial<RequestHistoryConfig> = {}) {
     this.config = { ...DEFAULT_REQUEST_HISTORY_CONFIG, ...config };
 
     if (this.config.enablePersistence) {
+      const filePath = path.join(process.cwd(), 'data', 'request-history.json');
+      this.fileHandler = new JsonFileHandler(filePath, {
+        createBackups: true,
+        maxBackups: 3,
+      });
       this.startPersistence();
     }
   }
@@ -522,20 +531,19 @@ export class RequestHistory {
 
     if (this.config.enablePersistence) {
       try {
-        const fs = await import('fs/promises');
-        const path = await import('path');
-        const filePath = path.join(process.cwd(), 'data', 'request-history.json');
-
-        // Ensure directory exists
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-
         // Convert Map to object for serialization
         const data = {
           timestamp: Date.now(),
           requests: Object.fromEntries(this.requests),
         };
-        await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
-        logger.debug('Request history persisted', { serverCount: this.requests.size });
+
+        const success = this.fileHandler?.write(data);
+
+        if (!success) {
+          logger.error('Failed to persist request history');
+        } else {
+          logger.debug('Request history persisted', { serverCount: this.requests.size });
+        }
       } catch (error) {
         logger.error('Failed to persist request history:', { error });
       }
@@ -546,19 +554,14 @@ export class RequestHistory {
    * Load persisted request history
    */
   async load(): Promise<void> {
-    if (!this.config.enablePersistence) {
+    if (!this.config.enablePersistence || !this.fileHandler) {
       return;
     }
 
     try {
-      const fs = await import('fs/promises');
-      const path = await import('path');
-      const filePath = path.join(process.cwd(), 'data', 'request-history.json');
+      const data = this.fileHandler.read<PersistedRequestHistory>();
 
-      const json = await fs.readFile(filePath, 'utf-8');
-      const data = JSON.parse(json) as PersistedRequestHistory;
-
-      if (data.requests && typeof data.requests === 'object') {
+      if (data?.requests && typeof data.requests === 'object') {
         this.requests = new Map(Object.entries(data.requests));
         logger.info('Request history loaded', { serverCount: this.requests.size });
       }

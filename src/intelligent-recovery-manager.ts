@@ -7,6 +7,8 @@ import { CircuitBreaker } from './circuit-breaker.js';
 import { ErrorCategory, ErrorSeverity, type RetryStrategy } from './utils/errorClassifier.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
+import { Timer } from './utils/timer.js';
+import { featureFlags } from './config/feature-flags.js';
 
 export interface RecoveryContext {
   strategy: 'lightweight' | 'full' | 'resource-aware';
@@ -71,7 +73,9 @@ export class IntelligentRecoveryManager {
     breaker: CircuitBreaker,
     context: RecoveryContext
   ): Promise<RecoveryTestResult> {
-    const startTime = Date.now();
+    const useTimer = featureFlags.get('useTimerUtility');
+    const timer = useTimer ? new Timer() : null;
+    const startTime = timer ? undefined : Date.now();
     const breakerName = (breaker as any).name || 'unknown';
 
     try {
@@ -82,7 +86,7 @@ export class IntelligentRecoveryManager {
       if (!serverUrl) {
         return {
           success: false,
-          duration: Date.now() - startTime,
+          duration: timer ? timer.elapsed() : Date.now() - startTime!,
           error: 'Server URL not found',
         };
       }
@@ -92,7 +96,7 @@ export class IntelligentRecoveryManager {
         timeout: 5000, // 5 second timeout for lightweight test
       });
 
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
 
       if (!response.ok) {
         return {
@@ -122,7 +126,7 @@ export class IntelligentRecoveryManager {
         duration,
       };
     } catch (error) {
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       logger.debug(`Lightweight recovery test failed for ${breakerName}`, {
@@ -146,7 +150,9 @@ export class IntelligentRecoveryManager {
     breaker: CircuitBreaker,
     context: RecoveryContext
   ): Promise<RecoveryTestResult> {
-    const startTime = Date.now();
+    const useTimer = featureFlags.get('useTimerUtility');
+    const timer = useTimer ? new Timer() : null;
+    const startTime = timer ? undefined : Date.now();
     const breakerName = (breaker as any).name || 'unknown';
 
     try {
@@ -159,7 +165,7 @@ export class IntelligentRecoveryManager {
       if (!serverUrl || !modelName) {
         return {
           success: false,
-          duration: Date.now() - startTime,
+          duration: timer ? timer.elapsed() : Date.now() - startTime!,
           error: 'Server URL or model name not found',
         };
       }
@@ -179,7 +185,7 @@ export class IntelligentRecoveryManager {
         }),
       });
 
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error');
@@ -216,7 +222,7 @@ export class IntelligentRecoveryManager {
         },
       };
     } catch (error) {
-      const duration = Date.now() - startTime;
+      const duration = timer ? timer.elapsed() : Date.now() - startTime!;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       logger.debug(`Full recovery test failed for ${breakerName}`, {
