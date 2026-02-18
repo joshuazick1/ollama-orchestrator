@@ -469,19 +469,21 @@ function getModelsForType(type: MockServerType): string[] {
  * Stop all mock servers and cleanup
  */
 export async function cleanupMockServers(): Promise<void> {
-  await Promise.all(
-    mockServers.map(
-      server =>
-        new Promise<void>(resolve => {
-          // Clear behavior change interval if it's a chaos server
-          if ((server as any).behaviorInterval) {
-            clearInterval((server as any).behaviorInterval);
-          }
-          server.close(() => resolve());
-        })
-    )
+  const closePromises = mockServers.map(
+    server =>
+      new Promise<void>(resolve => {
+        if ((server as any).behaviorInterval) {
+          clearInterval((server as any).behaviorInterval);
+        }
+        if ((server as any).availabilityInterval) {
+          clearInterval((server as any).availabilityInterval);
+        }
+        server.close(() => resolve());
+      })
   );
+  await Promise.all(closePromises);
   mockServers.length = 0;
+  await new Promise(resolve => setTimeout(resolve, 50));
 }
 
 /**
