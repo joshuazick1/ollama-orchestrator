@@ -6,6 +6,7 @@ import {
   getInFlightByServer,
   warmupModel,
   getWarmupRecommendations,
+  resetCircuitBreaker,
 } from '../api';
 import {
   Server,
@@ -57,11 +58,13 @@ const ServerBadge = ({
   model,
   circuitBreaker,
   inFlightData,
+  onReset,
 }: {
   server: AIServer;
   model: string;
   circuitBreaker?: CircuitBreakerInfo;
   inFlightData?: InFlightServer;
+  onReset?: () => void;
 }) => {
   // Get in-flight count for this server:model
   const inFlightCount = inFlightData?.byModel?.[model]?.regular || 0;
@@ -119,6 +122,18 @@ const ServerBadge = ({
       {isTesting && <span className="ml-1 text-[10px] font-medium uppercase">Testing</span>}
       {isCircuitHalfOpen && !isTesting && (
         <span className="ml-1 text-[10px] font-medium uppercase">Half</span>
+      )}
+      {(isCircuitOpen || isCircuitHalfOpen) && onReset && (
+        <button
+          onClick={e => {
+            e.stopPropagation();
+            onReset();
+          }}
+          className="ml-1 p-0.5 hover:bg-white/10 rounded text-white/60 hover:text-white"
+          title="Reset circuit breaker"
+        >
+          <RefreshCw className="w-3 h-3" />
+        </button>
       )}
     </div>
   );
@@ -195,6 +210,22 @@ export const Models = () => {
     },
     onError: (error, variables) => {
       toastError(error instanceof Error ? error.message : `Failed to warmup ${variables.model}`);
+    },
+  });
+
+  const resetCbMutation = useMutation({
+    mutationFn: ({ serverId, model }: { serverId: string; model: string }) =>
+      resetCircuitBreaker(serverId, model),
+    onSuccess: (_data, variables) => {
+      toastSuccess(`Circuit breaker reset for ${variables.model} on ${variables.serverId}`);
+      queryClient.invalidateQueries({ queryKey: ['circuitBreakers'] });
+    },
+    onError: (error, variables) => {
+      toastError(
+        error instanceof Error
+          ? error.message
+          : `Failed to reset circuit breaker for ${variables.model}`
+      );
     },
   });
 
@@ -334,6 +365,7 @@ export const Models = () => {
                             model={model}
                             circuitBreaker={circuitBreakerMap.get(`${server.id}:${model}`)}
                             inFlightData={inFlightMap.get(server.id)}
+                            onReset={() => resetCbMutation.mutate({ serverId: server.id, model })}
                           />
                         ))}
                       </div>
