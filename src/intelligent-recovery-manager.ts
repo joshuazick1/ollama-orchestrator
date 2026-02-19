@@ -6,7 +6,7 @@
 import { CircuitBreaker } from './circuit-breaker.js';
 import { featureFlags } from './config/feature-flags.js';
 import { ErrorCategory, ErrorSeverity, type RetryStrategy } from './utils/errorClassifier.js';
-import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
+import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 import { Timer } from './utils/timer.js';
 
@@ -107,7 +107,7 @@ export class IntelligentRecoveryManager {
       }
 
       // Verify we got valid JSON
-      const data = await response.json().catch(() => null);
+      const data = await parseResponse(response);
       if (!data || typeof data !== 'object') {
         return {
           success: false,
@@ -197,7 +197,7 @@ export class IntelligentRecoveryManager {
       }
 
       // Verify response is valid
-      const data = await response.json().catch(() => null);
+      const data = await parseResponse<{ response?: string }>(response);
       if (!data?.response) {
         return {
           success: false,
@@ -298,7 +298,7 @@ export class IntelligentRecoveryManager {
         };
       }
 
-      const data = await response.json().catch(() => null);
+      const data = await parseResponse(response);
       if (!Array.isArray(data)) {
         return {
           available: true, // Assume available if we can't check

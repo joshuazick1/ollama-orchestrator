@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
-import { fetchWithTimeout } from '../utils/fetchWithTimeout.js';
+import { fetchWithTimeout, parseResponse } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 
 /** Shape of a request body containing a model name */
@@ -148,7 +148,7 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
     });
 
     if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as OllamaErrorResponse;
+      const errorData = ((await parseResponse(response)) as OllamaErrorResponse) || {};
       throw new Error(errorData.error ?? `Pull failed: ${response.statusText}`);
     }
 
@@ -219,7 +219,7 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
     });
 
     if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as OllamaErrorResponse;
+      const errorData = ((await parseResponse(response)) as OllamaErrorResponse) || {};
       throw new Error(errorData.error ?? `Delete failed: ${response.statusText}`);
     }
 
@@ -319,7 +319,7 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
     });
 
     if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as OllamaErrorResponse;
+      const errorData = ((await parseResponse(response)) as OllamaErrorResponse) || {};
       throw new Error(errorData.error ?? `Copy failed: ${response.statusText}`);
     }
 
