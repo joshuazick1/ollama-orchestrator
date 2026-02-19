@@ -23,6 +23,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: false
+          load: true
           tags: ollama-orchestrator:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
