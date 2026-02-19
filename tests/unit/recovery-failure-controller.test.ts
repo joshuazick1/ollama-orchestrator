@@ -889,4 +889,339 @@ describe('recoveryFailureController', () => {
       });
     });
   });
+
+  describe('getServerFailureHistory', () => {
+    it('should return failure history with pagination', () => {
+      const mockHistory = [
+        { timestamp: Date.now(), error: 'timeout', model: 'model-a' },
+        { timestamp: Date.now(), error: 'connection refused', model: 'model-b' },
+      ];
+      mockTracker.getServerFailureHistory.mockReturnValue(mockHistory);
+      mockReq.params = { serverId: 'server-1' };
+      mockReq.query = { limit: '10', offset: '0' };
+
+      getServerFailureHistory(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getServerFailureHistory).toHaveBeenCalledWith('server-1', 10, 0);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        serverId: 'server-1',
+        count: 2,
+        limit: 10,
+        offset: 0,
+        history: mockHistory,
+      });
+    });
+
+    it('should use default limit and offset when not provided', () => {
+      mockTracker.getServerFailureHistory.mockReturnValue([]);
+      mockReq.params = { serverId: 'server-1' };
+
+      getServerFailureHistory(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getServerFailureHistory).toHaveBeenCalledWith('server-1', 100, 0);
+    });
+
+    it('should handle invalid limit by using default', () => {
+      mockTracker.getServerFailureHistory.mockReturnValue([]);
+      mockReq.params = { serverId: 'server-1' };
+      mockReq.query = { limit: 'invalid', offset: '5' };
+
+      getServerFailureHistory(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getServerFailureHistory).toHaveBeenCalledWith('server-1', 100, 5);
+    });
+
+    it('should handle invalid offset by using default', () => {
+      mockTracker.getServerFailureHistory.mockReturnValue([]);
+      mockReq.params = { serverId: 'server-1' };
+      mockReq.query = { limit: '50', offset: 'invalid' };
+
+      getServerFailureHistory(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getServerFailureHistory).toHaveBeenCalledWith('server-1', 50, 0);
+    });
+
+    it('should return 500 on error', () => {
+      mockTracker.getServerFailureHistory.mockImplementation(() => {
+        throw new Error('History error');
+      });
+      mockReq.params = { serverId: 'server-1' };
+
+      getServerFailureHistory(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+  });
+
+  describe('analyzeServerFailures', () => {
+    it('should return failure analysis', () => {
+      const mockAnalysis = {
+        totalFailures: 10,
+        uniqueErrors: 3,
+        mostCommonError: 'timeout',
+        failureRate: 0.15,
+      };
+      mockTracker.analyzeFailurePattern.mockReturnValue(mockAnalysis);
+      mockReq.params = { serverId: 'server-1' };
+      mockReq.query = { windowMs: '3600000' };
+
+      analyzeServerFailures(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.analyzeFailurePattern).toHaveBeenCalledWith('server-1', 3600000);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        windowMs: 3600000,
+        ...mockAnalysis,
+      });
+    });
+
+    it('should use default windowMs when not provided', () => {
+      mockTracker.analyzeFailurePattern.mockReturnValue({});
+      mockReq.params = { serverId: 'server-1' };
+
+      analyzeServerFailures(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.analyzeFailurePattern).toHaveBeenCalledWith('server-1', 3600000);
+    });
+
+    it('should handle invalid windowMs by using default', () => {
+      mockTracker.analyzeFailurePattern.mockReturnValue({});
+      mockReq.params = { serverId: 'server-1' };
+      mockReq.query = { windowMs: 'invalid' };
+
+      analyzeServerFailures(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.analyzeFailurePattern).toHaveBeenCalledWith('server-1', 3600000);
+    });
+
+    it('should return 500 on error', () => {
+      mockTracker.analyzeFailurePattern.mockImplementation(() => {
+        throw new Error('Analysis error');
+      });
+      mockReq.params = { serverId: 'server-1' };
+
+      analyzeServerFailures(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+  });
+
+  describe('analyzeCircuitBreakerImpact', () => {
+    it('should return circuit breaker impact analysis', () => {
+      const mockAnalysis = {
+        totalBlockedRequests: 50,
+        downtimeMs: 300000,
+        affectedModels: ['model-a', 'model-b'],
+      };
+      mockTracker.analyzeCircuitBreakerImpact.mockReturnValue(mockAnalysis);
+      mockReq.params = { serverId: 'server-1' };
+
+      analyzeCircuitBreakerImpact(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.analyzeCircuitBreakerImpact).toHaveBeenCalledWith('server-1');
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        serverId: 'server-1',
+        ...mockAnalysis,
+      });
+    });
+
+    it('should return 500 on error', () => {
+      mockTracker.analyzeCircuitBreakerImpact.mockImplementation(() => {
+        throw new Error('Impact analysis error');
+      });
+      mockReq.params = { serverId: 'server-1' };
+
+      analyzeCircuitBreakerImpact(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+  });
+
+  describe('getCircuitBreakerTransitions', () => {
+    it('should return circuit breaker transitions', () => {
+      const mockTransitions = [
+        { from: 'closed', to: 'open', timestamp: Date.now(), reason: 'failure threshold' },
+        { from: 'open', to: 'half-open', timestamp: Date.now(), reason: 'timeout' },
+      ];
+      mockTracker.getCircuitBreakerTransitions.mockReturnValue(mockTransitions);
+      mockReq.params = { serverId: 'server-1' };
+      mockReq.query = { limit: '50', model: 'model-a' };
+
+      getCircuitBreakerTransitions(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getCircuitBreakerTransitions).toHaveBeenCalledWith(
+        'server-1',
+        'model-a',
+        50
+      );
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        serverId: 'server-1',
+        model: 'model-a',
+        count: 2,
+        transitions: mockTransitions,
+      });
+    });
+
+    it('should use default limit when not provided', () => {
+      mockTracker.getCircuitBreakerTransitions.mockReturnValue([]);
+      mockReq.params = { serverId: 'server-1' };
+
+      getCircuitBreakerTransitions(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getCircuitBreakerTransitions).toHaveBeenCalledWith(
+        'server-1',
+        undefined,
+        100
+      );
+    });
+
+    it('should handle invalid limit by using default', () => {
+      mockTracker.getCircuitBreakerTransitions.mockReturnValue([]);
+      mockReq.params = { serverId: 'server-1' };
+      mockReq.query = { limit: 'invalid' };
+
+      getCircuitBreakerTransitions(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getCircuitBreakerTransitions).toHaveBeenCalledWith(
+        'server-1',
+        undefined,
+        100
+      );
+    });
+
+    it('should return 500 on error', () => {
+      mockTracker.getCircuitBreakerTransitions.mockImplementation(() => {
+        throw new Error('Transitions error');
+      });
+      mockReq.params = { serverId: 'server-1' };
+
+      getCircuitBreakerTransitions(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+  });
+
+  describe('getAllServerRecoveryStats', () => {
+    it('should return all server recovery stats', () => {
+      const mockStats = [
+        { serverId: 'server-1', totalFailures: 10, recoveryAttempts: 5 },
+        { serverId: 'server-2', totalFailures: 3, recoveryAttempts: 3 },
+      ];
+      mockTracker.getAllServerStats.mockReturnValue(mockStats);
+
+      getAllServerRecoveryStats(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getAllServerStats).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        count: 2,
+        servers: mockStats,
+      });
+    });
+
+    it('should handle empty stats', () => {
+      mockTracker.getAllServerStats.mockReturnValue([]);
+
+      getAllServerRecoveryStats(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        count: 0,
+        servers: [],
+      });
+    });
+
+    it('should return 500 on error', () => {
+      mockTracker.getAllServerStats.mockImplementation(() => {
+        throw new Error('Stats error');
+      });
+
+      getAllServerRecoveryStats(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+  });
+
+  describe('getRecentFailureRecords', () => {
+    it('should return recent failure records', () => {
+      const mockRecords = [
+        { serverId: 'server-1', error: 'timeout', timestamp: Date.now() },
+        { serverId: 'server-2', error: 'connection refused', timestamp: Date.now() },
+      ];
+      mockTracker.getRecentRecords.mockReturnValue(mockRecords);
+      mockReq.query = { limit: '50' };
+
+      getRecentFailureRecords(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getRecentRecords).toHaveBeenCalledWith(50);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        count: 2,
+        records: mockRecords,
+      });
+    });
+
+    it('should use default limit when not provided', () => {
+      mockTracker.getRecentRecords.mockReturnValue([]);
+
+      getRecentFailureRecords(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getRecentRecords).toHaveBeenCalledWith(100);
+    });
+
+    it('should handle invalid limit by using default', () => {
+      mockTracker.getRecentRecords.mockReturnValue([]);
+      mockReq.query = { limit: 'invalid' };
+
+      getRecentFailureRecords(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.getRecentRecords).toHaveBeenCalledWith(100);
+    });
+
+    it('should return 500 on error', () => {
+      mockTracker.getRecentRecords.mockImplementation(() => {
+        throw new Error('Records error');
+      });
+
+      getRecentFailureRecords(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+  });
+
+  describe('resetServerRecoveryStats', () => {
+    it('should reset server recovery stats', () => {
+      mockTracker.resetServerStats.mockReturnValue(undefined);
+      mockReq.params = { serverId: 'server-1' };
+
+      resetServerRecoveryStats(mockReq as Request, mockRes as Response);
+
+      expect(mockTracker.resetServerStats).toHaveBeenCalledWith('server-1');
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Recovery failure stats reset for server server-1',
+      });
+    });
+
+    it('should return 500 on error', () => {
+      mockTracker.resetServerStats.mockImplementation(() => {
+        throw new Error('Reset error');
+      });
+      mockReq.params = { serverId: 'server-1' };
+
+      resetServerRecoveryStats(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+    });
+  });
 });

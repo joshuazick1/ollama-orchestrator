@@ -998,5 +998,97 @@ describe('serverModelsController', () => {
       expect(jsonCall.popularModels.length).toBe(4);
       expect(jsonCall.popularModels.every((m: any) => m.serverCount === 2)).toBe(true);
     });
+
+    it('should handle error in getFleetModelStats', () => {
+      mockOrchestrator.getServers.mockImplementation(() => {
+        throw new Error('Test error');
+      });
+
+      getFleetModelStats(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Failed to get fleet model stats',
+        details: 'Test error',
+      });
+    });
+  });
+
+  describe('listServerModels error handling', () => {
+    it('should handle non-Error objects in catch block', async () => {
+      const mockServer = createMockServer();
+      mockOrchestrator.getServers.mockReturnValue([mockServer]);
+
+      mockFetchWithTimeout.mockRejectedValue('String error');
+
+      mockReq.params = { id: 'server-1' };
+
+      await listServerModels(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Failed to list models',
+        details: 'String error',
+      });
+    });
+  });
+
+  describe('pullModelToServer error handling', () => {
+    it('should handle non-Error objects in catch block', async () => {
+      const mockServer = createMockServer();
+      mockOrchestrator.getServers.mockReturnValue([mockServer]);
+
+      mockFetchWithTimeout.mockRejectedValue('Network failure');
+
+      mockReq.params = { id: 'server-1' };
+      mockReq.body = { model: 'llama3:latest' };
+
+      await pullModelToServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Failed to pull model',
+        details: 'Network failure',
+      });
+    });
+  });
+
+  describe('deleteModelFromServer error handling', () => {
+    it('should handle non-Error objects in catch block', async () => {
+      const mockServer = createMockServer();
+      mockOrchestrator.getServers.mockReturnValue([mockServer]);
+
+      mockFetchWithTimeout.mockRejectedValue('Delete failed');
+
+      mockReq.params = { id: 'server-1', model: 'llama3:latest' };
+
+      await deleteModelFromServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Failed to delete model',
+        details: 'Delete failed',
+      });
+    });
+  });
+
+  describe('copyModelToServer error handling', () => {
+    it('should handle non-Error objects in catch block', async () => {
+      const mockTargetServer = createMockServer();
+      mockOrchestrator.getServers.mockReturnValue([mockTargetServer]);
+
+      mockFetchWithTimeout.mockRejectedValue('Copy failed');
+
+      mockReq.params = { id: 'server-1' };
+      mockReq.body = { model: 'llama3:latest' };
+
+      await copyModelToServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Failed to copy model',
+        details: 'Copy failed',
+      });
+    });
   });
 });
