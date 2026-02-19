@@ -1046,6 +1046,10 @@ export class CircuitBreakerRegistry {
    * Update configuration for all circuit breakers
    */
   updateAllConfig(config: Partial<CircuitBreakerConfig>): void {
+    // Update default config so new breakers get the latest config
+    this.defaultConfig = { ...this.defaultConfig, ...config };
+
+    // Update all existing breakers
     for (const breaker of this.breakers.values()) {
       breaker.updateConfig(config);
     }
