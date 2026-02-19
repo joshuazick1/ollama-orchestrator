@@ -35,18 +35,25 @@ export const securityConfigSchema = z.object({
 /**
  * Metrics configuration schema
  */
+/**
+ * Metrics decay configuration schema
+ */
+export const metricsDecayConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  halfLifeMs: z.number().int().min(1000).default(300000), // 5 minutes
+  minDecayFactor: z.number().min(0).max(1).default(0.1),
+  staleThresholdMs: z.number().int().min(1000).default(120000), // 2 minutes
+});
+
+/**
+ * Metrics configuration schema
+ */
 export const metricsConfigSchema = z.object({
   enabled: z.boolean().default(true),
   prometheusEnabled: z.boolean().default(true),
   prometheusPort: z.number().int().min(1).max(65535).default(9090),
   historyWindowMinutes: z.number().int().min(1).default(60),
-  // Metrics decay settings for stale data
-  decay: z.object({
-    enabled: z.boolean().default(true),
-    halfLifeMs: z.number().int().min(1000).default(300000), // 5 minutes
-    minDecayFactor: z.number().min(0).max(1).default(0.1),
-    staleThresholdMs: z.number().int().min(1000).default(120000), // 2 minutes
-  }),
+  decay: metricsDecayConfigSchema,
 });
 
 /**
@@ -298,6 +305,7 @@ export const orchestratorConfigSchema = z.object({
 // Export TypeScript types derived from schemas
 export type ServerConfig = z.infer<typeof serverConfigSchema>;
 export type SecurityConfig = z.infer<typeof securityConfigSchema>;
+export type MetricsDecayConfig = z.infer<typeof metricsDecayConfigSchema>;
 export type MetricsConfig = z.infer<typeof metricsConfigSchema>;
 export type StreamingConfig = z.infer<typeof streamingConfigSchema>;
 export type HealthCheckConfig = z.infer<typeof healthCheckConfigSchema>;
