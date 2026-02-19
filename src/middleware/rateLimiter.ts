@@ -94,7 +94,7 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}): any {
 export function createMonitoringRateLimiter(): any {
   return createRateLimiter({
     windowMs: 5 * 60 * 1000, // 5 minutes
-    maxRequests: 300, // 300 requests per 5 minutes (1 per second average)
+    maxRequests: 631, // 631 requests per 5 minutes (30% above expected 485 from models page)
   });
 }
 
