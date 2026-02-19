@@ -231,7 +231,19 @@ export class RequestQueue {
    * Update configuration
    */
   updateConfig(config: Partial<QueueConfig>): void {
+    const needsRestart =
+      config.priorityBoostInterval !== undefined &&
+      config.priorityBoostInterval !== this.config.priorityBoostInterval;
+
     this.config = { ...this.config, ...config };
+
+    if (needsRestart) {
+      if (this.boostInterval) {
+        clearInterval(this.boostInterval);
+      }
+      this.startPriorityBoost();
+    }
+
     logger.info(`Queue config updated: maxSize=${this.config.maxSize}`);
   }
 
