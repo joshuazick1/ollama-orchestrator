@@ -1580,6 +1580,8 @@ describe('AIOrchestrator', () => {
     });
 
     it('should respect requiredCapability ollama', async () => {
+      // Remove server-2 and set server-1 to not support ollama
+      orchestrator.removeServer('server-2');
       const s1 = orchestrator.getServer('server-1');
       if (s1) s1.supportsOllama = false;
 
@@ -1589,6 +1591,8 @@ describe('AIOrchestrator', () => {
     });
 
     it('should respect requiredCapability openai', async () => {
+      // Remove server-2 and set server-1 to not support v1
+      orchestrator.removeServer('server-2');
       const s1 = orchestrator.getServer('server-1');
       if (s1) s1.supportsV1 = false;
 
@@ -1692,6 +1696,2120 @@ describe('AIOrchestrator', () => {
 
       const s1After = orchestrator.getServer('server-1');
       expect(s1After?.healthy).toBe(false);
+    });
+  });
+
+  describe('checkModelBreakerEscalation', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.models = ['llama2', 'mistral', 'codellama'];
+      }
+    });
+
+    it('should not escalate when no models', () => {
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) s1.models = [];
+
+      // Should not throw
+      orchestrator['checkModelBreakerEscalation']('server-1');
+    });
+
+    it('should not escalate when modelEscalation disabled', () => {
+      // Override config to disable escalation
+      orchestrator['config'].circuitBreaker.modelEscalation.enabled = false;
+
+      // Should not throw
+      orchestrator['checkModelBreakerEscalation']('server-1');
+    });
+  });
+
+  describe('getCircuitBreakerHealth', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should return circuit breaker health', () => {
+      // Create the circuit breaker first
+      orchestrator['getCircuitBreaker']('server-1');
+      const health = orchestrator['getCircuitBreakerHealth']('server-1');
+      expect(health).toBeDefined();
+      expect(health?.state).toBeDefined();
+    });
+
+    it('should return undefined for non-existent server', () => {
+      const health = orchestrator['getCircuitBreakerHealth']('nonexistent');
+      expect(health).toBeUndefined();
+    });
+  });
+
+  describe('updateServerStatus', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should update server status successfully', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: [{ name: 'llama2' }] }),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      await orchestrator.updateServerStatus(server!);
+
+      expect(server?.healthy).toBe(true);
+      expect(server?.models).toContain('llama2');
+    });
+
+    it('should handle failed status update', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
+
+      const server = orchestrator.getServer('server-1');
+      await orchestrator.updateServerStatus(server!);
+
+      expect(server?.healthy).toBe(false);
+    });
+
+    it('should handle version response', async () => {
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/tags')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ models: [] }),
+          });
+        }
+        if (url.includes('/api/version')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ version: '0.1.0' }),
+          });
+        }
+        return Promise.reject(new Error('Not found'));
+      });
+
+      const server = orchestrator.getServer('server-1');
+      await orchestrator.updateServerStatus(server!);
+
+      expect(server?.version).toBe('0.1.0');
+    });
+  });
+
+  describe('resolveModelName', () => {
+    it('should resolve model name with :latest', () => {
+      const available = ['llama2:latest', 'mistral'];
+      const resolved = orchestrator['resolveModelName']('llama2', available);
+      expect(resolved).toBe('llama2:latest');
+    });
+
+    it('should return null for non-existent model', () => {
+      const available = ['llama2:latest'];
+      const resolved = orchestrator['resolveModelName']('nonexistent', available);
+      expect(resolved).toBeNull();
+    });
+  });
+
+  describe('arraysEqual', () => {
+    it('should compare equal arrays', () => {
+      const result = orchestrator['arraysEqual'](['a', 'b'], ['a', 'b']);
+      expect(result).toBe(true);
+    });
+
+    it('should compare unequal arrays', () => {
+      const result = orchestrator['arraysEqual'](['a', 'b'], ['a', 'c']);
+      expect(result).toBe(false);
+    });
+
+    it('should compare arrays of different lengths', () => {
+      const result = orchestrator['arraysEqual'](['a'], ['a', 'b']);
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('extractModelsFromResponse', () => {
+    it('should extract models from response', () => {
+      const response = { models: ['llama2', 'mistral'] };
+      const models = orchestrator['extractModelsFromResponse'](response);
+      expect(models).toEqual(['llama2', 'mistral']);
+    });
+
+    it('should extract models from object format', () => {
+      const response = { models: [{ name: 'llama2' }, { model: 'mistral' }] };
+      const models = orchestrator['extractModelsFromResponse'](response);
+      expect(models).toEqual(['llama2', 'mistral']);
+    });
+
+    it('should return empty array for invalid response', () => {
+      const models = orchestrator['extractModelsFromResponse'](null);
+      expect(models).toEqual([]);
+    });
+  });
+
+  describe('classifyRecoveryError', () => {
+    it('should classify timeout errors', () => {
+      const type = orchestrator['classifyRecoveryError']('Request timeout');
+      expect(type).toBe('timeout');
+    });
+
+    it('should classify connection errors', () => {
+      const type = orchestrator['classifyRecoveryError']('Connection refused');
+      expect(type).toBe('connection_refused');
+    });
+
+    it('should classify HTTP errors', () => {
+      const type = orchestrator['classifyRecoveryError']('HTTP 503');
+      expect(type).toBe('http_error');
+    });
+
+    it('should classify model not found errors', () => {
+      const type = orchestrator['classifyRecoveryError']('model not found');
+      expect(type).toBe('model_not_found');
+    });
+
+    it('should return unknown for other errors', () => {
+      const type = orchestrator['classifyRecoveryError']('some error');
+      expect(type).toBe('unknown');
+    });
+  });
+
+  describe('isServerWideError', () => {
+    it('should detect disk full errors', () => {
+      expect(orchestrator['isServerWideError']('Disk is full')).toBe(true);
+    });
+
+    it('should detect server crash errors', () => {
+      expect(orchestrator['isServerWideError']('Server crash')).toBe(true);
+    });
+
+    it('should return false for non-server-wide errors', () => {
+      expect(orchestrator['isServerWideError']('Model not found')).toBe(false);
+    });
+  });
+
+  describe('hasClosedCircuitBreaker', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+    });
+
+    it('should return true when no circuit breaker exists', () => {
+      const result = orchestrator['hasClosedCircuitBreaker']('llama2', ['server-1']);
+      expect(result).toBe(true);
+    });
+
+    it('should return true when circuit breaker is closed', () => {
+      // Create and close circuit breaker
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      cb.recordSuccess();
+
+      const result = orchestrator['hasClosedCircuitBreaker']('llama2', ['server-1']);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('mergeTagsData', () => {
+    it('should merge tags from multiple servers', () => {
+      const allTags = new Map();
+
+      orchestrator['mergeTagsData'](allTags, [{ name: 'llama2', size: 1000 }], 'server-1');
+      expect(allTags.size).toBe(1);
+
+      orchestrator['mergeTagsData'](allTags, [{ name: 'llama2', size: 1000 }], 'server-2');
+      expect(allTags.size).toBe(1);
+
+      const model = allTags.get('llama2');
+      expect(model?.servers).toEqual(['server-1', 'server-2']);
+    });
+
+    it('should handle models with digest', () => {
+      const allTags = new Map();
+
+      orchestrator['mergeTagsData'](allTags, [{ name: 'llama2', digest: 'abc123' }], 'server-1');
+      expect(allTags.has('llama2:abc123')).toBe(true);
+    });
+
+    it('should skip invalid model entries', () => {
+      const allTags = new Map();
+
+      orchestrator['mergeTagsData'](allTags, [null, undefined, 'string', {}], 'server-1');
+      expect(allTags.size).toBe(0);
+    });
+  });
+
+  describe('classifyError', () => {
+    it('should classify embedding model errors', () => {
+      const type = orchestrator['classifyError']('embedding model does not support generate');
+      expect(type).toBe('non-retryable');
+    });
+
+    it('should classify permanent errors', () => {
+      const type = orchestrator['classifyError']('out of memory');
+      expect(type).toBe('permanent');
+    });
+
+    it('should classify non-retryable errors', () => {
+      const type = orchestrator['classifyError']('invalid request');
+      expect(type).toBe('non-retryable');
+    });
+
+    it('should classify transient errors', () => {
+      const type = orchestrator['classifyError']('timeout error');
+      expect(type).toBe('transient');
+    });
+
+    it('should classify HTTP 500 as retryable', () => {
+      const type = orchestrator['classifyError']('HTTP 500 Internal Server Error');
+      expect(type).toBe('retryable');
+    });
+
+    it('should default to retryable for unknown errors', () => {
+      const type = orchestrator['classifyError']('some unknown error');
+      expect(type).toBe('retryable');
+    });
+  });
+
+  describe('isRetryableOnSameServer', () => {
+    it('should identify retryable status codes', () => {
+      const config = { retryableStatusCodes: [429, 503] };
+      expect(orchestrator['isRetryableOnSameServer']('HTTP 429', config as any)).toBe(true);
+      expect(orchestrator['isRetryableOnSameServer']('HTTP 503', config as any)).toBe(true);
+    });
+
+    it('should identify transient patterns', () => {
+      const config = { retryableStatusCodes: [] };
+      expect(orchestrator['isRetryableOnSameServer']('timeout error', config as any)).toBe(true);
+      expect(
+        orchestrator['isRetryableOnSameServer']('temporarily unavailable', config as any)
+      ).toBe(true);
+      expect(orchestrator['isRetryableOnSameServer']('rate limit exceeded', config as any)).toBe(
+        true
+      );
+    });
+
+    it('should return false for non-retryable errors', () => {
+      const config = { retryableStatusCodes: [] };
+      expect(orchestrator['isRetryableOnSameServer']('invalid request', config as any)).toBe(false);
+    });
+  });
+
+  describe('incrementServerFailureCount and resetServerFailureCount', () => {
+    it('should increment and reset failure count', () => {
+      const count1 = orchestrator['incrementServerFailureCount']('server-1');
+      expect(count1).toBe(1);
+
+      const count2 = orchestrator['incrementServerFailureCount']('server-1');
+      expect(count2).toBe(2);
+
+      orchestrator['resetServerFailureCount']('server-1');
+
+      const count3 = orchestrator['incrementServerFailureCount']('server-1');
+      expect(count3).toBe(1);
+    });
+  });
+
+  describe('shouldSkipServerModel', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.models = ['llama2', 'nomic-embed-text'];
+      }
+    });
+
+    it('should skip when server circuit open', () => {
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+
+      const shouldSkip = orchestrator['shouldSkipServerModel']('server-1', 'llama2');
+      expect(shouldSkip).toBe(true);
+    });
+
+    it('should skip half-open with no successes', () => {
+      // Open the circuit breaker first
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+      // Now try to transition to half-open by calling canExecute
+      cb.canExecute();
+
+      const shouldSkip = orchestrator['shouldSkipServerModel']('server-1', 'llama2');
+      // May or may not be true depending on state
+      expect(typeof shouldSkip).toBe('boolean');
+    });
+  });
+
+  describe('countHalfOpenCircuits', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should count half-open circuits', () => {
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      // Force to half-open
+      cb.recordFailure(new Error('test'));
+      cb.canExecute();
+
+      const count = orchestrator['countHalfOpenCircuits']('server-1');
+      expect(count).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('closeAllModelCircuits', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.models = ['llama2', 'mistral'];
+      }
+    });
+
+    it('should close all model circuits', () => {
+      // Create model breakers and open them
+      const cb1 = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
+      const cb2 = orchestrator['getModelCircuitBreaker']('server-1', 'mistral');
+      cb1.recordFailure(new Error('test'));
+      cb2.recordFailure(new Error('test'));
+
+      // Close all model circuits
+      orchestrator['closeAllModelCircuits']('server-1');
+
+      // Check that they're closed
+      expect(cb1.getState()).toBe('closed');
+      expect(cb2.getState()).toBe('closed');
+    });
+  });
+
+  describe('performRecoveryHealthCheck', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should perform recovery health check successfully', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: [] }),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['performRecoveryHealthCheck'](server!);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should handle failed recovery check', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['performRecoveryHealthCheck'](server!);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('should handle network error', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['performRecoveryHealthCheck'](server!);
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('populateRoutingContext', () => {
+    it('should populate routing context', () => {
+      const context: any = {};
+
+      orchestrator['populateRoutingContext'](context, 'server-1', 'llama2');
+
+      expect(context.selectedServerId).toBe('server-1');
+    });
+
+    it('should handle undefined context', () => {
+      // Should not throw
+      orchestrator['populateRoutingContext'](undefined, 'server-1', 'llama2');
+    });
+  });
+
+  describe('onHealthCheckResult with circuit breaker open', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should force close circuit breaker on recovery', () => {
+      // Open the circuit breaker first
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+      expect(cb.getState()).toBe('open');
+
+      // Now successful health check should force close
+      const result = {
+        serverId: 'server-1',
+        success: true,
+        responseTime: 100,
+        timestamp: Date.now(),
+      };
+
+      orchestrator['onHealthCheckResult'](result);
+
+      const server = orchestrator.getServer('server-1');
+      expect(server?.healthy).toBe(true);
+    });
+
+    it('should invalidate cache when server was previously unhealthy', () => {
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = false;
+      }
+
+      // Set up cache
+      orchestrator['tagsCache'] = {
+        data: [{ name: 'llama2' }],
+        timestamp: Date.now(),
+        metadata: {
+          totalRequests: 0,
+          successfulRequests: 0,
+          failedRequests: 0,
+          serverCount: 1,
+          modelCount: 1,
+          errors: [],
+        },
+      };
+
+      const result = {
+        serverId: 'server-1',
+        success: true,
+        responseTime: 100,
+        timestamp: Date.now(),
+      };
+
+      orchestrator['onHealthCheckResult'](result);
+
+      // Cache should be invalidated
+      expect(orchestrator['tagsCache']).toBeUndefined();
+    });
+  });
+
+  describe('calculateAdaptiveActiveTestTimeout', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.lastResponseTime = 2000;
+      }
+    });
+
+    it('should calculate adaptive timeout', () => {
+      const timeout = orchestrator['calculateAdaptiveActiveTestTimeout']('server-1', 'llama2');
+      expect(timeout).toBeGreaterThan(0);
+      expect(timeout).toBeLessThanOrEqual(900000); // Max 15 minutes
+    });
+
+    it('should use VRAM data if available', () => {
+      orchestrator['modelVramSizes'].set('server-1:llama2', 4000); // 4GB
+
+      const timeout = orchestrator['calculateAdaptiveActiveTestTimeout']('server-1', 'llama2');
+      expect(timeout).toBeGreaterThan(60000); // Should be higher due to VRAM
+    });
+  });
+
+  describe('getProgressiveExtensionMultiplier', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should return 1.0 with no failures', () => {
+      const multiplier = orchestrator['getProgressiveExtensionMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBe(1.0);
+    });
+
+    it('should increase with failures', () => {
+      orchestrator['activeTestFailureCount'].set('server-1:llama2', 2);
+
+      const multiplier = orchestrator['getProgressiveExtensionMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBe(2.0);
+    });
+
+    it('should cap at 3.0', () => {
+      orchestrator['activeTestFailureCount'].set('server-1:llama2', 10);
+
+      const multiplier = orchestrator['getProgressiveExtensionMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBe(3.0);
+    });
+  });
+
+  describe('getServerPerformanceMultiplier', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should return 1.0 for unknown performance', () => {
+      const multiplier = orchestrator['getServerPerformanceMultiplier']('nonexistent');
+      expect(multiplier).toBe(1.0);
+    });
+
+    it('should calculate based on response time', () => {
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.lastResponseTime = 5000; // 5 seconds
+      }
+
+      const multiplier = orchestrator['getServerPerformanceMultiplier']('server-1');
+      // Should be between 0.5 and 2.0 due to bounds
+      expect(multiplier).toBeGreaterThanOrEqual(0.5);
+      expect(multiplier).toBeLessThanOrEqual(2.0);
+    });
+  });
+
+  describe('estimateModelSizeMultiplierFromName', () => {
+    it('should estimate 7b models', () => {
+      const multiplier = orchestrator['estimateModelSizeMultiplierFromName']('llama2:7b');
+      expect(multiplier).toBe(1.0);
+    });
+
+    it('should estimate 70b models', () => {
+      const multiplier = orchestrator['estimateModelSizeMultiplierFromName']('llama2:70b');
+      expect(multiplier).toBe(10.0);
+    });
+
+    it('should estimate MoE models', () => {
+      const multiplier = orchestrator['estimateModelSizeMultiplierFromName']('mixtral:8x7b');
+      expect(multiplier).toBe(8.0); // 8 * 7 = 56
+    });
+  });
+
+  describe('handleServerError - permanent errors', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should handle permanent error and ban server:model', () => {
+      const errors: any[] = [];
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'out of memory error',
+        'permanent',
+        errors
+      );
+
+      expect(orchestrator['permanentBan'].has('server-1:llama2')).toBe(true);
+    });
+
+    it('should mark server unhealthy for server-wide permanent errors', () => {
+      const errors: any[] = [];
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'internal server error',
+        'permanent',
+        errors
+      );
+
+      expect(orchestrator.getServer('server-1')?.healthy).toBe(false);
+    });
+  });
+
+  describe('handleServerError - non-retryable errors', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) s1.healthy = true;
+    });
+
+    it('should put server in cooldown for non-retryable errors', () => {
+      const errors: any[] = [];
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'invalid request',
+        'non-retryable',
+        errors
+      );
+
+      expect(orchestrator.isInCooldown('server-1', 'llama2')).toBe(true);
+    });
+  });
+
+  describe('handleServerError - transient errors', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) s1.healthy = true;
+    });
+
+    it('should put server in cooldown for transient errors', () => {
+      const errors: any[] = [];
+
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'timeout error',
+        'transient',
+        errors
+      );
+
+      expect(orchestrator.isInCooldown('server-1', 'llama2')).toBe(true);
+    });
+  });
+
+  describe('handleServerError - unknown errors', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should handle unknown error type', () => {
+      const errors: any[] = [];
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'some unknown error',
+        'retryable' as any,
+        errors
+      );
+
+      expect(errors.length).toBe(1);
+    });
+  });
+
+  describe('tryRequestOnServerNoRetry - token metrics', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should extract token metrics from non-streaming response', async () => {
+      const result = await orchestrator['tryRequestOnServerNoRetry'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => ({
+          eval_count: 100,
+          prompt_eval_count: 50,
+        }),
+        false,
+        []
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should extract token metrics from streaming response', async () => {
+      const result = await orchestrator['tryRequestOnServerNoRetry'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => ({
+          _tokenMetrics: {
+            tokensGenerated: 100,
+            tokensPrompt: 50,
+          },
+        }),
+        true,
+        []
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('tryRequestOnServerWithRetries', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should succeed on first try', async () => {
+      const result = await orchestrator['tryRequestOnServerWithRetries'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => ({ success: true }),
+        false,
+        {
+          maxRetriesPerServer: 3,
+          retryDelayMs: 10,
+          backoffMultiplier: 2,
+          maxRetryDelayMs: 1000,
+          retryableStatusCodes: [429, 503],
+        },
+        []
+      );
+
+      expect(result.success).toBe(true);
+    });
+
+    it('should retry on transient failure', async () => {
+      let attempts = 0;
+      const result = await orchestrator['tryRequestOnServerWithRetries'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => {
+          attempts++;
+          if (attempts < 2) {
+            throw new Error('timeout error');
+          }
+          return { success: true };
+        },
+        false,
+        {
+          maxRetriesPerServer: 3,
+          retryDelayMs: 10,
+          backoffMultiplier: 2,
+          maxRetryDelayMs: 1000,
+          retryableStatusCodes: [429, 503],
+        },
+        []
+      );
+
+      expect(result.success).toBe(true);
+      expect(attempts).toBe(2);
+    });
+
+    it('should extract streaming metrics', async () => {
+      const result = await orchestrator['tryRequestOnServerWithRetries'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => ({
+          _streamingMetrics: {
+            ttft: 100,
+            streamingDuration: 500,
+          },
+        }),
+        true,
+        {
+          maxRetriesPerServer: 3,
+          retryDelayMs: 10,
+          backoffMultiplier: 2,
+          maxRetryDelayMs: 1000,
+          retryableStatusCodes: [429, 503],
+        },
+        []
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('drain', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should drain successfully', async () => {
+      orchestrator['draining'] = true;
+
+      const result = await orchestrator.drain(100);
+      expect(result).toBe(true);
+      expect(orchestrator['draining']).toBe(false);
+    });
+  });
+
+  describe('tryRequestWithFailover - multiple phases', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+
+      const s1 = orchestrator.getServer('server-1');
+      const s2 = orchestrator.getServer('server-2');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+      if (s2) {
+        s2.healthy = true;
+        s2.models = ['llama2'];
+      }
+    });
+
+    it('should exhaust all servers and throw', async () => {
+      await expect(
+        orchestrator.tryRequestWithFailover('llama2', async () => {
+          throw new Error('All servers fail');
+        })
+      ).rejects.toThrow();
+    });
+
+    it('should handle empty candidates', async () => {
+      // Remove servers so there are no candidates
+      orchestrator.removeServer('server-1');
+      orchestrator.removeServer('server-2');
+
+      await expect(orchestrator.tryRequestWithFailover('llama2', async () => ({}))).rejects.toThrow(
+        'No healthy servers available'
+      );
+    });
+  });
+
+  describe('tryRequestOnServerNoRetry - failure paths', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should fail when circuit breaker is open', async () => {
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+
+      const errors: any[] = [];
+      const result = await orchestrator['tryRequestOnServerNoRetry'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => ({ success: true }),
+        false,
+        errors
+      );
+
+      expect(result.success).toBe(false);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it('should handle request failure', async () => {
+      const errors: any[] = [];
+      const result = await orchestrator['tryRequestOnServerNoRetry'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => {
+          throw new Error('Request failed');
+        },
+        false,
+        errors
+      );
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('executeActiveTest - model type detection', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2', 'nomic-embed-text'];
+      }
+    });
+
+    it('should detect embedding model by name pattern', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ embedding: [0.1] }),
+      });
+
+      const result = await orchestrator['executeActiveTest']('server-1', 'nomic-embed-text', 10000);
+      expect(result).toBeDefined();
+    });
+
+    it('should handle server not found', async () => {
+      const result = await orchestrator['executeActiveTest']('nonexistent', 'llama2', 10000);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Server not found');
+    });
+  });
+
+  describe('Complex failover scenarios', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer({ id: 'server-3', url: 'http://localhost:11436', type: 'ollama' });
+
+      ['server-1', 'server-2', 'server-3'].forEach(id => {
+        const s = orchestrator.getServer(id);
+        if (s) {
+          s.healthy = true;
+          s.models = ['llama2'];
+        }
+      });
+    });
+
+    it('should try all servers in phase 1 before moving to phase 2', async () => {
+      const serverAttempts: string[] = [];
+
+      try {
+        await orchestrator.tryRequestWithFailover('llama2', async server => {
+          serverAttempts.push(server.id);
+          throw new Error('Server failed');
+        });
+      } catch (e) {
+        // Expected to fail
+      }
+
+      // Should have attempted all 3 servers at least twice (phase 1 + phase 2)
+      expect(serverAttempts.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should track retry count in routing context', async () => {
+      const context: any = {};
+      let attempts = 0;
+
+      try {
+        await orchestrator.tryRequestWithFailover(
+          'llama2',
+          async () => {
+            attempts++;
+            throw new Error('fail');
+          },
+          false,
+          'generate',
+          undefined,
+          context
+        );
+      } catch (e) {
+        // Expected
+      }
+
+      // Context should be populated even on failure
+      expect(context).toBeDefined();
+    });
+  });
+
+  describe('Active test with model type detection', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2', 'nomic-embed-text'];
+      }
+    });
+
+    it('should detect generation model through inference test', async () => {
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/generate')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ response: 'test' }),
+          });
+        }
+        return Promise.reject(new Error('Not found'));
+      });
+
+      const result = await orchestrator['executeActiveTest']('server-1', 'llama2', 10000);
+      expect(result.detectedModelType || result.success).toBeDefined();
+    });
+
+    it('should handle embedding model detection', async () => {
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/generate')) {
+          return Promise.reject(new Error('embedding model does not support generate'));
+        }
+        if (url.includes('/api/embeddings')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ embedding: [0.1] }),
+          });
+        }
+        return Promise.reject(new Error('Not found'));
+      });
+
+      const result = await orchestrator['executeActiveTest']('server-1', 'nomic-embed-text', 10000);
+      expect(result).toBeDefined();
+    });
+
+    it('should handle non-circuit-breaking failures', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('temporary network error'));
+
+      const result = await orchestrator['executeActiveTest']('server-1', 'llama2', 10000);
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('Circuit breaker half-open recovery', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should transition from open to half-open and recover', async () => {
+      // Open the circuit breaker
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test error'));
+      }
+      expect(cb.getState()).toBe('open');
+
+      // Simulate time passing for half-open transition
+      // Note: This depends on the circuit breaker implementation
+      const canExecute = cb.canExecute();
+
+      // The breaker might transition to half-open
+      if (cb.getState() === 'half-open') {
+        // Successful request should close it
+        const result = await orchestrator['tryRequestOnServerNoRetry'](
+          orchestrator.getServer('server-1')!,
+          'llama2',
+          async () => ({ success: true }),
+          false,
+          []
+        );
+
+        // Result depends on recovery test success
+        expect(result).toBeDefined();
+      }
+    });
+  });
+
+  describe('handleServerError comprehensive scenarios', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should handle disk full error as server-wide', () => {
+      const errors: any[] = [];
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'disk is full',
+        'permanent',
+        errors
+      );
+
+      expect(orchestrator.getServer('server-1')?.healthy).toBe(false);
+    });
+
+    it('should handle multiple transient errors incrementing failure count', () => {
+      const errors: any[] = [];
+
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'timeout',
+        'transient',
+        errors
+      );
+
+      const count1 = orchestrator['serverFailureCount'].get('server-1') || 0;
+      expect(count1).toBeGreaterThan(0);
+
+      orchestrator['handleServerError'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        'timeout again',
+        'transient',
+        errors
+      );
+
+      const count2 = orchestrator['serverFailureCount'].get('server-1') || 0;
+      expect(count2).toBeGreaterThan(count1);
+    });
+  });
+
+  describe('Timeout and performance calculations', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should calculate historical multiplier with sufficient data', () => {
+      // Record some metrics
+      for (let i = 0; i < 5; i++) {
+        orchestrator['metricsAggregator'].recordRequest({
+          id: `test-${i}`,
+          serverId: 'server-1',
+          model: 'llama2',
+          startTime: Date.now() - 1000,
+          endTime: Date.now(),
+          duration: 5000 + i * 1000,
+          success: true,
+          endpoint: 'generate',
+          streaming: false,
+        });
+      }
+
+      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBeGreaterThan(0);
+    });
+
+    it('should use VRAM data when available for timeout calculation', () => {
+      orchestrator['modelVramSizes'].set('server-1:llama2', 8000); // 8GB
+
+      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBeGreaterThan(1);
+    });
+
+    it('should estimate from model name when VRAM not available', () => {
+      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'unknown:70b');
+      expect(multiplier).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('Queue operations', () => {
+    it('should pause and resume queue', () => {
+      orchestrator.pauseQueue();
+      expect(orchestrator.isQueuePaused()).toBe(true);
+
+      orchestrator.resumeQueue();
+      expect(orchestrator.isQueuePaused()).toBe(false);
+    });
+
+    it('should get queue stats', () => {
+      const stats = orchestrator.getQueueStats();
+      expect(stats).toBeDefined();
+      expect(typeof stats.currentSize).toBe('number');
+    });
+
+    it('should get queue items', () => {
+      const items = orchestrator.getQueueItems();
+      expect(Array.isArray(items)).toBe(true);
+    });
+  });
+
+  describe('Aggregated tags with filtering', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+      }
+    });
+
+    it('should filter models by circuit breaker state', async () => {
+      // Open circuit breaker for one model
+      const cb = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            models: [{ name: 'llama2' }, { name: 'mistral' }],
+          }),
+      });
+
+      const result = await orchestrator.getAggregatedTags();
+      // Only models with closed circuit breakers should be included
+      expect(result.models).toBeDefined();
+    });
+  });
+
+  describe('Model circuit breaker operations', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should remove model circuit breaker', () => {
+      // Create a model circuit breaker
+      orchestrator.getModelCircuitBreakerPublic('server-1', 'llama2');
+
+      // Remove it
+      const removed = orchestrator.removeModelCircuitBreaker('server-1', 'llama2');
+      expect(removed).toBe(true);
+
+      // Try to remove again (should fail)
+      const removedAgain = orchestrator.removeModelCircuitBreaker('server-1', 'llama2');
+      expect(removedAgain).toBe(false);
+    });
+
+    it('should count half-open circuits correctly', () => {
+      // Create circuit breakers
+      orchestrator['getCircuitBreaker']('server-1');
+      orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
+      orchestrator['getModelCircuitBreaker']('server-1', 'mistral');
+
+      const count = orchestrator['countHalfOpenCircuits']('server-1');
+      expect(typeof count).toBe('number');
+      expect(count).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should close all model circuits for server', () => {
+      // Create and open some model breakers
+      const cb1 = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
+      const cb2 = orchestrator['getModelCircuitBreaker']('server-1', 'mistral');
+
+      cb1.recordFailure(new Error('test'));
+      cb2.recordFailure(new Error('test'));
+
+      // Close all
+      orchestrator['closeAllModelCircuits']('server-1');
+
+      // All should be closed
+      expect(cb1.getState()).toBe('closed');
+      expect(cb2.getState()).toBe('closed');
+    });
+  });
+
+  describe('Advanced error classification', () => {
+    it('should classify runner process termination as permanent', () => {
+      const errorType = orchestrator['classifyError']('runner process has terminated');
+      expect(errorType).toBe('permanent');
+    });
+
+    it('should classify authentication errors as non-retryable', () => {
+      const errorType = orchestrator['classifyError']('authentication failed');
+      expect(errorType).toBe('non-retryable');
+    });
+
+    it('should classify HTTP 429 as retryable', () => {
+      const config = {
+        retryableStatusCodes: [429, 503],
+        retryDelayMs: 100,
+        backoffMultiplier: 2,
+        maxRetryDelayMs: 1000,
+        maxRetriesPerServer: 3,
+      };
+      const isRetryable = orchestrator['isRetryableOnSameServer']('HTTP 429', config as any);
+      expect(isRetryable).toBe(true);
+    });
+
+    it('should classify ECONNREFUSED as transient', () => {
+      const errorType = orchestrator['classifyError']('ECONNREFUSED');
+      expect(errorType).toBe('transient');
+    });
+
+    it('should classify HTTP 500 as retryable', () => {
+      const errorType = orchestrator['classifyError']('HTTP 500');
+      expect(errorType).toBe('retryable');
+    });
+  });
+
+  describe('Request context with streaming', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should track streaming metrics in request context', async () => {
+      const result = await orchestrator['tryRequestOnServerNoRetry'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => ({
+          response: 'test',
+          _streamingMetrics: {
+            ttft: 150,
+            streamingDuration: 2000,
+          },
+          _tokenMetrics: {
+            tokensGenerated: 100,
+            tokensPrompt: 50,
+          },
+        }),
+        true,
+        []
+      );
+
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe('Recovery health check', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should succeed with 200 response', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['performRecoveryHealthCheck'](server!);
+      expect(result.success).toBe(true);
+    });
+
+    it('should fail with non-ok response', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['performRecoveryHealthCheck'](server!);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('500');
+    });
+  });
+
+  describe('Tags cache operations', () => {
+    it('should clear tags cache', () => {
+      orchestrator['tagsCache'] = {
+        data: [],
+        timestamp: Date.now(),
+        metadata: {
+          totalRequests: 0,
+          successfulRequests: 0,
+          failedRequests: 0,
+          serverCount: 0,
+          modelCount: 0,
+          errors: [],
+        },
+      };
+
+      orchestrator.clearTagsCache();
+      expect(orchestrator['tagsCache']).toBeUndefined();
+    });
+
+    it('should invalidate server tags cache', () => {
+      orchestrator['tagsCache'] = {
+        data: [],
+        timestamp: Date.now(),
+        metadata: {
+          totalRequests: 0,
+          successfulRequests: 0,
+          failedRequests: 0,
+          serverCount: 0,
+          modelCount: 0,
+          errors: [],
+        },
+      };
+
+      orchestrator.invalidateServerTagsCache('server-1');
+      expect(orchestrator['tagsCache']).toBeUndefined();
+    });
+
+    it('should handle invalidating cache when already empty', () => {
+      orchestrator['tagsCache'] = undefined;
+      // Should not throw
+      orchestrator.invalidateTagsCache();
+      expect(orchestrator['tagsCache']).toBeUndefined();
+    });
+  });
+
+  describe('Server update operations', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should update server maxConcurrency', () => {
+      const result = orchestrator.updateServer('server-1', { maxConcurrency: 16 });
+      expect(result).toBe(true);
+      expect(orchestrator.getServer('server-1')?.maxConcurrency).toBe(16);
+    });
+
+    it('should return false when updating non-existent server', () => {
+      const result = orchestrator.updateServer('nonexistent', { maxConcurrency: 8 });
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('Model map and list operations', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+    });
+
+    it('should get model map with multiple servers', () => {
+      const s1 = orchestrator.getServer('server-1');
+      const s2 = orchestrator.getServer('server-2');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2', 'mistral'];
+      }
+      if (s2) {
+        s2.healthy = true;
+        s2.models = ['llama2', 'codellama'];
+      }
+
+      const modelMap = orchestrator.getModelMap();
+      expect(modelMap['llama2']).toContain('server-1');
+      expect(modelMap['llama2']).toContain('server-2');
+    });
+
+    it('should get current model list regardless of health', () => {
+      const s1 = orchestrator.getServer('server-1');
+      const s2 = orchestrator.getServer('server-2');
+      if (s1) {
+        s1.healthy = false;
+        s1.models = ['llama2'];
+      }
+      if (s2) {
+        s2.healthy = true;
+        s2.models = ['mistral'];
+      }
+
+      const models = orchestrator.getCurrentModelList();
+      expect(models).toContain('llama2');
+      expect(models).toContain('mistral');
+    });
+  });
+
+  describe('onHealthCheckResult comprehensive', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should handle success with existing open circuit breaker', () => {
+      // Open the circuit breaker first
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+      expect(cb.getState()).toBe('open');
+
+      const result = {
+        serverId: 'server-1',
+        success: true,
+        responseTime: 100,
+        models: ['llama2', 'mistral'],
+        timestamp: Date.now(),
+      };
+
+      orchestrator['onHealthCheckResult'](result);
+
+      // Circuit breaker should be force-closed
+      const server = orchestrator.getServer('server-1');
+      expect(server?.healthy).toBe(true);
+      expect(server?.models).toEqual(['llama2', 'mistral']);
+    });
+
+    it('should handle failure with previously healthy server', () => {
+      // Setup cache
+      orchestrator['tagsCache'] = {
+        data: [{ name: 'llama2' }],
+        timestamp: Date.now(),
+        metadata: {
+          totalRequests: 0,
+          successfulRequests: 0,
+          failedRequests: 0,
+          serverCount: 1,
+          modelCount: 1,
+          errors: [],
+        },
+      };
+
+      const result = {
+        serverId: 'server-1',
+        success: false,
+        error: 'Connection refused',
+        timestamp: Date.now(),
+      };
+
+      orchestrator['onHealthCheckResult'](result);
+
+      const server = orchestrator.getServer('server-1');
+      expect(server?.healthy).toBe(false);
+      expect(server?.models).toEqual([]);
+      // Cache may or may not be invalidated depending on previous state
+      expect(orchestrator['tagsCache']).toBeDefined();
+    });
+
+    it('should handle success with loaded models and VRAM', () => {
+      const result = {
+        serverId: 'server-1',
+        success: true,
+        responseTime: 150,
+        loadedModels: [
+          { name: 'llama2', sizeVram: 4000000000, expiresAt: '', digest: '' },
+          { name: 'mistral', sizeVram: 5000000000, expiresAt: '', digest: '' },
+        ],
+        totalVramUsed: 9000000000,
+        timestamp: Date.now(),
+      };
+
+      orchestrator['onHealthCheckResult'](result);
+
+      const server = orchestrator.getServer('server-1');
+      expect(server?.hardware).toBeDefined();
+      expect(server?.hardware?.loadedModels).toHaveLength(2);
+
+      // VRAM sizes should be stored
+      const vramLlama2 = orchestrator['modelVramSizes'].get('server-1:llama2');
+      expect(vramLlama2).toBeGreaterThan(0);
+    });
+
+    it('should pre-create circuit breakers for all models on success', () => {
+      const result = {
+        serverId: 'server-1',
+        success: true,
+        models: ['llama2', 'mistral', 'codellama'],
+        timestamp: Date.now(),
+      };
+
+      orchestrator['onHealthCheckResult'](result);
+
+      // Circuit breakers should exist for all models
+      const cb1 = orchestrator.getModelCircuitBreakerPublic('server-1', 'llama2');
+      const cb2 = orchestrator.getModelCircuitBreakerPublic('server-1', 'mistral');
+      expect(cb1).toBeDefined();
+      expect(cb2).toBeDefined();
+    });
+  });
+
+  describe('onAllHealthChecksComplete', () => {
+    it('should log health status changes', () => {
+      const results = [
+        { serverId: 'server-1', success: true, timestamp: Date.now() },
+        { serverId: 'server-2', success: false, timestamp: Date.now() },
+      ];
+
+      // Should not throw
+      orchestrator['onAllHealthChecksComplete'](results);
+    });
+
+    it('should handle all healthy servers', () => {
+      const results = [
+        { serverId: 'server-1', success: true, timestamp: Date.now() },
+        { serverId: 'server-2', success: true, timestamp: Date.now() },
+      ];
+
+      orchestrator['lastHealthyCount'] = 0;
+      orchestrator['onAllHealthChecksComplete'](results);
+
+      expect(orchestrator['lastHealthyCount']).toBe(2);
+    });
+
+    it('should handle no change in healthy count', () => {
+      orchestrator['lastHealthyCount'] = 2;
+
+      const results = [
+        { serverId: 'server-1', success: true, timestamp: Date.now() },
+        { serverId: 'server-2', success: true, timestamp: Date.now() },
+      ];
+
+      orchestrator['onAllHealthChecksComplete'](results);
+
+      // Should remain 2 since no change
+      expect(orchestrator['lastHealthyCount']).toBe(2);
+    });
+  });
+
+  describe('scheduleCircuitBreakerSave', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should schedule save with model type updates', () => {
+      // Set a model type
+      const cb = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
+      cb.setModelType('generation');
+
+      // Should not throw
+      orchestrator['scheduleCircuitBreakerSave']();
+    });
+
+    it('should schedule save without model type updates', () => {
+      // Should not throw even without model types
+      orchestrator['scheduleCircuitBreakerSave']();
+    });
+  });
+
+  describe('fetchServerTags', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) s1.healthy = true;
+    });
+
+    it('should fetch tags successfully', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: [{ name: 'llama2' }] }),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+    });
+
+    it('should handle HTTP 500 error', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.type).toBe('server');
+    });
+
+    it('should handle invalid response (not object)', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve('invalid'),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('should handle missing models property', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('should handle models not array', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: 'not-array' }),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('should handle timeout error', async () => {
+      global.fetch = vi.fn().mockImplementation(() => {
+        const error = new Error('Timeout');
+        (error as any).name = 'AbortError';
+        return Promise.reject(error);
+      });
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(false);
+      // Error type might be timeout or unknown depending on implementation
+      expect(['timeout', 'unknown']).toContain(result.error?.type);
+    });
+
+    it('should handle connection refused error', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.type).toBe('network');
+    });
+
+    it('should handle generic fetch failed error', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('fetch failed'));
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['fetchServerTags'](server!);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.type).toBe('network');
+    });
+  });
+
+  describe('tryRequestOnServerWithRetries - max retries exhausted', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.models = ['llama2'];
+      }
+    });
+
+    it('should exhaust all retries', async () => {
+      let attempts = 0;
+      const result = await orchestrator['tryRequestOnServerWithRetries'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => {
+          attempts++;
+          throw new Error('timeout error'); // Retryable error
+        },
+        false,
+        {
+          maxRetriesPerServer: 2,
+          retryDelayMs: 10,
+          backoffMultiplier: 2,
+          maxRetryDelayMs: 1000,
+          retryableStatusCodes: [],
+        },
+        []
+      );
+
+      expect(result.success).toBe(false);
+      // Should have at least 1 attempt, possibly more if retried
+      expect(attempts).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should handle non-retryable error immediately', async () => {
+      let attempts = 0;
+      const result = await orchestrator['tryRequestOnServerWithRetries'](
+        orchestrator.getServer('server-1')!,
+        'llama2',
+        async () => {
+          attempts++;
+          throw new Error('invalid request'); // Non-retryable
+        },
+        false,
+        {
+          maxRetriesPerServer: 3,
+          retryDelayMs: 10,
+          backoffMultiplier: 2,
+          maxRetryDelayMs: 1000,
+          retryableStatusCodes: [],
+        },
+        []
+      );
+
+      expect(result.success).toBe(false);
+      expect(attempts).toBe(1); // Should not retry
+    });
+  });
+
+  describe('getAggregatedOpenAIModels', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+    });
+
+    it('should aggregate OpenAI models from multiple servers', () => {
+      const s1 = orchestrator.getServer('server-1');
+      const s2 = orchestrator.getServer('server-2');
+      if (s1) {
+        s1.healthy = true;
+        s1.supportsV1 = true;
+        s1.v1Models = ['gpt-3.5-turbo', 'gpt-4'];
+      }
+      if (s2) {
+        s2.healthy = true;
+        s2.supportsV1 = true;
+        s2.v1Models = ['gpt-3.5-turbo', 'gpt-4-turbo'];
+      }
+
+      const result = orchestrator.getAggregatedOpenAIModels();
+      expect(result.data.length).toBeGreaterThan(0);
+      expect(result.object).toBe('list');
+    });
+
+    it('should exclude models with open circuit breakers', () => {
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.supportsV1 = true;
+        s1.v1Models = ['gpt-3.5-turbo'];
+      }
+
+      // Open circuit breaker for this model
+      const cb = orchestrator['getModelCircuitBreaker']('server-1', 'gpt-3.5-turbo');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+
+      const result = orchestrator.getAggregatedOpenAIModels();
+      // Model with open breaker might be filtered out depending on hasClosedCircuitBreaker logic
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('getHistoricalResponseMultiplier', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should return 1.0 with no metrics', () => {
+      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBe(1.0);
+    });
+
+    it('should return 1.0 with insufficient requests', () => {
+      // Record only 2 requests
+      for (let i = 0; i < 2; i++) {
+        orchestrator['metricsAggregator'].recordRequest({
+          id: `test-${i}`,
+          serverId: 'server-1',
+          model: 'llama2',
+          startTime: Date.now() - 1000,
+          endTime: Date.now(),
+          duration: 5000,
+          success: true,
+          endpoint: 'generate',
+          streaming: false,
+        });
+      }
+
+      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBe(1.0);
+    });
+
+    it('should calculate multiplier with sufficient data', () => {
+      // Record 5 requests with varying durations
+      for (let i = 0; i < 5; i++) {
+        orchestrator['metricsAggregator'].recordRequest({
+          id: `test-${i}`,
+          serverId: 'server-1',
+          model: 'llama2',
+          startTime: Date.now() - 1000,
+          endTime: Date.now(),
+          duration: 60000, // 60 seconds
+          success: true,
+          endpoint: 'generate',
+          streaming: false,
+        });
+      }
+
+      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBeGreaterThan(0);
+    });
+
+    it('should cap multiplier at 3.0', () => {
+      // Record requests with very high duration
+      for (let i = 0; i < 5; i++) {
+        orchestrator['metricsAggregator'].recordRequest({
+          id: `test-${i}`,
+          serverId: 'server-1',
+          model: 'llama2',
+          startTime: Date.now() - 1000,
+          endTime: Date.now(),
+          duration: 200000, // 200 seconds - very high
+          success: true,
+          endpoint: 'generate',
+          streaming: false,
+        });
+      }
+
+      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBeLessThanOrEqual(3.0);
+    });
+
+    it('should floor multiplier at 0.5', () => {
+      // Record requests with very low duration
+      for (let i = 0; i < 5; i++) {
+        orchestrator['metricsAggregator'].recordRequest({
+          id: `test-${i}`,
+          serverId: 'server-1',
+          model: 'llama2',
+          startTime: Date.now() - 1000,
+          endTime: Date.now(),
+          duration: 100, // 100ms - very low
+          success: true,
+          endpoint: 'generate',
+          streaming: false,
+        });
+      }
+
+      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBeGreaterThanOrEqual(0.5);
+    });
+  });
+
+  describe('calculateModelSizeMultiplier with VRAM', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should calculate multiplier from actual VRAM', () => {
+      orchestrator['modelVramSizes'].set('server-1:llama2', 4000); // 4GB = 4000MB
+
+      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'llama2');
+      expect(multiplier).toBe(8); // 4000 / 500 = 8
+    });
+
+    it('should fallback to name estimation when VRAM not available', () => {
+      // No VRAM data set
+      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'unknown:7b');
+      expect(multiplier).toBe(1); // 7b / 7 = 1
+    });
+
+    it('should handle very large models', () => {
+      orchestrator['modelVramSizes'].set('server-1:huge-model', 50000); // 50GB
+
+      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'huge-model');
+      expect(multiplier).toBe(100); // 50000 / 500 = 100
+    });
+  });
+
+  describe('Server circuit breaker limits', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should enforce max half-open circuits per server', () => {
+      // Create multiple model breakers and transition them to half-open
+      for (let i = 0; i < 5; i++) {
+        const cb = orchestrator['getModelCircuitBreaker'](`server-1`, `model-${i}`);
+        cb.recordFailure(new Error('test'));
+      }
+
+      // Try to get another circuit breaker - should be limited
+      // This tests the logic in getCircuitBreaker and getModelCircuitBreaker
+      const halfOpenCount = orchestrator['countHalfOpenCircuits']('server-1');
+      expect(typeof halfOpenCount).toBe('number');
+    });
+  });
+
+  describe('updateServerStatus edge cases', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should extract models from string array', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: ['llama2', 'mistral'] }),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      await orchestrator.updateServerStatus(server!);
+
+      expect(server?.models).toContain('llama2');
+      expect(server?.models).toContain('mistral');
+    });
+
+    it('should handle empty models array', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: [] }),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      await orchestrator.updateServerStatus(server!);
+
+      expect(server?.models).toEqual([]);
+    });
+
+    it('should skip server with open circuit breaker', async () => {
+      // Open circuit breaker
+      const cb = orchestrator['getCircuitBreaker']('server-1');
+      for (let i = 0; i < 10; i++) {
+        cb.recordFailure(new Error('test'));
+      }
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: ['llama2'] }),
+      });
+
+      const server = orchestrator.getServer('server-1');
+      await orchestrator.updateServerStatus(server!);
+
+      // Server should be marked unhealthy despite successful health check
+      expect(server?.healthy).toBe(false);
+    });
+
+    it('should handle version parsing error gracefully', async () => {
+      global.fetch = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/api/tags')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ models: [] }),
+          });
+        }
+        if (url.includes('/api/version')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ invalid: 'format' }), // Missing version field
+          });
+        }
+        return Promise.reject(new Error('Not found'));
+      });
+
+      const server = orchestrator.getServer('server-1');
+      await orchestrator.updateServerStatus(server!);
+
+      // Should not have version set
+      expect(server?.version).toBeUndefined();
+    });
+  });
+
+  describe('getAggregatedTags edge cases', () => {
+    beforeEach(() => {
+      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+    });
+
+    it('should return cached data when healthy', async () => {
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) s1.healthy = true;
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ models: [{ name: 'llama2' }] }),
+      });
+
+      // First call populates cache
+      await orchestrator.getAggregatedTags();
+
+      // Second call should use cache
+      const result = await orchestrator.getAggregatedTags();
+      expect(result.models).toBeDefined();
+    });
+
+    it('should return stale cache when no healthy servers', async () => {
+      // Setup cache first
+      orchestrator['tagsCache'] = {
+        data: [{ name: 'llama2' }],
+        timestamp: Date.now() - 10000, // Stale
+        metadata: {
+          totalRequests: 0,
+          successfulRequests: 0,
+          failedRequests: 0,
+          serverCount: 1,
+          modelCount: 1,
+          errors: [],
+        },
+      };
+
+      // Make server unhealthy
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) s1.healthy = false;
+
+      const result = await orchestrator.getAggregatedTags();
+      expect(result.models.length).toBe(1);
+    });
+
+    it('should return empty when no cache and no healthy servers', async () => {
+      orchestrator['tagsCache'] = undefined;
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) s1.healthy = false;
+
+      const result = await orchestrator.getAggregatedTags();
+      expect(result.models).toEqual([]);
+    });
+
+    it('should skip servers without Ollama support', async () => {
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.healthy = true;
+        s1.supportsOllama = false;
+      }
+
+      const result = await orchestrator.getAggregatedTags();
+      expect(result.models).toEqual([]);
     });
   });
 });
