@@ -1122,7 +1122,7 @@ describe('AIOrchestrator', () => {
     it('should throw when server not found', async () => {
       await expect(
         orchestrator.requestToServer('nonexistent', 'llama2', async () => ({ ok: true }))
-      ).rejects.toThrow('Server not found');
+      ).rejects.toThrow('Server not found: nonexistent');
     });
 
     it('should throw when server not healthy', async () => {
@@ -2626,7 +2626,7 @@ describe('AIOrchestrator', () => {
     it('should handle server not found', async () => {
       const result = await orchestrator['executeActiveTest']('nonexistent', 'llama2', 10000);
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Server not found');
+      expect(result.error).toBe('Server not found: nonexistent');
     });
   });
 

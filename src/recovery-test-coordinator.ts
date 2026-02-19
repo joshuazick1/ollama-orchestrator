@@ -12,7 +12,7 @@
 
 import { CircuitBreaker } from './circuit-breaker.js';
 import { featureFlags } from './config/feature-flags.js';
-import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
+import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 import { Timer } from './utils/timer.js';
 
@@ -427,7 +427,7 @@ export class RecoveryTestCoordinator {
       state.currentTestBreakerId = null;
 
       if (response.ok) {
-        const data = await response.json().catch(() => null);
+        const data = await parseResponse(response);
         if (data?.response) {
           logger.info(`Model-level recovery test passed for ${breakerName}`, {
             duration,

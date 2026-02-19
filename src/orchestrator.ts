@@ -19,6 +19,7 @@ import {
 } from './circuit-breaker.js';
 import type { HealthCheckConfig, OrchestratorConfig, RetryConfig } from './config/config.js';
 import { DEFAULT_CONFIG, getConfigManager } from './config/config.js';
+import { ERROR_MESSAGES } from './constants/index.js';
 import { getDecisionHistory } from './decision-history.js';
 import { HealthCheckScheduler, type HealthCheckResult } from './health-check-scheduler.js';
 import { LoadBalancer, calculateServerScore, type LoadBalancerConfig } from './load-balancer.js';
@@ -39,7 +40,7 @@ import { RequestQueue, type QueueConfig } from './queue/index.js';
 import { getRecoveryTestCoordinator } from './recovery-test-coordinator.js';
 import { getRequestHistory } from './request-history.js';
 import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
-import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
+import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
 
@@ -422,7 +423,11 @@ export class AIOrchestrator {
   }> {
     const server = this.getServer(serverId);
     if (!server) {
-      return { success: false, duration: 0, error: 'Server not found' };
+      return {
+        success: false,
+        duration: 0,
+        error: ERROR_MESSAGES.SERVER_NOT_FOUND_COLON(serverId),
+      };
     }
 
     const modelCb = this.getModelCircuitBreaker(serverId, model);
@@ -553,7 +558,7 @@ export class AIOrchestrator {
           }
 
           // Parse response to verify it worked
-          const data = await response.json().catch(() => null);
+          const data = await parseResponse(response);
           if (!data) {
             throw new Error('Invalid response');
           }
@@ -619,7 +624,7 @@ export class AIOrchestrator {
           }
 
           // Parse response to verify it worked
-          const data = await response.json().catch(() => null);
+          const data = await parseResponse(response);
           if (!data?.embedding) {
             throw new Error('Invalid response - no embedding');
           }
@@ -708,7 +713,7 @@ export class AIOrchestrator {
         logger.warn(`Persistence disabled - server removal will not be saved to disk`);
       }
     } else {
-      logger.warn(`Server ${serverId} not found for removal`);
+      logger.warn(ERROR_MESSAGES.SERVER_NOT_FOUND_COLON(serverId));
     }
   }
 
@@ -1658,7 +1663,7 @@ export class AIOrchestrator {
     // Find the server by ID
     const server = this.servers.find(s => s.id === serverId);
     if (!server) {
-      throw new Error(`Server not found: ${serverId}`);
+      throw new Error(ERROR_MESSAGES.SERVER_NOT_FOUND_COLON(serverId));
     }
 
     if (!server.healthy && !bypassCircuitBreaker) {

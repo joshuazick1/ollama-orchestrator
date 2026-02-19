@@ -6,6 +6,8 @@
 export const ERROR_MESSAGES = {
   // Server errors
   SERVER_NOT_FOUND: (id: string) => `Server '${id}' not found`,
+  SERVER_NOT_FOUND_COLON: (id: string) => `Server not found: ${id}`,
+  SERVER_NOT_FOUND_PLAIN: 'Server not found',
   SERVER_URL_NOT_FOUND: (id: string) => `Server URL not found for ${id}`,
   SERVER_NOT_HEALTHY: (id: string) => `Server is not healthy: ${id}`,
   SERVER_ALREADY_EXISTS: (id: string) => `Server '${id}' already exists`,

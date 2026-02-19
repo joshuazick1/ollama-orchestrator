@@ -3,6 +3,7 @@
  * Model warmup and cold start management system
  */
 
+import { ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator.types.js';
 import { getErrorClassifier } from './utils/errorClassifier.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
@@ -477,7 +478,7 @@ export class ModelManager {
     const serverState = this.serverStates.get(job.serverId);
     if (!serverState) {
       job.status = 'failed';
-      job.error = 'Server not found';
+      job.error = ERROR_MESSAGES.SERVER_NOT_FOUND_PLAIN;
       job.endTime = Date.now();
       return;
     }
@@ -817,7 +818,7 @@ export class ModelManager {
   ): Promise<{ canLoad: boolean; reason?: string }> {
     const serverState = this.serverStates.get(serverId);
     if (!serverState) {
-      return { canLoad: false, reason: 'Server not found' };
+      return { canLoad: false, reason: ERROR_MESSAGES.SERVER_NOT_FOUND_PLAIN };
     }
 
     // Update current GPU memory state
@@ -1214,7 +1215,7 @@ export class ModelManager {
 
     const serverState = this.serverStates.get(serverId);
     if (!serverState) {
-      throw new Error(`Server ${serverId} not found`);
+      throw new Error(ERROR_MESSAGES.SERVER_NOT_FOUND_COLON(serverId));
     }
 
     // Get recommended models
