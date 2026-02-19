@@ -27,17 +27,18 @@ describe('Orchestrator Instance', () => {
   });
 
   describe('getOrchestratorInstance', () => {
-    it('should create instance when none exists', () => {
-      const mockConfig = {
+    const mockConfigManager = () => ({
+      getConfig: vi.fn().mockReturnValue({
         loadBalancer: { strategy: 'round-robin', healthCheckInterval: 30000 },
         queue: { maxSize: 1000, timeout: 30000 },
         circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
         healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
-      };
+      }),
+      registerComponentWatcher: vi.fn().mockReturnValue(vi.fn()),
+    });
 
-      (getConfigManager as any).mockReturnValue({
-        getConfig: vi.fn().mockReturnValue(mockConfig),
-      });
+    it('should create instance when none exists', () => {
+      (getConfigManager as any).mockReturnValue(mockConfigManager());
 
       const instance = getOrchestratorInstance();
 
@@ -46,16 +47,7 @@ describe('Orchestrator Instance', () => {
     });
 
     it('should return same instance on subsequent calls', () => {
-      const mockConfig = {
-        loadBalancer: { strategy: 'round-robin', healthCheckInterval: 30000 },
-        queue: { maxSize: 1000, timeout: 30000 },
-        circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
-        healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
-      };
-
-      (getConfigManager as any).mockReturnValue({
-        getConfig: vi.fn().mockReturnValue(mockConfig),
-      });
+      (getConfigManager as any).mockReturnValue(mockConfigManager());
 
       const instance1 = getOrchestratorInstance();
       const instance2 = getOrchestratorInstance();
@@ -76,17 +68,18 @@ describe('Orchestrator Instance', () => {
   });
 
   describe('resetOrchestratorInstance', () => {
-    it('should reset the singleton instance', () => {
-      const mockConfig = {
+    const mockConfigManager = () => ({
+      getConfig: vi.fn().mockReturnValue({
         loadBalancer: { strategy: 'round-robin', healthCheckInterval: 30000 },
         queue: { maxSize: 1000, timeout: 30000 },
         circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
         healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
-      };
+      }),
+      registerComponentWatcher: vi.fn().mockReturnValue(vi.fn()),
+    });
 
-      (getConfigManager as any).mockReturnValue({
-        getConfig: vi.fn().mockReturnValue(mockConfig),
-      });
+    it('should reset the singleton instance', () => {
+      (getConfigManager as any).mockReturnValue(mockConfigManager());
 
       getOrchestratorInstance();
       expect(hasOrchestratorInstance()).toBe(true);
@@ -99,21 +92,22 @@ describe('Orchestrator Instance', () => {
   });
 
   describe('hasOrchestratorInstance', () => {
+    const mockConfigManager = () => ({
+      getConfig: vi.fn().mockReturnValue({
+        loadBalancer: { strategy: 'round-robin', healthCheckInterval: 30000 },
+        queue: { maxSize: 1000, timeout: 30000 },
+        circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
+        healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
+      }),
+      registerComponentWatcher: vi.fn().mockReturnValue(vi.fn()),
+    });
+
     it('should return false when no instance exists', () => {
       expect(hasOrchestratorInstance()).toBe(false);
     });
 
     it('should return true when instance exists', () => {
-      const mockConfig = {
-        loadBalancer: { strategy: 'round-robin', healthCheckInterval: 30000 },
-        queue: { maxSize: 1000, timeout: 30000 },
-        circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
-        healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
-      };
-
-      (getConfigManager as any).mockReturnValue({
-        getConfig: vi.fn().mockReturnValue(mockConfig),
-      });
+      (getConfigManager as any).mockReturnValue(mockConfigManager());
 
       getOrchestratorInstance();
       expect(hasOrchestratorInstance()).toBe(true);
