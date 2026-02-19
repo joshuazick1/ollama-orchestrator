@@ -4,7 +4,7 @@ on:
   schedule:
     # Run every day at 2 AM UTC
     - cron: '0 2 * * *'
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch: # Allow manual trigger
 
 jobs:
   dependency-scan:
@@ -12,25 +12,25 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run npm audit
         run: npm audit --audit-level=moderate --json > audit-report.json || true
-      
+
       - name: Upload audit report
         uses: actions/upload-artifact@v4
         with:
           name: audit-report
           path: audit-report.json
-      
+
       - name: Run Snyk to check for vulnerabilities
         uses: snyk/actions/node@master
         continue-on-error: true
@@ -38,7 +38,7 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high --json-file-output=snyk-report.json
-      
+
       - name: Upload Snyk report
         uses: actions/upload-artifact@v4
         with:
@@ -47,12 +47,13 @@ jobs:
 
   secret-scan:
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Run TruffleHog
         uses: trufflesecurity/trufflehog@main
         with:
@@ -61,25 +62,38 @@ jobs:
           head: HEAD
           extra_args: --debug --only-verified
 
+  secret-scan-scheduled:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          extra_args: --debug --only-verified
+
   codeql-analysis:
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
       security-events: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: javascript
           queries: security-extended,security-and-quality
-      
+
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
-      
+
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
