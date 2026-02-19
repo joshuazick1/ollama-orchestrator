@@ -4,21 +4,67 @@ export interface QueueConfig {
   timeout: number;
   priorityBoostInterval: number;
   priorityBoostAmount: number;
+  maxPriority: number;
+}
+
+export interface LoadBalancerWeights {
+  latency: number;
+  successRate: number;
+  load: number;
+  capacity: number;
+}
+
+export interface LoadBalancerThresholds {
+  maxP95Latency: number;
+  minSuccessRate: number;
+  latencyPenalty: number;
+  errorPenalty: number;
+}
+
+export interface LoadBalancerStreaming {
+  ttftWeight: number;
+  durationWeight: number;
+  ttftBlendAvg: number;
+  ttftBlendP95: number;
+  durationEstimateMultiplier: number;
+}
+
+export interface LoadBalancerRoundRobin {
+  skipUnhealthy: boolean;
+  checkCapacity: boolean;
+  stickySessionsTtlMs: number;
+}
+
+export interface LoadBalancerLeastConnections {
+  skipUnhealthy: boolean;
+  considerCapacity: boolean;
+  considerFailureRate: boolean;
+  failureRatePenalty: number;
 }
 
 export interface LoadBalancerConfig {
-  weights: {
-    latency: number;
-    successRate: number;
-    load: number;
-    capacity: number;
-  };
-  thresholds: {
-    maxP95Latency: number;
-    minSuccessRate: number;
-    latencyPenalty: number;
-    errorPenalty: number;
-  };
+  weights: LoadBalancerWeights;
+  thresholds: LoadBalancerThresholds;
+  latencyBlendRecent: number;
+  latencyBlendHistorical: number;
+  loadFactorMultiplier: number;
+  defaultLatencyMs: number;
+  defaultMaxConcurrency: number;
+  streaming: LoadBalancerStreaming;
+  roundRobin: LoadBalancerRoundRobin;
+  leastConnections: LoadBalancerLeastConnections;
+}
+
+export interface CircuitBreakerErrorPatterns {
+  nonRetryable: string[];
+  transient: string[];
+}
+
+export interface CircuitBreakerModelEscalation {
+  enabled: boolean;
+  ratioThreshold: number;
+  durationThresholdMs: number;
+  checkIntervalMs: number;
 }
 
 export interface CircuitBreakerConfig {
@@ -33,6 +79,11 @@ export interface CircuitBreakerConfig {
   errorRateThreshold: number;
   adaptiveThresholds: boolean;
   errorRateSmoothing: number;
+  errorPatterns: CircuitBreakerErrorPatterns;
+  adaptiveThresholdAdjustment: number;
+  nonRetryableRatioThreshold: number;
+  transientRatioThreshold: number;
+  modelEscalation: CircuitBreakerModelEscalation | undefined;
 }
 
 export interface SecurityConfig {
@@ -41,6 +92,14 @@ export interface SecurityConfig {
   rateLimitMax: number;
   apiKeyHeader?: string;
   apiKeys?: string[];
+  adminApiKeys?: string[];
+}
+
+export interface MetricsDecay {
+  enabled: boolean;
+  halfLifeMs: number;
+  minDecayFactor: number;
+  staleThresholdMs: number;
 }
 
 export interface MetricsConfig {
@@ -48,6 +107,7 @@ export interface MetricsConfig {
   prometheusEnabled: boolean;
   prometheusPort: number;
   historyWindowMinutes: number;
+  decay: MetricsDecay;
 }
 
 export interface StreamingConfig {
@@ -55,6 +115,8 @@ export interface StreamingConfig {
   maxConcurrentStreams: number;
   timeoutMs: number;
   bufferSize: number;
+  ttftWeight: number;
+  durationWeight: number;
 }
 
 export interface HealthCheckConfig {
@@ -75,6 +137,39 @@ export interface TagsConfig {
   maxConcurrentRequests: number;
   batchDelayMs: number;
   requestTimeoutMs: number;
+}
+
+export interface RetryConfig {
+  maxRetriesPerServer: number;
+  retryDelayMs: number;
+  backoffMultiplier: number;
+  maxRetryDelayMs: number;
+  retryableStatusCodes: number[];
+}
+
+export interface CooldownConfig {
+  failureCooldownMs: number;
+  defaultMaxConcurrency: number;
+}
+
+export interface ModelManagerLoadTimeEstimates {
+  tiny: number;
+  small: number;
+  medium: number;
+  large: number;
+  xl: number;
+  xxl: number;
+}
+
+export interface ModelManagerConfig {
+  maxRetries: number;
+  retryDelayBaseMs: number;
+  warmupTimeoutMs: number;
+  idleThresholdMs: number;
+  memorySafetyMargin: number;
+  gbPerBillionParams: number;
+  defaultModelSizeGb: number;
+  loadTimeEstimates: ModelManagerLoadTimeEstimates;
 }
 
 export interface OrchestratorConfig {
@@ -99,6 +194,9 @@ export interface OrchestratorConfig {
   streaming: StreamingConfig;
   healthCheck: HealthCheckConfig;
   tags: TagsConfig;
+  retry: RetryConfig;
+  cooldown: CooldownConfig;
+  modelManager: ModelManagerConfig;
 
   // Ollama servers
   servers: AIServer[];

@@ -335,6 +335,7 @@ export class ConfigManager {
   private config: OrchestratorConfig;
   private configPath?: string;
   private watchers = new Set<(config: OrchestratorConfig) => void>();
+  private componentWatchers = new Map<string, (config: OrchestratorConfig) => void>();
   private reloadInterval?: NodeJS.Timeout;
   private lastModified = 0;
   private isReloading = false;
@@ -539,6 +540,20 @@ export class ConfigManager {
     // Return unsubscribe function
     return () => {
       this.watchers.delete(callback);
+    };
+  }
+
+  /**
+   * Register a component-specific watcher that receives full config on changes
+   */
+  registerComponentWatcher(
+    componentId: string,
+    callback: (config: OrchestratorConfig) => void
+  ): () => void {
+    this.componentWatchers.set(componentId, callback);
+
+    return () => {
+      this.componentWatchers.delete(componentId);
     };
   }
 
@@ -834,11 +849,22 @@ export class ConfigManager {
    */
   private notifyWatchers(): void {
     const config = this.getConfig();
+
+    // Notify general watchers
     for (const watcher of this.watchers) {
       try {
         watcher(config);
       } catch (error) {
         logger.error('Error in config watcher:', { error });
+      }
+    }
+
+    // Notify component-specific watchers
+    for (const [id, watcher] of this.componentWatchers) {
+      try {
+        watcher(config);
+      } catch (error) {
+        logger.error(`Error in component watcher (${id}):`, { error });
       }
     }
   }
