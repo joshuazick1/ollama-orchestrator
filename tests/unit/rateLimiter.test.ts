@@ -86,6 +86,42 @@ describe('rateLimiter middleware', () => {
 
       expect(middleware).toBeDefined();
     });
+
+    it('should use custom key generator when provided', () => {
+      const customKeyGen = vi.fn().mockReturnValue('custom-key');
+      const middleware = createRateLimiter({
+        keyGenerator: customKeyGen,
+      });
+
+      expect(customKeyGen).not.toHaveBeenCalled();
+    });
+
+    it('should skip rate limiting for health endpoint', async () => {
+      const middleware = createRateLimiter({ enabled: true });
+      Object.defineProperty(mockReq, 'path', { value: '/health' });
+
+      await middleware(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+    });
+
+    it('should skip rate limiting for metrics endpoint', async () => {
+      const middleware = createRateLimiter({ enabled: true });
+      Object.defineProperty(mockReq, 'path', { value: '/metrics' });
+
+      await middleware(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+    });
+
+    it('should not skip for other endpoints', async () => {
+      const middleware = createRateLimiter({ enabled: true });
+      Object.defineProperty(mockReq, 'path', { value: '/api/generate' });
+
+      await middleware(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockNext).toHaveBeenCalled();
+    });
   });
 
   describe('createMonitoringRateLimiter', () => {

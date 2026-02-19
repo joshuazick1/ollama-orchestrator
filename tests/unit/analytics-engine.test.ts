@@ -81,6 +81,18 @@ describe('AnalyticsEngine', () => {
           tokensGenerated: 60000,
           tokensPrompt: 30000,
         },
+        '24h': {
+          startTime: now - 86400000,
+          endTime: now,
+          count: 10000,
+          latencySum: 5000000,
+          latencySquaredSum: 2500000000,
+          minLatency: 100,
+          maxLatency: 1000,
+          errors: 50,
+          tokensGenerated: 1000000,
+          tokensPrompt: 500000,
+        },
       },
       percentiles: { p50: 500, p95: 950, p99: 990 },
       successRate: 0.98,
@@ -230,9 +242,24 @@ describe('AnalyticsEngine', () => {
 
     it('should aggregate errors by server and model', () => {
       const contexts = [
-        createMockRequestContext({ serverId: 'server-1', model: 'model-a', success: false, error: new Error('timeout') }),
-        createMockRequestContext({ serverId: 'server-1', model: 'model-b', success: false, error: new Error('timeout') }),
-        createMockRequestContext({ serverId: 'server-2', model: 'model-a', success: false, error: new Error('timeout') }),
+        createMockRequestContext({
+          serverId: 'server-1',
+          model: 'model-a',
+          success: false,
+          error: new Error('timeout'),
+        }),
+        createMockRequestContext({
+          serverId: 'server-1',
+          model: 'model-b',
+          success: false,
+          error: new Error('timeout'),
+        }),
+        createMockRequestContext({
+          serverId: 'server-2',
+          model: 'model-a',
+          success: false,
+          error: new Error('timeout'),
+        }),
       ];
 
       contexts.forEach(ctx => analytics.recordRequest(ctx));
@@ -247,23 +274,27 @@ describe('AnalyticsEngine', () => {
     it('should calculate error trend', () => {
       // Create errors with time distribution
       const now = Date.now();
-      
+
       // Old errors (first half of 24h)
       for (let i = 0; i < 5; i++) {
-        analytics.recordRequest(createMockRequestContext({
-          startTime: now - 20 * 3600000,
-          success: false,
-          error: new Error('timeout'),
-        }));
+        analytics.recordRequest(
+          createMockRequestContext({
+            startTime: now - 20 * 3600000,
+            success: false,
+            error: new Error('timeout'),
+          })
+        );
       }
 
       // Recent errors (second half of 24h)
       for (let i = 0; i < 15; i++) {
-        analytics.recordRequest(createMockRequestContext({
-          startTime: now - 2 * 3600000,
-          success: false,
-          error: new Error('timeout'),
-        }));
+        analytics.recordRequest(
+          createMockRequestContext({
+            startTime: now - 2 * 3600000,
+            success: false,
+            error: new Error('timeout'),
+          })
+        );
       }
 
       const analysis = analytics.getErrorAnalysis();
@@ -383,6 +414,80 @@ describe('AnalyticsEngine', () => {
       expect(summary.totalRequests).toBeGreaterThan(0);
       expect(summary.uniqueModels).toBe(2);
       expect(summary.uniqueServers).toBe(2);
+    });
+
+    it('should return empty summary when no data', () => {
+      const summary = analytics.getSummary();
+      expect(summary.totalRequests).toBe(0);
+      expect(summary.uniqueModels).toBe(0);
+    });
+  });
+
+  describe('Capacity Analysis', () => {
+    it('should analyze capacity with queue depth', () => {
+      const metrics = createMockMetrics('server-1', 'llama3:latest', {
+        inFlight: 2,
+        queued: 5,
+      });
+      const metricsMap = new Map([['server-1:llama3:latest', metrics]]);
+
+      analytics.updateMetrics(metricsMap);
+      const capacity = analytics.getCapacityAnalysis(3);
+
+      expect(capacity).toBeDefined();
+    });
+
+    it('should handle empty metrics', () => {
+      const capacity = analytics.getCapacityAnalysis();
+      expect(capacity).toBeDefined();
+    });
+  });
+
+  describe('Error Analysis', () => {
+    it('should analyze errors', () => {
+      const errors = analytics.getErrorAnalysis('1h');
+      expect(errors).toBeDefined();
+    });
+  });
+
+  describe('Server Selection Stats', () => {
+    it('should get server selection statistics', () => {
+      analytics.recordRequest(createMockRequestContext({ serverId: 'server-1' }));
+      analytics.recordRequest(createMockRequestContext({ serverId: 'server-2' }));
+
+      const stats = analytics.getServerSelectionStats(1);
+      expect(stats).toBeDefined();
+    });
+  });
+
+  describe('Algorithm Stats', () => {
+    it('should get algorithm statistics', () => {
+      const stats = analytics.getAlgorithmStats(1);
+      expect(stats).toBeDefined();
+    });
+  });
+
+  describe('Decision Events', () => {
+    it('should get decision events', () => {
+      analytics.recordRequest(createMockRequestContext());
+
+      const events = analytics.getDecisionEvents(10);
+      expect(events).toBeDefined();
+    });
+
+    it('should filter decision events by model', () => {
+      analytics.recordRequest(createMockRequestContext({ model: 'llama3:latest' }));
+      analytics.recordRequest(createMockRequestContext({ model: 'mistral:latest' }));
+
+      const events = analytics.getDecisionEvents(10, 'llama3:latest');
+      expect(events.every(e => e.model === 'llama3:latest')).toBe(true);
+    });
+  });
+
+  describe('Total Request Count', () => {
+    it('should return total request count', () => {
+      const count = analytics.getTotalRequestCount();
+      expect(typeof count).toBe('number');
     });
   });
 
