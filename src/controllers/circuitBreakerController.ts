@@ -5,6 +5,7 @@
 
 import type { Request, Response } from 'express';
 
+import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { logger } from '../utils/logger.js';
 
@@ -25,7 +26,7 @@ export function resetBreaker(req: Request, res: Response): void {
 
     if (!breaker) {
       const key = model === 'server' ? serverId : `${serverId}:${model}`;
-      res.status(404).json({ error: `Circuit breaker not found for ${key}` });
+      res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND_KEY(key) });
       return;
     }
 
@@ -67,7 +68,7 @@ export function getBreakerDetails(req: Request, res: Response): void {
 
     if (!breaker) {
       const key = model === 'server' ? serverId : `${serverId}:${model}`;
-      res.status(404).json({ error: `Circuit breaker not found for ${key}` });
+      res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND_KEY(key) });
       return;
     }
 

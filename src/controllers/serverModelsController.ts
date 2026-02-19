@@ -5,6 +5,7 @@
 
 import type { Request, Response } from 'express';
 
+import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { fetchWithTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
@@ -55,7 +56,7 @@ export async function listServerModels(req: Request, res: Response): Promise<voi
 
   const server = orchestrator.getServers().find(s => s.id === id);
   if (!server) {
-    res.status(404).json({ error: `Server '${id}' not found` });
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
     return;
   }
 
@@ -122,7 +123,7 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
 
   const server = orchestrator.getServers().find(s => s.id === id);
   if (!server) {
-    res.status(404).json({ error: `Server '${id}' not found` });
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
     return;
   }
 
@@ -193,7 +194,7 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
 
   const server = orchestrator.getServers().find(s => s.id === id);
   if (!server) {
-    res.status(404).json({ error: `Server '${id}' not found` });
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
     return;
   }
 
@@ -266,7 +267,7 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
 
   const targetServer = orchestrator.getServers().find(s => s.id === targetServerId);
   if (!targetServer) {
-    res.status(404).json({ error: `Target server '${targetServerId}' not found` });
+    res.status(404).json({ error: ERROR_MESSAGES.TARGET_SERVER_NOT_FOUND(targetServerId) });
     return;
   }
 
@@ -276,11 +277,9 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
   }
 
   if (targetServer.supportsOllama === false) {
-    res
-      .status(400)
-      .json({
-        error: `Target server '${targetServerId}' does not support Ollama model management`,
-      });
+    res.status(400).json({
+      error: `Target server '${targetServerId}' does not support Ollama model management`,
+    });
     return;
   }
 
@@ -288,22 +287,20 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
   if (sourceServerId) {
     const sourceServer = orchestrator.getServers().find(s => s.id === sourceServerId);
     if (!sourceServer) {
-      res.status(404).json({ error: `Source server '${sourceServerId}' not found` });
+      res.status(404).json({ error: ERROR_MESSAGES.SOURCE_SERVER_NOT_FOUND(sourceServerId) });
       return;
     }
 
     if (sourceServer.supportsOllama === false) {
-      res
-        .status(400)
-        .json({
-          error: `Source server '${sourceServerId}' does not support Ollama model management`,
-        });
+      res.status(400).json({
+        error: `Source server '${sourceServerId}' does not support Ollama model management`,
+      });
       return;
     }
 
     if (!sourceServer.models.includes(model)) {
       res.status(400).json({
-        error: `Model '${model}' not found on source server '${sourceServerId}'`,
+        error: ERROR_MESSAGES.MODEL_NOT_FOUND_ON_SOURCE(model, sourceServerId),
       });
       return;
     }

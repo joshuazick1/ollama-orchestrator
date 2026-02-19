@@ -5,6 +5,7 @@
 
 import type { Request, Response } from 'express';
 
+import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { logger } from '../utils/logger.js';
 
@@ -161,7 +162,7 @@ export function drainSpecificServer(req: Request, res: Response): void {
     const server = orchestrator.getServer(id);
 
     if (!server) {
-      res.status(404).json({ error: `Server ${id} not found` });
+      res.status(404).json({ error: ERROR_MESSAGES.QUEUE_SERVER_NOT_FOUND(id) });
       return;
     }
 
@@ -219,7 +220,7 @@ export function setServerMaintenance(req: Request, res: Response): void {
     const server = orchestrator.getServer(id);
 
     if (!server) {
-      res.status(404).json({ error: `Server ${id} not found` });
+      res.status(404).json({ error: ERROR_MESSAGES.QUEUE_SERVER_NOT_FOUND(id) });
       return;
     }
 

@@ -3,6 +3,7 @@
  * Historical metrics tracking with sliding windows
  */
 
+import type { MetricsDecayConfig } from '../config/config.js';
 import { featureFlags } from '../config/feature-flags.js';
 import type {
   MetricsWindow,
@@ -16,16 +17,6 @@ import type {
 import { Statistics } from '../utils/statistics.js';
 
 import { MetricsPersistence, type MetricsData } from './metrics-persistence.js';
-
-/**
- * Configuration for metrics decay
- */
-export interface MetricsDecayConfig {
-  enabled: boolean; // Whether to apply decay to stale metrics
-  halfLifeMs: number; // Time for metrics to decay to 50% influence (default: 5 minutes)
-  minDecayFactor: number; // Minimum decay factor to prevent complete zero-out (default: 0.1)
-  staleThresholdMs: number; // Metrics older than this are considered stale (default: 2 minutes)
-}
 
 export const DEFAULT_METRICS_DECAY_CONFIG: MetricsDecayConfig = {
   enabled: true,
@@ -564,15 +555,7 @@ export class MetricsAggregator {
    * Get percentile value from sorted array
    */
   private getPercentile(sorted: number[], len: number, percentile: number): number {
-    if (len === 0) {
-      return 0;
-    }
-    if (len === 1) {
-      return sorted[0];
-    }
-
-    const index = Math.ceil(len * percentile) - 1;
-    return sorted[Math.max(0, Math.min(index, len - 1))];
+    return Statistics.calculatePercentile(sorted, percentile);
   }
 
   /**

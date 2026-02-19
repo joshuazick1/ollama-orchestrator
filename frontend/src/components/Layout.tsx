@@ -14,7 +14,8 @@ import {
   Search,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { GlobalSearch, useGlobalSearch } from './GlobalSearch';
+import { GlobalSearch } from './GlobalSearch';
+import { useGlobalSearch } from '../hooks/useGlobalSearch';
 
 const NavigationItem = ({
   to,
@@ -50,7 +51,11 @@ export const Layout = () => {
 
   return (
     <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
-      <GlobalSearch isOpen={isSearchOpen} onClose={closeSearch} />
+      <GlobalSearch
+        key={isSearchOpen ? 'open' : 'closed'}
+        isOpen={isSearchOpen}
+        onClose={closeSearch}
+      />
 
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-gray-950 border-r border-gray-800 flex-col">

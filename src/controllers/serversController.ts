@@ -5,6 +5,7 @@
 
 import type { Request, Response } from 'express';
 
+import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/urlUtils.js';
 
@@ -31,7 +32,7 @@ export function addServer(req: Request, res: Response): void {
 
   // Check for duplicates by ID
   if (orchestrator.getServers().some(s => s.id === id)) {
-    res.status(409).json({ error: `Server '${id}' already exists` });
+    res.status(409).json({ error: ERROR_MESSAGES.SERVER_ALREADY_EXISTS(id) });
     return;
   }
 
@@ -75,7 +76,7 @@ export function removeServer(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
 
   if (!orchestrator.getServers().some(s => s.id === id)) {
-    res.status(404).json({ error: `Server '${id}' not found` });
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
     return;
   }
 
@@ -95,7 +96,7 @@ export function updateServer(req: Request, res: Response): void {
 
   const server = orchestrator.getServers().find(s => s.id === id);
   if (!server) {
-    res.status(404).json({ error: `Server '${id}' not found` });
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
     return;
   }
 
@@ -444,7 +445,7 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
   const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
 
   if (!breaker) {
-    res.status(404).json({ error: `Circuit breaker not found for ${serverId}:${model}` });
+    res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
@@ -480,7 +481,7 @@ export function forceOpenBreaker(req: Request, res: Response): void {
   const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
 
   if (!breaker) {
-    res.status(404).json({ error: `Circuit breaker not found for ${serverId}:${model}` });
+    res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
@@ -515,7 +516,7 @@ export function forceCloseBreaker(req: Request, res: Response): void {
   const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
 
   if (!breaker) {
-    res.status(404).json({ error: `Circuit breaker not found for ${serverId}:${model}` });
+    res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
@@ -550,7 +551,7 @@ export function forceHalfOpenBreaker(req: Request, res: Response): void {
   const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
 
   if (!breaker) {
-    res.status(404).json({ error: `Circuit breaker not found for ${serverId}:${model}` });
+    res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 

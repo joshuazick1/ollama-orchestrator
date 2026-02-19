@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { getServers, getModelMap } from '../api';
-import { useHotkeys } from '../hooks/useHotkeys';
 
 interface SearchResult {
   id: string;
@@ -163,17 +162,6 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
       .slice(0, 10);
   }, [query, navigationItems, serverItems, modelItems]);
 
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setQuery('');
-      setSelectedIndex(0);
-    }
-  }, [isOpen]);
-
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       switch (e.key) {
@@ -219,7 +207,10 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
           <input
             type="text"
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => {
+              setQuery(e.target.value);
+              setSelectedIndex(0);
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Search pages, servers, models..."
             className="flex-1 px-3 py-4 bg-transparent text-white placeholder-gray-500 outline-none text-lg"
@@ -383,18 +374,4 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
       </div>
     </div>
   );
-};
-
-export const useGlobalSearch = () => {
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-
-  useHotkeys('cmd+k,ctrl+k', () => {
-    setIsSearchOpen(prev => !prev);
-  });
-
-  return {
-    isSearchOpen,
-    openSearch: () => setIsSearchOpen(true),
-    closeSearch: () => setIsSearchOpen(false),
-  };
 };

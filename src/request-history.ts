@@ -8,6 +8,7 @@ import path from 'path';
 import { JsonFileHandler } from './config/jsonFileHandler.js';
 import type { RequestContext } from './orchestrator.types.js';
 import { logger } from './utils/logger.js';
+import { Statistics } from './utils/statistics.js';
 
 /**
  * Extended request record with additional metadata
@@ -482,15 +483,7 @@ export class RequestHistory {
    * Calculate percentile
    */
   private calculatePercentile(sorted: number[], percentile: number): number {
-    if (sorted.length === 0) {
-      return 0;
-    }
-    if (sorted.length === 1) {
-      return sorted[0];
-    }
-
-    const index = Math.ceil(sorted.length * percentile) - 1;
-    return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+    return Statistics.calculatePercentile(sorted, percentile);
   }
 
   /**

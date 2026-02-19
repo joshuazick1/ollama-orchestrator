@@ -3,8 +3,8 @@
  * Priority queue for request management with backpressure
  */
 
-import { logger } from '../utils/logger.js';
 import { getConfigManager } from '../config/config.js';
+import { logger } from '../utils/logger.js';
 
 export interface QueuedRequest {
   id: string;

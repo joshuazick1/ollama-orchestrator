@@ -6,21 +6,10 @@
 import type { HealthCheckConfig } from './config/config.js';
 import { featureFlags } from './config/feature-flags.js';
 import type { AIServer } from './orchestrator.types.js';
+import { resolveApiKey } from './utils/api-keys.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 import { Timer } from './utils/timer.js';
-
-/**
- * Resolve API key from string (supports env:VARNAME format)
- */
-function resolveApiKey(apiKey?: string): string | undefined {
-  if (!apiKey) {return undefined;}
-  if (apiKey.startsWith('env:')) {
-    const envVar = apiKey.substring(4);
-    return process.env[envVar];
-  }
-  return apiKey;
-}
 
 /**
  * Fetch with optional API key authentication
