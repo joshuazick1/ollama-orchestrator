@@ -13,6 +13,9 @@ import {
   Activity,
   Check,
   AlertCircle,
+  Tag,
+  Clock,
+  Cpu,
 } from 'lucide-react';
 
 interface ConfigSectionProps {
@@ -271,6 +274,11 @@ export const Settings = () => {
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'metrics', label: 'Metrics', icon: BarChart3 },
     { id: 'streaming', label: 'Streaming', icon: Zap },
+    { id: 'healthcheck', label: 'Health Check', icon: Activity },
+    { id: 'tags', label: 'Tags', icon: Tag },
+    { id: 'retry', label: 'Retry', icon: RefreshCw },
+    { id: 'cooldown', label: 'Cooldown', icon: Clock },
+    { id: 'modelmanager', label: 'Model Manager', icon: Cpu },
   ];
 
   return (
@@ -355,6 +363,27 @@ export const Settings = () => {
               options={['debug', 'info', 'warn', 'error']}
               description="Logging verbosity level"
             />
+            <div>
+              <h4 className="text-sm font-medium text-gray-300 mb-3">Persistence</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <TextInput
+                  label="Persistence Path"
+                  value={currentConfig.persistencePath ?? './data'}
+                  onChange={value => updateField('persistencePath', null, value)}
+                  description="Directory for persisted data"
+                  placeholder="./data"
+                />
+                <NumberInput
+                  label="Config Reload Interval"
+                  value={currentConfig.configReloadIntervalMs ?? 0}
+                  onChange={value => updateField('configReloadIntervalMs', null, value)}
+                  min={0}
+                  step={5000}
+                  suffix="ms"
+                  description="Auto-reload config interval (0 to disable)"
+                />
+              </div>
+            </div>
           </ConfigSection>
         )}
 
@@ -437,6 +466,13 @@ export const Settings = () => {
                 onChange={value => updateField('queue', 'priorityBoostAmount', value)}
                 min={1}
                 description="Priority increase per boost interval"
+              />
+              <NumberInput
+                label="Max Priority"
+                value={currentConfig.queue?.maxPriority ?? 100}
+                onChange={value => updateField('queue', 'maxPriority', value)}
+                min={1}
+                description="Maximum priority value for queued requests"
               />
             </div>
           </ConfigSection>
@@ -547,6 +583,104 @@ export const Settings = () => {
                     suffix="%"
                     description="Minimum acceptable success rate"
                   />
+                  <NumberInput
+                    label="Latency Penalty"
+                    value={(currentConfig.loadBalancer?.thresholds?.latencyPenalty ?? 0.5) * 100}
+                    onChange={value =>
+                      updateField('loadBalancer', 'thresholds', {
+                        ...currentConfig.loadBalancer?.thresholds,
+                        latencyPenalty: value / 100,
+                      })
+                    }
+                    min={0}
+                    max={100}
+                    step={5}
+                    suffix="%"
+                    description="Score multiplier for high latency"
+                  />
+                  <NumberInput
+                    label="Error Penalty"
+                    value={(currentConfig.loadBalancer?.thresholds?.errorPenalty ?? 0.3) * 100}
+                    onChange={value =>
+                      updateField('loadBalancer', 'thresholds', {
+                        ...currentConfig.loadBalancer?.thresholds,
+                        errorPenalty: value / 100,
+                      })
+                    }
+                    min={0}
+                    max={100}
+                    step={5}
+                    suffix="%"
+                    description="Score multiplier for errors"
+                  />
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-300 mb-3">Latency Blending</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <NumberInput
+                    label="Recent Latency Weight"
+                    value={(currentConfig.loadBalancer?.latencyBlendRecent ?? 0.6) * 100}
+                    onChange={value =>
+                      updateField('loadBalancer', 'latencyBlendRecent', value / 100)
+                    }
+                    min={0}
+                    max={100}
+                    step={5}
+                    suffix="%"
+                    description="Weight for recent response time"
+                  />
+                  <NumberInput
+                    label="Historical Latency Weight"
+                    value={(currentConfig.loadBalancer?.latencyBlendHistorical ?? 0.4) * 100}
+                    onChange={value =>
+                      updateField('loadBalancer', 'latencyBlendHistorical', value / 100)
+                    }
+                    min={0}
+                    max={100}
+                    step={5}
+                    suffix="%"
+                    description="Weight for P95 latency"
+                  />
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-300 mb-3">Load Factor</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <NumberInput
+                    label="Load Factor Multiplier"
+                    value={(currentConfig.loadBalancer?.loadFactorMultiplier ?? 0.5) * 100}
+                    onChange={value =>
+                      updateField('loadBalancer', 'loadFactorMultiplier', value / 100)
+                    }
+                    min={0}
+                    max={200}
+                    step={5}
+                    suffix="%"
+                    description="How much current load affects effective latency"
+                  />
+                  <NumberInput
+                    label="Default Latency"
+                    value={currentConfig.loadBalancer?.defaultLatencyMs ?? 1000}
+                    onChange={value => updateField('loadBalancer', 'defaultLatencyMs', value)}
+                    min={100}
+                    step={100}
+                    suffix="ms"
+                    description="Default latency when no data available"
+                  />
+                </div>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-gray-300 mb-3">Default Max Concurrency</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <NumberInput
+                    label="Default Max Concurrency"
+                    value={currentConfig.loadBalancer?.defaultMaxConcurrency ?? 4}
+                    onChange={value => updateField('loadBalancer', 'defaultMaxConcurrency', value)}
+                    min={1}
+                    max={100}
+                    description="Default max concurrency for servers"
+                  />
                 </div>
               </div>
             </div>
@@ -613,6 +747,76 @@ export const Settings = () => {
                 min={1}
                 description="Successes needed to close circuit"
               />
+              <NumberInput
+                label="Half-Open Max Requests"
+                value={currentConfig.circuitBreaker?.halfOpenMaxRequests ?? 5}
+                onChange={value => updateField('circuitBreaker', 'halfOpenMaxRequests', value)}
+                min={1}
+                description="Test requests allowed in half-open state"
+              />
+              <NumberInput
+                label="Error Rate Window"
+                value={currentConfig.circuitBreaker?.errorRateWindow ?? 60000}
+                onChange={value => updateField('circuitBreaker', 'errorRateWindow', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Time window for error rate calculation"
+              />
+              <NumberInput
+                label="Error Rate Threshold"
+                value={(currentConfig.circuitBreaker?.errorRateThreshold ?? 0.5) * 100}
+                onChange={value => updateField('circuitBreaker', 'errorRateThreshold', value / 100)}
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="Error rate that triggers open state"
+              />
+              <NumberInput
+                label="Error Rate Smoothing"
+                value={(currentConfig.circuitBreaker?.errorRateSmoothing ?? 0.3) * 100}
+                onChange={value => updateField('circuitBreaker', 'errorRateSmoothing', value / 100)}
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="Smoothing factor for error rate"
+              />
+              <NumberInput
+                label="Adaptive Threshold Adjustment"
+                value={currentConfig.circuitBreaker?.adaptiveThresholdAdjustment ?? 2}
+                onChange={value =>
+                  updateField('circuitBreaker', 'adaptiveThresholdAdjustment', value)
+                }
+                min={1}
+                max={10}
+                description="Amount to adjust threshold by"
+              />
+              <NumberInput
+                label="Non-Retryable Ratio Threshold"
+                value={(currentConfig.circuitBreaker?.nonRetryableRatioThreshold ?? 0.5) * 100}
+                onChange={value =>
+                  updateField('circuitBreaker', 'nonRetryableRatioThreshold', value / 100)
+                }
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="Ratio above which to lower threshold"
+              />
+              <NumberInput
+                label="Transient Ratio Threshold"
+                value={(currentConfig.circuitBreaker?.transientRatioThreshold ?? 0.7) * 100}
+                onChange={value =>
+                  updateField('circuitBreaker', 'transientRatioThreshold', value / 100)
+                }
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="Ratio above which to raise threshold"
+              />
             </div>
           </ConfigSection>
         )}
@@ -650,6 +854,13 @@ export const Settings = () => {
               }
               description="Comma-separated list of allowed origins"
               placeholder="* or https://example.com, https://app.com"
+            />
+            <TextInput
+              label="API Key Header"
+              value={currentConfig.security?.apiKeyHeader ?? ''}
+              onChange={value => updateField('security', 'apiKeyHeader', value)}
+              description="Custom header name for API key authentication"
+              placeholder="X-API-Key"
             />
           </ConfigSection>
         )}
@@ -691,6 +902,65 @@ export const Settings = () => {
                 description="How long to retain metrics history"
               />
             </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-300 mb-3">Decay Settings</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Toggle
+                  label="Decay Enabled"
+                  checked={currentConfig.metrics?.decay?.enabled ?? true}
+                  onChange={checked =>
+                    updateField('metrics', 'decay', {
+                      ...currentConfig.metrics?.decay,
+                      enabled: checked,
+                    })
+                  }
+                  description="Enable metrics decay for stale data"
+                />
+                <NumberInput
+                  label="Decay Half-Life"
+                  value={currentConfig.metrics?.decay?.halfLifeMs ?? 300000}
+                  onChange={value =>
+                    updateField('metrics', 'decay', {
+                      ...currentConfig.metrics?.decay,
+                      halfLifeMs: value,
+                    })
+                  }
+                  min={1000}
+                  step={1000}
+                  suffix="ms"
+                  description="Time for metrics to decay by half"
+                />
+                <NumberInput
+                  label="Min Decay Factor"
+                  value={(currentConfig.metrics?.decay?.minDecayFactor ?? 0.1) * 100}
+                  onChange={value =>
+                    updateField('metrics', 'decay', {
+                      ...currentConfig.metrics?.decay,
+                      minDecayFactor: value / 100,
+                    })
+                  }
+                  min={0}
+                  max={100}
+                  step={1}
+                  suffix="%"
+                  description="Minimum decay factor floor"
+                />
+                <NumberInput
+                  label="Stale Threshold"
+                  value={currentConfig.metrics?.decay?.staleThresholdMs ?? 120000}
+                  onChange={value =>
+                    updateField('metrics', 'decay', {
+                      ...currentConfig.metrics?.decay,
+                      staleThresholdMs: value,
+                    })
+                  }
+                  min={1000}
+                  step={1000}
+                  suffix="ms"
+                  description="Time after which metrics are considered stale"
+                />
+              </div>
+            </div>
           </ConfigSection>
         )}
 
@@ -727,6 +997,368 @@ export const Settings = () => {
                 min={1}
                 description="Stream buffer size in bytes"
               />
+              <NumberInput
+                label="TTFT Weight"
+                value={(currentConfig.streaming?.ttftWeight ?? 0.6) * 100}
+                onChange={value => updateField('streaming', 'ttftWeight', value / 100)}
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="Weight for time-to-first-token"
+              />
+              <NumberInput
+                label="Duration Weight"
+                value={(currentConfig.streaming?.durationWeight ?? 0.4) * 100}
+                onChange={value => updateField('streaming', 'durationWeight', value / 100)}
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="Weight for total duration"
+              />
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* Health Check Settings */}
+        {activeTab === 'healthcheck' && (
+          <ConfigSection
+            title="Health Check"
+            icon={Activity}
+            description="Server health monitoring settings"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Toggle
+                label="Health Check Enabled"
+                checked={currentConfig.healthCheck?.enabled ?? true}
+                onChange={checked => updateField('healthCheck', 'enabled', checked)}
+                description="Enable periodic health checks"
+              />
+              <NumberInput
+                label="Check Interval"
+                value={currentConfig.healthCheck?.intervalMs ?? 30000}
+                onChange={value => updateField('healthCheck', 'intervalMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Time between health checks"
+              />
+              <NumberInput
+                label="Check Timeout"
+                value={currentConfig.healthCheck?.timeoutMs ?? 5000}
+                onChange={value => updateField('healthCheck', 'timeoutMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Timeout for each health check"
+              />
+              <NumberInput
+                label="Max Concurrent Checks"
+                value={currentConfig.healthCheck?.maxConcurrentChecks ?? 10}
+                onChange={value => updateField('healthCheck', 'maxConcurrentChecks', value)}
+                min={1}
+                description="Maximum parallel health checks"
+              />
+              <NumberInput
+                label="Retry Attempts"
+                value={currentConfig.healthCheck?.retryAttempts ?? 2}
+                onChange={value => updateField('healthCheck', 'retryAttempts', value)}
+                min={0}
+                description="Retries before marking unhealthy"
+              />
+              <NumberInput
+                label="Retry Delay"
+                value={currentConfig.healthCheck?.retryDelayMs ?? 1000}
+                onChange={value => updateField('healthCheck', 'retryDelayMs', value)}
+                min={100}
+                step={100}
+                suffix="ms"
+                description="Delay between retries"
+              />
+              <NumberInput
+                label="Recovery Interval"
+                value={currentConfig.healthCheck?.recoveryIntervalMs ?? 60000}
+                onChange={value => updateField('healthCheck', 'recoveryIntervalMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Time before retrying failed server"
+              />
+              <NumberInput
+                label="Failure Threshold"
+                value={currentConfig.healthCheck?.failureThreshold ?? 3}
+                onChange={value => updateField('healthCheck', 'failureThreshold', value)}
+                min={1}
+                description="Failures before marking unhealthy"
+              />
+              <NumberInput
+                label="Success Threshold"
+                value={currentConfig.healthCheck?.successThreshold ?? 2}
+                onChange={value => updateField('healthCheck', 'successThreshold', value)}
+                min={1}
+                description="Successes before marking healthy"
+              />
+              <NumberInput
+                label="Backoff Multiplier"
+                value={currentConfig.healthCheck?.backoffMultiplier ?? 1.5}
+                onChange={value => updateField('healthCheck', 'backoffMultiplier', value)}
+                min={1}
+                step={0.1}
+                description="Exponential backoff multiplier"
+              />
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* Tags Settings */}
+        {activeTab === 'tags' && (
+          <ConfigSection title="Tags" icon={Tag} description="Tags aggregation settings">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NumberInput
+                label="Cache TTL"
+                value={currentConfig.tags?.cacheTtlMs ?? 30000}
+                onChange={value => updateField('tags', 'cacheTtlMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="How long to cache tags list"
+              />
+              <NumberInput
+                label="Max Concurrent Requests"
+                value={currentConfig.tags?.maxConcurrentRequests ?? 10}
+                onChange={value => updateField('tags', 'maxConcurrentRequests', value)}
+                min={1}
+                description="Parallel requests for tags"
+              />
+              <NumberInput
+                label="Batch Delay"
+                value={currentConfig.tags?.batchDelayMs ?? 50}
+                onChange={value => updateField('tags', 'batchDelayMs', value)}
+                min={0}
+                suffix="ms"
+                description="Delay between batch requests"
+              />
+              <NumberInput
+                label="Request Timeout"
+                value={currentConfig.tags?.requestTimeoutMs ?? 5000}
+                onChange={value => updateField('tags', 'requestTimeoutMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Timeout for tags request"
+              />
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* Retry Settings */}
+        {activeTab === 'retry' && (
+          <ConfigSection title="Retry" icon={RefreshCw} description="Request retry settings">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NumberInput
+                label="Max Retries Per Server"
+                value={currentConfig.retry?.maxRetriesPerServer ?? 2}
+                onChange={value => updateField('retry', 'maxRetriesPerServer', value)}
+                min={0}
+                description="Maximum retries on same server"
+              />
+              <NumberInput
+                label="Retry Delay"
+                value={currentConfig.retry?.retryDelayMs ?? 500}
+                onChange={value => updateField('retry', 'retryDelayMs', value)}
+                min={100}
+                suffix="ms"
+                description="Base delay between retries"
+              />
+              <NumberInput
+                label="Backoff Multiplier"
+                value={currentConfig.retry?.backoffMultiplier ?? 2}
+                onChange={value => updateField('retry', 'backoffMultiplier', value)}
+                min={1}
+                step={0.1}
+                description="Exponential backoff multiplier"
+              />
+              <NumberInput
+                label="Max Retry Delay"
+                value={currentConfig.retry?.maxRetryDelayMs ?? 5000}
+                onChange={value => updateField('retry', 'maxRetryDelayMs', value)}
+                min={100}
+                suffix="ms"
+                description="Maximum delay between retries"
+              />
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* Cooldown Settings */}
+        {activeTab === 'cooldown' && (
+          <ConfigSection title="Cooldown" icon={Clock} description="Failure cooldown settings">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NumberInput
+                label="Failure Cooldown"
+                value={currentConfig.cooldown?.failureCooldownMs ?? 120000}
+                onChange={value => updateField('cooldown', 'failureCooldownMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Time to wait after failure before retry"
+              />
+              <NumberInput
+                label="Default Max Concurrency"
+                value={currentConfig.cooldown?.defaultMaxConcurrency ?? 4}
+                onChange={value => updateField('cooldown', 'defaultMaxConcurrency', value)}
+                min={1}
+                max={100}
+                description="Default max concurrency for servers"
+              />
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* Model Manager Settings */}
+        {activeTab === 'modelmanager' && (
+          <ConfigSection
+            title="Model Manager"
+            icon={Cpu}
+            description="Model loading and management settings"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NumberInput
+                label="Max Retries"
+                value={currentConfig.modelManager?.maxRetries ?? 3}
+                onChange={value => updateField('modelManager', 'maxRetries', value)}
+                min={0}
+                description="Maximum retry attempts for model operations"
+              />
+              <NumberInput
+                label="Retry Delay Base"
+                value={currentConfig.modelManager?.retryDelayBaseMs ?? 1000}
+                onChange={value => updateField('modelManager', 'retryDelayBaseMs', value)}
+                min={100}
+                suffix="ms"
+                description="Base delay for model operation retries"
+              />
+              <NumberInput
+                label="Warmup Timeout"
+                value={currentConfig.modelManager?.warmupTimeoutMs ?? 60000}
+                onChange={value => updateField('modelManager', 'warmupTimeoutMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Timeout for model warmup"
+              />
+              <NumberInput
+                label="Idle Threshold"
+                value={currentConfig.modelManager?.idleThresholdMs ?? 1800000}
+                onChange={value => updateField('modelManager', 'idleThresholdMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="Time before unloading idle model"
+              />
+              <NumberInput
+                label="Memory Safety Margin"
+                value={(currentConfig.modelManager?.memorySafetyMargin ?? 1.2) * 100}
+                onChange={value => updateField('modelManager', 'memorySafetyMargin', value / 100)}
+                min={100}
+                step={5}
+                suffix="%"
+                description="Safety margin for memory calculations"
+              />
+              <NumberInput
+                label="GB Per Billion Params"
+                value={currentConfig.modelManager?.gbPerBillionParams ?? 0.75}
+                onChange={value => updateField('modelManager', 'gbPerBillionParams', value)}
+                min={0.1}
+                step={0.05}
+                description="GB needed per billion model parameters"
+              />
+              <NumberInput
+                label="Default Model Size (GB)"
+                value={currentConfig.modelManager?.defaultModelSizeGb ?? 5}
+                onChange={value => updateField('modelManager', 'defaultModelSizeGb', value)}
+                min={0.1}
+                step={0.5}
+                description="Default size for unknown models"
+              />
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-300 mb-3">Load Time Estimates (ms)</h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <NumberInput
+                  label="Tiny"
+                  value={currentConfig.modelManager?.loadTimeEstimates?.tiny ?? 3000}
+                  onChange={value =>
+                    updateField('modelManager', 'loadTimeEstimates', {
+                      ...currentConfig.modelManager?.loadTimeEstimates,
+                      tiny: value,
+                    })
+                  }
+                  min={1000}
+                  suffix="ms"
+                />
+                <NumberInput
+                  label="Small"
+                  value={currentConfig.modelManager?.loadTimeEstimates?.small ?? 5000}
+                  onChange={value =>
+                    updateField('modelManager', 'loadTimeEstimates', {
+                      ...currentConfig.modelManager?.loadTimeEstimates,
+                      small: value,
+                    })
+                  }
+                  min={1000}
+                  suffix="ms"
+                />
+                <NumberInput
+                  label="Medium"
+                  value={currentConfig.modelManager?.loadTimeEstimates?.medium ?? 10000}
+                  onChange={value =>
+                    updateField('modelManager', 'loadTimeEstimates', {
+                      ...currentConfig.modelManager?.loadTimeEstimates,
+                      medium: value,
+                    })
+                  }
+                  min={1000}
+                  suffix="ms"
+                />
+                <NumberInput
+                  label="Large"
+                  value={currentConfig.modelManager?.loadTimeEstimates?.large ?? 20000}
+                  onChange={value =>
+                    updateField('modelManager', 'loadTimeEstimates', {
+                      ...currentConfig.modelManager?.loadTimeEstimates,
+                      large: value,
+                    })
+                  }
+                  min={1000}
+                  suffix="ms"
+                />
+                <NumberInput
+                  label="XL"
+                  value={currentConfig.modelManager?.loadTimeEstimates?.xl ?? 40000}
+                  onChange={value =>
+                    updateField('modelManager', 'loadTimeEstimates', {
+                      ...currentConfig.modelManager?.loadTimeEstimates,
+                      xl: value,
+                    })
+                  }
+                  min={1000}
+                  suffix="ms"
+                />
+                <NumberInput
+                  label="XXL"
+                  value={currentConfig.modelManager?.loadTimeEstimates?.xxl ?? 80000}
+                  onChange={value =>
+                    updateField('modelManager', 'loadTimeEstimates', {
+                      ...currentConfig.modelManager?.loadTimeEstimates,
+                      xxl: value,
+                    })
+                  }
+                  min={1000}
+                  suffix="ms"
+                />
+              </div>
             </div>
           </ConfigSection>
         )}

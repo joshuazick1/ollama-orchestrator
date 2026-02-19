@@ -18,7 +18,7 @@ import {
   type ErrorType,
 } from './circuit-breaker.js';
 import type { HealthCheckConfig, OrchestratorConfig, RetryConfig } from './config/config.js';
-import { DEFAULT_CONFIG } from './config/config.js';
+import { DEFAULT_CONFIG, getConfigManager } from './config/config.js';
 import { getDecisionHistory } from './decision-history.js';
 import { HealthCheckScheduler, type HealthCheckResult } from './health-check-scheduler.js';
 import { LoadBalancer, calculateServerScore, type LoadBalancerConfig } from './load-balancer.js';
@@ -106,6 +106,9 @@ export class AIOrchestrator {
   // Suppress persistence during bulk operations (e.g., loading from disk)
   private _suppressPersistence = false;
 
+  // Unsubscribe from config changes
+  private unsubscribeFromConfig?: () => void;
+
   constructor(
     loadBalancerConfig?: LoadBalancerConfig,
     queueConfig?: QueueConfig,
@@ -162,6 +165,35 @@ export class AIOrchestrator {
     if (this.config.enablePersistence) {
       this.timeouts = new Map(Object.entries(loadTimeoutsFromDisk()));
     }
+
+    // Subscribe to config changes
+    this.unsubscribeFromConfig = getConfigManager().registerComponentWatcher(
+      'orchestrator',
+      fullConfig => {
+        this.updateConfig(fullConfig);
+      }
+    );
+  }
+
+  /**
+   * Update configuration at runtime
+   */
+  updateConfig(config: OrchestratorConfig): void {
+    this.config = config;
+
+    // Update load balancer
+    this.loadBalancer.updateConfig(config.loadBalancer);
+
+    // Update queue
+    this.requestQueue.updateConfig(config.queue);
+
+    // Update circuit breaker registry
+    this.circuitBreakerRegistry.updateAllConfig(config.circuitBreaker);
+
+    // Update health check scheduler
+    this.healthCheckScheduler.updateConfig(config.healthCheck);
+
+    logger.info('Orchestrator config updated at runtime');
   }
 
   /**
@@ -3219,7 +3251,9 @@ export class AIOrchestrator {
     serverId: string,
     model: string
   ): void {
-    if (!context) {return;}
+    if (!context) {
+      return;
+    }
 
     context.selectedServerId = serverId;
 

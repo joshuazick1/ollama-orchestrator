@@ -303,6 +303,32 @@ export class LoadBalancer {
   }
 
   /**
+   * Update configuration at runtime
+   */
+  updateConfig(config: Partial<LoadBalancerConfig>): void {
+    this.config = {
+      ...this.config,
+      ...config,
+      weights: { ...this.config.weights, ...config.weights },
+      thresholds: { ...this.config.thresholds, ...config.thresholds },
+      roundRobin: { ...this.config.roundRobin, ...config.roundRobin },
+      leastConnections: { ...this.config.leastConnections, ...config.leastConnections },
+    };
+
+    // Start/stop sticky session cleanup based on config change
+    if (this.config.roundRobin.stickySessionsTtlMs > 0 && !this.stickySessionCleanupInterval) {
+      this.startStickySessionCleanup();
+    } else if (
+      this.config.roundRobin.stickySessionsTtlMs === 0 &&
+      this.stickySessionCleanupInterval
+    ) {
+      this.stopCleanup();
+    }
+
+    logger.info('Load balancer config updated');
+  }
+
+  /**
    * Start periodic cleanup of expired sticky sessions
    */
   private startStickySessionCleanup(): void {

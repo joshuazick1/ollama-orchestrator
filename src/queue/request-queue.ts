@@ -4,6 +4,7 @@
  */
 
 import { logger } from '../utils/logger.js';
+import { getConfigManager } from '../config/config.js';
 
 export interface QueuedRequest {
   id: string;
@@ -58,10 +59,21 @@ export class RequestQueue {
   };
   private paused = false;
   private boostInterval?: NodeJS.Timeout;
+  private unsubscribe?: () => void;
 
   constructor(config: Partial<QueueConfig> = {}) {
     this.config = { ...DEFAULT_QUEUE_CONFIG, ...config };
     this.startPriorityBoost();
+    this.subscribeToConfigChanges();
+  }
+
+  /**
+   * Subscribe to config manager changes
+   */
+  private subscribeToConfigChanges(): void {
+    this.unsubscribe = getConfigManager().registerComponentWatcher('request-queue', fullConfig => {
+      this.updateConfig(fullConfig.queue);
+    });
   }
 
   /**
@@ -229,6 +241,10 @@ export class RequestQueue {
   shutdown(): void {
     if (this.boostInterval) {
       clearInterval(this.boostInterval);
+    }
+    if (this.unsubscribe) {
+      this.unsubscribe();
+      this.unsubscribe = undefined;
     }
     this.clear();
     logger.info('Request queue shutdown');
