@@ -7,21 +7,17 @@
 import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
+import { API_ENDPOINTS } from '../constants/index.js';
 import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
+import { type OllamaStreamChunk } from '../streaming.js';
+import { resolveApiKey } from '../utils/api-keys.js';
+import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
 
-/** Helper to add debug headers when requested (opt-in via X-Include-Debug-Info) */
-function addDebugHeaders(req: Request, res: Response, context: RoutingContext): void {
-  if (req.headers['x-include-debug-info'] !== 'true') {
-    return;
-  }
-
-  if (context.selectedServerId) {
-    res.setHeader('X-Selected-Server', context.selectedServerId);
-  }
+/**
   if (context.serverCircuitState) {
     res.setHeader('X-Server-Circuit-State', context.serverCircuitState);
   }
@@ -37,20 +33,6 @@ function addDebugHeaders(req: Request, res: Response, context: RoutingContext): 
   if (context.retryCount !== undefined && context.retryCount > 0) {
     res.setHeader('X-Retry-Count', context.retryCount.toString());
   }
-}
-
-/**
- * Resolve API key from string (supports env:VARNAME format)
- */
-function resolveApiKey(apiKey?: string): string | undefined {
-  if (!apiKey) {
-    return undefined;
-  }
-  if (apiKey.startsWith('env:')) {
-    const envVar = apiKey.substring(4);
-    return process.env[envVar];
-  }
-  return apiKey;
 }
 
 /**
@@ -126,15 +108,6 @@ interface _OpenAIModelObject {
   object: 'model';
   created: number;
   owned_by: string;
-}
-
-/** Parsed chunk from Ollama's NDJSON streaming response */
-interface OllamaStreamChunk {
-  done?: boolean;
-  prompt_eval_count?: number;
-  eval_count?: number;
-  message?: { content?: string };
-  response?: string;
 }
 
 /** Model entry returned from Ollama's aggregated tags */
@@ -409,7 +382,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
         if (stream) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/v1/chat/completions`,
+            `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
             {
               method: 'POST',
               headers,
@@ -449,18 +422,21 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         }
 
         // Non-streaming request - proxy to Ollama's OpenAI endpoint
-        const response = await fetchWithTimeout(`${server.url}/v1/chat/completions`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            model,
-            messages,
-            stream: false,
-            options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-            ...(body.tools && { tools: body.tools }),
-          }),
-          timeout: 120000,
-        });
+        const response = await fetchWithTimeout(
+          `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model,
+              messages,
+              stream: false,
+              options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
+              ...(body.tools && { tools: body.tools }),
+            }),
+            timeout: 120000,
+          }
+        );
 
         if (!response.ok) {
           const errorMessage = await parseOllamaError(response);
@@ -566,7 +542,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
 
         if (stream) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/v1/completions`,
+            `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
               method: 'POST',
               headers,
@@ -606,18 +582,21 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
         }
 
         // Non-streaming
-        const response = await fetchWithTimeout(`${server.url}/v1/completions`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            model,
-            prompt: promptText,
-            stream: false,
-            options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-            ...(body.suffix && { suffix: body.suffix }),
-          }),
-          timeout: 120000,
-        });
+        const response = await fetchWithTimeout(
+          `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model,
+              prompt: promptText,
+              stream: false,
+              options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
+              ...(body.suffix && { suffix: body.suffix }),
+            }),
+            timeout: 120000,
+          }
+        );
 
         if (!response.ok) {
           const errorMessage = await parseOllamaError(response);
@@ -690,7 +669,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       model,
       async (server: AIServer) => {
         const headers = getBackendHeaders(server);
-        const response = await fetchWithTimeout(`${server.url}/v1/embeddings`, {
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -838,7 +817,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
 
         if (useStreaming) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/v1/chat/completions`,
+            `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -871,12 +850,15 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
           return { _streamed: true };
         }
 
-        const response = await fetchWithTimeout(`${server.url}/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-          timeout: 180000,
-        });
+        const response = await fetchWithTimeout(
+          `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+            timeout: 180000,
+          }
+        );
 
         if (!response.ok) {
           const errorMessage = await parseOllamaError(response);
@@ -946,7 +928,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
 
         if (useStreaming) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/v1/completions`,
+            `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -987,12 +969,15 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
           return { _streamed: true };
         }
 
-        const response = await fetchWithTimeout(`${server.url}/v1/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-          timeout: 180000,
-        });
+        const response = await fetchWithTimeout(
+          `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+            timeout: 180000,
+          }
+        );
 
         if (!response.ok) {
           const errorMessage = await parseOllamaError(response);
@@ -1060,7 +1045,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
       model,
       async server => {
         // Call OpenAI-compatible embeddings endpoint directly
-        const response = await fetchWithTimeout(`${server.url}/v1/embeddings`, {
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

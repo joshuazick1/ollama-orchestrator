@@ -283,7 +283,7 @@ export interface LatencyPercentiles {
 /**
  * Time window names
  */
-export type TimeWindow = '1m' | '5m' | '15m' | '1h';
+export type TimeWindow = '1m' | '5m' | '15m' | '1h' | '24h';
 
 /**
  * Streaming metrics for tracking time-to-first-token

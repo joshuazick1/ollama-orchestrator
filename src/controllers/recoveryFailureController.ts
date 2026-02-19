@@ -6,6 +6,7 @@
 import type { Request, Response } from 'express';
 
 import { getRecoveryFailureTracker } from '../analytics/recovery-failure-tracker.js';
+import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { logger } from '../utils/logger.js';
 
@@ -229,7 +230,7 @@ export function resetServerCircuitBreaker(req: Request, res: Response): void {
     const success = orchestrator.resetServerCircuitBreaker(serverId);
 
     if (!success) {
-      res.status(404).json({ error: `Circuit breaker not found for server ${serverId}` });
+      res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND_SERVER(serverId) });
       return;
     }
 
@@ -257,7 +258,7 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
     const breaker = orchestrator.getServerCircuitBreaker(serverId);
 
     if (!breaker) {
-      res.status(404).json({ error: `Circuit breaker not found for server ${serverId}` });
+      res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND_SERVER(serverId) });
       return;
     }
 

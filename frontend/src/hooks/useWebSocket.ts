@@ -38,6 +38,7 @@ export const useWebSocket = ({
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectCountRef = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRef = useRef<() => void>(() => {});
 
   const connect = useCallback(() => {
     if (!enabled || !url) return;
@@ -74,7 +75,7 @@ export const useWebSocket = ({
         if (enabled && reconnectCountRef.current < reconnectAttempts) {
           reconnectCountRef.current += 1;
           reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
+            connectRef.current();
           }, reconnectInterval);
         }
       };
@@ -85,6 +86,10 @@ export const useWebSocket = ({
       onStatusChange?.('error');
     }
   }, [url, enabled, reconnectAttempts, reconnectInterval, onMessage, onStatusChange]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -110,6 +115,7 @@ export const useWebSocket = ({
   }, [connect, disconnect]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     connect();
 
     return () => {

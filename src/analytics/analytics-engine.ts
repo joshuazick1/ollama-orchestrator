@@ -16,6 +16,7 @@ import type {
 } from '../orchestrator.types.js';
 import { getRequestHistory, type RequestRecord, type RequestStats } from '../request-history.js';
 import { logger } from '../utils/logger.js';
+import { Statistics } from '../utils/statistics.js';
 
 export type AnalyticsTimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'custom';
 
@@ -380,15 +381,7 @@ export class AnalyticsEngine {
    * Calculate percentile from sorted array
    */
   private calculatePercentile(sorted: number[], percentile: number): number {
-    if (sorted.length === 0) {
-      return 0;
-    }
-    if (sorted.length === 1) {
-      return sorted[0];
-    }
-
-    const index = Math.ceil(sorted.length * percentile) - 1;
-    return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+    return Statistics.calculatePercentile(sorted, percentile);
   }
 
   /**

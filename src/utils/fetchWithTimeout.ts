@@ -189,3 +189,39 @@ export function createFetchWithTimeout(
   return (url: string, options?: FetchWithTimeoutOptions): Promise<Response> =>
     fetchWithTimeout(url, { ...options, timeout: options?.timeout ?? defaultTimeout });
 }
+
+/**
+ * Parse and validate JSON response
+ * @param response - Fetch Response object
+ * @returns Parsed JSON or null on error
+ */
+export async function parseResponse<T = Record<string, unknown>>(
+  response: Response
+): Promise<T | null> {
+  try {
+    const data = await response.json();
+    return data as T;
+  } catch (error) {
+    logger.debug('Failed to parse response JSON', { error });
+    return null;
+  }
+}
+
+/**
+ * Parse JSON response and check for errors
+ * @param response - Fetch Response object
+ * @returns Tuple of [data, errorMessage] - one will be null
+ */
+export async function parseResponseWithError<T extends object = Record<string, unknown>>(
+  response: Response
+): Promise<[T | null, string | null]> {
+  try {
+    const data = (await response.json()) as T;
+    if ('error' in data && typeof data.error === 'string') {
+      return [null, data.error];
+    }
+    return [data, null];
+  } catch {
+    return [null, 'Failed to parse response'];
+  }
+}

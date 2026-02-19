@@ -6,10 +6,12 @@
 import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
+import { API_ENDPOINTS } from '../constants/index.js';
 import { TTFTTracker } from '../metrics/ttft-tracker.js';
 import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
 import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../streaming.js';
+import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
@@ -82,32 +84,6 @@ interface StreamingMetrics {
   };
 }
 
-/** Helper to add debug headers when requested (opt-in via X-Include-Debug-Info) */
-function addDebugHeaders(req: Request, res: Response, context: RoutingContext): void {
-  if (req.headers['x-include-debug-info'] !== 'true') {
-    return;
-  }
-
-  if (context.selectedServerId) {
-    res.setHeader('X-Selected-Server', context.selectedServerId);
-  }
-  if (context.serverCircuitState) {
-    res.setHeader('X-Server-Circuit-State', context.serverCircuitState);
-  }
-  if (context.modelCircuitState) {
-    res.setHeader('X-Model-Circuit-State', context.modelCircuitState);
-  }
-  if (context.availableServerCount !== undefined) {
-    res.setHeader('X-Available-Servers', context.availableServerCount.toString());
-  }
-  if (context.routedToOpenCircuit) {
-    res.setHeader('X-Routed-To-Open-Circuit', 'true');
-  }
-  if (context.retryCount !== undefined && context.retryCount > 0) {
-    res.setHeader('X-Retry-Count', context.retryCount.toString());
-  }
-}
-
 /**
  * Handle /api/tags - Get aggregated tags from all servers
  */
@@ -168,7 +144,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         // Use activity-based timeout for streaming to prevent cutoffs during active streams
         if (useStreaming) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/api/generate`,
+            `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -257,7 +233,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         }
 
         // Non-streaming request uses regular timeout
-        const response = await fetchWithTimeout(`${server.url}/api/generate`, {
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -346,7 +322,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         // Use activity-based timeout for streaming to prevent cutoffs during active streams
         if (useStreaming) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/api/chat`,
+            `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -428,7 +404,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         }
 
         // Non-streaming request uses regular timeout
-        const response = await fetchWithTimeout(`${server.url}/api/chat`, {
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -500,7 +476,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     const result = await orchestrator.tryRequestWithFailover(
       model,
       async server => {
-        const response = await fetchWithTimeout(`${server.url}/api/embeddings`, {
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...body, model, prompt }),
@@ -545,7 +521,7 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
 
     const promises = servers.map(async server => {
       try {
-        const response = await fetchWithTimeout(`${server.url}/api/ps`, {
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.PS}`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           timeout: 10000, // 10 second timeout for PS
@@ -612,7 +588,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
     }
 
     // Forward the request to the selected server
-    const response = await fetch(`${server.url}/api/show`, {
+    const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.SHOW}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -674,7 +650,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
       embedBody.dimensions = body.dimensions;
     }
 
-    const response = await fetch(`${server.url}/api/embed`, {
+    const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.EMBED}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(embedBody),
@@ -744,7 +720,7 @@ export async function handleStreamingGenerate(
   await handleStreamWithRetry(
     async () => {
       const { response, activityController } = await fetchWithActivityTimeout(
-        `${server.url}/api/generate`,
+        `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -851,7 +827,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
       async server => {
         if (useStreaming) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/api/generate`,
+            `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -876,7 +852,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
           return null;
         } else {
           // No timeout for per-server requests - let active tests determine appropriate timeouts
-          const response = await fetch(`${server.url}/api/generate`, {
+          const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -950,7 +926,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
       async server => {
         if (useStreaming) {
           const { response, activityController } = await fetchWithActivityTimeout(
-            `${server.url}/api/chat`,
+            `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -975,7 +951,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
           return null;
         } else {
           // No timeout for per-server requests - let active tests determine appropriate timeouts
-          const response = await fetch(`${server.url}/api/chat`, {
+          const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -1050,7 +1026,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
       serverId,
       model,
       async server => {
-        const response = await fetchWithTimeout(`${server.url}/api/embeddings`, {
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

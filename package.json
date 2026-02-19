@@ -16,6 +16,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
+    "typecheck:all": "npm run typecheck && cd frontend && npm run typecheck",
+    "validate-types": "node scripts/validate-types.mjs",
     "test": "vitest",
     "test:unit": "vitest run --reporter=verbose",
     "test:integration": "vitest run --config vitest.integration.config.ts",
