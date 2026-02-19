@@ -57,13 +57,11 @@ describe('circuitBreakerController', () => {
 
       expect(mockOrchestrator.getServerCircuitBreaker).toHaveBeenCalledWith('server-1');
       expect(mockBreaker.forceClose).toHaveBeenCalled();
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Circuit breaker manually reset'),
-          previousState: 'open',
-          currentState: 'closed',
-        })
-      );
+      expect(mockRes.json).toHaveBeenCalledWith({
+        message: 'Circuit breaker reset for server-1',
+        previousState: 'open',
+        currentState: 'closed',
+      });
     });
 
     it('should reset a model-level circuit breaker', () => {
@@ -79,11 +77,11 @@ describe('circuitBreakerController', () => {
 
       expect(mockOrchestrator.getModelCircuitBreakerPublic).toHaveBeenCalledWith('server-1', 'llama3:latest');
       expect(mockBreaker.forceClose).toHaveBeenCalled();
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: expect.stringContaining('Circuit breaker manually reset'),
-        })
-      );
+      expect(mockRes.json).toHaveBeenCalledWith({
+        message: 'Circuit breaker reset for server-1:llama3:latest',
+        previousState: 'half-open',
+        currentState: 'closed',
+      });
     });
 
     it('should return 404 when server breaker not found', () => {

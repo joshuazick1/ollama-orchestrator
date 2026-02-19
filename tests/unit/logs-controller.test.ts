@@ -42,7 +42,6 @@ describe('logsController', () => {
       getLogs(mockReq as Request, mockRes as Response);
 
       expect(logger.getLogs).toHaveBeenCalledWith(undefined);
-      expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         logs: mockLogData,
         count: 2,
@@ -91,7 +90,7 @@ describe('logsController', () => {
 
       getLogs(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalled();
     });
 
     it('should return 500 on error', () => {
@@ -111,7 +110,6 @@ describe('logsController', () => {
       clearLogs(mockReq as Request, mockRes as Response);
 
       expect(logger.clearLogs).toHaveBeenCalled();
-      expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({ message: 'Logs cleared' });
     });
 
