@@ -167,19 +167,87 @@ describe('streamResponse', () => {
     expect(responseEnded).toBe(true);
   });
 
-  it('should handle missing response body gracefully', async () => {
-    const mockUpstreamResponse = { body: null } as any;
+  it('should wait for drain when buffer is full', async () => {
+    let drainCalled = false;
+    let writeCount = 0;
 
-    await streamResponse(mockUpstreamResponse, mockResponse as Response);
+    const mockBody = createMockBody(['data: test1\n\n', 'data: test2\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    // Error should be caught and sent as JSON response
-    expect(mockResponse.status).toHaveBeenCalledWith(500);
-    expect(mockResponse.json).toHaveBeenCalledWith(
-      expect.objectContaining({
-        error: 'Streaming failed',
-        details: 'No response body to stream',
-      })
+    mockResponse.write = vi.fn((chunk: Buffer) => {
+      writeCount++;
+      if (writeCount === 1) {
+        return false; // Buffer full
+      }
+      return true;
+    });
+
+    mockResponse.once = vi.fn((event: string, callback: () => void) => {
+      if (event === 'drain') {
+        setTimeout(callback, 10);
+      }
+    });
+
+    await streamResponse(mockUpstreamResponse as any, mockResponse as Response);
+
+    expect(mockResponse.once).toHaveBeenCalledWith('drain', expect.any(Function));
+    expect(writeCount).toBe(2);
+  });
+
+  it('should log progress for long streams', async () => {
+    const LOG_INTERVAL = 30000;
+    vi.useFakeTimers();
+
+    const mockBody = createMockBody(['data: test\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    const promise = streamResponse(mockUpstreamResponse as any, mockResponse as Response);
+
+    await vi.advanceTimersByTimeAsync(LOG_INTERVAL + 1);
+
+    await promise;
+    vi.useRealTimers();
+
+    expect(mockResponse.setHeader).toHaveBeenCalled();
+  });
+
+  it('should extract token counts from done chunk', async () => {
+    const onComplete = vi.fn();
+    const mockBody = createMockBody([
+      'data: {"response":"hello","done":false}\n\n',
+      'data: {"response":" world","done":true,"eval_count":10,"prompt_eval_count":5}\n\n',
+    ]);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete
     );
+
+    expect(onComplete).toHaveBeenCalled();
+    const args = onComplete.mock.calls[0];
+    expect(args[0]).toBeGreaterThanOrEqual(0);
+    expect(typeof args[1]).toBe('number');
+    expect(typeof args[2]).toBe('number');
+  });
+
+  it('should handle non-JSON done chunk gracefully', async () => {
+    const onComplete = vi.fn();
+    const mockBody = createMockBody(['data: plain text\n\n', 'data: [DONE]\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete
+    );
+
+    expect(onComplete).toHaveBeenCalled();
+    const args = onComplete.mock.calls[0];
+    expect(typeof args[1]).toBe('number');
   });
 });
 

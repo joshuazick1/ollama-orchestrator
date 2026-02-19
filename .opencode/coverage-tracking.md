@@ -2,11 +2,18 @@
 
 ## Current Status (as of 2026-02-19)
 
-- **Tests passing**: 1100+
-- **Coverage**: ~60% lines, ~63% functions, ~51% branches
-- load-balancer.ts: 70% (improved from 54%)
-- errorClassifier.ts: ~90%+ (new tests added - 36 tests)
-- orchestrator.test.ts excluded (another agent working on it)
+- **Tests passing**: 1484
+- **Coverage**: 71.63% lines, 61.88% branches, 74.54% functions, 71.89% statements
+- **Function coverage**: 74.54% ✓ (HIT 70% TARGET)
+- **Branch coverage**: 61.88% (need ~8.12% more to hit 70%)
+
+## Key Improvements Made
+
+- streaming.ts: Added tests for drain handling, progress logging, token extraction
+- rateLimiter.ts: Added tests for skip logic, custom key generator
+- analytics-engine.test.ts: Added capacity analysis, error analysis, decision events, stats tests
+- unified-recorder.test.ts: Added error handling, async recorder tests
+- request-history.test.ts: Added full test suite (14 tests)
 
 ---
 
