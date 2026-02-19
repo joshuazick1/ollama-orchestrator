@@ -49,6 +49,6 @@ jobs:
           echo "ORCHESTRATOR_HOST=0.0.0.0" >> .env
           echo "GRAFANA_ADMIN_PASSWORD=testpassword" >> .env
           # Test docker-compose build
-          docker-compose -f docker-compose.prod.yml build --no-cache
+          docker compose -f docker-compose.prod.yml build --no-cache
           # Clean up
           rm .env
