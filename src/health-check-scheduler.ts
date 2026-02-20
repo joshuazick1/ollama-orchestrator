@@ -8,6 +8,7 @@ import { featureFlags } from './config/feature-flags.js';
 import type { AIServer } from './orchestrator.types.js';
 import { resolveApiKey } from './utils/api-keys.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
+import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
 import { logger } from './utils/logger.js';
 import { Timer } from './utils/timer.js';
 
