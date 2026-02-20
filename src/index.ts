@@ -12,6 +12,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 
+import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metricsController.js';
 import { requireAuth } from './middleware/auth.js';
 import { createMonitoringRateLimiter, createAdminRateLimiter } from './middleware/rateLimiter.js';
@@ -115,7 +116,7 @@ app.get('/health', (_req, res) => {
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Unhandled error:', { error: err });
   res.status(500).json({
-    error: 'Internal server error',
+    error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
     details: err?.message ?? 'Unknown error',
   });
 });

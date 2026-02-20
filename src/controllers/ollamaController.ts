@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
-import { API_ENDPOINTS } from '../constants/index.js';
+import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import { TTFTTracker } from '../metrics/ttft-tracker.js';
 import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
@@ -119,7 +119,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
   });
 
   if (!model) {
-    res.status(400).json({ error: 'model is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
     return;
   }
 
@@ -297,7 +297,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   });
 
   if (!model) {
-    res.status(400).json({ error: 'model is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
     return;
   }
 
@@ -465,7 +465,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
   });
 
   if (!model || !prompt) {
-    res.status(400).json({ error: 'model and prompt are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_AND_PROMPT_REQUIRED });
     return;
   }
 
@@ -553,7 +553,7 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
     res.json({ models: allModels });
   } catch (error) {
     logger.error('Error in handlePs:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -572,7 +572,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
     const body = req.body as ShowRequestBody;
     const { model } = body;
     if (!model) {
-      res.status(400).json({ error: 'model is required' });
+      res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
       return;
     }
 
@@ -604,7 +604,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
     res.json(data);
   } catch (error) {
     logger.error('Error in handleShow:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -616,14 +616,14 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     const body = req.body as EmbedRequestBody;
     const { model, input } = body;
     if (!model) {
-      res.status(400).json({ error: 'model is required' });
+      res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
       return;
     }
 
     // Handle both single input and batch input
     const inputs = Array.isArray(input) ? input : [input ?? body.prompt];
     if (inputs.length === 0 || inputs.some(i => !i)) {
-      res.status(400).json({ error: 'input or prompt is required' });
+      res.status(400).json({ error: ERROR_MESSAGES.INPUT_OR_PROMPT_REQUIRED });
       return;
     }
 
@@ -666,7 +666,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     res.json(data);
   } catch (error) {
     logger.error('Error in handleEmbed:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -809,11 +809,11 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
   });
 
   if (!model) {
-    res.status(400).json({ error: 'model is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
     return;
   }
   if (!prompt && (!body.keep_alive || body.keep_alive !== 0)) {
-    res.status(400).json({ error: 'prompt is required for generation' });
+    res.status(400).json({ error: ERROR_MESSAGES.PROMPT_REQUIRED_FOR_GENERATION });
     return;
   }
 
@@ -912,7 +912,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
   });
 
   if (!model) {
-    res.status(400).json({ error: 'model is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
     return;
   }
 
@@ -1011,11 +1011,11 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
   });
 
   if (!model) {
-    res.status(400).json({ error: 'model is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
     return;
   }
   if (!body.prompt) {
-    res.status(400).json({ error: 'prompt is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.PROMPT_REQUIRED });
     return;
   }
 

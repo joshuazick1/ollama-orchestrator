@@ -47,7 +47,7 @@ export function resetBreaker(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error resetting circuit breaker:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -80,6 +80,6 @@ export function getBreakerDetails(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error getting circuit breaker details:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }

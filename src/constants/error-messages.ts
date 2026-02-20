@@ -14,17 +14,27 @@ export const ERROR_MESSAGES = {
   SERVER_ID_AND_URL_REQUIRED: 'id and url are required',
   TARGET_SERVER_NOT_FOUND: (id: string) => `Target server '${id}' not found`,
   SOURCE_SERVER_NOT_FOUND: (id: string) => `Source server '${id}' not found`,
+  SERVER_NO_OLLAMA_SUPPORT: (id: string) =>
+    `Server '${id}' does not support Ollama model management`,
 
   // Model errors
   MODEL_NOT_FOUND: (model: string) => `model '${model}' not found`,
   MODEL_NOT_FOUND_ON_SERVER: (model: string) => `model '${model}' not found on any healthy server`,
   MODEL_REQUIRED: 'model is required',
   MODEL_REQUIRED_STRING: 'model is required and must be a string',
+  MODEL_PARAMETER_REQUIRED: 'model parameter is required',
+  MODEL_NAME_REQUIRED: 'Model name is required',
+  MODEL_AND_PROMPT_REQUIRED: 'model and prompt are required',
   MODEL_NOT_FOUND_ON_SOURCE: (model: string, serverId: string) =>
     `Model '${model}' not found on source server '${serverId}'`,
+  NO_SERVERS_FOR_WARMUP: 'No servers available for warmup',
   PROMPT_REQUIRED: 'prompt is required',
   PROMPT_REQUIRED_FOR_GENERATION: 'prompt is required for generation',
   INPUT_OR_PROMPT_REQUIRED: 'input or prompt is required',
+
+  // Parameter errors
+  SERVER_ID_REQUIRED: 'serverId is required',
+  SERVER_ID_AND_MODEL_REQUIRED: 'serverId and model are required',
 
   // Circuit breaker errors
   CIRCUIT_BREAKER_NOT_FOUND: (serverId: string, model: string) =>
