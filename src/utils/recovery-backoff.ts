@@ -117,13 +117,13 @@ export function calculateRecoveryBackoff(options: BackoffOptions): BackoffResult
  */
 export function calculateActiveTestTimeout(
   attempt: number,
-  baseTimeout: number = 60000,
+  baseTimeout: number = 120000,
   failureReason?: string,
   errorType?: string
 ): number {
   const reason = (failureReason || '').toLowerCase();
 
-  // Quick timeouts for errors that fail immediately
+  // Quick timeouts for errors that fail immediately (non-retryable client errors)
   if (
     reason.includes('does not support generate') ||
     reason.includes('does not support chat') ||
@@ -132,22 +132,13 @@ export function calculateActiveTestTimeout(
     return 5000;
   }
 
-  if (
-    reason.includes('unable to load model') ||
-    reason.includes('invalid file magic') ||
-    reason.includes('unsupported model format')
-  ) {
-    return 10000;
-  }
-
+  // Non-retryable or permanent errors get a fixed timeout (no point waiting longer)
   if (errorType === 'non-retryable' || errorType === 'permanent') {
     return 15000;
   }
 
-  if (reason.includes('memory') || reason.includes('oom')) {
-    return 10000;
-  }
-
+  // For all other errors (including "unable to load model", memory issues, etc.)
+  // use progressive timeout doubling to allow time for model loading
   // Progressive timeout doubling
   const multiplier = Math.pow(2, Math.min(attempt, 10));
   const maxTimeout = 15 * 60 * 1000; // 15 minutes

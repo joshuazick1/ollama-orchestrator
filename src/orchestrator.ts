@@ -93,9 +93,6 @@ export class AIOrchestrator {
   // Track per server:model timeouts
   private timeouts: Map<string, number> = new Map();
 
-  // Track active test failure counts for progressive timeout extension
-  private activeTestFailureCount: Map<string, number> = new Map();
-
   // Track model VRAM sizes from /api/ps for adaptive timeout calculation (in MB)
   private modelVramSizes: Map<string, number> = new Map();
 
@@ -1876,10 +1873,6 @@ export class AIOrchestrator {
         logger.info(
           `Active test success: updated timeout for ${server.id}:${model} to ${newTimeout}ms (3x ${requestContext.duration}ms response time)`
         );
-
-        // Reset active test failure count on success
-        const key = `${server.id}:${model}`;
-        this.activeTestFailureCount.delete(key);
       } else if (requestContext.duration > 5000) {
         // For regular requests taking >5s, also update timeout if it's longer than current
         const currentTimeout = this.getTimeout(server.id, model);
@@ -1918,22 +1911,6 @@ export class AIOrchestrator {
         errorType,
         duration: requestContext.duration,
       });
-
-      // Track active test failures for progressive timeout extension
-      const serverCb = this.getCircuitBreaker(server.id);
-      const modelCb = this.getModelCircuitBreaker(server.id, model);
-      const wasActiveTest =
-        serverCb.getState() === 'half-open' || modelCb.getState() === 'half-open';
-      if (
-        wasActiveTest &&
-        errorType === 'transient' &&
-        errorMessage.toLowerCase().includes('timeout')
-      ) {
-        const key = `${server.id}:${model}`;
-        const currentCount = this.activeTestFailureCount.get(key) ?? 0;
-        this.activeTestFailureCount.set(key, currentCount + 1);
-        logger.debug(`Active test failure count for ${key}: ${currentCount + 1}`);
-      }
 
       this.handleServerError(server, model, errorMessage, errorType, errors);
       return { success: false };
@@ -2674,173 +2651,6 @@ export class AIOrchestrator {
   }
 
   /**
-   * Calculate adaptive timeout for active tests based on model size, historical performance, and server health
-   */
-  private calculateAdaptiveActiveTestTimeout(serverId: string, model: string): number {
-    // Base timeout estimation from model size (using actual VRAM if available)
-    const modelSizeMultiplier = this.calculateModelSizeMultiplier(serverId, model);
-    const baseTimeout = 60000; // 60 seconds base for small models (was 30s - increased to prevent premature timeouts)
-    const modelSizeTimeout = baseTimeout * modelSizeMultiplier;
-
-    // Historical response time multiplier
-    const historicalMultiplier = this.getHistoricalResponseMultiplier(serverId, model);
-
-    // Server performance multiplier from recent health checks
-    const serverPerformanceMultiplier = this.getServerPerformanceMultiplier(serverId);
-
-    // Progressive extension for failed active tests
-    const progressiveMultiplier = this.getProgressiveExtensionMultiplier(serverId, model);
-
-    // Calculate adaptive timeout
-    let adaptiveTimeout =
-      modelSizeTimeout * historicalMultiplier * serverPerformanceMultiplier * progressiveMultiplier;
-
-    // Apply caps
-    const minTimeout = 15000; // 15 seconds minimum
-    const maxTimeout = 900000; // 15 minutes maximum
-    adaptiveTimeout = Math.max(minTimeout, Math.min(maxTimeout, adaptiveTimeout));
-
-    logger.debug(`Adaptive timeout calculation for ${serverId}:${model}:`, {
-      modelSizeMultiplier: modelSizeMultiplier.toFixed(2),
-      historicalMultiplier: historicalMultiplier.toFixed(2),
-      serverPerformanceMultiplier: serverPerformanceMultiplier.toFixed(2),
-      progressiveMultiplier: progressiveMultiplier.toFixed(2),
-      modelSizeTimeout,
-      adaptiveTimeout,
-    });
-
-    return adaptiveTimeout;
-  }
-
-  /**
-   * Calculate model size multiplier using real VRAM data if available, otherwise estimate from name
-   */
-  private calculateModelSizeMultiplier(serverId: string, model: string): number {
-    // First check if we have actual VRAM data from /api/ps
-    const vramKey = `${serverId}:${model}`;
-    const actualVramMB = this.modelVramSizes.get(vramKey);
-
-    if (actualVramMB && actualVramMB > 0) {
-      // Use actual VRAM: base calculation on ~500MB = 1x (typical small model)
-      // A 7B model typically uses ~4-6GB, 70B uses ~40-50GB
-      // Scale: 500MB = 1x, 5GB (5000MB) = 10x, 50GB (50000MB) = 100x
-      const baseVramMB = 500; // 500MB baseline
-      const multiplier = Math.max(1, actualVramMB / baseVramMB);
-      logger.debug(
-        `Using actual VRAM for ${vramKey}: ${actualVramMB}MB, multiplier: ${multiplier.toFixed(2)}x`
-      );
-      return multiplier;
-    }
-
-    // Fall back to estimating from model name
-    return this.estimateModelSizeMultiplierFromName(model);
-  }
-
-  /**
-   * Estimate model size multiplier from model name (e.g., "7b", "70b", "8x7b")
-   */
-  private estimateModelSizeMultiplierFromName(model: string): number {
-    const modelLower = model.toLowerCase();
-
-    // Extract size patterns like "7b", "70b", "8x7b", "13b", etc.
-    const sizePatterns = [
-      /(\d+)x(\d+)b/g, // MoE patterns like "8x7b", "16x12b"
-      /(\d+)b/g, // Standard patterns like "7b", "70b", "13b"
-    ];
-
-    let maxSize = 7; // Default to 7B if no size found
-
-    for (const pattern of sizePatterns) {
-      const matches = [...modelLower.matchAll(pattern)];
-      for (const match of matches) {
-        if (match[2]) {
-          // MoE pattern: 8x7b = 8 * 7 = 56
-          const experts = parseInt(match[1]);
-          const expertSize = parseInt(match[2]);
-          maxSize = Math.max(maxSize, experts * expertSize);
-        } else {
-          // Standard pattern: 70b = 70
-          const size = parseInt(match[1]);
-          maxSize = Math.max(maxSize, size);
-        }
-      }
-    }
-
-    // Size multiplier: 7B = 1x, 70B = 10x, 405B = 58x, etc.
-    const multiplier = Math.max(1, maxSize / 7);
-    return multiplier;
-  }
-
-  /**
-   * Get historical response time multiplier from past successful requests
-   */
-  private getHistoricalResponseMultiplier(serverId: string, model: string): number {
-    const metrics = this.metricsAggregator.getMetrics(serverId, model);
-    if (!metrics) {
-      return 1.0; // No historical data, use neutral multiplier
-    }
-
-    // Get total request count from recent windows
-    const recentWindow = metrics.windows['1m'];
-    const totalRequests = recentWindow ? recentWindow.count : 0;
-
-    if (totalRequests < 3) {
-      return 1.0; // Not enough data
-    }
-
-    // Use 95th percentile response time as reference
-    const p95Time = metrics.percentiles.p95;
-    if (p95Time <= 0) {
-      return 1.0;
-    }
-
-    // Calculate multiplier relative to base 30s timeout
-    // If historical P95 is 60s, multiplier is 2.0
-    // If historical P95 is 15s, multiplier is 0.5
-    const baseTimeout = 30000; // 30 seconds
-    const multiplier = p95Time / baseTimeout;
-
-    // Bound between 0.5x and 3x
-    return Math.max(0.5, Math.min(3.0, multiplier));
-  }
-
-  /**
-   * Get server performance multiplier from recent health check times
-   */
-  private getServerPerformanceMultiplier(serverId: string): number {
-    const server = this.getServer(serverId);
-    if (!server || server.lastResponseTime === Infinity) {
-      return 1.0; // Unknown performance
-    }
-
-    const healthCheckTime = server.lastResponseTime;
-    const baseHealthCheckTime = 1000; // Assume 1 second is good
-
-    // Slower health checks indicate slower server
-    const multiplier = healthCheckTime / baseHealthCheckTime;
-
-    // Bound between 0.5x and 2x
-    return Math.max(0.5, Math.min(2.0, multiplier));
-  }
-
-  /**
-   * Get progressive extension multiplier for failed active tests
-   * Increases timeout on repeated failures to allow for slow model loading
-   */
-  private getProgressiveExtensionMultiplier(serverId: string, model: string): number {
-    const key = `${serverId}:${model}`;
-    const failureCount = this.activeTestFailureCount.get(key) ?? 0;
-
-    if (failureCount === 0) {
-      return 1.0; // No recent failures
-    }
-
-    // Progressive extension: 1.5x, 2.0x, 2.5x, 3.0x for consecutive failures
-    const multiplier = 1.0 + failureCount * 0.5;
-    return Math.min(3.0, multiplier); // Cap at 3x
-  }
-
-  /**
    * Get timeout for a server:model pair, with fallback to default
    * Uses adaptive timeouts for active tests based on model size, historical performance, and server health
    */
@@ -2853,12 +2663,12 @@ export class AIOrchestrator {
     if (serverCb.getState() === 'half-open' || modelCb.getState() === 'half-open') {
       // Use stored timeout - scheduler handles adaptive timeout calculation for active tests
       const key = `${serverId}:${model}`;
-      return this.timeouts.get(key) ?? 60000;
+      return this.timeouts.get(key) ?? 120000;
     }
 
     // Use configured timeout
     const key = `${serverId}:${model}`;
-    return this.timeouts.get(key) ?? 60000; // Default 60s
+    return this.timeouts.get(key) ?? 120000; // Default 120s
   }
 
   /**

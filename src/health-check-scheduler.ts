@@ -670,8 +670,8 @@ export class HealthCheckScheduler {
     model: string,
     getCurrentTimeout?: (serverId: string, model: string) => number
   ): number {
-    // Get current timeout as base, defaulting to 60 seconds
-    let baseTimeout = 60000;
+    // Get current timeout as base, defaulting to 120 seconds
+    let baseTimeout = 120000;
     if (getCurrentTimeout) {
       baseTimeout = getCurrentTimeout(server.id, model);
     }
