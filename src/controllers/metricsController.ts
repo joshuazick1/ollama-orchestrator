@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import type { MetricsAggregator } from '../metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../metrics/prometheus-exporter.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
 
 /**
  * Get comprehensive metrics for all server:model combinations
@@ -99,6 +100,67 @@ export function getPrometheusMetrics(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to export metrics',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get recovery test metrics and statistics
+ * GET /api/orchestrator/metrics/recovery-tests
+ */
+export function getRecoveryTestMetrics(req: Request, res: Response): void {
+  try {
+    const coordinator = getRecoveryTestCoordinator();
+    const stats = coordinator.getTestStats();
+
+    const breakerNames = new Set<string>();
+    for (const metric of (coordinator as any).testMetrics || []) {
+      breakerNames.add(metric.breakerName);
+    }
+
+    const breakerProbabilities: Record<string, number> = {};
+    for (const name of breakerNames) {
+      breakerProbabilities[name] = coordinator.getRecoveryProbability(name);
+    }
+
+    res.status(200).json({
+      success: true,
+      timestamp: Date.now(),
+      aggregate: stats,
+      recoveryProbabilities: breakerProbabilities,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get recovery test metrics',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get recovery test metrics for a specific breaker
+ * GET /api/orchestrator/metrics/recovery-tests/:breakerName
+ */
+export function getBreakerRecoveryMetrics(req: Request, res: Response): void {
+  try {
+    const breakerName = decodeURIComponent(req.params.breakerName as string);
+    const coordinator = getRecoveryTestCoordinator();
+
+    const metrics = coordinator.getMetricsForBreaker(breakerName);
+    const probability = coordinator.getRecoveryProbability(breakerName);
+
+    res.status(200).json({
+      success: true,
+      timestamp: Date.now(),
+      breakerName,
+      metrics,
+      recoveryProbability: probability,
+      totalTests: metrics.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get breaker recovery metrics',
       details: error instanceof Error ? error.message : String(error),
     });
   }

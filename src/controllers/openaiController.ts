@@ -13,6 +13,7 @@ import type { AIServer } from '../orchestrator.types.js';
 import { type OllamaStreamChunk } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { addDebugHeaders } from '../utils/debug-headers.js';
+import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
@@ -785,7 +786,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
     : String((req.params as Record<string, unknown>).serverId);
 
   // Check for bypass circuit breaker flag
-  const bypassCircuitBreaker = req.query.bypass === 'true' || req.query.force === 'true';
+  const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
 
   logger.info(`Received chat completions request to specific server`, {
     serverId,
@@ -897,7 +898,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
     : String((req.params as Record<string, unknown>).serverId);
 
   // Check for bypass circuit breaker flag
-  const bypassCircuitBreaker = req.query.bypass === 'true' || req.query.force === 'true';
+  const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
 
   logger.info(`Received completions request to specific server`, {
     serverId,
@@ -1016,7 +1017,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
     : String((req.params as Record<string, unknown>).serverId);
 
   // Check for bypass circuit breaker flag
-  const bypassCircuitBreaker = req.query.bypass === 'true' || req.query.force === 'true';
+  const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
 
   logger.info(`Received embeddings request to specific server`, {
     serverId,

@@ -135,7 +135,7 @@ app.get('*', (req, res, next) => {
 
 // 404 handler
 app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found' });
+  res.status(404).json({ error: ERROR_MESSAGES.NOT_FOUND });
 });
 
 // Start server

@@ -11,6 +11,7 @@ import { TTFTTracker } from '../metrics/ttft-tracker.js';
 import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
 import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../streaming.js';
+import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
@@ -799,7 +800,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
     : req.params.serverId;
 
   // Check for bypass circuit breaker flag
-  const bypassCircuitBreaker = req.query.bypass === 'true' || req.query.force === 'true';
+  const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
 
   logger.info(`Received generate request to specific server`, {
     serverId,
@@ -903,7 +904,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
     : req.params.serverId;
 
   // Check for bypass circuit breaker flag
-  const bypassCircuitBreaker = req.query.bypass === 'true' || req.query.force === 'true';
+  const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
 
   logger.info(`Received chat request to specific server`, {
     serverId,
@@ -1002,7 +1003,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
     : req.params.serverId;
 
   // Check for bypass circuit breaker flag
-  const bypassCircuitBreaker = req.query.bypass === 'true' || req.query.force === 'true';
+  const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
 
   logger.info(`Received embeddings request to specific server`, {
     serverId,
