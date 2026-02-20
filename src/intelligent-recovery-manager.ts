@@ -7,8 +7,8 @@ import { CircuitBreaker } from './circuit-breaker.js';
 import { featureFlags } from './config/feature-flags.js';
 import { ErrorCategory, ErrorSeverity, type RetryStrategy } from './utils/errorClassifier.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
-import { logger } from './utils/logger.js';
 import { safeJsonStringify } from './utils/json-utils.js';
+import { logger } from './utils/logger.js';
 import { Timer } from './utils/timer.js';
 
 export interface RecoveryContext {

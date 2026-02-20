@@ -3,8 +3,8 @@
  * Shared utility for parsing Ollama error responses
  */
 
-import { logger } from './logger.js';
 import { safeJsonParse } from './json-utils.js';
+import { logger } from './logger.js';
 
 /**
  * Parse error response body from Ollama to extract meaningful error message

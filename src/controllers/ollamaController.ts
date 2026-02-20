@@ -14,9 +14,9 @@ import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../st
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
+import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
-import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 
 /** Request body for /api/generate */
 interface GenerateRequestBody {

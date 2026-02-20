@@ -6,8 +6,8 @@
 import fs from 'fs';
 import path from 'path';
 
-import { logger } from '../utils/logger.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
+import { logger } from '../utils/logger.js';
 
 export interface JsonFileHandlerOptions {
   createBackups?: boolean;
@@ -73,7 +73,7 @@ export class JsonFileHandler {
 
       // Write to temp file first
       const tempPath = `${this.filePath}.tmp`;
-      fs.writeFileSync(tempPath, safeJsonStringify(data, null, 2) as string, 'utf-8');
+      fs.writeFileSync(tempPath, safeJsonStringify(data, null, 2), 'utf-8');
 
       // Atomic rename
       fs.renameSync(tempPath, this.filePath);

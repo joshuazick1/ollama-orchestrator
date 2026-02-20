@@ -6,8 +6,8 @@
 import type { Response } from 'express';
 
 import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
+import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
-import { safeJsonParse, safeJsonStringify } from './utils/json-utils.js';
 
 export interface StreamResponseOptions {
   /** Callback when first token is received */

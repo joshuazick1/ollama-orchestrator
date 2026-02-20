@@ -41,9 +41,9 @@ import { getRecoveryTestCoordinator } from './recovery-test-coordinator.js';
 import { getRequestHistory } from './request-history.js';
 import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
+import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
-import { safeJsonStringify } from './utils/json-utils.js';
 
 export type { AIServer } from './orchestrator.types.js';
 

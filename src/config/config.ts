@@ -10,8 +10,8 @@ import type { CircuitBreakerConfig } from '../circuit-breaker.js';
 import type { LoadBalancerConfig } from '../load-balancer.js';
 import type { ModelManagerConfig } from '../model-manager.js';
 import type { QueueConfig } from '../queue/index.js';
-import { logger } from '../utils/logger.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
+import { logger } from '../utils/logger.js';
 
 // Configuration types
 export interface ServerConfig {

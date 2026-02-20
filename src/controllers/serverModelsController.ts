@@ -8,8 +8,8 @@ import type { Request, Response } from 'express';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { fetchWithTimeout, parseResponse } from '../utils/fetchWithTimeout.js';
-import { logger } from '../utils/logger.js';
 import { safeJsonStringify } from '../utils/json-utils.js';
+import { logger } from '../utils/logger.js';
 
 /** Shape of a request body containing a model name */
 interface ModelRequestBody {

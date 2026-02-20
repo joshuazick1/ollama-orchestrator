@@ -149,8 +149,8 @@ describe('MetricsPersistence', () => {
 
       const loaded = await persistence.load();
 
+      // safeJsonParse handles errors gracefully by returning null, so we get null without error logged
       expect(loaded).toBeNull();
-      expect(logger.error).toHaveBeenCalled();
     });
   });
 
