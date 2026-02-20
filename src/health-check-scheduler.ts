@@ -8,8 +8,8 @@ import { featureFlags } from './config/feature-flags.js';
 import type { AIServer } from './orchestrator.types.js';
 import { resolveApiKey } from './utils/api-keys.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
-import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
 import { logger } from './utils/logger.js';
+import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
 import { Timer } from './utils/timer.js';
 
 /**
@@ -642,92 +642,18 @@ export class HealthCheckScheduler {
     failureReason?: string,
     errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited'
   ): number {
-    const failureReasonLower = failureReason?.toLowerCase() || '';
+    const result = calculateRecoveryBackoff({
+      attempt: testCount,
+      failureReason,
+      errorType,
+    });
 
-    // Check for permanent/non-retryable errors - these need much longer backoff
-    const isPermanentError = errorType === 'non-retryable' || errorType === 'permanent';
-    const isMemoryError =
-      failureReasonLower.includes('memory') ||
-      failureReasonLower.includes('ram') ||
-      failureReasonLower.includes('oom');
-    const isRunnerStopped =
-      failureReasonLower.includes('runner') || failureReasonLower.includes('terminated');
-
-    // CRITICAL: Check for model capability errors (embedding models that don't support generate)
-    // These will NEVER succeed and should stop testing immediately after 1-2 attempts
-    const isModelCapabilityError =
-      failureReasonLower.includes('does not support generate') ||
-      failureReasonLower.includes('does not support chat') ||
-      failureReasonLower.includes('unsupported operation');
-
-    // Check for model file corruption/permanent infrastructure errors
-    // These won't fix themselves without manual intervention
-    const isModelFileError =
-      failureReasonLower.includes('unable to load model') ||
-      failureReasonLower.includes('invalid file magic') ||
-      failureReasonLower.includes('unsupported model format') ||
-      failureReasonLower.includes('invalid model format') ||
-      failureReasonLower.includes('model file not found') ||
-      (failureReasonLower.includes('blob') && failureReasonLower.includes('sha256'));
-
-    // Model capability errors: Stop after 2 attempts (immediate then one retry)
-    if (isModelCapabilityError) {
-      if (testCount >= 2) {
-        logger.warn(
-          `Stopping active tests for model capability error after ${testCount} attempts: ${failureReason}`
-        );
-        return Infinity;
-      }
-      // Very short backoff - test once more to confirm, then stop
-      return 30000; // 30 seconds
-    }
-
-    // Model file errors: Stop after 3 attempts
-    if (isModelFileError) {
-      if (testCount >= 3) {
-        logger.warn(
-          `Stopping active tests for model file error after ${testCount} attempts: ${failureReason}`
-        );
-        return Infinity;
-      }
-      // Moderate backoff for file errors - might be temporary filesystem issue
-      const fileErrorDelays = [60000, 300000, 600000]; // 1min, 5min, 10min
-      return fileErrorDelays[Math.min(testCount, fileErrorDelays.length - 1)];
-    }
-
-    if (isPermanentError || isMemoryError || isRunnerStopped) {
-      // For permanent errors, use much longer delays
-      // Stop testing after 5 attempts (max ~60min backoff)
-      if (testCount >= 5) {
-        return Infinity;
-      }
-
-      const permanentDelays = [
-        5 * 60 * 1000, // 5 minutes
-        10 * 60 * 1000, // 10 minutes
-        20 * 60 * 1000, // 20 minutes
-        40 * 60 * 1000, // 40 minutes
-        60 * 60 * 1000, // 60 minutes
-      ];
-
-      return permanentDelays[Math.min(testCount, permanentDelays.length - 1)];
-    }
-
-    // Standard progressive backoff for retryable errors
-    // Stop testing after 8 attempts (max ~30min backoff)
-    if (testCount >= 8) {
+    if (result.shouldStop) {
+      logger.warn(`Stopping active tests after ${testCount} attempts: ${result.stopReason}`);
       return Infinity;
     }
 
-    const baseDelay = 30000; // 30 seconds
-    const multiplier = Math.pow(2, testCount);
-    let delay = baseDelay * multiplier;
-
-    // Cap at 30 minutes
-    const maxDelay = 30 * 60 * 1000;
-    delay = Math.min(delay, maxDelay);
-
-    return delay;
+    return result.delayMs;
   }
 
   /**
@@ -745,75 +671,17 @@ export class HealthCheckScheduler {
     getCurrentTimeout?: (serverId: string, model: string) => number
   ): number {
     // Get current timeout as base, defaulting to 60 seconds
-    let baseTimeout = 60000; // 60 seconds default
+    let baseTimeout = 60000;
     if (getCurrentTimeout) {
       baseTimeout = getCurrentTimeout(server.id, model);
     }
 
-    const failureReasonLower = state.failureReason?.toLowerCase() || '';
-
-    // Check for model capability errors - these fail immediately, no need for long timeout
-    if (
-      failureReasonLower.includes('does not support generate') ||
-      failureReasonLower.includes('does not support chat') ||
-      failureReasonLower.includes('unsupported operation')
-    ) {
-      return 5000; // 5 seconds - just enough to get the error response
-    }
-
-    // Check for model file errors - these also fail quickly
-    if (
-      failureReasonLower.includes('unable to load model') ||
-      failureReasonLower.includes('invalid file magic') ||
-      failureReasonLower.includes('unsupported model format') ||
-      failureReasonLower.includes('invalid model format')
-    ) {
-      return 10000; // 10 seconds - model loading will fail fast
-    }
-
-    // Check for permanent errors - these need quick tests (or no test at all)
-    if (state.errorType === 'non-retryable' || state.errorType === 'permanent') {
-      // For permanent errors, don't waste time on long timeouts
-      return 15000; // Quick 15 second test
-    }
-
-    // Check for memory errors
-    if (
-      failureReasonLower.includes('memory') ||
-      failureReasonLower.includes('oom') ||
-      failureReasonLower.includes('system memory')
-    ) {
-      // Memory errors - quick test (model may not load at all)
-      return 10000; // 10 seconds
-    }
-
-    // Different strategies based on failure reason
-    switch (state.failureReason) {
-      case 'timeout': {
-        // For timeouts, double the current timeout each attempt
-        // Start at current timeout * 2, then * 4, * 8, etc.
-        const timeoutMultiplier = Math.pow(2, Math.min(state.testCount + 1, 10));
-        const maxTimeout = 15 * 60 * 1000; // 15 minutes max
-        return Math.min(baseTimeout * timeoutMultiplier, maxTimeout);
-      }
-
-      case 'model_not_found': {
-        // Model not available - quick test
-        return 5000; // 5 seconds
-      }
-
-      case 'connection_refused': {
-        // Connection issues - moderate test based on current timeout
-        return baseTimeout;
-      }
-
-      default: {
-        // Unknown/other errors - double current timeout each attempt
-        const timeoutMultiplier = Math.pow(2, Math.min(state.testCount + 1, 10));
-        const maxTimeout = 15 * 60 * 1000; // 15 minutes max
-        return Math.min(baseTimeout * timeoutMultiplier, maxTimeout);
-      }
-    }
+    return calculateActiveTestTimeout(
+      state.testCount,
+      baseTimeout,
+      state.failureReason,
+      state.errorType
+    );
   }
 
   /**

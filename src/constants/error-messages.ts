@@ -56,6 +56,12 @@ export const ERROR_MESSAGES = {
   QUEUE_FULL: 'Queue is full',
   QUEUE_CLEARED: 'Queue cleared',
   QUEUE_SERVER_NOT_FOUND: (id: string) => `Server ${id} not found`,
+
+  // HTTP errors
+  NOT_FOUND: 'Not found',
+  FAILED_TO_UPDATE_SERVER: 'Failed to update server',
+  HEALTH_CHECK_FAILED: 'Health check failed',
+  FAILED_TO_GET_CIRCUIT_BREAKER_STATUS: 'Failed to get circuit breaker status',
 } as const;
 
 export type ErrorMessageKey = keyof typeof ERROR_MESSAGES;

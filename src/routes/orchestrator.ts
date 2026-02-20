@@ -38,6 +38,8 @@ import {
   getMetrics,
   getServerModelMetrics,
   getPrometheusMetrics,
+  getRecoveryTestMetrics,
+  getBreakerRecoveryMetrics,
 } from '../controllers/metricsController.js';
 import {
   warmupModel,
@@ -160,6 +162,10 @@ monitoringRouter.get('/in-flight', getInFlightByServer);
 monitoringRouter.get('/metrics', getMetrics);
 monitoringRouter.get('/metrics/prometheus', getPrometheusMetrics);
 monitoringRouter.get('/metrics/:serverId/:model', getServerModelMetrics);
+
+// Recovery Test Metrics
+monitoringRouter.get('/metrics/recovery-tests', getRecoveryTestMetrics);
+monitoringRouter.get('/metrics/recovery-tests/:breakerName', getBreakerRecoveryMetrics);
 
 // Model monitoring
 monitoringRouter.get('/models/status', getAllModelsStatus);

@@ -109,7 +109,7 @@ export function updateServer(req: Request, res: Response): void {
       maxConcurrency: maxConcurrency ?? server.maxConcurrency,
     });
   } else {
-    res.status(500).json({ error: 'Failed to update server' });
+    res.status(500).json({ error: ERROR_MESSAGES.FAILED_TO_UPDATE_SERVER });
   }
 }
 
@@ -218,7 +218,7 @@ export async function healthCheck(req: Request, res: Response): Promise<void> {
     });
   } catch (error) {
     res.status(500).json({
-      error: 'Health check failed',
+      error: ERROR_MESSAGES.HEALTH_CHECK_FAILED,
       details: error instanceof Error ? error.message : String(error),
     });
   }
@@ -276,7 +276,7 @@ export function getCircuitBreakers(req: Request, res: Response): void {
     });
   } catch (error) {
     res.status(500).json({
-      error: 'Failed to get circuit breaker status',
+      error: ERROR_MESSAGES.FAILED_TO_GET_CIRCUIT_BREAKER_STATUS,
       details: error instanceof Error ? error.message : String(error),
     });
   }
