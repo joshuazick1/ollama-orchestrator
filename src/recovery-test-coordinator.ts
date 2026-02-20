@@ -43,6 +43,42 @@ const DEFAULT_CONFIG: TestCoordinatorConfig = {
   maxQueueSizePerServer: 10,
 };
 
+export interface ActiveTestResult {
+  breakerName: string;
+  model?: string;
+  success: boolean;
+  duration: number;
+  error?: string;
+}
+
+export interface ActiveTestOptions {
+  onTestStart?: (breakerName: string) => void;
+  onTestEnd?: (breakerName: string, success: boolean, duration: number) => void;
+  signal?: AbortSignal;
+}
+
+export interface TestMetrics {
+  testId: string;
+  breakerName: string;
+  model?: string;
+  startTime: number;
+  endTime?: number;
+  duration?: number;
+  success?: boolean;
+  error?: string;
+  timeout: boolean;
+  cancelled: boolean;
+}
+
+export interface TestStats {
+  totalTests: number;
+  successes: number;
+  failures: number;
+  timeouts: number;
+  cancellations: number;
+  averageDuration: number;
+}
+
 export class RecoveryTestCoordinator {
   private serverStates = new Map<string, ServerTestState>();
   private config: TestCoordinatorConfig;
@@ -50,9 +86,77 @@ export class RecoveryTestCoordinator {
   private inFlightProvider?: (serverId: string) => number;
   private incrementInFlight?: (serverId: string, model: string) => void;
   private decrementInFlight?: (serverId: string, model: string) => void;
+  private abortControllers = new Map<string, AbortController>();
+  private cancelledTests = new Set<string>();
+  private testMetrics: TestMetrics[] = [];
+  private readonly MAX_METRICS = 1000;
 
   constructor(config: Partial<TestCoordinatorConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Record test metrics
+   */
+  private recordTestMetrics(metrics: Omit<TestMetrics, 'testId'>): void {
+    const testMetrics: TestMetrics = {
+      ...metrics,
+      testId: `test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    };
+
+    this.testMetrics.push(testMetrics);
+
+    // Prune old metrics
+    if (this.testMetrics.length > this.MAX_METRICS) {
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      this.testMetrics = this.testMetrics.filter(m => m.startTime > cutoff);
+    }
+  }
+
+  /**
+   * Get metrics for a specific breaker
+   */
+  getMetricsForBreaker(breakerName: string): TestMetrics[] {
+    return this.testMetrics
+      .filter(m => m.breakerName === breakerName)
+      .sort((a, b) => b.startTime - a.startTime);
+  }
+
+  /**
+   * Get recovery probability estimate for a breaker
+   */
+  getRecoveryProbability(breakerName: string, windowHours: number = 24): number {
+    const cutoff = Date.now() - windowHours * 60 * 60 * 1000;
+    const recentTests = this.testMetrics.filter(
+      m => m.breakerName === breakerName && m.startTime > cutoff
+    );
+
+    if (recentTests.length === 0) {
+      return -1;
+    }
+
+    const successes = recentTests.filter(m => m.success === true).length;
+    return successes / recentTests.length;
+  }
+
+  /**
+   * Get aggregate test statistics
+   */
+  getTestStats(): TestStats {
+    const tests = this.testMetrics;
+    const completed = tests.filter(t => t.endTime !== undefined);
+
+    return {
+      totalTests: tests.length,
+      successes: tests.filter(t => t.success === true).length,
+      failures: tests.filter(t => t.success === false).length,
+      timeouts: tests.filter(t => t.timeout).length,
+      cancellations: tests.filter(t => t.cancelled).length,
+      averageDuration:
+        completed.length > 0
+          ? completed.reduce((sum, t) => sum + (t.duration || 0), 0) / completed.length
+          : 0,
+    };
   }
 
   /**
@@ -74,7 +178,7 @@ export class RecoveryTestCoordinator {
    */
   setIncrementInFlight(increment: (serverId: string, model: string) => void): void {
     this.incrementInFlight = increment;
-    logger.info('RecoveryTestCoordinator: setIncrementInFlight called');
+    logger.debug('RecoveryTestCoordinator: setIncrementInFlight configured');
   }
 
   /**
@@ -82,7 +186,7 @@ export class RecoveryTestCoordinator {
    */
   setDecrementInFlight(decrement: (serverId: string, model: string) => void): void {
     this.decrementInFlight = decrement;
-    logger.info('RecoveryTestCoordinator: setDecrementInFlight called');
+    logger.debug('RecoveryTestCoordinator: setDecrementInFlight configured');
   }
 
   /**
@@ -344,13 +448,8 @@ export class RecoveryTestCoordinator {
     // Increment in-flight count for recovery test
     if (this.incrementInFlight) {
       this.incrementInFlight(serverId, modelName);
-      logger.info(`Recovery test incrementInFlight called for ${serverId}:${modelName}`);
-    } else {
-      logger.info(`Recovery test incrementInFlight NOT SET for ${serverId}:${modelName}`);
+      logger.debug(`Recovery test incrementInFlight for ${serverId}:${modelName}`);
     }
-
-    // Add delay to make recovery test visible in frontend (5 seconds)
-    await new Promise(resolve => setTimeout(resolve, 5000));
 
     try {
       // First check model name patterns - these are definitive indicators
@@ -493,9 +592,7 @@ export class RecoveryTestCoordinator {
       // Decrement in-flight count for recovery test
       if (this.decrementInFlight) {
         this.decrementInFlight(serverId, modelName);
-        logger.info(`Recovery test decrementInFlight called for ${serverId}:${modelName}`);
-      } else {
-        logger.info(`Recovery test decrementInFlight NOT SET for ${serverId}:${modelName}`);
+        logger.debug(`Recovery test decrementInFlight for ${serverId}:${modelName}`);
       }
     }
   }
@@ -515,9 +612,7 @@ export class RecoveryTestCoordinator {
     // Increment in-flight count for recovery test
     if (this.incrementInFlight) {
       this.incrementInFlight(serverId, modelName);
-      logger.info(`Recovery test embedding incrementInFlight called for ${serverId}:${modelName}`);
-    } else {
-      logger.info(`Recovery test embedding incrementInFlight NOT SET for ${serverId}:${modelName}`);
+      logger.debug(`Recovery test embedding incrementInFlight for ${serverId}:${modelName}`);
     }
 
     // Add delay to make recovery test visible in frontend (5 seconds)
@@ -576,13 +671,7 @@ export class RecoveryTestCoordinator {
       // Decrement in-flight count for recovery test
       if (this.decrementInFlight) {
         this.decrementInFlight(serverId, modelName);
-        logger.info(
-          `Recovery test embedding decrementInFlight called for ${serverId}:${modelName}`
-        );
-      } else {
-        logger.info(
-          `Recovery test embedding decrementInFlight NOT SET for ${serverId}:${modelName}`
-        );
+        logger.debug(`Recovery test embedding decrementInFlight for ${serverId}:${modelName}`);
       }
     }
   }
@@ -638,6 +727,62 @@ export class RecoveryTestCoordinator {
   }
 
   /**
+   * Cancel any active or queued test for a specific breaker
+   * This should be called when a circuit breaker is manually reset
+   */
+  cancelTest(breakerName: string): boolean {
+    const serverId = this.getServerId(breakerName);
+    const state = this.serverStates.get(serverId);
+
+    if (!state) {
+      return false;
+    }
+
+    // Abort in-flight test if running
+    const controller = this.abortControllers.get(breakerName);
+    if (controller) {
+      controller.abort();
+      this.abortControllers.delete(breakerName);
+    }
+
+    let cancelled = false;
+
+    // Check if this breaker is currently being tested
+    if (state.currentTestBreakerId === breakerName) {
+      state.currentTestBreakerId = null;
+      cancelled = true;
+      logger.info(`Cancelled active test for ${breakerName}`);
+    }
+
+    // Remove from queue if present
+    const queueIndex = state.testQueue.indexOf(breakerName);
+    if (queueIndex !== -1) {
+      state.testQueue.splice(queueIndex, 1);
+      cancelled = true;
+      logger.info(`Removed ${breakerName} from test queue`);
+    }
+
+    // Mark as cancelled
+    this.cancelledTests.add(breakerName);
+
+    return cancelled;
+  }
+
+  /**
+   * Check if a test was cancelled
+   */
+  isTestCancelled(breakerName: string): boolean {
+    return this.cancelledTests.has(breakerName);
+  }
+
+  /**
+   * Clear cancelled status (allows test to run again after reset)
+   */
+  clearCancelled(breakerName: string): void {
+    this.cancelledTests.delete(breakerName);
+  }
+
+  /**
    * Clear all queues (useful for testing or resets)
    */
   clearAllQueues(): void {
@@ -645,7 +790,254 @@ export class RecoveryTestCoordinator {
       state.testQueue = [];
       state.currentTestBreakerId = null;
     }
+    this.abortControllers.clear();
+    this.cancelledTests.clear();
     logger.info('Cleared all recovery test queues');
+  }
+
+  /**
+   * Run active tests for multiple half-open breakers
+   * Called by health check scheduler instead of direct executeActiveTest calls
+   * This unifies the health check and request paths
+   */
+  async runActiveTests(
+    serverId: string,
+    breakers: Array<{ breaker: CircuitBreaker; model?: string }>,
+    options: ActiveTestOptions = {}
+  ): Promise<ActiveTestResult[]> {
+    const results: ActiveTestResult[] = [];
+
+    // Limit concurrent tests per server
+    const maxConcurrentPerServer = 2;
+
+    // Sort by halfOpenStartedAt (oldest first)
+    breakers.sort((a, b) => {
+      const aStats = a.breaker.getStats();
+      const bStats = b.breaker.getStats();
+      return (aStats.halfOpenStartedAt || 0) - (bStats.halfOpenStartedAt || 0);
+    });
+
+    const toTest = breakers.slice(0, maxConcurrentPerServer);
+
+    logger.info(
+      `Running active tests for ${toTest.length}/${breakers.length} breakers on ${serverId}`,
+      {
+        models: toTest.map(t => t.model || 'server-level'),
+      }
+    );
+
+    for (const { breaker, model } of toTest) {
+      const breakerName = (breaker as any).name || 'unknown';
+      const startTime = Date.now();
+
+      // Check for cancellation
+      if (options.signal?.aborted || this.cancelledTests.has(breakerName)) {
+        logger.debug(`Test for ${breakerName} was cancelled, skipping`);
+
+        this.recordTestMetrics({
+          breakerName,
+          model,
+          startTime,
+          endTime: Date.now(),
+          duration: Date.now() - startTime,
+          success: false,
+          error: 'Test cancelled',
+          timeout: false,
+          cancelled: true,
+        });
+
+        results.push({
+          breakerName,
+          model,
+          success: false,
+          duration: 0,
+          error: 'Test cancelled',
+        });
+        continue;
+      }
+
+      // Create abort controller for this test
+      const controller = new AbortController();
+      this.abortControllers.set(breakerName, controller);
+
+      const timer = new Timer();
+      options.onTestStart?.(breakerName);
+
+      try {
+        let success: boolean;
+
+        if (model) {
+          success = await this.performModelLevelTestWithAbort(
+            breaker,
+            serverId,
+            model,
+            controller.signal
+          );
+        } else {
+          success = await this.performServerLevelTestWithAbort(breaker, controller.signal);
+        }
+
+        const duration = timer.elapsed();
+        options.onTestEnd?.(breakerName, success, duration);
+
+        results.push({
+          breakerName,
+          model,
+          success,
+          duration,
+        });
+
+        // Record metrics
+        this.recordTestMetrics({
+          breakerName,
+          model,
+          startTime,
+          endTime: Date.now(),
+          duration,
+          success,
+          timeout: false,
+          cancelled: false,
+        });
+
+        // Update circuit breaker state
+        if (success) {
+          breaker.recordSuccess();
+        } else {
+          breaker.recordFailure(new Error('Active test failed'), 'transient');
+        }
+      } catch (error) {
+        const duration = timer.elapsed();
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('timed out');
+        options.onTestEnd?.(breakerName, false, duration);
+
+        // Record metrics
+        this.recordTestMetrics({
+          breakerName,
+          model,
+          startTime,
+          endTime: Date.now(),
+          duration,
+          success: false,
+          error: errorMsg,
+          timeout: isTimeout,
+          cancelled: false,
+        });
+
+        results.push({
+          breakerName,
+          model,
+          success: false,
+          duration,
+          error: errorMsg,
+        });
+
+        breaker.recordFailure(new Error(errorMsg), 'transient');
+      } finally {
+        this.abortControllers.delete(breakerName);
+      }
+
+      // Small delay between tests
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    return results;
+  }
+
+  /**
+   * Server-level test with abort support
+   */
+  private async performServerLevelTestWithAbort(
+    breaker: CircuitBreaker,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    const breakerName = (breaker as any).name || 'unknown';
+    const serverId = this.getServerId(breakerName);
+
+    try {
+      const serverUrl = this.getServerUrl(serverId);
+      if (!serverUrl) {
+        return false;
+      }
+
+      const response = await fetchWithTimeout(`${serverUrl}/api/tags`, {
+        timeout: 5000,
+        signal,
+      });
+
+      return response.ok;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        logger.debug(`Server-level test aborted for ${breakerName}`);
+        return false;
+      }
+      logger.error(`Server-level test failed for ${breakerName}`, { error });
+      return false;
+    }
+  }
+
+  /**
+   * Model-level test with abort support
+   */
+  private async performModelLevelTestWithAbort(
+    breaker: CircuitBreaker,
+    serverId: string,
+    modelName: string,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    const breakerName = (breaker as any).name || 'unknown';
+
+    try {
+      const serverUrl = this.getServerUrl(serverId);
+      if (!serverUrl) {
+        return false;
+      }
+
+      // Determine model type
+      const modelNameLower = modelName.toLowerCase();
+      const isEmbeddingModel =
+        modelNameLower.includes('embed') ||
+        modelNameLower.includes('pygmalion') ||
+        modelNameLower.includes('nomic-embed') ||
+        modelNameLower.includes('text-embedding') ||
+        modelNameLower.includes('sentence') ||
+        modelNameLower.includes('bge-') ||
+        modelNameLower.includes('gte-') ||
+        modelNameLower.includes('e5-') ||
+        modelNameLower.includes('all-minilm') ||
+        modelNameLower.includes('all-mpnet');
+
+      const endpoint = isEmbeddingModel ? '/api/embeddings' : '/api/generate';
+      const body = isEmbeddingModel
+        ? { model: modelName, prompt: 'test' }
+        : {
+            model: modelName,
+            prompt: 'Hi',
+            stream: false,
+            options: { num_predict: 1, temperature: 0 },
+          };
+
+      const response = await fetchWithTimeout(`${serverUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        timeout: this.config.modelTestTimeoutMs,
+        signal,
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        logger.debug(`Model-level test aborted for ${breakerName}`);
+        return false;
+      }
+      logger.error(`Model-level test failed for ${breakerName}`, { error });
+      return false;
+    }
   }
 }
 

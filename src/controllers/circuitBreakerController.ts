@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -30,20 +31,27 @@ export function resetBreaker(req: Request, res: Response): void {
       return;
     }
 
+    const key = model === 'server' ? serverId : `${serverId}:${model}`;
+
+    // Cancel any active or queued recovery test for this breaker
+    const coordinator = getRecoveryTestCoordinator();
+    const testCancelled = coordinator.cancelTest(key);
+
     const previousState = breaker.getStats().state;
     breaker.forceClose();
 
-    const key = model === 'server' ? serverId : `${serverId}:${model}`;
     logger.info(`Circuit breaker manually reset: ${key}`, {
       serverId,
       model: model === 'server' ? 'server-level' : model,
       previousState,
+      testCancelled,
     });
 
     res.json({
       message: `Circuit breaker reset for ${key}`,
       previousState,
       currentState: 'closed',
+      testCancelled,
     });
   } catch (error) {
     logger.error('Error resetting circuit breaker:', error);

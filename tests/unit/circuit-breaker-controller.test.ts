@@ -6,17 +6,17 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
 
-import {
-  resetBreaker,
-  getBreakerDetails,
-} from '../../src/controllers/circuitBreakerController.js';
+import { resetBreaker, getBreakerDetails } from '../../src/controllers/circuitBreakerController.js';
 import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import { getRecoveryTestCoordinator } from '../../src/recovery-test-coordinator.js';
 
 vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/recovery-test-coordinator.js');
 vi.mock('../../src/utils/logger.js');
 
 describe('circuitBreakerController', () => {
   let mockOrchestrator: any;
+  let mockCoordinator: any;
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
 
@@ -26,7 +26,12 @@ describe('circuitBreakerController', () => {
       getModelCircuitBreakerPublic: vi.fn(),
     };
 
+    mockCoordinator = {
+      cancelTest: vi.fn().mockReturnValue(false),
+    };
+
     (getOrchestratorInstance as any).mockReturnValue(mockOrchestrator);
+    (getRecoveryTestCoordinator as any).mockReturnValue(mockCoordinator);
 
     mockReq = {
       params: {},
@@ -61,6 +66,7 @@ describe('circuitBreakerController', () => {
         message: 'Circuit breaker reset for server-1',
         previousState: 'open',
         currentState: 'closed',
+        testCancelled: false,
       });
     });
 
@@ -75,12 +81,40 @@ describe('circuitBreakerController', () => {
 
       resetBreaker(mockReq as Request, mockRes as Response);
 
-      expect(mockOrchestrator.getModelCircuitBreakerPublic).toHaveBeenCalledWith('server-1', 'llama3:latest');
+      expect(mockOrchestrator.getModelCircuitBreakerPublic).toHaveBeenCalledWith(
+        'server-1',
+        'llama3:latest'
+      );
       expect(mockBreaker.forceClose).toHaveBeenCalled();
       expect(mockRes.json).toHaveBeenCalledWith({
         message: 'Circuit breaker reset for server-1:llama3:latest',
         previousState: 'half-open',
         currentState: 'closed',
+        testCancelled: false,
+      });
+    });
+
+    it('should reset a model-level circuit breaker', () => {
+      const mockBreaker = {
+        getStats: vi.fn().mockReturnValue({ state: 'half-open' }),
+        forceClose: vi.fn(),
+      };
+      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(mockBreaker);
+
+      mockReq.params = { serverId: 'server-1', model: 'llama3:latest' };
+
+      resetBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.getModelCircuitBreakerPublic).toHaveBeenCalledWith(
+        'server-1',
+        'llama3:latest'
+      );
+      expect(mockBreaker.forceClose).toHaveBeenCalled();
+      expect(mockRes.json).toHaveBeenCalledWith({
+        message: 'Circuit breaker reset for server-1:llama3:latest',
+        previousState: 'half-open',
+        currentState: 'closed',
+        testCancelled: false,
       });
     });
 
@@ -134,7 +168,10 @@ describe('circuitBreakerController', () => {
 
       resetBreaker(mockReq as Request, mockRes as Response);
 
-      expect(mockOrchestrator.getModelCircuitBreakerPublic).toHaveBeenCalledWith('server-1', 'llama3:latest');
+      expect(mockOrchestrator.getModelCircuitBreakerPublic).toHaveBeenCalledWith(
+        'server-1',
+        'llama3:latest'
+      );
     });
   });
 
