@@ -11,6 +11,7 @@ import type { LoadBalancerConfig } from '../load-balancer.js';
 import type { ModelManagerConfig } from '../model-manager.js';
 import type { QueueConfig } from '../queue/index.js';
 import { logger } from '../utils/logger.js';
+import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 
 // Configuration types
 export interface ServerConfig {
@@ -357,7 +358,7 @@ export class ConfigManager {
       let parsed: Partial<OrchestratorConfig>;
 
       if (ext === '.json') {
-        parsed = JSON.parse(content) as Partial<OrchestratorConfig>;
+        parsed = safeJsonParse(content) as Partial<OrchestratorConfig>;
       } else if (ext === '.yaml' || ext === '.yml') {
         // Dynamic import to avoid requiring yaml if not used
         const yaml = await import('js-yaml');
@@ -407,7 +408,7 @@ export class ConfigManager {
       let content: string;
 
       if (ext === '.json') {
-        content = JSON.stringify(this.config, null, 2);
+        content = safeJsonStringify(this.config, null, 2);
       } else if (ext === '.yaml' || ext === '.yml') {
         const yaml = await import('js-yaml');
         content = yaml.dump(this.config, { indent: 2, lineWidth: -1 });

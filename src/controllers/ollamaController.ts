@@ -16,6 +16,7 @@ import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 
 /** Request body for /api/generate */
 interface GenerateRequestBody {
@@ -149,7 +150,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
+              body: safeJsonStringify({
                 ...body,
                 stream: true,
               }),
@@ -205,7 +206,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                     tokensPrompt,
                   },
                 };
-                res.write(`data: ${JSON.stringify(metrics)}\n\n`);
+                res.write(`data: ${safeJsonStringify(metrics)}\n\n`);
                 res.end();
               },
               () => {
@@ -237,7 +238,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: safeJsonStringify({
             ...body,
             stream: false,
           }),
@@ -327,7 +328,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
+              body: safeJsonStringify({
                 ...body,
                 stream: true,
               }),
@@ -408,7 +409,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: safeJsonStringify({
             ...body,
             stream: false,
           }),
@@ -480,7 +481,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...body, model, prompt }),
+          body: safeJsonStringify({ ...body, model, prompt }),
           timeout: 30000, // 30 second timeout for embeddings
         });
 
@@ -592,7 +593,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
     const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.SHOW}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: safeJsonStringify(body),
     });
 
     if (!response.ok) {
@@ -654,7 +655,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.EMBED}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(embedBody),
+      body: safeJsonStringify(embedBody),
     });
 
     if (!response.ok) {
@@ -725,7 +726,7 @@ export async function handleStreamingGenerate(
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+          body: safeJsonStringify({
             model,
             prompt,
             stream: true,
@@ -832,7 +833,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...body, stream: true }),
+              body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: 60000,
               activityTimeout: getConfigManager().getConfig().streaming.activityTimeoutMs,
             }
@@ -856,7 +857,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
           const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: safeJsonStringify(body),
           });
 
           if (!response.ok) {
@@ -873,7 +874,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
           if (lines.length === 0) {
             throw new Error('Empty response from server');
           }
-          const data: Record<string, unknown> = JSON.parse(lines[0]);
+          const data: Record<string, unknown> = safeJsonParse(lines[0]);
           return data;
         }
       },
@@ -931,7 +932,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...body, stream: true }),
+              body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: 60000,
               activityTimeout: getConfigManager().getConfig().streaming.activityTimeoutMs,
             }
@@ -955,7 +956,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
           const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: safeJsonStringify(body),
           });
 
           if (!response.ok) {
@@ -972,7 +973,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
           if (lines.length === 0) {
             throw new Error('Empty response from server');
           }
-          const data = JSON.parse(lines[0]);
+          const data = safeJsonParse(lines[0]);
           return data;
         }
       },
@@ -1030,7 +1031,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: safeJsonStringify(body),
           timeout: 60000,
         });
 
@@ -1048,7 +1049,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
         if (lines.length === 0) {
           throw new Error('Empty response from server');
         }
-        const data: Record<string, unknown> = JSON.parse(lines[0]);
+        const data: Record<string, unknown> = safeJsonParse(lines[0]);
         return data;
       },
       { bypassCircuitBreaker }

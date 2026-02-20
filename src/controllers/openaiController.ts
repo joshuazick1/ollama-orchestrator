@@ -16,6 +16,7 @@ import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js'
 import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
+import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
 
 /**
@@ -177,7 +178,7 @@ async function streamOpenAIResponse(
         }
 
         try {
-          const chunk = JSON.parse(line) as OllamaStreamChunk;
+          const chunk = safeJsonParse(line) as OllamaStreamChunk;
 
           // Check if done
           if (chunk.done) {
@@ -219,7 +220,7 @@ async function streamOpenAIResponse(
                   ],
                 };
 
-            clientResponse.write(`data: ${JSON.stringify(finalDelta)}\n\n`);
+            clientResponse.write(`data: ${safeJsonStringify(finalDelta)}\n\n`);
 
             // Include usage if requested
             if (includeUsage && totalTokens > 0) {
@@ -235,7 +236,7 @@ async function streamOpenAIResponse(
                   total_tokens: totalTokens,
                 },
               };
-              clientResponse.write(`data: ${JSON.stringify(usageChunk)}\n\n`);
+              clientResponse.write(`data: ${safeJsonStringify(usageChunk)}\n\n`);
             }
 
             clientResponse.write('data: [DONE]\n\n');
@@ -274,7 +275,7 @@ async function streamOpenAIResponse(
                   ],
                 };
 
-            clientResponse.write(`data: ${JSON.stringify(sseChunk)}\n\n`);
+            clientResponse.write(`data: ${safeJsonStringify(sseChunk)}\n\n`);
           }
         } catch (e) {
           // Skip malformed JSON lines
@@ -387,7 +388,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             {
               method: 'POST',
               headers,
-              body: JSON.stringify({
+              body: safeJsonStringify({
                 model,
                 messages,
                 stream: true,
@@ -419,7 +420,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             activityController.clearTimeout();
           }
 
-          return { _streamed: true };
+          return { _streamed: true } as Record<string, unknown>;
         }
 
         // Non-streaming request - proxy to Ollama's OpenAI endpoint
@@ -428,7 +429,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           {
             method: 'POST',
             headers,
-            body: JSON.stringify({
+            body: safeJsonStringify({
               model,
               messages,
               stream: false,
@@ -479,61 +480,24 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 }
 
 /**
- * Handle POST /v1/completions - OpenAI-compatible text completions
+ * Handle POST /v1/completions - OpenAI-compatible completions
  */
 export async function handleCompletions(req: Request, res: Response): Promise<void> {
   const body = req.body as OpenAICompletionRequest;
-  const { model, prompt, stream = false } = body;
+  const { model, stream = false } = body;
 
-  logger.info('Received OpenAI completions request', {
-    model,
-    promptLength: typeof prompt === 'string' ? prompt.length : prompt?.length,
-    stream,
-  });
+  logger.info('Received OpenAI completions request', { model, stream });
 
-  if (!model || !prompt) {
-    res.status(400).json({
-      error: {
-        message: 'model and prompt are required',
-        type: 'invalid_request_error',
-        param: !model ? 'model' : 'prompt',
-        code: 'missing_required_parameter',
-      },
-    });
+  if (!model) {
+    res
+      .status(400)
+      .json({ error: { message: 'model is required', type: 'invalid_request_error' } });
     return;
   }
 
   const orchestrator = getOrchestratorInstance();
   const config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
-  const responseId = generateId('cmpl');
-
-  // Build Ollama options
-  const ollamaOptions: Record<string, unknown> = {};
-  if (body.temperature !== undefined) {
-    ollamaOptions.temperature = body.temperature;
-  }
-  if (body.top_p !== undefined) {
-    ollamaOptions.top_p = body.top_p;
-  }
-  if (body.presence_penalty !== undefined) {
-    ollamaOptions.presence_penalty = body.presence_penalty;
-  }
-  if (body.frequency_penalty !== undefined) {
-    ollamaOptions.frequency_penalty = body.frequency_penalty;
-  }
-  if (body.seed !== undefined) {
-    ollamaOptions.seed = body.seed;
-  }
-  if (body.max_tokens !== undefined) {
-    ollamaOptions.num_predict = body.max_tokens;
-  }
-  if (body.stop) {
-    ollamaOptions.stop = Array.isArray(body.stop) ? body.stop : [body.stop];
-  }
-
-  // Handle prompt (can be string or array)
-  const promptText = Array.isArray(prompt) ? prompt.join('') : prompt;
 
   try {
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
@@ -547,13 +511,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             {
               method: 'POST',
               headers,
-              body: JSON.stringify({
-                model,
-                prompt: promptText,
-                stream: true,
-                options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-                ...(body.suffix && { suffix: body.suffix }),
-              }),
+              body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: 60000,
               activityTimeout: config.streaming.activityTimeoutMs,
             }
@@ -566,36 +524,32 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
           }
 
           try {
-            await streamOpenAIResponse(
-              response,
-              res,
-              responseId,
-              model,
-              false,
-              body.stream_options?.include_usage,
-              () => activityController.resetTimeout()
-            );
+            const reader = response.body?.getReader();
+            if (!reader) {
+              throw new Error('No response body to stream');
+            }
+            const decoder = new TextDecoder();
+            // stream raw NDJSON to client
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              res.write(decoder.decode(value, { stream: true }));
+            }
+            res.end();
           } finally {
             activityController.clearTimeout();
           }
 
-          return { _streamed: true };
+          return { _streamed: true } as Record<string, unknown>;
         }
 
-        // Non-streaming
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
           {
             method: 'POST',
             headers,
-            body: JSON.stringify({
-              model,
-              prompt: promptText,
-              stream: false,
-              options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-              ...(body.suffix && { suffix: body.suffix }),
-            }),
-            timeout: 120000,
+            body: safeJsonStringify(body),
+            timeout: 180000,
           }
         );
 
@@ -612,7 +566,6 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
       routingContext
     );
 
-    // Add debug headers if requested
     addDebugHeaders(req, res, routingContext);
 
     if (!stream && result && !result._streamed) {
@@ -620,19 +573,16 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     }
   } catch (error) {
     logger.error('OpenAI completions failed:', { error, model });
-
-    if (res.writableEnded) {
-      return;
-    }
-
     if (!res.headersSent) {
-      res.status(500).json({
-        error: {
-          message: error instanceof Error ? error.message : 'Request failed',
-          type: 'server_error',
-          code: 'internal_error',
-        },
-      });
+      res
+        .status(500)
+        .json({
+          error: {
+            message: error instanceof Error ? error.message : 'Request failed',
+            type: 'server_error',
+            code: 'internal_error',
+          },
+        });
     }
   }
 }
@@ -642,28 +592,18 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
  */
 export async function handleOpenAIEmbeddings(req: Request, res: Response): Promise<void> {
   const body = req.body as OpenAIEmbeddingRequest;
-  const { model, input } = body;
+  const { model } = body;
 
-  logger.info('Received OpenAI embeddings request', {
-    model,
-    inputType: Array.isArray(input) ? 'array' : 'string',
-    inputCount: Array.isArray(input) ? input.length : 1,
-  });
+  logger.info('Received OpenAI embeddings request', { model });
 
-  if (!model || !input) {
-    res.status(400).json({
-      error: {
-        message: 'model and input are required',
-        type: 'invalid_request_error',
-        param: !model ? 'model' : 'input',
-        code: 'missing_required_parameter',
-      },
-    });
+  if (!model || !body.input) {
+    res
+      .status(400)
+      .json({ error: { message: 'model and input are required', type: 'invalid_request_error' } });
     return;
   }
 
   const orchestrator = getOrchestratorInstance();
-  const routingContext: RoutingContext = {};
 
   try {
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
@@ -673,12 +613,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            model,
-            input,
-            ...(body.encoding_format && { encoding_format: body.encoding_format }),
-            ...(body.dimensions && { dimensions: body.dimensions }),
-          }),
+          body: safeJsonStringify(body),
           timeout: 60000,
         });
 
@@ -691,24 +626,23 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       },
       false,
       'embeddings',
-      'openai',
-      routingContext
+      'openai'
     );
-
-    // Add debug headers if requested
-    addDebugHeaders(req, res, routingContext);
 
     res.json(result);
   } catch (error) {
     logger.error('OpenAI embeddings failed:', { error, model });
-
-    res.status(500).json({
-      error: {
-        message: error instanceof Error ? error.message : 'Request failed',
-        type: 'server_error',
-        code: 'internal_error',
-      },
-    });
+    if (!res.headersSent) {
+      res
+        .status(500)
+        .json({
+          error: {
+            message: error instanceof Error ? error.message : 'Request failed',
+            type: 'server_error',
+            code: 'internal_error',
+          },
+        });
+    }
   }
 }
 
@@ -822,7 +756,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...requestBody, stream: true }),
+              body: safeJsonStringify({ ...requestBody, stream: true }),
               connectionTimeout: 60000,
               activityTimeout: config.streaming.activityTimeoutMs,
             }
@@ -848,7 +782,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
             activityController.clearTimeout();
           }
 
-          return { _streamed: true };
+          return { _streamed: true } as Record<string, unknown>;
         }
 
         const response = await fetchWithTimeout(
@@ -856,7 +790,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
+            body: safeJsonStringify(requestBody),
             timeout: 180000,
           }
         );
@@ -933,7 +867,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ ...requestBody, stream: true }),
+              body: safeJsonStringify({ ...requestBody, stream: true }),
               connectionTimeout: 60000,
               activityTimeout: config.streaming.activityTimeoutMs,
             }
@@ -975,7 +909,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
+            body: safeJsonStringify(requestBody),
             timeout: 180000,
           }
         );
@@ -1049,7 +983,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: safeJsonStringify(body),
           timeout: 60000,
         });
 

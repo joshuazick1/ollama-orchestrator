@@ -8,6 +8,7 @@ import { featureFlags } from './config/feature-flags.js';
 import { ErrorCategory, ErrorSeverity, type RetryStrategy } from './utils/errorClassifier.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
+import { safeJsonStringify } from './utils/json-utils.js';
 import { Timer } from './utils/timer.js';
 
 export interface RecoveryContext {
@@ -174,7 +175,7 @@ export class IntelligentRecoveryManager {
       const response = await fetch(`${serverUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           model: modelName,
           prompt: 'Hi',
           stream: false,

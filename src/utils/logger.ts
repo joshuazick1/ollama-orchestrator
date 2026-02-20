@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync } from 'fs';
+import { safeJsonStringify } from './json-utils.js';
 
 interface LogEntry {
   timestamp: string;
@@ -42,7 +43,7 @@ function writeToFile(entry: LogEntry): void {
   try {
     ensureLogDir();
     const logFile = getCurrentLogFile();
-    const logLine = JSON.stringify(entry) + '\n';
+    const logLine = safeJsonStringify(entry) + '\n';
     appendFileSync(logFile, logLine);
   } catch (err) {
     // If file logging fails, don't throw - just console.error once?
