@@ -26,7 +26,7 @@ export function getRecoveryFailuresSummary(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error getting recovery failures summary:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -51,7 +51,7 @@ export function getServerRecoveryStats(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error getting server recovery stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -78,7 +78,7 @@ export function getServerFailureHistory(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error getting server failure history:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -101,7 +101,7 @@ export function analyzeServerFailures(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error analyzing server failures:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -123,7 +123,7 @@ export function analyzeCircuitBreakerImpact(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error analyzing circuit breaker impact:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -149,7 +149,7 @@ export function getCircuitBreakerTransitions(req: Request, res: Response): void 
     });
   } catch (error) {
     logger.error('Error getting circuit breaker transitions:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -169,7 +169,7 @@ export function getAllServerRecoveryStats(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error getting all server recovery stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -191,7 +191,7 @@ export function getRecentFailureRecords(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error getting recent failure records:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -214,7 +214,7 @@ export function resetServerRecoveryStats(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error resetting server recovery stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -242,7 +242,7 @@ export function resetServerCircuitBreaker(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error resetting server circuit breaker:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -268,6 +268,6 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error getting server circuit breaker:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }

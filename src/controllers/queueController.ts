@@ -183,7 +183,7 @@ export function drainSpecificServer(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error draining server:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -203,7 +203,7 @@ export function undrainSpecificServer(req: Request, res: Response): void {
     res.json({ message: `Server ${id} drain mode removed` });
   } catch (error) {
     logger.error('Error undraining server:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
 
@@ -235,6 +235,6 @@ export function setServerMaintenance(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error setting server maintenance:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }

@@ -23,7 +23,7 @@ export function addServer(req: Request, res: Response): void {
   const { id, url, maxConcurrency, apiKey } = body;
 
   if (!id || !url) {
-    res.status(400).json({ error: 'id and url are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_URL_REQUIRED });
     return;
   }
 
@@ -306,7 +306,7 @@ export function removeBan(req: Request, res: Response): void {
   const model = req.params.model as string;
 
   if (!serverId || !model) {
-    res.status(400).json({ error: 'serverId and model are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
     return;
   }
 
@@ -333,7 +333,7 @@ export function removeBansByServer(req: Request, res: Response): void {
   const serverId = req.params.serverId as string;
 
   if (!serverId) {
-    res.status(400).json({ error: 'serverId is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_REQUIRED });
     return;
   }
 
@@ -356,7 +356,7 @@ export function removeBansByModel(req: Request, res: Response): void {
   const model = req.params.model as string;
 
   if (!model) {
-    res.status(400).json({ error: 'model is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
     return;
   }
 
@@ -394,7 +394,7 @@ export async function manualRecoveryTest(req: Request, res: Response): Promise<v
   const model = req.params.model as string;
 
   if (!serverId || !model) {
-    res.status(400).json({ error: 'serverId and model are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
     return;
   }
 
@@ -437,7 +437,7 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
   const model = req.params.model as string;
 
   if (!serverId || !model) {
-    res.status(400).json({ error: 'serverId and model are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
     return;
   }
 
@@ -473,7 +473,7 @@ export function forceOpenBreaker(req: Request, res: Response): void {
   const model = req.params.model as string;
 
   if (!serverId || !model) {
-    res.status(400).json({ error: 'serverId and model are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
     return;
   }
 
@@ -508,7 +508,7 @@ export function forceCloseBreaker(req: Request, res: Response): void {
   const model = req.params.model as string;
 
   if (!serverId || !model) {
-    res.status(400).json({ error: 'serverId and model are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
     return;
   }
 
@@ -543,7 +543,7 @@ export function forceHalfOpenBreaker(req: Request, res: Response): void {
   const model = req.params.model as string;
 
   if (!serverId || !model) {
-    res.status(400).json({ error: 'serverId and model are required' });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
     return;
   }
 

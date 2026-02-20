@@ -5,6 +5,7 @@
 
 import type { Request, Response } from 'express';
 
+import { ERROR_MESSAGES } from '../constants/index.js';
 import { getModelManager } from '../model-manager-instance.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { logger } from '../utils/logger.js';
@@ -21,7 +22,7 @@ export async function warmupModel(req: Request, res: Response): Promise<void> {
   };
 
   if (!model) {
-    res.status(400).json({ error: 'Model name is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_NAME_REQUIRED });
     return;
   }
 
@@ -32,7 +33,7 @@ export async function warmupModel(req: Request, res: Response): Promise<void> {
   const targetServers: string[] = servers ?? orchestrator.getServers().map(s => s.id);
 
   if (targetServers.length === 0) {
-    res.status(400).json({ error: 'No servers available for warmup' });
+    res.status(400).json({ error: ERROR_MESSAGES.NO_SERVERS_FOR_WARMUP });
     return;
   }
 
@@ -80,7 +81,7 @@ export function getModelStatus(req: Request, res: Response): void {
   const model = req.params.model as string;
 
   if (!model) {
-    res.status(400).json({ error: 'Model name is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_NAME_REQUIRED });
     return;
   }
 
@@ -171,7 +172,7 @@ export async function unloadModel(req: Request, res: Response): Promise<void> {
   const { serverId } = (req.body ?? {}) as { serverId?: string };
 
   if (!model) {
-    res.status(400).json({ error: 'Model name is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_NAME_REQUIRED });
     return;
   }
 
@@ -224,7 +225,7 @@ export function cancelWarmup(req: Request, res: Response): void {
   const { jobId } = (req.body ?? {}) as { jobId?: string };
 
   if (!model) {
-    res.status(400).json({ error: 'Model name is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_NAME_REQUIRED });
     return;
   }
 

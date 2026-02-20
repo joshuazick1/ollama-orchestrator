@@ -66,7 +66,7 @@ export async function listServerModels(req: Request, res: Response): Promise<voi
   }
 
   if (server.supportsOllama === false) {
-    res.status(400).json({ error: `Server '${id}' does not support Ollama model management` });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_NO_OLLAMA_SUPPORT(id) });
     return;
   }
 
@@ -113,7 +113,7 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
   const rawModel = body?.model;
 
   if (!rawModel || typeof rawModel !== 'string') {
-    res.status(400).json({ error: 'model is required and must be a string' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED_STRING });
     return;
   }
 
@@ -133,7 +133,7 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
   }
 
   if (server.supportsOllama === false) {
-    res.status(400).json({ error: `Server '${id}' does not support Ollama model management` });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_NO_OLLAMA_SUPPORT(id) });
     return;
   }
 
@@ -184,7 +184,7 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
   const rawModel = req.params.model as string;
 
   if (!rawModel) {
-    res.status(400).json({ error: 'model parameter is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_PARAMETER_REQUIRED });
     return;
   }
 
@@ -204,7 +204,7 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
   }
 
   if (server.supportsOllama === false) {
-    res.status(400).json({ error: `Server '${id}' does not support Ollama model management` });
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_NO_OLLAMA_SUPPORT(id) });
     return;
   }
 
@@ -257,7 +257,7 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
   const { sourceServerId } = body ?? {};
 
   if (!rawModel || typeof rawModel !== 'string') {
-    res.status(400).json({ error: 'model is required' });
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
     return;
   }
 
