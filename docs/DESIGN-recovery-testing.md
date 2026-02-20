@@ -903,7 +903,7 @@ describe('Recovery Test Coordinator Integration', () => {
 ### Phase 4: Consolidate Backoff
 - [x] Create `src/utils/recovery-backoff.ts`
 - [x] Update health-check-scheduler.ts to use unified backoff
-- [ ] Update circuit-breaker.ts to use unified backoff
+- [x] Update circuit-breaker.ts to use unified backoff
 - [x] Verify consistent behavior
 
 ### Phase 5: Fix Server-Level Limits
