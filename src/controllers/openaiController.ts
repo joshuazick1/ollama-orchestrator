@@ -12,8 +12,8 @@ import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-in
 import type { AIServer } from '../orchestrator.types.js';
 import { type OllamaStreamChunk } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
-import { addDebugHeaders } from '../utils/debug-headers.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
+import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
