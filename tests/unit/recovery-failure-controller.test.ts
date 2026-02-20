@@ -8,9 +8,11 @@ import type { Request, Response } from 'express';
 
 vi.mock('../../src/orchestrator-instance.js');
 vi.mock('../../src/analytics/recovery-failure-tracker.js');
+vi.mock('../../src/recovery-test-coordinator.js');
 
 import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import { getRecoveryFailureTracker } from '../../src/analytics/recovery-failure-tracker.js';
+import { getRecoveryTestCoordinator } from '../../src/recovery-test-coordinator.js';
 
 import {
   getRecoveryFailuresSummary,
@@ -28,10 +30,12 @@ import {
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetRecoveryFailureTracker = vi.mocked(getRecoveryFailureTracker);
+const mockGetRecoveryTestCoordinator = vi.mocked(getRecoveryTestCoordinator);
 
 describe('recoveryFailureController', () => {
   let mockOrchestrator: any;
   let mockTracker: any;
+  let mockCoordinator: any;
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
 
@@ -43,6 +47,11 @@ describe('recoveryFailureController', () => {
       resetServerCircuitBreaker: vi.fn(),
     };
     mockGetOrchestratorInstance.mockReturnValue(mockOrchestrator);
+
+    mockCoordinator = {
+      cancelTest: vi.fn().mockReturnValue(false),
+    };
+    mockGetRecoveryTestCoordinator.mockReturnValue(mockCoordinator);
 
     mockTracker = {
       getGlobalSummary: vi.fn(),
@@ -755,9 +764,11 @@ describe('recoveryFailureController', () => {
       resetServerCircuitBreaker(mockReq as Request, mockRes as Response);
 
       expect(mockOrchestrator.resetServerCircuitBreaker).toHaveBeenCalledWith('server-1');
+      expect(mockCoordinator.cancelTest).toHaveBeenCalledWith('server-1');
       expect(mockRes.json).toHaveBeenCalledWith({
         message: 'Circuit breaker reset for server server-1',
         currentState: 'closed',
+        testCancelled: false,
       });
     });
 

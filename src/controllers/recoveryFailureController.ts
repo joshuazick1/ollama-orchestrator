@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { getRecoveryFailureTracker } from '../analytics/recovery-failure-tracker.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -234,11 +235,16 @@ export function resetServerCircuitBreaker(req: Request, res: Response): void {
       return;
     }
 
-    logger.info(`Server circuit breaker manually reset: ${serverId}`);
+    // Cancel any active or queued recovery test for this server
+    const coordinator = getRecoveryTestCoordinator();
+    const testCancelled = coordinator.cancelTest(serverId);
+
+    logger.info(`Server circuit breaker manually reset: ${serverId}`, { testCancelled });
 
     res.json({
       message: `Circuit breaker reset for server ${serverId}`,
       currentState: 'closed',
+      testCancelled,
     });
   } catch (error) {
     logger.error('Error resetting server circuit breaker:', error);

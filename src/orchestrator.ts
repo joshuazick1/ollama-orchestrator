@@ -2967,28 +2967,24 @@ export class AIOrchestrator {
 
   // Track which servers are currently being tested to prevent hammering
   private serversUndergoingActiveTests = new Set<string>();
-  private readonly MAX_MODELS_PER_SERVER_PER_CYCLE = 2; // Limit tests per cycle
+  private readonly MAX_MODELS_PER_SERVER_PER_CYCLE = 2;
   private async runActiveTestsForServer(
     server: AIServer
   ): Promise<Array<{ model: string; success: boolean; duration: number; error?: string }>> {
-    const results: Array<{ model: string; success: boolean; duration: number; error?: string }> =
-      [];
-
     // Skip if this server is already undergoing active tests
     if (this.serversUndergoingActiveTests.has(server.id)) {
       logger.debug(`Skipping active tests for ${server.id} - already in progress`);
-      return results;
+      return [];
     }
 
-    // First, check for any OPEN breakers whose nextRetryAt has passed and transition them to half-open
-    // This ensures breakers don't get stuck in OPEN state when the system is idle
     const now = Date.now();
     const allStats = this.circuitBreakerRegistry.getAllStats();
+
+    // First, check for any OPEN breakers whose nextRetryAt has passed and transition them to half-open
     for (const [breakerName, stats] of Object.entries(allStats)) {
       if (stats.state === 'open' && stats.nextRetryAt && stats.nextRetryAt <= now) {
         const breaker = this.circuitBreakerRegistry.get(breakerName);
         if (breaker) {
-          // Call canExecute to trigger the transition to half-open
           const canExec = breaker.canExecute();
           if (canExec) {
             logger.info(
@@ -3004,7 +3000,6 @@ export class AIOrchestrator {
     }
 
     // Check for any HALF-OPEN breakers whose halfOpenTimeout has passed and transition them back to open
-    // This prevents half-open circuits from being stuck indefinitely
     for (const [breakerName, stats] of Object.entries(allStats)) {
       if (stats.state === 'half-open' && stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
         const breaker = this.circuitBreakerRegistry.get(breakerName);
@@ -3012,29 +3007,16 @@ export class AIOrchestrator {
           const config = breaker.getConfig();
           const timeInHalfOpen = now - stats.halfOpenStartedAt;
           if (timeInHalfOpen > config.halfOpenTimeout) {
-            // Don't timeout if there are active tests in progress
             if (stats.activeTestsInProgress && stats.activeTestsInProgress > 0) {
               logger.debug(
-                `Half-open breaker ${breakerName} timed out but has ${stats.activeTestsInProgress} active tests in progress, skipping timeout`,
-                {
-                  halfOpenStartedAt: stats.halfOpenStartedAt,
-                  timeInHalfOpen,
-                  halfOpenTimeout: config.halfOpenTimeout,
-                  activeTestsInProgress: stats.activeTestsInProgress,
-                }
+                `Half-open breaker ${breakerName} timed out but has ${stats.activeTestsInProgress} active tests in progress, skipping timeout`
               );
               continue;
             }
 
             logger.warn(
-              `Half-open breaker ${breakerName} timed out after ${timeInHalfOpen}ms (limit: ${config.halfOpenTimeout}ms), transitioning back to open`,
-              {
-                halfOpenStartedAt: stats.halfOpenStartedAt,
-                timeInHalfOpen,
-                halfOpenTimeout: config.halfOpenTimeout,
-              }
+              `Half-open breaker ${breakerName} timed out after ${timeInHalfOpen}ms (limit: ${config.halfOpenTimeout}ms), transitioning back to open`
             );
-            // Force open without incrementing failed recovery count (timeout ≠ failure)
             breaker.forceOpen();
           }
         }
@@ -3044,8 +3026,6 @@ export class AIOrchestrator {
     // Check if server circuit is half-open (server-level recovery)
     const serverCb = this.getCircuitBreaker(server.id);
     if (serverCb.getState() === 'half-open') {
-      // Server is recovering - instead of testing individual models,
-      // just do a simple health check to confirm server is working
       logger.info(`Server ${server.id} circuit is half-open, performing recovery health check`);
 
       this.serversUndergoingActiveTests.add(server.id);
@@ -3054,11 +3034,9 @@ export class AIOrchestrator {
         const healthCheckResult = await this.performRecoveryHealthCheck(server);
 
         if (healthCheckResult.success) {
-          // Server is healthy - close the server circuit
           serverCb.forceClose();
           logger.info(`Server ${server.id} recovery confirmed, circuit closed`);
         } else {
-          // Server still failing - let circuit breaker handle backoff
           logger.warn(
             `Server ${server.id} recovery health check failed: ${healthCheckResult.error}`
           );
@@ -3070,113 +3048,66 @@ export class AIOrchestrator {
         this.serversUndergoingActiveTests.delete(server.id);
       }
 
-      return results; // No individual model results for server recovery
+      return [];
     }
 
-    // For model-level half-open circuits, test them individually (legacy behavior)
-    // But with the new approach, model circuits should reopen naturally, so this may not trigger often
+    // Collect all half-open breakers for this server (server-level + model-level)
+    const halfOpenBreakers: Array<{ breaker: CircuitBreaker; model?: string }> = [];
 
-    // Get all circuit breakers for this server and filter for half-open model ones
-    const halfOpenModels: Array<{
-      model: string;
-      failureReason: string;
-      errorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
-      halfOpenStartedAt: number;
-    }> = [];
+    // Check server-level breaker
+    if (serverCb.getState() === 'half-open') {
+      halfOpenBreakers.push({ breaker: serverCb });
+    }
 
-    // Iterate through all breakers to find half-open model ones for this server
-    for (const [breakerName, breaker] of Object.entries(this.getCircuitBreakerStats())) {
+    // Check model-level breakers
+    for (const [breakerName, stats] of Object.entries(allStats)) {
       if (!breakerName.startsWith(`${server.id}:`)) {
         continue;
       }
 
-      if (breaker.state === 'half-open') {
-        const model = breakerName.slice(server.id.length + 1);
-        const failureReason = breaker.lastFailureReason || 'unknown';
-        const errorType = breaker.lastErrorType;
-        const halfOpenStartedAt = breaker.halfOpenStartedAt || 0;
-
-        // Add half-open model to test list with timestamp for prioritization
-        // Note: We don't check canExecute() here because for half-open breakers,
-        // canExecute() returns false to block normal requests, but we explicitly
-        // want to test them via active recovery tests
-        halfOpenModels.push({ model, failureReason, errorType, halfOpenStartedAt });
+      if (stats.state === 'half-open') {
+        const breaker = this.circuitBreakerRegistry.get(breakerName);
+        if (breaker) {
+          const model = breakerName.slice(server.id.length + 1);
+          halfOpenBreakers.push({ breaker, model });
+        }
       }
     }
 
-    // Sort by halfOpenStartedAt - oldest first (oldest failing models get tested first)
-    halfOpenModels.sort((a, b) => a.halfOpenStartedAt - b.halfOpenStartedAt);
-
-    // Limit the number of models to test per cycle to avoid overwhelming the server
-    const modelsToTest = halfOpenModels.slice(0, this.MAX_MODELS_PER_SERVER_PER_CYCLE);
-
-    if (modelsToTest.length === 0) {
-      return results;
+    if (halfOpenBreakers.length === 0) {
+      return [];
     }
 
-    // Mark server as undergoing active tests
+    // Delegate to RecoveryTestCoordinator
     this.serversUndergoingActiveTests.add(server.id);
 
-    logger.info(
-      `Running active tests for ${modelsToTest.length}/${halfOpenModels.length} half-open models on ${server.id}`,
-      {
-        models: modelsToTest.map(m => m.model),
-        failureReasons: modelsToTest.map(m => m.failureReason),
-      }
-    );
+    const coordinator = getRecoveryTestCoordinator();
 
     try {
-      // Run active tests using the health check scheduler's logic
-      const testResults = await this.healthCheckScheduler.runActiveTests(
-        server,
-        modelsToTest,
-        async (serverId: string, model: string, timeoutMs: number) => {
-          return this.executeActiveTest(serverId, model, timeoutMs);
+      const testResults = await coordinator.runActiveTests(server.id, halfOpenBreakers, {
+        onTestStart: breakerName => {
+          const breaker = this.circuitBreakerRegistry.get(breakerName);
+          breaker?.startActiveTest();
         },
-        // onTestStart: increment active tests counter to prevent timeout during test
-        (serverId: string, model: string) => {
-          const modelCb = this.getModelCircuitBreaker(serverId, model);
-          modelCb.startActiveTest();
+        onTestEnd: (breakerName, success, duration) => {
+          const breaker = this.circuitBreakerRegistry.get(breakerName);
+          breaker?.endActiveTest();
+
+          logger.info(`Active test ${success ? 'succeeded' : 'failed'} for ${breakerName}`, {
+            duration,
+          });
         },
-        // onTestEnd: decrement active tests counter after test completes
-        (serverId: string, model: string) => {
-          const modelCb = this.getModelCircuitBreaker(serverId, model);
-          modelCb.endActiveTest();
-        },
-        // getCurrentTimeout: get stored timeout (not adaptive) for active test scaling
-        (serverId: string, model: string) => {
-          const key = `${serverId}:${model}`;
-          return this.timeouts.get(key) ?? 60000; // Default 60s
-        }
-      );
+      });
 
-      // Update circuit breakers based on results
-      for (const result of testResults) {
-        const modelCb = this.getModelCircuitBreaker(server.id, result.model);
-
-        if (result.success) {
-          modelCb.recordSuccess();
-          logger.info(`Active test succeeded for ${server.id}:${result.model}`);
-        } else if (!result.nonCircuitBreaking) {
-          // Only record failure if this is not a non-circuit-breaking error
-          const errorType = this.classifyError(result.error || 'Unknown error');
-          modelCb.recordFailure(new Error(result.error || 'Active test failed'), errorType);
-          logger.warn(`Active test failed for ${server.id}:${result.model}: ${result.error}`);
-        } else {
-          // Non-circuit-breaking failure (e.g., embedding test failed due to server unavailability)
-          logger.info(
-            `Active test failed for ${server.id}:${result.model} but not recording as circuit breaker failure: ${result.error}`
-          );
-        }
-
-        results.push(result);
-      }
+      return testResults.map(r => ({
+        model: r.model || '',
+        success: r.success,
+        duration: r.duration,
+        error: r.error,
+      }));
     } finally {
-      // Always remove server from undergoing tests
       this.serversUndergoingActiveTests.delete(server.id);
     }
-
-    return results;
   }
 
   /**
@@ -3197,10 +3128,10 @@ export class AIOrchestrator {
           const breaker = this.circuitBreakerRegistry.get(serverId);
           if (breaker) {
             breaker.forceOpen();
-            // Extend next retry time exponentially
-            const _currentStats = breaker.getStats();
-            // We can't directly set nextRetryAt, so we'll record a failure to trigger the backoff logic
-            breaker.recordFailure(new Error('Server-level half-open limit exceeded'), 'transient');
+            // Preserve original error type for backoff calculation
+            const stats = breaker.getStats();
+            const errorType: ErrorType = stats.lastErrorType || 'transient';
+            breaker.recordFailure(new Error('Server-level half-open limit exceeded'), errorType);
           }
           return;
         }
@@ -3237,8 +3168,10 @@ export class AIOrchestrator {
           const breaker = this.circuitBreakerRegistry.get(key);
           if (breaker) {
             breaker.forceOpen();
-            // Extend next retry time exponentially
-            breaker.recordFailure(new Error('Server-level half-open limit exceeded'), 'transient');
+            // Preserve original error type for backoff calculation
+            const stats = breaker.getStats();
+            const errorType: ErrorType = stats.lastErrorType || 'transient';
+            breaker.recordFailure(new Error('Server-level half-open limit exceeded'), errorType);
           }
           return;
         }

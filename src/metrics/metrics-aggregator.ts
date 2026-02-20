@@ -14,6 +14,7 @@ import type {
   GlobalMetrics,
   MetricsExport,
 } from '../orchestrator.types.js';
+import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
 
 import { MetricsPersistence, type MetricsData } from './metrics-persistence.js';
@@ -65,6 +66,11 @@ export class MetricsAggregator {
         }
         this.metrics.set(key, metrics);
       }
+      logger.info(
+        `MetricsAggregator: Loaded ${this.metrics.size} server:model metrics from persistence`
+      );
+    } else {
+      logger.debug('MetricsAggregator: No persisted metrics found, starting fresh');
     }
   }
 
@@ -397,10 +403,15 @@ export class MetricsAggregator {
    */
   pruneOldMetrics(maxAge = 24 * 60 * 60 * 1000): void {
     const now = Date.now();
+    let pruned = 0;
     for (const [key, metrics] of this.metrics.entries()) {
       if (now - metrics.lastUpdated > maxAge && metrics.inFlight === 0) {
         this.metrics.delete(key);
+        pruned++;
       }
+    }
+    if (pruned > 0) {
+      logger.debug(`MetricsAggregator: Pruned ${pruned} stale metrics entries`);
     }
   }
 
@@ -605,12 +616,15 @@ export class MetricsAggregator {
   async shutdown(): Promise<void> {
     const data = this.getMetricsData();
     await this.persistence.shutdown(data);
+    logger.info('MetricsAggregator: Shutdown complete');
   }
 
   /**
    * Reset all metrics - useful for testing or manual reset
    */
   reset(): void {
+    const count = this.metrics.size;
     this.metrics.clear();
+    logger.info(`MetricsAggregator: Reset complete, cleared ${count} server:model metrics`);
   }
 }
