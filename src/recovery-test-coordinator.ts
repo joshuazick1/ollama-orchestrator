@@ -39,7 +39,7 @@ interface TestCoordinatorConfig {
 const DEFAULT_CONFIG: TestCoordinatorConfig = {
   serverCooldownMs: 10000, // 10 seconds between tests
   maxWaitForInFlightMs: 5000, // Wait up to 5 seconds for in-flight to clear
-  modelTestTimeoutMs: 60000, // 60 seconds for model test
+  modelTestTimeoutMs: 120000, // 120 seconds for model test (increased from 60s)
   checkInFlightRequests: true,
   maxQueueSizePerServer: 10,
 };
