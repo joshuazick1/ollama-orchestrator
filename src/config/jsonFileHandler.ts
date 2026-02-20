@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { logger } from '../utils/logger.js';
+import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 
 export interface JsonFileHandlerOptions {
   createBackups?: boolean;
@@ -46,7 +47,7 @@ export class JsonFileHandler {
 
       if (this.options.validateJson) {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const parsed = JSON.parse(content) as T;
+        const parsed = safeJsonParse(content) as T;
         if (this.options.validator && !this.options.validator(parsed)) {
           logger.error(`[JsonFileHandler] Validation failed for ${this.filePath}`);
           return null;
@@ -56,7 +57,7 @@ export class JsonFileHandler {
       }
 
       // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      return JSON.parse(content) as T;
+      return safeJsonParse(content) as T;
     } catch (error) {
       logger.error(`[JsonFileHandler] Error reading ${this.filePath}`, { error });
       return null;
@@ -72,7 +73,7 @@ export class JsonFileHandler {
 
       // Write to temp file first
       const tempPath = `${this.filePath}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.writeFileSync(tempPath, safeJsonStringify(data, null, 2) as string, 'utf-8');
 
       // Atomic rename
       fs.renameSync(tempPath, this.filePath);

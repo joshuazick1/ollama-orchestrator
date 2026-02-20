@@ -9,6 +9,7 @@ import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { fetchWithTimeout, parseResponse } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
+import { safeJsonStringify } from '../utils/json-utils.js';
 
 /** Shape of a request body containing a model name */
 interface ModelRequestBody {
@@ -143,7 +144,7 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
     const response = await fetchWithTimeout(`${server.url}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: model, stream: false }),
+      body: safeJsonStringify({ name: model, stream: false }),
       timeout: 300000, // 5 minute timeout for model pull
     });
 
@@ -214,7 +215,7 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
     const response = await fetchWithTimeout(`${server.url}/api/delete`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: model }),
+      body: safeJsonStringify({ name: model }),
       timeout: 30000, // 30 second timeout for delete
     });
 
@@ -314,7 +315,7 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
     const response = await fetchWithTimeout(`${targetServer.url}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: model, stream: false }),
+      body: safeJsonStringify({ name: model, stream: false }),
       timeout: 300000, // 5 minute timeout for model pull/copy
     });
 

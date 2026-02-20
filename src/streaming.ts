@@ -7,6 +7,7 @@ import type { Response } from 'express';
 
 import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
 import { logger } from './utils/logger.js';
+import { safeJsonParse, safeJsonStringify } from './utils/json-utils.js';
 
 export interface StreamResponseOptions {
   /** Callback when first token is received */
@@ -47,7 +48,7 @@ function parseStreamChunk(chunk: Uint8Array): {
 
     for (const line of lines) {
       try {
-        const parsed = JSON.parse(line) as OllamaStreamChunk;
+        const parsed = safeJsonParse(line) as OllamaStreamChunk;
         if (parsed.done === true) {
           return { done: true, hasContent: false, preview: line.slice(0, 200) };
         }
@@ -241,7 +242,7 @@ export async function streamResponse(
 
     if (doneChunkReceived && lastChunkPreview) {
       try {
-        const lastChunk = JSON.parse(lastChunkPreview) as OllamaStreamChunk;
+        const lastChunk = safeJsonParse(lastChunkPreview) as OllamaStreamChunk;
         if (lastChunk.eval_count !== undefined) {
           tokensGenerated = lastChunk.eval_count;
         }
@@ -321,7 +322,7 @@ export function parseSSEData(buffer: Uint8Array): Array<{ done: boolean; data?: 
         currentEvent.done = true;
       } else {
         try {
-          currentEvent.data = JSON.parse(data);
+          currentEvent.data = safeJsonParse(data);
         } catch {
           currentEvent.data = data;
         }

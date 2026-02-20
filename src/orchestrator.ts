@@ -43,6 +43,7 @@ import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
+import { safeJsonStringify } from './utils/json-utils.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -222,7 +223,10 @@ export class AIOrchestrator {
         let needsPersistence = false;
 
         // Update models from health check result
-        if (result.models && JSON.stringify(result.models) !== JSON.stringify(server.models)) {
+        if (
+          result.models &&
+          safeJsonStringify(result.models) !== safeJsonStringify(server.models)
+        ) {
           server.models = result.models;
           needsPersistence = true;
         }
@@ -245,7 +249,7 @@ export class AIOrchestrator {
         // Update OpenAI models from health check result
         if (
           result.v1Models &&
-          JSON.stringify(result.v1Models) !== JSON.stringify(server.v1Models)
+          safeJsonStringify(result.v1Models) !== safeJsonStringify(server.v1Models)
         ) {
           server.v1Models = result.v1Models;
           needsPersistence = true;
@@ -541,7 +545,7 @@ export class AIOrchestrator {
           const response = await fetch(`${targetServer.url}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            body: safeJsonStringify({
               model: model,
               prompt: 'Hi', // Minimal prompt for quick response
               stream: false,
@@ -611,7 +615,7 @@ export class AIOrchestrator {
           const response = await fetch(`${targetServer.url}/api/embeddings`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            body: safeJsonStringify({
               model: model,
               prompt: 'test', // Minimal text for embedding
             }),

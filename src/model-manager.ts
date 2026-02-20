@@ -7,6 +7,7 @@ import { ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator.types.js';
 import { getErrorClassifier } from './utils/errorClassifier.js';
 import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
+import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 
 /** Response shape from Ollama /api/generate endpoint */
@@ -557,7 +558,7 @@ export class ModelManager {
       const response = await fetchWithTimeout(`${serverUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           model: job.model,
           prompt: '', // Empty prompt to minimize processing
           stream: false, // Non-streaming for faster response
@@ -704,7 +705,7 @@ export class ModelManager {
       const response = await fetchWithTimeout(`${serverUrl}/api/show`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model }),
+        body: safeJsonStringify({ model }),
         timeout: 30000, // 30 second timeout
       });
 
@@ -990,7 +991,7 @@ export class ModelManager {
       const response = await fetchWithTimeout(`${serverState.serverUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           model,
           prompt: '', // Empty prompt
           stream: false,

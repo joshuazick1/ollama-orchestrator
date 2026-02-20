@@ -14,6 +14,7 @@ import { CircuitBreaker } from './circuit-breaker.js';
 import { featureFlags } from './config/feature-flags.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { logger } from './utils/logger.js';
+import { safeJsonStringify } from './utils/json-utils.js';
 import { Timer } from './utils/timer.js';
 
 interface ServerTestState {
@@ -509,7 +510,7 @@ export class RecoveryTestCoordinator {
       const response = await fetchWithTimeout(`${serverUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           model: modelName,
           prompt: 'Hi',
           stream: false,
@@ -633,7 +634,7 @@ export class RecoveryTestCoordinator {
       const response = await fetchWithTimeout(`${serverUrl}/api/embeddings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           model: modelName,
           prompt: 'test',
         }),
@@ -1020,7 +1021,7 @@ export class RecoveryTestCoordinator {
       const response = await fetchWithTimeout(`${serverUrl}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: safeJsonStringify(body),
         timeout: this.config.modelTestTimeoutMs,
         signal,
       });

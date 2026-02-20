@@ -4,6 +4,7 @@
  */
 
 import { logger } from './logger.js';
+import { safeJsonParse } from './json-utils.js';
 
 /**
  * Parse error response body from Ollama to extract meaningful error message
@@ -17,12 +18,11 @@ export async function parseOllamaError(response: Response): Promise<string> {
 
     // Try to parse as JSON first
     try {
-      const json = JSON.parse(text) as { error?: string; message?: string };
-      if (json.error) {
-        // Ollama returns {"error": "message"} for most errors
+      const json = safeJsonParse(text) as { error?: string; message?: string };
+      if (json?.error) {
         return `HTTP ${response.status}: ${json.error}`;
       }
-      if (json.message) {
+      if (json?.message) {
         return `HTTP ${response.status}: ${json.message}`;
       }
     } catch {
