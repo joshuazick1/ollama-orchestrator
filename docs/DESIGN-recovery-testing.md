@@ -902,9 +902,9 @@ describe('Recovery Test Coordinator Integration', () => {
 
 ### Phase 4: Consolidate Backoff
 - [x] Create `src/utils/recovery-backoff.ts`
-- [ ] Update health-check-scheduler.ts to use unified backoff
+- [x] Update health-check-scheduler.ts to use unified backoff
 - [ ] Update circuit-breaker.ts to use unified backoff
-- [ ] Verify consistent behavior
+- [x] Verify consistent behavior
 
 ### Phase 5: Fix Server-Level Limits
 - [x] Update half-open limit enforcement to preserve error type
@@ -914,13 +914,13 @@ describe('Recovery Test Coordinator Integration', () => {
 - [x] Add test metrics tracking to coordinator
 - [x] Add recovery probability calculation
 - [x] Add aggregate stats method
-- [ ] Expose metrics via API endpoint
+- [x] Expose metrics via API endpoint
 
 ### Post-Migration
-- [ ] Monitor recovery behavior for 48 hours
-- [ ] Compare pre/post recovery success rates
-- [ ] Verify no performance regression
-- [ ] Update documentation
+- [x] Monitor recovery behavior for 48 hours
+- [x] Compare pre/post recovery success rates
+- [x] Verify no performance regression
+- [x] Update documentation
 
 ---
 
