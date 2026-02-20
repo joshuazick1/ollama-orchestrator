@@ -15,8 +15,8 @@ import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
-import { logger } from '../utils/logger.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
+import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
 
 /**
@@ -530,9 +530,12 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             }
             const decoder = new TextDecoder();
             // stream raw NDJSON to client
+            // eslint-disable-next-line no-constant-condition
             while (true) {
               const { done, value } = await reader.read();
-              if (done) break;
+              if (done) {
+                break;
+              }
               res.write(decoder.decode(value, { stream: true }));
             }
             res.end();
@@ -574,15 +577,13 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   } catch (error) {
     logger.error('OpenAI completions failed:', { error, model });
     if (!res.headersSent) {
-      res
-        .status(500)
-        .json({
-          error: {
-            message: error instanceof Error ? error.message : 'Request failed',
-            type: 'server_error',
-            code: 'internal_error',
-          },
-        });
+      res.status(500).json({
+        error: {
+          message: error instanceof Error ? error.message : 'Request failed',
+          type: 'server_error',
+          code: 'internal_error',
+        },
+      });
     }
   }
 }
@@ -633,15 +634,13 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
   } catch (error) {
     logger.error('OpenAI embeddings failed:', { error, model });
     if (!res.headersSent) {
-      res
-        .status(500)
-        .json({
-          error: {
-            message: error instanceof Error ? error.message : 'Request failed',
-            type: 'server_error',
-            code: 'internal_error',
-          },
-        });
+      res.status(500).json({
+        error: {
+          message: error instanceof Error ? error.message : 'Request failed',
+          type: 'server_error',
+          code: 'internal_error',
+        },
+      });
     }
   }
 }

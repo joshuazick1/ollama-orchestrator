@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync } from 'fs';
+
 import { safeJsonStringify } from './json-utils.js';
 
 interface LogEntry {
