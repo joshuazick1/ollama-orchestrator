@@ -5,6 +5,7 @@
 
 import { ErrorClassifier, type ErrorType } from './utils/errorClassifier.js';
 import { logger } from './utils/logger.js';
+import { calculateCircuitBreakerBackoff } from './utils/recovery-backoff.js';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 
@@ -756,21 +757,10 @@ export class CircuitBreaker {
 
   /**
    * Calculate backoff timeout based on error type
+   * Uses unified backoff from recovery-backoff.ts
    */
   private getBackoffForErrorType(errorType: ErrorType): number {
-    switch (errorType) {
-      case 'permanent':
-        return 86400000; // 24 hours - these errors require external intervention
-      case 'non-retryable':
-        return 172800000; // 48 hours - auth/config errors need time for fixes
-      case 'retryable':
-        return 43200000; // 12 hours - memory/overload might resolve with restarts
-      case 'rateLimited':
-        return this.getRateLimitBackoff();
-      case 'transient':
-      default:
-        return this.config.openTimeout; // Keep default 2 minutes for network/transient
-    }
+    return calculateCircuitBreakerBackoff(errorType, undefined, this.consecutiveFailedRecoveries);
   }
 
   /**
