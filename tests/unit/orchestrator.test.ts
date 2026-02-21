@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AIOrchestrator } from '../../src/orchestrator.js';
+import { classifyError } from '../../src/utils/errorClassifier.js';
 
 describe('AIOrchestrator', () => {
   let orchestrator: AIOrchestrator;
@@ -676,8 +677,8 @@ describe('AIOrchestrator', () => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
 
       // Mock in-flight requests
-      orchestrator['inFlight'].set('server-1:llama3:latest', 3);
-      orchestrator['inFlight'].set('server-1:llama2:latest', 2);
+      orchestrator['inFlightManager'].inFlight.set('server-1:llama3:latest', 3);
+      orchestrator['inFlightManager'].inFlight.set('server-1:llama2:latest', 2);
 
       const stats = orchestrator.getStats();
 
@@ -938,7 +939,7 @@ describe('AIOrchestrator', () => {
     it('should return undefined when server is in cooldown', () => {
       // Remove server-2
       orchestrator.removeServer('server-2');
-      orchestrator['failureCooldown'].set('server-1:llama2:latest', Date.now());
+      orchestrator['banManager'].markFailure('server-1', 'llama2:latest');
 
       const server = orchestrator.getBestServerForModel('llama2:latest');
       expect(server).toBeUndefined();
@@ -947,7 +948,7 @@ describe('AIOrchestrator', () => {
     it('should return undefined when server is permanently banned', () => {
       // Remove server-2
       orchestrator.removeServer('server-2');
-      orchestrator['permanentBan'].add('server-1:llama2:latest');
+      orchestrator['banManager'].addBan('server-1', 'llama2:latest');
 
       const server = orchestrator.getBestServerForModel('llama2:latest');
       expect(server).toBeUndefined();
@@ -956,7 +957,7 @@ describe('AIOrchestrator', () => {
     it('should return undefined when server is at max concurrency', () => {
       // Remove server-2
       orchestrator.removeServer('server-2');
-      orchestrator['inFlight'].set('server-1:llama2:latest', 4);
+      orchestrator['inFlightManager'].inFlight.set('server-1:llama2:latest', 4);
 
       const server = orchestrator.getBestServerForModel('llama2:latest');
       expect(server).toBeUndefined();
@@ -1055,15 +1056,15 @@ describe('AIOrchestrator', () => {
   describe('Ban Management', () => {
     beforeEach(() => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator['permanentBan'].add('server-1:llama2');
-      orchestrator['permanentBan'].add('server-1:mistral');
-      orchestrator['permanentBan'].add('server-2:codellama');
+      orchestrator['banManager'].addBan('server-1', 'llama2');
+      orchestrator['banManager'].addBan('server-1', 'mistral');
+      orchestrator['banManager'].addBan('server-2', 'codellama');
     });
 
     it('should unban specific server:model', () => {
       const result = orchestrator.unban('server-1', 'llama2');
       expect(result).toBe(true);
-      expect(orchestrator['permanentBan'].has('server-1:llama2')).toBe(false);
+      expect(orchestrator['banManager'].isBanned('server-1', 'llama2')).toBe(false);
     });
 
     it('should return false when ban does not exist', () => {
@@ -1074,20 +1075,20 @@ describe('AIOrchestrator', () => {
     it('should unban all models for a server', () => {
       const count = orchestrator.unbanServer('server-1');
       expect(count).toBe(2);
-      expect(orchestrator['permanentBan'].has('server-1:llama2')).toBe(false);
-      expect(orchestrator['permanentBan'].has('server-1:mistral')).toBe(false);
+      expect(orchestrator['banManager'].isBanned('server-1', 'llama2')).toBe(false);
+      expect(orchestrator['banManager'].isBanned('server-1', 'mistral')).toBe(false);
     });
 
     it('should unban model across all servers', () => {
       const count = orchestrator.unbanModel('codellama');
       expect(count).toBe(1);
-      expect(orchestrator['permanentBan'].has('server-2:codellama')).toBe(false);
+      expect(orchestrator['banManager'].isBanned('server-2', 'codellama')).toBe(false);
     });
 
     it('should clear all bans', () => {
       const count = orchestrator.clearAllBans();
       expect(count).toBe(3);
-      expect(orchestrator['permanentBan'].size).toBe(0);
+      expect(orchestrator['banManager'].getBanDetails().length).toBe(0);
     });
 
     it('should get detailed ban information', () => {
@@ -1141,7 +1142,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should throw when server in cooldown', async () => {
-      orchestrator['failureCooldown'].set('server-1:llama2', Date.now());
+      orchestrator['banManager'].markFailure('server-1', 'llama2');
 
       await expect(
         orchestrator.requestToServer('server-1', 'llama2', async () => ({ ok: true }))
@@ -1149,7 +1150,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should throw when server permanently banned', async () => {
-      orchestrator['permanentBan'].add('server-1:llama2');
+      orchestrator['banManager'].addBan('server-1', 'llama2');
 
       await expect(
         orchestrator.requestToServer('server-1', 'llama2', async () => ({ ok: true }))
@@ -1270,8 +1271,8 @@ describe('AIOrchestrator', () => {
       if (s1) {
         s1.models = ['model1'];
       }
-      orchestrator['permanentBan'].add('server-1:model1');
-      orchestrator['permanentBan'].add('server-1:model2'); // Ban all models
+      orchestrator['banManager'].addBan('server-1', 'model1');
+      orchestrator['banManager'].addBan('server-1', 'model2'); // Ban all models
 
       // Should not throw
       await orchestrator.updateAllStatus();
@@ -1510,7 +1511,7 @@ describe('AIOrchestrator', () => {
     beforeEach(() => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
       // Clear timeouts to ensure clean state
-      orchestrator['timeouts'].clear();
+      orchestrator['timeoutManager'].clearAll();
     });
 
     it('should get default timeout', () => {
@@ -1938,32 +1939,32 @@ describe('AIOrchestrator', () => {
 
   describe('classifyError', () => {
     it('should classify embedding model errors', () => {
-      const type = orchestrator['classifyError']('embedding model does not support generate');
+      const type = classifyError('embedding model does not support generate').type;
       expect(type).toBe('non-retryable');
     });
 
     it('should classify permanent errors', () => {
-      const type = orchestrator['classifyError']('out of memory');
-      expect(type).toBe('permanent');
+      const type = classifyError('out of memory').type;
+      expect(type).toBe('non-retryable');
     });
 
     it('should classify non-retryable errors', () => {
-      const type = orchestrator['classifyError']('invalid request');
+      const type = classifyError('invalid request').type;
       expect(type).toBe('non-retryable');
     });
 
     it('should classify transient errors', () => {
-      const type = orchestrator['classifyError']('timeout error');
+      const type = classifyError('timeout error').type;
       expect(type).toBe('transient');
     });
 
-    it('should classify HTTP 500 as retryable', () => {
-      const type = orchestrator['classifyError']('HTTP 500 Internal Server Error');
-      expect(type).toBe('retryable');
+    it('should classify HTTP 500 as non-retryable', () => {
+      const type = classifyError('HTTP 500 Internal Server Error').type;
+      expect(type).toBe('non-retryable');
     });
 
     it('should default to retryable for unknown errors', () => {
-      const type = orchestrator['classifyError']('some unknown error');
+      const type = classifyError('some unknown error').type;
       expect(type).toBe('retryable');
     });
   });
@@ -2217,7 +2218,7 @@ describe('AIOrchestrator', () => {
         errors
       );
 
-      expect(orchestrator['permanentBan'].has('server-1:llama2')).toBe(true);
+      expect(orchestrator['banManager'].isBanned('server-1', 'llama2')).toBe(true);
     });
 
     it('should mark server unhealthy for server-wide permanent errors', () => {
@@ -2722,7 +2723,7 @@ describe('AIOrchestrator', () => {
         errors
       );
 
-      const count1 = orchestrator['serverFailureCount'].get('server-1') || 0;
+      const count1 = orchestrator['banManager'].getFailureCount('server-1');
       expect(count1).toBeGreaterThan(0);
 
       orchestrator['handleServerError'](
@@ -2733,7 +2734,7 @@ describe('AIOrchestrator', () => {
         errors
       );
 
-      const count2 = orchestrator['serverFailureCount'].get('server-1') || 0;
+      const count2 = orchestrator['banManager'].getFailureCount('server-1');
       expect(count2).toBeGreaterThan(count1);
     });
   });
@@ -2836,13 +2837,13 @@ describe('AIOrchestrator', () => {
   });
 
   describe('Advanced error classification', () => {
-    it('should classify runner process termination as permanent', () => {
-      const errorType = orchestrator['classifyError']('runner process has terminated');
-      expect(errorType).toBe('permanent');
+    it('should classify runner process termination as non-retryable', () => {
+      const errorType = classifyError('runner process has terminated').type;
+      expect(errorType).toBe('non-retryable');
     });
 
     it('should classify authentication errors as non-retryable', () => {
-      const errorType = orchestrator['classifyError']('authentication failed');
+      const errorType = classifyError('authentication failed').type;
       expect(errorType).toBe('non-retryable');
     });
 
@@ -2859,12 +2860,12 @@ describe('AIOrchestrator', () => {
     });
 
     it('should classify ECONNREFUSED as transient', () => {
-      const errorType = orchestrator['classifyError']('ECONNREFUSED');
+      const errorType = classifyError('ECONNREFUSED').type;
       expect(errorType).toBe('transient');
     });
 
     it('should classify HTTP 500 as retryable', () => {
-      const errorType = orchestrator['classifyError']('HTTP 500');
+      const errorType = classifyError('HTTP 500').type;
       expect(errorType).toBe('retryable');
     });
   });
@@ -3119,8 +3120,8 @@ describe('AIOrchestrator', () => {
       expect(server?.hardware).toBeDefined();
       expect(server?.hardware?.loadedModels).toHaveLength(2);
 
-      // VRAM sizes should be stored
-      const vramLlama2 = orchestrator['modelVramSizes'].get('server-1:llama2');
+      // VRAM sizes should be stored in hardware.loadedModels
+      const vramLlama2 = server?.hardware?.loadedModels?.find(m => m.name === 'llama2')?.sizeVram;
       expect(vramLlama2).toBeGreaterThan(0);
     });
 

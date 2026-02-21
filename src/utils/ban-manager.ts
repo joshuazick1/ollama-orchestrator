@@ -1,4 +1,5 @@
 import { getConfigManager } from '../config/config.js';
+
 import { logger } from './logger.js';
 
 export interface FailureTracker {
@@ -45,7 +46,9 @@ export class BanManager {
   isInCooldown(serverId: string, model: string): boolean {
     const key = `${serverId}:${model}`;
     const lastFail = this.failureCooldown.get(key);
-    if (!lastFail) return false;
+    if (!lastFail) {
+      return false;
+    }
     return Date.now() - lastFail < this.config.failureCooldownMs;
   }
 
