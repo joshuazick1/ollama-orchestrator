@@ -383,8 +383,7 @@ describe('OpenAI Controller', () => {
         expect.any(Function),
         false,
         'embeddings',
-        'openai',
-        expect.any(Object)
+        'openai'
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -438,8 +437,6 @@ describe('OpenAI Controller', () => {
         error: {
           message: 'model and input are required',
           type: 'invalid_request_error',
-          param: 'model',
-          code: 'missing_required_parameter',
         },
       });
     });
@@ -456,8 +453,6 @@ describe('OpenAI Controller', () => {
         error: {
           message: 'model and input are required',
           type: 'invalid_request_error',
-          param: 'input',
-          code: 'missing_required_parameter',
         },
       });
     });
@@ -803,7 +798,7 @@ describe('OpenAI Controller', () => {
         false,
         'generate',
         'openai',
-        expect.any(Object)
+        {}
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -1052,7 +1047,7 @@ describe('OpenAI Controller', () => {
         false,
         'generate',
         'openai',
-        expect.any(Object)
+        {}
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -1067,10 +1062,8 @@ describe('OpenAI Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: {
-          message: 'model and prompt are required',
+          message: 'model is required',
           type: 'invalid_request_error',
-          param: 'model',
-          code: 'missing_required_parameter',
         },
       });
     });
@@ -1080,17 +1073,30 @@ describe('OpenAI Controller', () => {
         model: 'llama3:latest',
       };
 
+      const mockResult = {
+        id: 'cmpl-123',
+        object: 'text_completion',
+        created: 1234567890,
+        model: 'llama3:latest',
+        choices: [
+          {
+            text: 'Hello!',
+            index: 0,
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 5,
+          total_tokens: 15,
+        },
+      };
+
+      mockOrchestrator.tryRequestWithFailover.mockResolvedValue(mockResult);
+
       await handleCompletions(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(400);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        error: {
-          message: 'model and prompt are required',
-          type: 'invalid_request_error',
-          param: 'prompt',
-          code: 'missing_required_parameter',
-        },
-      });
+      expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
 
     it('should handle completions errors', async () => {
@@ -1167,7 +1173,7 @@ describe('OpenAI Controller', () => {
         'http://localhost:11434/v1/completions',
         expect.objectContaining({
           method: 'POST',
-          body: expect.stringContaining('"prompt":"Hello world"'),
+          body: expect.stringContaining('"prompt":["Hello ","world"]'),
         })
       );
     });

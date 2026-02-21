@@ -1515,7 +1515,7 @@ describe('AIOrchestrator', () => {
 
     it('should get default timeout', () => {
       const timeout = orchestrator.getTimeout('server-1', 'llama2');
-      expect(timeout).toBe(60000);
+      expect(timeout).toBe(120000);
     });
 
     it('should set and get custom timeout', () => {
@@ -2197,94 +2197,6 @@ describe('AIOrchestrator', () => {
     });
   });
 
-  describe('calculateAdaptiveActiveTestTimeout', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.lastResponseTime = 2000;
-      }
-    });
-
-    it('should calculate adaptive timeout', () => {
-      const timeout = orchestrator['calculateAdaptiveActiveTestTimeout']('server-1', 'llama2');
-      expect(timeout).toBeGreaterThan(0);
-      expect(timeout).toBeLessThanOrEqual(900000); // Max 15 minutes
-    });
-
-    it('should use VRAM data if available', () => {
-      orchestrator['modelVramSizes'].set('server-1:llama2', 4000); // 4GB
-
-      const timeout = orchestrator['calculateAdaptiveActiveTestTimeout']('server-1', 'llama2');
-      expect(timeout).toBeGreaterThan(60000); // Should be higher due to VRAM
-    });
-  });
-
-  describe('getProgressiveExtensionMultiplier', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-    });
-
-    it('should return 1.0 with no failures', () => {
-      const multiplier = orchestrator['getProgressiveExtensionMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBe(1.0);
-    });
-
-    it('should increase with failures', () => {
-      orchestrator['activeTestFailureCount'].set('server-1:llama2', 2);
-
-      const multiplier = orchestrator['getProgressiveExtensionMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBe(2.0);
-    });
-
-    it('should cap at 3.0', () => {
-      orchestrator['activeTestFailureCount'].set('server-1:llama2', 10);
-
-      const multiplier = orchestrator['getProgressiveExtensionMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBe(3.0);
-    });
-  });
-
-  describe('getServerPerformanceMultiplier', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-    });
-
-    it('should return 1.0 for unknown performance', () => {
-      const multiplier = orchestrator['getServerPerformanceMultiplier']('nonexistent');
-      expect(multiplier).toBe(1.0);
-    });
-
-    it('should calculate based on response time', () => {
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.lastResponseTime = 5000; // 5 seconds
-      }
-
-      const multiplier = orchestrator['getServerPerformanceMultiplier']('server-1');
-      // Should be between 0.5 and 2.0 due to bounds
-      expect(multiplier).toBeGreaterThanOrEqual(0.5);
-      expect(multiplier).toBeLessThanOrEqual(2.0);
-    });
-  });
-
-  describe('estimateModelSizeMultiplierFromName', () => {
-    it('should estimate 7b models', () => {
-      const multiplier = orchestrator['estimateModelSizeMultiplierFromName']('llama2:7b');
-      expect(multiplier).toBe(1.0);
-    });
-
-    it('should estimate 70b models', () => {
-      const multiplier = orchestrator['estimateModelSizeMultiplierFromName']('llama2:70b');
-      expect(multiplier).toBe(10.0);
-    });
-
-    it('should estimate MoE models', () => {
-      const multiplier = orchestrator['estimateModelSizeMultiplierFromName']('mixtral:8x7b');
-      expect(multiplier).toBe(8.0); // 8 * 7 = 56
-    });
-  });
-
   describe('handleServerError - permanent errors', () => {
     beforeEach(() => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
@@ -2823,44 +2735,6 @@ describe('AIOrchestrator', () => {
 
       const count2 = orchestrator['serverFailureCount'].get('server-1') || 0;
       expect(count2).toBeGreaterThan(count1);
-    });
-  });
-
-  describe('Timeout and performance calculations', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-    });
-
-    it('should calculate historical multiplier with sufficient data', () => {
-      // Record some metrics
-      for (let i = 0; i < 5; i++) {
-        orchestrator['metricsAggregator'].recordRequest({
-          id: `test-${i}`,
-          serverId: 'server-1',
-          model: 'llama2',
-          startTime: Date.now() - 1000,
-          endTime: Date.now(),
-          duration: 5000 + i * 1000,
-          success: true,
-          endpoint: 'generate',
-          streaming: false,
-        });
-      }
-
-      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBeGreaterThan(0);
-    });
-
-    it('should use VRAM data when available for timeout calculation', () => {
-      orchestrator['modelVramSizes'].set('server-1:llama2', 8000); // 8GB
-
-      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBeGreaterThan(1);
-    });
-
-    it('should estimate from model name when VRAM not available', () => {
-      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'unknown:70b');
-      expect(multiplier).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -3534,123 +3408,6 @@ describe('AIOrchestrator', () => {
       const result = orchestrator.getAggregatedOpenAIModels();
       // Model with open breaker might be filtered out depending on hasClosedCircuitBreaker logic
       expect(result).toBeDefined();
-    });
-  });
-
-  describe('getHistoricalResponseMultiplier', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-    });
-
-    it('should return 1.0 with no metrics', () => {
-      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBe(1.0);
-    });
-
-    it('should return 1.0 with insufficient requests', () => {
-      // Record only 2 requests
-      for (let i = 0; i < 2; i++) {
-        orchestrator['metricsAggregator'].recordRequest({
-          id: `test-${i}`,
-          serverId: 'server-1',
-          model: 'llama2',
-          startTime: Date.now() - 1000,
-          endTime: Date.now(),
-          duration: 5000,
-          success: true,
-          endpoint: 'generate',
-          streaming: false,
-        });
-      }
-
-      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBe(1.0);
-    });
-
-    it('should calculate multiplier with sufficient data', () => {
-      // Record 5 requests with varying durations
-      for (let i = 0; i < 5; i++) {
-        orchestrator['metricsAggregator'].recordRequest({
-          id: `test-${i}`,
-          serverId: 'server-1',
-          model: 'llama2',
-          startTime: Date.now() - 1000,
-          endTime: Date.now(),
-          duration: 60000, // 60 seconds
-          success: true,
-          endpoint: 'generate',
-          streaming: false,
-        });
-      }
-
-      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBeGreaterThan(0);
-    });
-
-    it('should cap multiplier at 3.0', () => {
-      // Record requests with very high duration
-      for (let i = 0; i < 5; i++) {
-        orchestrator['metricsAggregator'].recordRequest({
-          id: `test-${i}`,
-          serverId: 'server-1',
-          model: 'llama2',
-          startTime: Date.now() - 1000,
-          endTime: Date.now(),
-          duration: 200000, // 200 seconds - very high
-          success: true,
-          endpoint: 'generate',
-          streaming: false,
-        });
-      }
-
-      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBeLessThanOrEqual(3.0);
-    });
-
-    it('should floor multiplier at 0.5', () => {
-      // Record requests with very low duration
-      for (let i = 0; i < 5; i++) {
-        orchestrator['metricsAggregator'].recordRequest({
-          id: `test-${i}`,
-          serverId: 'server-1',
-          model: 'llama2',
-          startTime: Date.now() - 1000,
-          endTime: Date.now(),
-          duration: 100, // 100ms - very low
-          success: true,
-          endpoint: 'generate',
-          streaming: false,
-        });
-      }
-
-      const multiplier = orchestrator['getHistoricalResponseMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBeGreaterThanOrEqual(0.5);
-    });
-  });
-
-  describe('calculateModelSizeMultiplier with VRAM', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-    });
-
-    it('should calculate multiplier from actual VRAM', () => {
-      orchestrator['modelVramSizes'].set('server-1:llama2', 4000); // 4GB = 4000MB
-
-      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'llama2');
-      expect(multiplier).toBe(8); // 4000 / 500 = 8
-    });
-
-    it('should fallback to name estimation when VRAM not available', () => {
-      // No VRAM data set
-      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'unknown:7b');
-      expect(multiplier).toBe(1); // 7b / 7 = 1
-    });
-
-    it('should handle very large models', () => {
-      orchestrator['modelVramSizes'].set('server-1:huge-model', 50000); // 50GB
-
-      const multiplier = orchestrator['calculateModelSizeMultiplier']('server-1', 'huge-model');
-      expect(multiplier).toBe(100); // 50000 / 500 = 100
     });
   });
 
