@@ -1718,7 +1718,7 @@ export class AIOrchestrator {
       this.decrementInFlight(server.id, model, bypassCircuitBreaker);
 
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorType = this.classifyError(errorMessage);
+      const errorType = classifyError(errorMessage).type;
 
       // Record failure in circuit breaker (skip if bypassing)
       if (!bypassCircuitBreaker) {
@@ -1912,7 +1912,7 @@ export class AIOrchestrator {
       getRequestHistory().recordRequest(requestContext);
 
       const errorMessage = lastError.message;
-      const errorType = this.classifyError(errorMessage);
+      const errorType = classifyError(errorMessage).type;
 
       logger.warn(`Request failed on ${server.id} for model ${model}`, {
         error: errorMessage,
@@ -2043,7 +2043,7 @@ export class AIOrchestrator {
         getRequestHistory().recordRequest(requestContext);
 
         const errorMessage = lastError.message;
-        const errorType = this.classifyError(errorMessage);
+        const errorType = classifyError(errorMessage).type;
 
         logger.warn(`Request failed on ${server.id} for model ${model}`, {
           error: errorMessage,
@@ -3160,90 +3160,6 @@ export class AIOrchestrator {
    */
   removeModelCircuitBreaker(serverId: string, model: string): boolean {
     return this.circuitBreakerRegistry.remove(`${serverId}:${model}`);
-  }
-
-  /**
-   * Classify an error message to determine handling strategy
-   */
-  private classifyError(errorMessage: string): ErrorType {
-    // Check for embedding model errors first - these shouldn't open circuit breakers
-    // Embedding models failing on generation requests is expected behavior
-    const embeddingModelErrors = [
-      /embedding model.*not support/i,
-      /does not support generate/i,
-      /cannot generate.*embedding/i,
-      /embed.*model.*only/i,
-      /this model only supports embeddings/i,
-    ];
-    for (const pattern of embeddingModelErrors) {
-      if (pattern.test(errorMessage)) {
-        // Return as non-retryable - these won't trigger circuit breaker
-        // because they're client errors (wrong endpoint for model type)
-        return 'non-retryable';
-      }
-    }
-
-    // Permanent errors: model cannot run on this server
-    const permanentPatterns = [
-      /not enough ram/i,
-      /out of memory/i,
-      /runner process has terminated/i,
-      /fatal model server error/i,
-      /model.*not found/i,
-      /model.*does not exist/i,
-    ];
-    for (const pattern of permanentPatterns) {
-      if (pattern.test(errorMessage)) {
-        return 'permanent';
-      }
-    }
-
-    // Non-retryable: client/request error, not server's fault
-    const nonRetryablePatterns = [
-      /invalid/i,
-      /unauthorized/i,
-      /forbidden/i,
-      /authentication failed/i,
-      /bad request/i,
-      /http 4\d{2}/i,
-    ];
-    for (const pattern of nonRetryablePatterns) {
-      if (pattern.test(errorMessage)) {
-        return 'non-retryable';
-      }
-    }
-
-    // Transient: temporary issues that should resolve
-    const transientPatterns = [
-      /timeout/i,
-      /temporarily unavailable/i,
-      /rate limit/i,
-      /too many requests/i,
-      /service unavailable/i,
-      /gateway timeout/i,
-      /econnrefused/i,
-      /econnreset/i,
-      /etimedout/i,
-      /enotfound/i,
-      /network/i,
-      /fetch failed/i,
-      /http 503/i,
-      /http 502/i,
-      /http 504/i,
-    ];
-    for (const pattern of transientPatterns) {
-      if (pattern.test(errorMessage)) {
-        return 'transient';
-      }
-    }
-
-    // HTTP 500: could be model-specific or server-wide, treat as retryable
-    if (/http 500/i.test(errorMessage)) {
-      return 'retryable';
-    }
-
-    // Default: unknown errors are retryable
-    return 'retryable';
   }
 
   /**
