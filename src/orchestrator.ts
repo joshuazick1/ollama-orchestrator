@@ -46,6 +46,7 @@ import { logger } from './utils/logger.js';
 import { TimeoutManager } from './utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
 import { BanManager } from './utils/ban-manager.js';
+import { InFlightManager } from './utils/in-flight-manager.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -61,8 +62,7 @@ export interface RoutingContext {
 
 export class AIOrchestrator {
   private servers: AIServer[] = [];
-  private inFlight: Map<string, number> = new Map(); // serverId:model -> count
-  private inFlightBypass: Map<string, number> = new Map(); // serverId:model -> count (bypassed requests, e.g., active tests)
+  private inFlightManager: InFlightManager;
   private banManager: BanManager;
   private circuitBreakerRegistry: CircuitBreakerRegistry;
   private circuitBreakerPersistence: CircuitBreakerPersistence;
@@ -126,6 +126,9 @@ export class AIOrchestrator {
 
     // Initialize BanManager
     this.banManager = new BanManager();
+
+    // Initialize InFlightManager
+    this.inFlightManager = new InFlightManager();
 
     // Set up circuit breaker state change tracking by wrapping registry getOrCreate
     const registryGetOrCreate = this.circuitBreakerRegistry.getOrCreate.bind(
@@ -2264,104 +2267,36 @@ export class AIOrchestrator {
       byModel: Record<string, { regular: number; bypass: number }>;
     }
   > {
-    const result: Record<
-      string,
-      { total: number; byModel: Record<string, { regular: number; bypass: number }> }
-    > = {};
-
-    // Process regular in-flight requests
-    for (const [key, count] of this.inFlight.entries()) {
-      const colonIdx = key.indexOf(':');
-      const serverId = key.slice(0, colonIdx);
-      const model = key.slice(colonIdx + 1);
-      if (!result[serverId]) {
-        result[serverId] = { total: 0, byModel: {} };
-      }
-      result[serverId].total += count;
-      if (!result[serverId].byModel[model]) {
-        result[serverId].byModel[model] = { regular: 0, bypass: 0 };
-      }
-      result[serverId].byModel[model].regular = count;
-    }
-
-    // Process bypass in-flight requests
-    for (const [key, count] of this.inFlightBypass.entries()) {
-      const colonIdx = key.indexOf(':');
-      const serverId = key.slice(0, colonIdx);
-      const model = key.slice(colonIdx + 1);
-      if (!result[serverId]) {
-        result[serverId] = { total: 0, byModel: {} };
-      }
-      result[serverId].total += count;
-      if (!result[serverId].byModel[model]) {
-        result[serverId].byModel[model] = { regular: 0, bypass: 0 };
-      }
-      result[serverId].byModel[model].bypass = count;
-    }
-
-    return result;
+    return this.inFlightManager.getInFlightDetailed();
   }
 
   /**
    * Get total in-flight requests for a server
    */
   getTotalInFlight(serverId: string): number {
-    let total = 0;
-    for (const [key, count] of this.inFlight.entries()) {
-      if (key.startsWith(`${serverId}:`)) {
-        total += count;
-      }
-    }
-    return total;
+    return this.inFlightManager.getTotalInFlight(serverId);
   }
 
   /**
-   * Increment in-flight count
+   * Increment in-flight request count
    */
   incrementInFlight(serverId: string, model: string, bypass: boolean = false): void {
-    const key = `${serverId}:${model}`;
-    if (bypass) {
-      this.inFlightBypass.set(key, (this.inFlightBypass.get(key) ?? 0) + 1);
-    } else {
-      this.inFlight.set(key, (this.inFlight.get(key) ?? 0) + 1);
-    }
-    this.metricsAggregator.incrementInFlight(serverId, model);
-    logger.info(
-      `In-flight incremented for ${serverId}:${model}, bypass: ${bypass}, total: ${this.getTotalInFlight(serverId)}`
-    );
+    this.inFlightManager.incrementInFlight(serverId, model, bypass);
   }
 
   /**
-   * Decrement in-flight count
+   * Decrement in-flight request count
    */
   decrementInFlight(serverId: string, model: string, bypass: boolean = false): void {
-    const key = `${serverId}:${model}`;
-    if (bypass) {
-      const val = (this.inFlightBypass.get(key) ?? 1) - 1;
-      if (val <= 0) {
-        this.inFlightBypass.delete(key);
-      } else {
-        this.inFlightBypass.set(key, val);
-      }
-    } else {
-      const val = (this.inFlight.get(key) ?? 1) - 1;
-      if (val <= 0) {
-        this.inFlight.delete(key);
-      } else {
-        this.inFlight.set(key, val);
-      }
-    }
+    this.inFlightManager.decrementInFlight(serverId, model, bypass);
     this.metricsAggregator.decrementInFlight(serverId, model);
-    logger.info(
-      `In-flight decremented for ${serverId}:${model}, bypass: ${bypass}, total: ${this.getTotalInFlight(serverId)}`
-    );
   }
 
   /**
    * Get in-flight request count for a server:model
    */
   getInFlight(serverId: string, model: string): number {
-    return this.inFlight.get(`${serverId}:${model}`) ?? 0;
+    return this.inFlightManager.getInFlight(serverId, model);
   }
 
   /**
@@ -3479,9 +3414,12 @@ export class AIOrchestrator {
   } {
     const healthyServers = this.servers.filter(s => s.healthy).length;
 
+    const inFlightData = this.inFlightManager.getAllInFlight();
     let inFlightTotal = 0;
-    for (const count of this.inFlight.values()) {
-      inFlightTotal += count;
+    for (const serverData of Object.values(inFlightData)) {
+      for (const count of Object.values(serverData)) {
+        inFlightTotal += count;
+      }
     }
 
     const allStats = this.circuitBreakerRegistry.getAllStats();
@@ -3681,7 +3619,7 @@ export class AIOrchestrator {
     // Drain queue first
     this.requestQueue.shutdown();
 
-    this.inFlight.clear();
+    this.inFlightManager.clear();
     this.banManager.clearAllCooldowns();
     this.circuitBreakerRegistry.clear();
 
