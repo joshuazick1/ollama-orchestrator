@@ -60,6 +60,9 @@ describe('OpenAI Controller', () => {
       getAggregatedOpenAIModels: vi.fn(),
       tryRequestWithFailover: vi.fn(),
       requestToServer: vi.fn(),
+      getTimeout: vi.fn().mockImplementation((serverId: string, model: string) => {
+        return 60000; // Return expected timeout for tests
+      }),
     };
 
     (getOrchestratorInstance as any).mockReturnValue(mockOrchestrator);

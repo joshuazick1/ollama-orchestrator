@@ -44,6 +44,7 @@ describe('Ollama Controller', () => {
       getServers: vi.fn(),
       getBestServerForModel: vi.fn(),
       requestToServer: vi.fn(),
+      getTimeout: vi.fn().mockReturnValue(120000),
     };
 
     (getOrchestratorInstance as any).mockReturnValue(mockOrchestrator);
