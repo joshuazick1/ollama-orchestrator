@@ -45,6 +45,7 @@ import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { TimeoutManager } from './utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
+import { BanManager } from './utils/ban-manager.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -62,10 +63,7 @@ export class AIOrchestrator {
   private servers: AIServer[] = [];
   private inFlight: Map<string, number> = new Map(); // serverId:model -> count
   private inFlightBypass: Map<string, number> = new Map(); // serverId:model -> count (bypassed requests, e.g., active tests)
-  private failureCooldown: Map<string, number> = new Map(); // serverId:model -> timestamp
-  private permanentBan: Set<string> = new Set(); // serverId:model
-  private serverFailureCount: Map<string, number> = new Map(); // serverId -> consecutive failure count
-  private modelFailureTracker: Map<string, { count: number; lastSuccess: number }> = new Map(); // serverId:model -> failure tracking
+  private banManager: BanManager;
   private circuitBreakerRegistry: CircuitBreakerRegistry;
   private circuitBreakerPersistence: CircuitBreakerPersistence;
   private metricsAggregator: MetricsAggregator;
@@ -125,6 +123,9 @@ export class AIOrchestrator {
         ? `${this.config.persistencePath}/circuit-breakers.json`
         : undefined,
     });
+
+    // Initialize BanManager
+    this.banManager = new BanManager();
 
     // Set up circuit breaker state change tracking by wrapping registry getOrCreate
     const registryGetOrCreate = this.circuitBreakerRegistry.getOrCreate.bind(
@@ -792,10 +793,10 @@ export class AIOrchestrator {
   async updateAllStatus(): Promise<void> {
     await Promise.all(
       this.servers.map(async server => {
-        // Skip permanently banned servers
-        const bannedModels = Array.from(this.permanentBan)
-          .filter(ban => ban.startsWith(`${server.id}:`))
-          .map(ban => ban.slice(server.id.length + 1));
+        const banDetails = this.banManager.getBanDetails();
+        const bannedModels = banDetails
+          .filter(b => b.serverId === server.id && b.type === 'permanent')
+          .map(b => b.model);
 
         if (bannedModels.length > 0 && bannedModels.length >= server.models.length) {
           logger.debug(`Skipping health check for banned server ${server.id}`);
@@ -1309,7 +1310,7 @@ export class AIOrchestrator {
       }
 
       // Must not be permanently banned for this model
-      if (this.permanentBan.has(`${server.id}:${model}`)) {
+      if (this.banManager.isBanned(server.id, model)) {
         return false;
       }
 
@@ -1419,7 +1420,7 @@ export class AIOrchestrator {
       if (this.isInCooldown(server.id, model)) {
         return false;
       }
-      if (this.permanentBan.has(`${server.id}:${model}`)) {
+      if (this.banManager.isBanned(server.id, model)) {
         return false;
       }
       if (this.shouldSkipServer(server.id)) {
@@ -1482,7 +1483,7 @@ export class AIOrchestrator {
         s.healthy &&
         s.models.includes(model) &&
         !this.isInCooldown(s.id, model) &&
-        !this.permanentBan.has(`${s.id}:${model}`) &&
+        !this.banManager.isBanned(s.id, model) &&
         !this.shouldSkipServerModel(s.id, model, endpoint)
       );
     });
@@ -1699,7 +1700,7 @@ export class AIOrchestrator {
     }
 
     // Check permanent ban (skip if bypassing circuit breaker)
-    if (!bypassCircuitBreaker && this.permanentBan.has(`${server.id}:${model}`)) {
+    if (!bypassCircuitBreaker && this.banManager.isBanned(server.id, model)) {
       throw new Error(`Server ${serverId} is permanently banned for model ${model}`);
     }
 
@@ -2150,13 +2151,13 @@ export class AIOrchestrator {
       errorType,
       errorMessage: errorMessage.substring(0, 200), // Truncate for logging
       currentHealthy: server.healthy,
-      consecutiveFailures: this.serverFailureCount.get(server.id) ?? 0,
+      consecutiveFailures: this.banManager.getFailureCount(server.id),
     });
 
     switch (errorType) {
       case 'permanent': {
         // Permanent errors: ban server:model combo forever
-        this.permanentBan.add(`${server.id}:${model}`);
+        this.banManager.addBan(server.id, model);
         const isServerWide = this.isServerWideError(errorMessage);
         // Only mark server unhealthy if it's a server-wide issue
         if (isServerWide) {
@@ -2166,7 +2167,7 @@ export class AIOrchestrator {
         logger.error(`PERMANENT BAN: Server ${server.id} banned for model ${model}`, {
           error: errorMessage,
           serverMarkedUnhealthy: isServerWide,
-          totalBans: this.permanentBan.size,
+          totalBans: this.banManager.getBanDetails().filter(b => b.type === 'permanent').length,
         });
         break;
       }
@@ -2174,7 +2175,7 @@ export class AIOrchestrator {
       case 'non-retryable':
         // Non-retryable: model-specific issue, don't mark server unhealthy
         // Just put in cooldown for this model
-        this.markFailure(server.id, model);
+        this.banManager.markFailure(server.id, model);
         this.recordFailure(server.id, errorType, model);
         logger.warn(`NON-RETRYABLE ERROR: ${server.id} for model ${model} (server stays healthy)`, {
           error: errorMessage,
@@ -2385,8 +2386,7 @@ export class AIOrchestrator {
       modelCb.recordSuccess();
 
       // Clear failure tracker on success
-      const key = `${serverId}:${model}`;
-      this.modelFailureTracker.delete(key);
+      this.banManager.recordSuccess(serverId, model);
     }
 
     // Adjust timeout based on active test response time
@@ -2442,37 +2442,27 @@ export class AIOrchestrator {
       const modelCb = this.getModelCircuitBreaker(serverId, model);
       modelCb.recordFailure(typeof error === 'string' ? new Error(error) : error, legacyErrorType);
 
-      // Enhanced model failure tracking with category-specific handling
-      const key = `${serverId}:${model}`;
-      const now = Date.now();
-      const tracker = this.modelFailureTracker.get(key) || { count: 0, lastSuccess: now };
-
-      // Reset counter based on error category
-      const resetWindowMs = this.getResetWindowForCategory(classification.category);
-      if (now - tracker.lastSuccess > resetWindowMs) {
-        tracker.count = 0;
-      }
-
-      tracker.count++;
-      this.modelFailureTracker.set(key, tracker);
+      // Use BanManager for failure tracking
+      this.banManager.recordFailure(serverId, model);
 
       // Category-specific ban thresholds
       const banThreshold = this.getBanThresholdForCategory(classification.category);
       const modelStats = modelCb.getStats();
+      const currentFailures = this.banManager.getModelFailureCount(serverId, model);
 
       if (
-        tracker.count >= banThreshold &&
+        currentFailures >= banThreshold &&
         modelStats.errorRate >= this.getErrorRateThresholdForCategory(classification.category) &&
         modelStats.successCount === 0
       ) {
-        if (!this.permanentBan.has(key)) {
-          this.permanentBan.add(key);
+        if (!this.banManager.isBanned(serverId, model)) {
+          this.banManager.addBan(serverId, model);
           logger.warn(
-            `Banning ${key} after ${tracker.count} consecutive ${classification.category} failures (${Math.round(modelStats.errorRate * 100)}% error rate)`,
+            `Banning ${serverId}:${model} after ${currentFailures} consecutive ${classification.category} failures (${Math.round(modelStats.errorRate * 100)}% error rate)`,
             {
               serverId,
               model,
-              failureCount: tracker.count,
+              failureCount: currentFailures,
               errorCategory: classification.category,
               errorSeverity: classification.severity,
               errorRate: modelStats.errorRate,
@@ -2596,20 +2586,14 @@ export class AIOrchestrator {
    * Check if server/model is in cooldown
    */
   isInCooldown(serverId: string, model: string): boolean {
-    const key = `${serverId}:${model}`;
-    const lastFail = this.failureCooldown.get(key);
-    if (!lastFail) {
-      return false;
-    }
-    return Date.now() - lastFail < this.config.cooldown.failureCooldownMs;
+    return this.banManager.isInCooldown(serverId, model);
   }
 
   /**
    * Mark a server:model combination as failed and put it in cooldown
    */
   private markFailure(serverId: string, model: string): void {
-    const key = `${serverId}:${model}`;
-    this.failureCooldown.set(key, Date.now());
+    this.banManager.markFailure(serverId, model);
   }
 
   /**
@@ -2617,7 +2601,10 @@ export class AIOrchestrator {
    */
   loadBans(bans: Set<string>): void {
     for (const ban of bans) {
-      this.permanentBan.add(ban);
+      const [serverId, model] = ban.split(':');
+      if (serverId && model) {
+        this.banManager.addBan(serverId, model);
+      }
     }
     logger.info(`Loaded ${bans.size} permanent bans`);
   }
@@ -2699,13 +2686,7 @@ export class AIOrchestrator {
    * @returns true if the ban was removed, false if it didn't exist
    */
   unban(serverId: string, model: string): boolean {
-    const key = `${serverId}:${model}`;
-    const existed = this.permanentBan.has(key);
-    if (existed) {
-      this.permanentBan.delete(key);
-      logger.info(`Removed ban for ${key}`);
-    }
-    return existed;
+    return this.banManager.removeBan(serverId, model);
   }
 
   /**
@@ -2713,25 +2694,14 @@ export class AIOrchestrator {
    * @returns number of bans removed
    */
   unbanServer(serverId: string): number {
-    let removed = 0;
-
-    for (const ban of this.permanentBan) {
-      if (ban.startsWith(`${serverId}:`)) {
-        this.permanentBan.delete(ban);
-        removed++;
-      }
-    }
+    const removed = this.banManager.removeServerBans(serverId);
 
     if (removed > 0) {
       // Reset circuit breakers for this server
       this.circuitBreakerRegistry.remove(serverId);
 
       // Clear cooldowns for this server
-      for (const key of this.failureCooldown.keys()) {
-        if (key.startsWith(`${serverId}:`)) {
-          this.failureCooldown.delete(key);
-        }
-      }
+      this.banManager.clearCooldown(serverId, '');
 
       logger.info(`Removed ${removed} bans for server ${serverId}`);
     }
@@ -2744,20 +2714,7 @@ export class AIOrchestrator {
    * @returns number of bans removed
    */
   unbanModel(model: string): number {
-    let removed = 0;
-
-    for (const ban of this.permanentBan) {
-      if (ban.endsWith(`:${model}`)) {
-        this.permanentBan.delete(ban);
-        removed++;
-      }
-    }
-
-    if (removed > 0) {
-      logger.info(`Removed ${removed} bans for model ${model}`);
-    }
-
-    return removed;
+    return this.banManager.removeModelBans(model);
   }
 
   /**
@@ -2765,8 +2722,9 @@ export class AIOrchestrator {
    * @returns number of bans cleared
    */
   clearAllBans(): number {
-    const count = this.permanentBan.size;
-    this.permanentBan.clear();
+    const banDetails = this.banManager.getBanDetails();
+    const count = banDetails.filter(b => b.type === 'permanent').length;
+    this.banManager.clearAllBans();
 
     if (count > 0) {
       logger.info(`Cleared all ${count} permanent bans`);
@@ -2779,14 +2737,11 @@ export class AIOrchestrator {
    * Get detailed ban information
    */
   getBanDetails(): Array<{ serverId: string; model: string; key: string }> {
-    return Array.from(this.permanentBan).map(key => {
-      const [serverId, ...modelParts] = key.split(':');
-      return {
-        serverId,
-        model: modelParts.join(':'), // Handle models with colons in name
-        key,
-      };
-    });
+    return this.banManager.getBanDetails().map(b => ({
+      serverId: b.serverId,
+      model: b.model,
+      key: `${b.serverId}:${b.model}`,
+    }));
   }
 
   // Track which servers are currently being tested to prevent hammering
@@ -3426,16 +3381,16 @@ export class AIOrchestrator {
    * Returns the new count
    */
   private incrementServerFailureCount(serverId: string): number {
-    const count = (this.serverFailureCount.get(serverId) ?? 0) + 1;
-    this.serverFailureCount.set(serverId, count);
-    return count;
+    const currentCount = this.banManager.getFailureCount(serverId);
+    this.banManager.recordFailure(serverId);
+    return currentCount + 1;
   }
 
   /**
    * Reset consecutive failure count for a server (on successful request)
    */
   private resetServerFailureCount(serverId: string): void {
-    this.serverFailureCount.delete(serverId);
+    this.banManager.resetFailureCount(serverId);
   }
 
   /**
@@ -3727,7 +3682,7 @@ export class AIOrchestrator {
     this.requestQueue.shutdown();
 
     this.inFlight.clear();
-    this.failureCooldown.clear();
+    this.banManager.clearAllCooldowns();
     this.circuitBreakerRegistry.clear();
 
     logger.info('Orchestrator shutdown complete');
