@@ -64,4 +64,19 @@ export class ModelAggregator {
 
     return Array.from(models);
   }
+
+  getModelsForServer(serverId: string, healthyOnly: boolean = true): string[] {
+    const server = this.servers.find(s => s.id === serverId);
+    if (!server) {
+      return [];
+    }
+    if (healthyOnly && !server.healthy) {
+      return [];
+    }
+    return [...server.models];
+  }
+
+  getServersForModel(model: string, healthyOnly: boolean = true): string[] {
+    return this.getModelMap(healthyOnly)[model] ?? [];
+  }
 }

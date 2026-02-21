@@ -162,4 +162,47 @@ export class InFlightManager {
     this.inFlight.clear();
     this.inFlightBypass.clear();
   }
+
+  getActiveServerIds(): string[] {
+    const activeServers = new Set<string>();
+
+    for (const key of this.inFlight.keys()) {
+      const [serverId] = key.split(':');
+      activeServers.add(serverId);
+    }
+
+    for (const key of this.inFlightBypass.keys()) {
+      const [serverId] = key.split(':');
+      activeServers.add(serverId);
+    }
+
+    return Array.from(activeServers);
+  }
+
+  hasActiveRequests(serverId: string): boolean {
+    for (const key of this.inFlight.keys()) {
+      if (key.startsWith(`${serverId}:`)) {
+        return true;
+      }
+    }
+    for (const key of this.inFlightBypass.keys()) {
+      if (key.startsWith(`${serverId}:`)) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+let managerInstance: InFlightManager | undefined;
+
+export function getInFlightManager(): InFlightManager {
+  if (!managerInstance) {
+    managerInstance = new InFlightManager();
+  }
+  return managerInstance;
+}
+
+export function resetInFlightManager(): void {
+  managerInstance = undefined;
 }

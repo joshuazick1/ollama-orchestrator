@@ -199,6 +199,42 @@ export class BanManager {
     return this.modelFailureTracker.get(key)?.count ?? 0;
   }
 
+  getCooldownStatus(serverId: string, model: string): { inCooldown: boolean; remainingMs: number } {
+    const key = `${serverId}:${model}`;
+    const timestamp = this.failureCooldown.get(key);
+    if (!timestamp) {
+      return { inCooldown: false, remainingMs: 0 };
+    }
+    const remaining = timestamp + this.config.failureCooldownMs - Date.now();
+    return {
+      inCooldown: remaining > 0,
+      remainingMs: Math.max(0, remaining),
+    };
+  }
+
+  cleanupExpiredCooldowns(): number {
+    const now = Date.now();
+    let cleaned = 0;
+    const keysToDelete: string[] = [];
+
+    for (const [key, timestamp] of this.failureCooldown) {
+      if (timestamp + this.config.failureCooldownMs <= now) {
+        keysToDelete.push(key);
+      }
+    }
+
+    for (const key of keysToDelete) {
+      this.failureCooldown.delete(key);
+      cleaned++;
+    }
+
+    if (cleaned > 0) {
+      logger.info(`Cleaned up ${cleaned} expired cooldowns`);
+    }
+
+    return cleaned;
+  }
+
   loadState(state: BanManagerState): void {
     if (state.failureCooldown) {
       this.failureCooldown = new Map(Object.entries(state.failureCooldown));
