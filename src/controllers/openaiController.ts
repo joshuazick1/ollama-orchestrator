@@ -383,6 +383,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         const headers = getBackendHeaders(server);
 
         if (stream) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
             {
@@ -395,7 +396,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
                 ...(body.tools && { tools: body.tools }),
               }),
-              connectionTimeout: 60000,
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: config.streaming.activityTimeoutMs,
             }
           );
@@ -506,13 +507,14 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
         const headers = getBackendHeaders(server);
 
         if (stream) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
               method: 'POST',
               headers,
               body: safeJsonStringify({ ...body, stream: true }),
-              connectionTimeout: 60000,
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: config.streaming.activityTimeoutMs,
             }
           );
@@ -611,11 +613,12 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       model,
       async (server: AIServer) => {
         const headers = getBackendHeaders(server);
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers,
           body: safeJsonStringify(body),
-          timeout: 60000,
+          timeout: timeoutMs, // Use dynamic timeout
         });
 
         if (!response.ok) {
@@ -750,13 +753,14 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
         };
 
         if (useStreaming) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...requestBody, stream: true }),
-              connectionTimeout: 60000,
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: config.streaming.activityTimeoutMs,
             }
           );
@@ -861,13 +865,14 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
         };
 
         if (useStreaming) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...requestBody, stream: true }),
-              connectionTimeout: 60000,
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: config.streaming.activityTimeoutMs,
             }
           );
@@ -979,11 +984,12 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
       model,
       async server => {
         // Call OpenAI-compatible embeddings endpoint directly
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: safeJsonStringify(body),
-          timeout: 60000,
+          timeout: timeoutMs, // Use dynamic timeout
         });
 
         if (!response.ok) {

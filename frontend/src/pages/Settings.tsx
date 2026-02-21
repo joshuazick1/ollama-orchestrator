@@ -724,7 +724,7 @@ export const Settings = () => {
               />
               <NumberInput
                 label="Open Timeout"
-                value={currentConfig.circuitBreaker?.openTimeout ?? 30000}
+                value={currentConfig.circuitBreaker?.openTimeout ?? 120000}
                 onChange={value => updateField('circuitBreaker', 'openTimeout', value)}
                 min={1000}
                 step={1000}

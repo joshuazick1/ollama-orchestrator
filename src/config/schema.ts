@@ -176,7 +176,7 @@ export const circuitBreakerConfigSchema = z.object({
   baseFailureThreshold: z.number().int().min(1).default(5),
   maxFailureThreshold: z.number().int().min(1).default(10),
   minFailureThreshold: z.number().int().min(1).default(3),
-  openTimeout: z.number().int().min(1000).default(30000), // 30 seconds
+  openTimeout: z.number().int().min(1000).default(120000), // 2 minutes
   halfOpenTimeout: z.number().int().min(1000).default(60000), // 1 minute
   halfOpenMaxRequests: z.number().int().min(1).default(5),
   recoverySuccessThreshold: z.number().int().min(1).default(3),

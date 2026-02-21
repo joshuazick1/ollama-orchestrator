@@ -145,6 +145,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       async server => {
         // Use activity-based timeout for streaming to prevent cutoffs during active streams
         if (useStreaming) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
             {
@@ -154,7 +155,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 ...body,
                 stream: true,
               }),
-              connectionTimeout: 60000, // 1 minute to establish connection
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: config.streaming.activityTimeoutMs, // Reset on each chunk
             }
           );
@@ -234,7 +235,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           } as StreamingMetrics;
         }
 
-        // Non-streaming request uses regular timeout
+        // Non-streaming request uses dynamic timeout from orchestrator
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -242,7 +244,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             ...body,
             stream: false,
           }),
-          timeout: 60000, // 1 min for regular
+          timeout: timeoutMs,
         });
 
         if (!response.ok) {
@@ -323,6 +325,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       async server => {
         // Use activity-based timeout for streaming to prevent cutoffs during active streams
         if (useStreaming) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
@@ -332,7 +335,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 ...body,
                 stream: true,
               }),
-              connectionTimeout: 60000, // 1 minute to establish connection
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: config.streaming.activityTimeoutMs, // Reset on each chunk
             }
           );
@@ -405,7 +408,8 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
           } as StreamingMetrics;
         }
 
-        // Non-streaming request uses regular timeout
+        // Non-streaming request uses dynamic timeout from orchestrator
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -413,7 +417,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             ...body,
             stream: false,
           }),
-          timeout: 60000, // 1 min for regular
+          timeout: timeoutMs,
         });
 
         if (!response.ok) {
@@ -718,9 +722,11 @@ export async function handleStreamingGenerate(
   options?: Record<string, unknown>
 ): Promise<void> {
   const config = getConfigManager().getConfig();
+  const orchestrator = getOrchestratorInstance();
 
   await handleStreamWithRetry(
     async () => {
+      const timeoutMs = orchestrator.getTimeout(server.id, model);
       const { response, activityController } = await fetchWithActivityTimeout(
         `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
         {
@@ -733,7 +739,7 @@ export async function handleStreamingGenerate(
             context,
             options,
           }),
-          connectionTimeout: 60000, // 1 minute to establish connection
+          connectionTimeout: timeoutMs, // Use dynamic timeout
           activityTimeout: config.streaming.activityTimeoutMs,
         }
       );
@@ -828,13 +834,14 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
       model,
       async server => {
         if (useStreaming) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...body, stream: true }),
-              connectionTimeout: 60000,
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: getConfigManager().getConfig().streaming.activityTimeoutMs,
             }
           );
@@ -927,13 +934,14 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
       model,
       async server => {
         if (useStreaming) {
+          const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...body, stream: true }),
-              connectionTimeout: 60000,
+              connectionTimeout: timeoutMs, // Use dynamic timeout
               activityTimeout: getConfigManager().getConfig().streaming.activityTimeoutMs,
             }
           );
@@ -1028,11 +1036,12 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
       serverId,
       model,
       async server => {
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: safeJsonStringify(body),
-          timeout: 60000,
+          timeout: timeoutMs, // Use dynamic timeout
         });
 
         if (!response.ok) {
