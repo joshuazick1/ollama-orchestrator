@@ -47,6 +47,7 @@ import { TimeoutManager } from './utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
 import { BanManager } from './utils/ban-manager.js';
 import { InFlightManager } from './utils/in-flight-manager.js';
+import { ModelAggregator } from './utils/model-aggregator.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -64,6 +65,7 @@ export class AIOrchestrator {
   private servers: AIServer[] = [];
   private inFlightManager: InFlightManager;
   private banManager: BanManager;
+  private modelAggregator: ModelAggregator;
   private circuitBreakerRegistry: CircuitBreakerRegistry;
   private circuitBreakerPersistence: CircuitBreakerPersistence;
   private metricsAggregator: MetricsAggregator;
@@ -129,6 +131,9 @@ export class AIOrchestrator {
 
     // Initialize InFlightManager
     this.inFlightManager = new InFlightManager();
+
+    // Initialize ModelAggregator
+    this.modelAggregator = new ModelAggregator();
 
     // Set up circuit breaker state change tracking by wrapping registry getOrCreate
     const registryGetOrCreate = this.circuitBreakerRegistry.getOrCreate.bind(
@@ -699,6 +704,7 @@ export class AIOrchestrator {
     };
 
     this.servers.push(newServer);
+    this.modelAggregator.addServer(newServer);
     logger.info(`Added server ${server.id} at ${normalizedUrl}`);
 
     // Invalidate cache since we added a new server
@@ -719,6 +725,7 @@ export class AIOrchestrator {
   removeServer(serverId: string): void {
     const initialCount = this.servers.length;
     this.servers = this.servers.filter(s => s.id !== serverId);
+    this.modelAggregator.removeServer(serverId);
 
     if (this.servers.length < initialCount) {
       logger.info(`Removed server ${serverId}. Remaining servers: ${this.servers.length}`);
@@ -901,46 +908,23 @@ export class AIOrchestrator {
    * Get aggregated model map: model -> serverIds[]
    */
   getModelMap(): Record<string, string[]> {
-    const modelMap: Record<string, string[]> = {};
-
-    for (const server of this.servers) {
-      if (!server.healthy) {
-        continue;
-      }
-
-      for (const model of server.models) {
-        if (!modelMap[model]) {
-          modelMap[model] = [];
-        }
-        if (!modelMap[model].includes(server.id)) {
-          modelMap[model].push(server.id);
-        }
-      }
-    }
-
-    return modelMap;
+    this.modelAggregator.setServers(this.servers);
+    return this.modelAggregator.getModelMap(true);
   }
 
   /**
    * Get all unique models across healthy servers
    */
   getAllModels(): string[] {
-    return Object.keys(this.getModelMap());
+    return this.modelAggregator.getAllModels(true);
   }
 
   /**
    * Get current model list from all servers (regardless of health)
    */
   getCurrentModelList(): string[] {
-    const models = new Set<string>();
-
-    for (const server of this.servers) {
-      for (const model of server.models) {
-        models.add(model);
-      }
-    }
-
-    return Array.from(models);
+    this.modelAggregator.setServers(this.servers);
+    return this.modelAggregator.getCurrentModelList();
   }
 
   /**
