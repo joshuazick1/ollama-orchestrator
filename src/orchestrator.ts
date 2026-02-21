@@ -44,6 +44,7 @@ import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
+import { getTimeoutManager, TimeoutManager, type TimeoutState } from './utils/timeout-manager.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -90,11 +91,8 @@ export class AIOrchestrator {
     };
   };
 
-  // Track per server:model timeouts
-  private timeouts: Map<string, number> = new Map();
-
-  // Track model VRAM sizes from /api/ps for adaptive timeout calculation (in MB)
-  private modelVramSizes: Map<string, number> = new Map();
+  // Track per server:model timeouts via TimeoutManager
+  private timeoutManager: TimeoutManager;
 
   // Track healthy server count for logging changes
   private lastHealthyCount = 0;
@@ -160,16 +158,46 @@ export class AIOrchestrator {
       server => this.runActiveTestsForServer(server)
     );
 
+    // Initialize TimeoutManager with config default
+    const currentConfig = getConfigManager().getConfig();
+    this.timeoutManager = new TimeoutManager({
+      defaultTimeout: currentConfig.circuitBreaker.openTimeout,
+      minTimeout: 15000,
+      maxTimeout: 600000,
+      activeTestMultiplier: 3,
+      slowRequestMultiplier: 2,
+    });
+
     // Load timeouts from persistence
     if (this.config.enablePersistence) {
-      this.timeouts = new Map(Object.entries(loadTimeoutsFromDisk()));
+      const persistedData = loadTimeoutsFromDisk();
+      if (persistedData && Object.keys(persistedData).length > 0) {
+        const timeoutStates: Record<
+          string,
+          { lastUpdated: number; baseTimeout: number; currentTimeout: number }
+        > = {};
+        for (const [key, value] of Object.entries(persistedData)) {
+          timeoutStates[key] = {
+            lastUpdated: Date.now(),
+            baseTimeout: value,
+            currentTimeout: value,
+          };
+        }
+        this.timeoutManager.loadFromPersistedData({
+          timeouts: timeoutStates,
+          version: 1,
+        });
+      }
     }
 
-    // Subscribe to config changes
+    // Subscribe to config changes for timeout updates
     this.unsubscribeFromConfig = getConfigManager().registerComponentWatcher(
-      'orchestrator',
+      'circuitBreaker',
       fullConfig => {
-        this.updateConfig(fullConfig);
+        this.timeoutManager.updateDefaultTimeout(fullConfig.circuitBreaker.openTimeout);
+        logger.info('TimeoutManager updated with config change', {
+          newDefault: fullConfig.circuitBreaker.openTimeout,
+        });
       }
     );
   }
@@ -264,16 +292,6 @@ export class AIOrchestrator {
             usedVram: result.totalVramUsed ?? 0,
             lastUpdated: new Date(),
           };
-
-          // Store VRAM sizes for adaptive timeout calculation (convert bytes to MB)
-          for (const loadedModel of result.loadedModels) {
-            if (loadedModel.name && loadedModel.sizeVram > 0) {
-              const vramKey = `${server.id}:${loadedModel.name}`;
-              const vramMB = Math.round(loadedModel.sizeVram / (1024 * 1024));
-              this.modelVramSizes.set(vramKey, vramMB);
-              logger.debug(`Stored VRAM for ${vramKey}: ${vramMB}MB`);
-            }
-          }
         }
 
         this.recordSuccess(server.id);
@@ -1803,6 +1821,16 @@ export class AIOrchestrator {
       return { success: false };
     }
 
+    // Capture circuit breaker state BEFORE request starts
+    // This is critical for determining if this was an active test (half-open state)
+    const circuitStateAtStart = {
+      serverState: serverCb.getState(),
+      modelState: modelCb.getState(),
+    };
+    const wasActiveTestAtStart =
+      circuitStateAtStart.serverState === 'half-open' ||
+      circuitStateAtStart.modelState === 'half-open';
+
     const requestContext: RequestContext = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       startTime: Date.now(),
@@ -1856,29 +1884,21 @@ export class AIOrchestrator {
       this.resetServerFailureCount(server.id);
       this.recordSuccess(server.id, model, requestContext.duration);
 
-      // Check if this was an active test (half-open circuit breaker)
-      const serverCb = this.getCircuitBreaker(server.id);
-      const modelCb = this.getModelCircuitBreaker(server.id, model);
-      const wasActiveTest =
-        serverCb.getState() === 'half-open' || modelCb.getState() === 'half-open';
-
-      if (wasActiveTest && requestContext.duration > 0) {
+      // Use captured circuit state from request start, not current state
+      // This fixes the race condition where breaker transitions before we check
+      if (wasActiveTestAtStart && requestContext.duration > 0) {
         // Update timeout based on actual response time from active test
         // Set timeout to 3x the actual response time, with bounds
-        const newTimeout = Math.max(
-          15000, // Minimum 15 seconds
-          Math.min(600000, requestContext.duration * 3) // Max 10 minutes, 3x actual time
-        );
-        this.setTimeout(server.id, model, newTimeout);
+        this.timeoutManager.updateFromResponseTime(server.id, model, requestContext.duration, true);
         logger.info(
-          `Active test success: updated timeout for ${server.id}:${model} to ${newTimeout}ms (3x ${requestContext.duration}ms response time)`
+          `Active test success: updated timeout for ${server.id}:${model} to ${this.timeoutManager.getTimeout(server.id, model)}ms (3x ${requestContext.duration}ms response time)`
         );
       } else if (requestContext.duration > 5000) {
         // For regular requests taking >5s, also update timeout if it's longer than current
-        const currentTimeout = this.getTimeout(server.id, model);
+        const currentTimeout = this.timeoutManager.getTimeout(server.id, model);
         const suggestedTimeout = Math.max(15000, Math.min(600000, requestContext.duration * 2));
         if (suggestedTimeout > currentTimeout) {
-          this.setTimeout(server.id, model, suggestedTimeout);
+          this.timeoutManager.setTimeout(server.id, model, suggestedTimeout);
           logger.debug(
             `Updated timeout for ${server.id}:${model} to ${suggestedTimeout}ms based on response time of ${requestContext.duration}ms`
           );
@@ -1887,7 +1907,7 @@ export class AIOrchestrator {
 
       logger.info(`Request succeeded on ${server.id} for model ${model}`, {
         duration: requestContext.duration,
-        wasActiveTest,
+        wasActiveTest: wasActiveTestAtStart,
       });
 
       return { success: true, value: result };
@@ -2371,11 +2391,10 @@ export class AIOrchestrator {
 
     // Adjust timeout based on active test response time
     if (wasActiveTest && responseTime !== undefined && responseTime > 0 && model) {
-      // Set timeout to 2-3x the actual response time, with minimum of 5s and maximum of 5 minutes
-      const adjustedTimeout = Math.max(5000, Math.min(300000, responseTime * 3));
-      this.setTimeout(serverId, model, adjustedTimeout);
+      // Use TimeoutManager for adaptive timeout calculation
+      this.timeoutManager.updateFromResponseTime(serverId, model, responseTime, true);
       logger.info(
-        `Active test success: adjusted timeout for ${serverId}:${model} to ${adjustedTimeout}ms (3x ${responseTime}ms response time)`
+        `Active test success: adjusted timeout for ${serverId}:${model} to ${this.timeoutManager.getTimeout(serverId, model)}ms`
       );
     }
 
@@ -2655,32 +2674,23 @@ export class AIOrchestrator {
    * Uses adaptive timeouts for active tests based on model size, historical performance, and server health
    */
   getTimeout(serverId: string, model: string): number {
-    // Check if any circuit breaker is half-open (doing active test)
-    // During half-open, use stored timeout - the scheduler handles doubling for active tests
-    const serverCb = this.getCircuitBreaker(serverId);
-    const modelCb = this.getModelCircuitBreaker(serverId, model);
-
-    if (serverCb.getState() === 'half-open' || modelCb.getState() === 'half-open') {
-      // Use stored timeout - scheduler handles adaptive timeout calculation for active tests
-      const key = `${serverId}:${model}`;
-      return this.timeouts.get(key) ?? 120000;
-    }
-
-    // Use configured timeout
-    const key = `${serverId}:${model}`;
-    return this.timeouts.get(key) ?? 120000; // Default 120s
+    return this.timeoutManager.getTimeout(serverId, model);
   }
 
   /**
    * Set timeout for a server:model pair
    */
   setTimeout(serverId: string, model: string, timeoutMs: number): void {
-    const key = `${serverId}:${model}`;
-    this.timeouts.set(key, timeoutMs);
+    this.timeoutManager.setTimeout(serverId, model, timeoutMs);
 
     // Persist if enabled
     if (this.config.enablePersistence) {
-      saveTimeoutsToDisk(Object.fromEntries(this.timeouts));
+      const persistedData = this.timeoutManager.toPersistedData();
+      const simpleRecord: Record<string, number> = {};
+      for (const [key, state] of Object.entries(persistedData.timeouts)) {
+        simpleRecord[key] = state.currentTimeout;
+      }
+      saveTimeoutsToDisk(simpleRecord);
     }
   }
 
@@ -3695,9 +3705,14 @@ export class AIOrchestrator {
     await this.circuitBreakerPersistence.shutdown(breakerData);
 
     // Persist timeouts on shutdown to ensure they're saved
-    if (this.config.enablePersistence && this.timeouts.size > 0) {
-      saveTimeoutsToDisk(Object.fromEntries(this.timeouts));
-      logger.info(`Persisted ${this.timeouts.size} timeouts on shutdown`);
+    if (this.config.enablePersistence) {
+      const persistedData = this.timeoutManager.toPersistedData();
+      const simpleRecord: Record<string, number> = {};
+      for (const [key, state] of Object.entries(persistedData.timeouts)) {
+        simpleRecord[key] = state.currentTimeout;
+      }
+      saveTimeoutsToDisk(simpleRecord);
+      logger.info(`Persisted ${Object.keys(simpleRecord).length} timeouts on shutdown`);
     }
 
     // Persist decision and request history

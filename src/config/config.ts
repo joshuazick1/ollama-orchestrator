@@ -184,7 +184,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     baseFailureThreshold: 5,
     maxFailureThreshold: 10,
     minFailureThreshold: 3,
-    openTimeout: 30000,
+    openTimeout: 120000,
     halfOpenTimeout: 300000, // 5 minutes - match activeTestTimeout
     halfOpenMaxRequests: 5,
     recoverySuccessThreshold: 3,
