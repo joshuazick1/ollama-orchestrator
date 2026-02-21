@@ -321,10 +321,11 @@ export function parseSSEData(buffer: Uint8Array): Array<{ done: boolean; data?: 
       if (data === '[DONE]') {
         currentEvent.done = true;
       } else {
-        try {
-          currentEvent.data = safeJsonParse(data);
-        } catch {
+        const parsed = safeJsonParse(data);
+        if (parsed === null && data !== 'null') {
           currentEvent.data = data;
+        } else {
+          currentEvent.data = parsed;
         }
       }
 
