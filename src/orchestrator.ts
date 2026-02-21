@@ -43,8 +43,8 @@ import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
+import { TimeoutManager } from './utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
-import { getTimeoutManager, TimeoutManager, type TimeoutState } from './utils/timeout-manager.js';
 
 export type { AIServer } from './orchestrator.types.js';
 

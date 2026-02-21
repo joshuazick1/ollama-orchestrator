@@ -57,7 +57,7 @@ export class TimeoutManager {
       Math.min(this.config.maxTimeout, timeoutMs)
     );
 
-    let state = this.timeouts.get(key);
+    const state = this.timeouts.get(key);
 
     if (state) {
       state.currentTimeout = clampedTimeout;
@@ -141,7 +141,7 @@ export class TimeoutManager {
   updateDefaultTimeout(newDefaultMs: number): void {
     this.config.defaultTimeout = newDefaultMs;
 
-    for (const [key, state] of this.timeouts) {
+    for (const [, state] of this.timeouts) {
       if (state.currentTimeout === state.baseTimeout) {
         state.baseTimeout = newDefaultMs;
         state.currentTimeout = newDefaultMs;
