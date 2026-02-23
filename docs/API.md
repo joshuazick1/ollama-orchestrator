@@ -537,8 +537,13 @@ Get current orchestrator configuration.
     "port": 5100,
     "enableQueue": true,
     "circuitBreaker": {
-      "baseFailureThreshold": 5,
-      "openTimeout": 30000
+      "baseFailureThreshold": 3,
+      "openTimeout": 120000,
+      "halfOpenTimeout": 300000,
+      "halfOpenMaxRequests": 3,
+      "recoverySuccessThreshold": 5,
+      "activeTestTimeout": 300000,
+      "errorRateThreshold": 0.3
     }
   },
   "source": "config.yaml"
