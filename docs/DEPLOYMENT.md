@@ -113,10 +113,15 @@ ORCHESTRATOR_LB_WEIGHT_LOAD=0.20
 ORCHESTRATOR_LB_WEIGHT_CAPACITY=0.15
 
 # Circuit breaker settings
-ORCHESTRATOR_CB_FAILURE_THRESHOLD=5
-ORCHESTRATOR_CB_MAX_FAILURE_THRESHOLD=10
-ORCHESTRATOR_CB_OPEN_TIMEOUT=30000
-ORCHESTRATOR_CB_HALF_OPEN_TIMEOUT=60000
+ORCHESTRATOR_CB_FAILURE_THRESHOLD=3
+ORCHESTRATOR_CB_MAX_FAILURE_THRESHOLD=8
+ORCHESTRATOR_CB_MIN_FAILURE_THRESHOLD=2
+ORCHESTRATOR_CB_OPEN_TIMEOUT=120000
+ORCHESTRATOR_CB_HALF_OPEN_TIMEOUT=300000
+ORCHESTRATOR_CB_HALF_OPEN_MAX_REQUESTS=3
+ORCHESTRATOR_CB_RECOVERY_SUCCESS_THRESHOLD=5
+ORCHESTRATOR_CB_ACTIVE_TEST_TIMEOUT=300000
+ORCHESTRATOR_CB_ERROR_RATE_THRESHOLD=0.3
 ORCHESTRATOR_CB_ADAPTIVE_THRESHOLDS=true
 
 # Security settings
@@ -183,13 +188,15 @@ loadBalancer:
 
 circuitBreaker:
   enabled: true
-  baseFailureThreshold: 5
-  maxFailureThreshold: 10
-  minFailureThreshold: 3
-  openTimeout: 30000
-  halfOpenTimeout: 60000
-  halfOpenMaxRequests: 5
-  recoverySuccessThreshold: 3
+  baseFailureThreshold: 3
+  maxFailureThreshold: 8
+  minFailureThreshold: 2
+  openTimeout: 120000
+  halfOpenTimeout: 300000
+  halfOpenMaxRequests: 3
+  recoverySuccessThreshold: 5
+  activeTestTimeout: 300000
+  errorRateThreshold: 0.3
   adaptiveThresholds: true
 
 healthCheck:

@@ -457,13 +457,15 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 
 ### Circuit Breaker
 
-- Failure threshold: 5-10 (adaptive)
-- Open timeout: 30s
-- Half-open timeout: 60s
-- Half-open max requests: 5
-- Recovery success threshold: 3
+- Base failure threshold: 3 (adaptive range 2-8)
+- Open timeout: 120s (2 minutes)
+- Half-open timeout: 300s (5 minutes)
+- Half-open max requests: 3
+- Recovery success threshold: 5
+- Active test timeout: 300s (5 minutes)
 - Error window: 60s
-- Error rate threshold: 50%
+- Error rate threshold: 30%
+- Error rate smoothing: 30%
 - Adaptive thresholds: enabled
 
 ### Health Check
