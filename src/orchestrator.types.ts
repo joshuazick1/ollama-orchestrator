@@ -221,6 +221,7 @@ export interface ModelMetricsExport {
   successRate: number;
   throughput: number;
   avgTokensPerRequest: number;
+  streamingMetrics?: StreamingMetrics;
 }
 
 /**
