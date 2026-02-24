@@ -176,6 +176,14 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           const streamStartTime = Date.now();
           let firstTokenAt: number | undefined;
           let tokenMetrics: { tokensGenerated: number; tokensPrompt: number } | undefined;
+          let streamingChunkData:
+            | {
+                chunkCount?: number;
+                totalBytes?: number;
+                maxChunkGapMs?: number;
+                avgChunkSizeBytes?: number;
+              }
+            | undefined;
 
           try {
             await streamResponse(
@@ -201,6 +209,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                   `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}, chunks: ${chunkData?.chunkCount ?? 0}`
                 );
                 tokenMetrics = { tokensGenerated, tokensPrompt };
+                // Store chunk data for return value
+                streamingChunkData = chunkData;
               },
               () => {
                 // On each chunk, reset the activity timeout
@@ -224,6 +234,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               tokensGenerated: 0,
               tokensPrompt: 0,
             },
+            _chunkData: streamingChunkData,
           } as StreamingMetrics;
         }
 
@@ -345,6 +356,14 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
           const streamStartTime = Date.now();
           let firstTokenAt: number | undefined;
           let tokenMetrics: { tokensGenerated: number; tokensPrompt: number } | undefined;
+          let streamingChunkData:
+            | {
+                chunkCount?: number;
+                totalBytes?: number;
+                maxChunkGapMs?: number;
+                avgChunkSizeBytes?: number;
+              }
+            | undefined;
 
           try {
             await streamResponse(
@@ -401,6 +420,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               tokensGenerated: 0,
               tokensPrompt: 0,
             },
+            _chunkData: streamingChunkData,
           } as StreamingMetrics;
         }
 
