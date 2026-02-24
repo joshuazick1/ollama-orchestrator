@@ -180,6 +180,12 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       considerFailureRate: true,
       failureRatePenalty: 2.0,
     },
+    crossModelInference: {
+      enabled: true,
+      useParameterSize: true,
+      minSamplesForExact: 5,
+      fallbackWeight: 0.5,
+    },
   },
 
   circuitBreaker: {

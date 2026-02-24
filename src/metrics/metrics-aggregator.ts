@@ -31,6 +31,8 @@ export const DEFAULT_METRICS_DECAY_CONFIG: MetricsDecayConfig = {
  */
 export class MetricsAggregator {
   private metrics: Map<string, ServerModelMetrics> = new Map();
+  // Index for cross-model inference: parameterSize -> serverId -> metrics
+  private metricsByParameterSize: Map<string, Map<string, ServerModelMetrics>> = new Map();
   private windowSizes: Record<TimeWindow, number> = {
     '1m': 60 * 1000,
     '5m': 5 * 60 * 1000,
@@ -69,6 +71,8 @@ export class MetricsAggregator {
       logger.info(
         `MetricsAggregator: Loaded ${this.metrics.size} server:model metrics from persistence`
       );
+      // Rebuild parameter size index after loading persisted data
+      this.rebuildParameterIndex();
     } else {
       logger.debug('MetricsAggregator: No persisted metrics found, starting fresh');
     }
@@ -245,6 +249,229 @@ export class MetricsAggregator {
   getRawMetrics(serverId: string, model: string): ServerModelMetrics | undefined {
     return this.metrics.get(`${serverId}:${model}`);
   }
+
+  /**
+   * Update model metadata (parameter size, quantization, family)
+   * This enables cross-model inference fallback
+   */
+  updateModelMetadata(
+    serverId: string,
+    model: string,
+    metadata: { parameterSize?: string; quantization?: string; family?: string }
+  ): void {
+    const key = `${serverId}:${model}`;
+    const metrics = this.metrics.get(key);
+
+    if (metrics) {
+      if (metadata.parameterSize) {
+        metrics.parameterSize = metadata.parameterSize;
+      }
+      if (metadata.quantization) {
+        metrics.quantization = metadata.quantization;
+      }
+      if (metadata.family) {
+        metrics.family = metadata.family;
+      }
+      this.rebuildParameterIndex();
+    }
+  }
+
+  /**
+   * Get metrics for a model with same parameter size on same server
+   * Used for cross-model inference when exact model metrics unavailable
+   */
+  getMetricsByParameterSize(
+    serverId: string,
+    parameterSize: string
+  ): ServerModelMetrics | undefined {
+    const serverMetrics = this.metricsByParameterSize.get(parameterSize);
+    if (!serverMetrics) {
+      return undefined;
+    }
+    const metrics = serverMetrics.get(serverId);
+    if (!metrics) {
+      return undefined;
+    }
+
+    // Apply decay if enabled
+    if (this.decayConfig.enabled) {
+      return this.applyDecay(metrics);
+    }
+    return metrics;
+  }
+
+  /**
+   * Get aggregate capability score for a server across all models
+   * Returns 0-100 score based on average performance
+   * Used as fallback when no exact or parameter-size-matched metrics exist
+   */
+  getServerCapabilityScore(serverId: string): number {
+    const allMetrics: ServerModelMetrics[] = [];
+
+    for (const [key, metrics] of this.metrics.entries()) {
+      if (key.startsWith(`${serverId}:`)) {
+        allMetrics.push(metrics);
+      }
+    }
+
+    if (allMetrics.length === 0) {
+      return 0;
+    }
+
+    // Calculate weighted capability score based on:
+    // - Average latency (lower is better)
+    // - Success rate (higher is better)
+    // - Throughput (higher is better)
+
+    let totalLatencyScore = 0;
+    let totalSuccessScore = 0;
+    let totalThroughputScore = 0;
+
+    for (const m of allMetrics) {
+      // Latency score: 100 - (avg latency / 100), normalized
+      const avgLatency = m.percentiles.p50 || 1000;
+      totalLatencyScore += Math.max(0, 100 - avgLatency / 100);
+
+      // Success rate score: direct percentage
+      totalSuccessScore += m.successRate * 100;
+
+      // Throughput score: normalize to 0-100
+      totalThroughputScore += Math.min(100, m.throughput * 10);
+    }
+
+    const avgLatencyScore = totalLatencyScore / allMetrics.length;
+    const avgSuccessScore = totalSuccessScore / allMetrics.length;
+    const avgThroughputScore = totalThroughputScore / allMetrics.length;
+
+    // Weighted average: latency 40%, success 40%, throughput 20%
+    return avgLatencyScore * 0.4 + avgSuccessScore * 0.4 + avgThroughputScore * 0.2;
+  }
+
+  /**
+   * Rebuild the parameter size index for fast lookups
+   */
+  private rebuildParameterIndex(): void {
+    this.metricsByParameterSize.clear();
+
+    for (const metrics of this.metrics.values()) {
+      if (metrics.parameterSize) {
+        if (!this.metricsByParameterSize.has(metrics.parameterSize)) {
+          this.metricsByParameterSize.set(metrics.parameterSize, new Map());
+        }
+        this.metricsByParameterSize.get(metrics.parameterSize)!.set(metrics.serverId, metrics);
+      }
+    }
+
+    logger.debug('Rebuilt parameter size index', {
+      parameterSizes: Array.from(this.metricsByParameterSize.keys()),
+    });
+  }
+
+  /**
+   * Get all metrics for a specific server
+   */
+  getAllMetricsForServer(serverId: string): ServerModelMetrics[] {
+    const result: ServerModelMetrics[] = [];
+    for (const [key, metrics] of this.metrics.entries()) {
+      if (key.startsWith(`${serverId}:`)) {
+        result.push(metrics);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Get metrics with cross-model inference fallback
+   * Priority: exact match > same parameter size > server capability > undefined
+   *
+   * @param serverId - The server ID
+   * @param model - The model name
+   * @param parameterSize - Optional parameter size for fallback lookup
+   * @returns Metrics or undefined if no fallback available
+   */
+  getMetricsWithFallback(
+    serverId: string,
+    model: string,
+    parameterSize?: string
+  ): ServerModelMetrics | undefined {
+    // 1. Try exact model match first
+    const exactMetrics = this.getMetrics(serverId, model);
+    if (exactMetrics) {
+      return exactMetrics;
+    }
+
+    // 2. Try same parameter size if available
+    if (
+      parameterSize &&
+      this.config.crossModelInference?.enabled &&
+      this.config.crossModelInference.useParameterSize
+    ) {
+      const sizeMetrics = this.getMetricsByParameterSize(serverId, parameterSize);
+      if (sizeMetrics) {
+        logger.debug(
+          `Using parameter_size fallback for ${serverId}:${model} from ${sizeMetrics.model}`,
+          {
+            parameterSize,
+          }
+        );
+        return {
+          ...sizeMetrics,
+          model: `${model} (inferred from ${sizeMetrics.model})`,
+        };
+      }
+    }
+
+    // 3. No fallback available
+    return undefined;
+  }
+
+  /**
+   * Set the cross-model inference config
+   * This is called from load balancer config
+   */
+  setCrossModelInferenceConfig(config: {
+    enabled?: boolean;
+    useParameterSize?: boolean;
+    minSamplesForExact?: number;
+    fallbackWeight?: number;
+  }): void {
+    if (!this.config.crossModelInference) {
+      this.config.crossModelInference = {
+        enabled: true,
+        useParameterSize: true,
+        minSamplesForExact: 5,
+        fallbackWeight: 0.5,
+      };
+    }
+    if (config.enabled !== undefined) {
+      this.config.crossModelInference.enabled = config.enabled;
+    }
+    if (config.useParameterSize !== undefined) {
+      this.config.crossModelInference.useParameterSize = config.useParameterSize;
+    }
+    if (config.minSamplesForExact !== undefined) {
+      this.config.crossModelInference.minSamplesForExact = config.minSamplesForExact;
+    }
+    if (config.fallbackWeight !== undefined) {
+      this.config.crossModelInference.fallbackWeight = config.fallbackWeight;
+    }
+  }
+
+  private config: {
+    crossModelInference: {
+      enabled: boolean;
+      useParameterSize: boolean;
+      minSamplesForExact: number;
+      fallbackWeight: number;
+    };
+  } = {
+    crossModelInference: {
+      enabled: true,
+      useParameterSize: true,
+      minSamplesForExact: 5,
+      fallbackWeight: 0.5,
+    },
+  };
 
   /**
    * Apply time-based decay to stale metrics

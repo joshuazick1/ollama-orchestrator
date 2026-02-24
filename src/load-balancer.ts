@@ -83,6 +83,13 @@ export interface LoadBalancerConfig {
     considerFailureRate: boolean; // Factor in recent failure rate (default: true)
     failureRatePenalty: number; // Multiplier for failure rate penalty (default: 2.0)
   };
+  // Cross-model inference: use metrics from similar models when exact metrics unavailable
+  crossModelInference: {
+    enabled: boolean; // Enable cross-model inference (default: true)
+    useParameterSize: boolean; // Use same parameter size models (default: true)
+    minSamplesForExact: number; // Min samples before preferring exact (default: 5)
+    fallbackWeight: number; // How much to trust inferred vs actual (default: 0.5)
+  };
 }
 
 /**
@@ -128,6 +135,12 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     considerCapacity: true,
     considerFailureRate: true,
     failureRatePenalty: 2.0,
+  },
+  crossModelInference: {
+    enabled: true,
+    useParameterSize: true,
+    minSamplesForExact: 5,
+    fallbackWeight: 0.5,
   },
 };
 

@@ -169,6 +169,13 @@ export const loadBalancerConfigSchema = z.object({
     considerFailureRate: z.boolean().default(true), // Factor in recent failure rate
     failureRatePenalty: z.number().min(0).max(10).default(2.0), // Multiplier for failure rate penalty
   }),
+  // Cross-model inference settings
+  crossModelInference: z.object({
+    enabled: z.boolean().default(true), // Enable cross-model inference
+    useParameterSize: z.boolean().default(true), // Use same parameter size models
+    minSamplesForExact: z.number().int().min(1).default(5), // Min samples before preferring exact
+    fallbackWeight: z.number().min(0).max(1).default(0.5), // How much to trust inferred vs actual
+  }),
 });
 
 /**
