@@ -90,9 +90,10 @@ export function getInFlightByServer(req: Request, res: Response): void {
 
   try {
     const inFlight = orchestrator.getInFlightByServer();
+    const streamingRequests = orchestrator.getStreamingRequestsByServer();
     const servers = orchestrator.getServers();
 
-    // Enhance with server details
+    // Enhance with server details and streaming requests
     const enhanced = Object.entries(inFlight).map(([serverId, data]) => {
       const server = servers.find(s => s.id === serverId);
       return {
@@ -100,6 +101,7 @@ export function getInFlightByServer(req: Request, res: Response): void {
         serverUrl: server?.url ?? 'unknown',
         healthy: server?.healthy ?? false,
         ...data,
+        streamingRequests: streamingRequests[serverId] ?? [],
       };
     });
 

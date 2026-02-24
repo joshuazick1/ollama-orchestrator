@@ -1831,6 +1831,12 @@ export class AIOrchestrator {
 
     try {
       this.incrementInFlight(server.id, model);
+
+      // Track streaming requests for real-time progress monitoring
+      if (isStreaming) {
+        this.inFlightManager.addStreamingRequest(requestContext.id, server.id, model);
+      }
+
       const result = await fn(server);
       this.decrementInFlight(server.id, model);
 
@@ -1888,6 +1894,11 @@ export class AIOrchestrator {
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
 
+      // Remove streaming request tracking
+      if (isStreaming) {
+        this.inFlightManager.removeStreamingRequest(requestContext.id);
+      }
+
       // Reset failure count on success - server is working
       this.resetServerFailureCount(server.id);
       this.recordSuccess(server.id, model, requestContext.duration);
@@ -1921,6 +1932,12 @@ export class AIOrchestrator {
       return { success: true, value: result };
     } catch (error) {
       this.decrementInFlight(server.id, model);
+
+      // Remove streaming request tracking on failure
+      if (isStreaming) {
+        this.inFlightManager.removeStreamingRequest(requestContext.id);
+      }
+
       const lastError = error instanceof Error ? error : new Error(String(error));
 
       // Record failed request metrics
@@ -2299,6 +2316,23 @@ export class AIOrchestrator {
    */
   getTotalInFlight(serverId: string): number {
     return this.inFlightManager.getTotalInFlight(serverId);
+  }
+
+  /**
+   * Get streaming requests grouped by server for real-time progress monitoring
+   */
+  getStreamingRequestsByServer(): Record<
+    string,
+    Array<{
+      id: string;
+      model: string;
+      startTime: number;
+      chunkCount: number;
+      lastChunkTime: number;
+      isStalled: boolean;
+    }>
+  > {
+    return this.inFlightManager.getStreamingRequestsByServer();
   }
 
   /**
