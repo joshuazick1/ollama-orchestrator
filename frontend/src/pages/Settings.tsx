@@ -1017,6 +1017,88 @@ export const Settings = () => {
                 suffix="%"
                 description="Weight for total duration"
               />
+              <NumberInput
+                label="Chunk Weight"
+                value={(currentConfig.streaming?.chunkWeight ?? 0.2) * 100}
+                onChange={value => updateField('streaming', 'chunkWeight', value / 100)}
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="Weight for chunk throughput in scoring"
+              />
+              <NumberInput
+                label="Max Chunk Gap Penalty"
+                value={currentConfig.streaming?.maxChunkGapPenaltyMs ?? 5000}
+                onChange={value => updateField('streaming', 'maxChunkGapPenaltyMs', value)}
+                min={0}
+                step={1000}
+                suffix="ms"
+                description="Max gap before penalizing for stalled streams"
+              />
+            </div>
+          </ConfigSection>
+        )}
+
+        {/* Cross-Model Inference Settings */}
+        {activeTab === 'loadbalancer' && (
+          <ConfigSection
+            title="Cross-Model Inference"
+            icon={BarChart3}
+            description="Use metrics from similar models when exact metrics unavailable"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Toggle
+                label="Enable Cross-Model Inference"
+                checked={currentConfig.loadBalancer?.crossModelInference?.enabled ?? true}
+                onChange={checked =>
+                  updateField('loadBalancer', 'crossModelInference', {
+                    ...currentConfig.loadBalancer?.crossModelInference,
+                    enabled: checked,
+                  })
+                }
+                description="Use metrics from similar models when exact metrics unavailable"
+              />
+              <Toggle
+                label="Use Parameter Size"
+                checked={currentConfig.loadBalancer?.crossModelInference?.useParameterSize ?? true}
+                onChange={checked =>
+                  updateField('loadBalancer', 'crossModelInference', {
+                    ...currentConfig.loadBalancer?.crossModelInference,
+                    useParameterSize: checked,
+                  })
+                }
+                description="Use metrics from models with same parameter size (e.g., 8B)"
+              />
+              <NumberInput
+                label="Min Samples for Exact"
+                value={currentConfig.loadBalancer?.crossModelInference?.minSamplesForExact ?? 5}
+                onChange={value =>
+                  updateField('loadBalancer', 'crossModelInference', {
+                    ...currentConfig.loadBalancer?.crossModelInference,
+                    minSamplesForExact: value,
+                  })
+                }
+                min={1}
+                description="Min samples before preferring exact match"
+              />
+              <NumberInput
+                label="Fallback Weight"
+                value={
+                  (currentConfig.loadBalancer?.crossModelInference?.fallbackWeight ?? 0.5) * 100
+                }
+                onChange={value =>
+                  updateField('loadBalancer', 'crossModelInference', {
+                    ...currentConfig.loadBalancer?.crossModelInference,
+                    fallbackWeight: value / 100,
+                  })
+                }
+                min={0}
+                max={100}
+                step={5}
+                suffix="%"
+                description="How much to trust inferred vs actual metrics"
+              />
             </div>
           </ConfigSection>
         )}

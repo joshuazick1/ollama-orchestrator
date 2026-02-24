@@ -27,6 +27,15 @@ export interface LoadBalancerStreaming {
   ttftBlendAvg: number;
   ttftBlendP95: number;
   durationEstimateMultiplier: number;
+  chunkWeight: number;
+  maxChunkGapPenaltyMs: number;
+}
+
+export interface LoadBalancerCrossModelInference {
+  enabled: boolean;
+  useParameterSize: boolean;
+  minSamplesForExact: number;
+  fallbackWeight: number;
 }
 
 export interface LoadBalancerRoundRobin {
@@ -53,6 +62,7 @@ export interface LoadBalancerConfig {
   streaming: LoadBalancerStreaming;
   roundRobin: LoadBalancerRoundRobin;
   leastConnections: LoadBalancerLeastConnections;
+  crossModelInference: LoadBalancerCrossModelInference;
 }
 
 export interface CircuitBreakerErrorPatterns {
@@ -117,6 +127,8 @@ export interface StreamingConfig {
   bufferSize: number;
   ttftWeight: number;
   durationWeight: number;
+  chunkWeight: number;
+  maxChunkGapPenaltyMs: number;
 }
 
 export interface HealthCheckConfig {
@@ -297,6 +309,17 @@ export interface StreamingMetrics {
   // Total streaming duration tracking
   recentStreamingDurations: number[];
   streamingDurationPercentiles: LatencyPercentiles;
+  avgStreamingDuration: number;
+
+  // Chunk tracking
+  recentChunkCounts: number[];
+  chunkCountPercentiles: LatencyPercentiles;
+  avgChunkCount: number;
+  recentMaxChunkGaps: number[];
+  maxChunkGapPercentiles: LatencyPercentiles;
+  avgChunkSizeBytes: number;
+  recentChunkSizes: number[];
+  chunkSizePercentiles: LatencyPercentiles;
 }
 
 /**
@@ -305,6 +328,11 @@ export interface StreamingMetrics {
 export interface ServerModelMetrics {
   serverId: string;
   model: string;
+
+  // Model metadata (from /api/show)
+  parameterSize?: string;
+  quantization?: string;
+  family?: string;
 
   // Real-time stats
   inFlight: number;

@@ -52,6 +52,7 @@ describe('Servers Controller', () => {
       updateAllStatus: vi.fn(),
       getStats: vi.fn(),
       getCircuitBreakerStats: vi.fn(),
+      getLBScoreForServerModel: vi.fn().mockReturnValue(undefined),
       getBanDetails: vi.fn(),
       unban: vi.fn(),
       unbanServer: vi.fn(),
