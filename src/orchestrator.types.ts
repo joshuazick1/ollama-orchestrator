@@ -130,6 +130,11 @@ export interface ServerModelMetrics {
   serverId: string;
   model: string;
 
+  // Model metadata (from /api/show)
+  parameterSize?: string; // e.g., "8B", "70B"
+  quantization?: string; // e.g., "Q4_K_M", "Q8_0"
+  family?: string; // e.g., "llama", "mistral"
+
   // Real-time stats
   inFlight: number;
   queued: number;
