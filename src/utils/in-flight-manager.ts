@@ -5,9 +5,23 @@ export interface InFlightManagerConfig {
   maxConcurrentPerServer?: number;
 }
 
+/**
+ * Individual streaming request progress tracking
+ */
+export interface StreamingRequestProgress {
+  id: string;
+  serverId: string;
+  model: string;
+  startTime: number;
+  chunkCount: number;
+  lastChunkTime: number;
+  isStalled: boolean;
+}
+
 export class InFlightManager {
   private inFlight: Map<string, number> = new Map();
   private inFlightBypass: Map<string, number> = new Map();
+  private streamingRequests: Map<string, StreamingRequestProgress> = new Map();
 
   constructor(_config?: InFlightManagerConfig) {}
 
@@ -161,6 +175,95 @@ export class InFlightManager {
   clear(): void {
     this.inFlight.clear();
     this.inFlightBypass.clear();
+    this.streamingRequests.clear();
+  }
+
+  /**
+   * Add a streaming request for tracking
+   */
+  addStreamingRequest(requestId: string, serverId: string, model: string): void {
+    this.streamingRequests.set(requestId, {
+      id: requestId,
+      serverId,
+      model,
+      startTime: Date.now(),
+      chunkCount: 0,
+      lastChunkTime: Date.now(),
+      isStalled: false,
+    });
+    logger.debug(`Added streaming request ${requestId} for ${serverId}:${model}`);
+  }
+
+  /**
+   * Update chunk progress for a streaming request
+   */
+  updateChunkProgress(requestId: string, chunkCount: number): void {
+    const request = this.streamingRequests.get(requestId);
+    if (request) {
+      request.chunkCount = chunkCount;
+      request.lastChunkTime = Date.now();
+      request.isStalled = false;
+    }
+  }
+
+  /**
+   * Mark a streaming request as stalled
+   */
+  markStalled(requestId: string): void {
+    const request = this.streamingRequests.get(requestId);
+    if (request) {
+      request.isStalled = true;
+    }
+  }
+
+  /**
+   * Remove a streaming request (when completed)
+   */
+  removeStreamingRequest(requestId: string): StreamingRequestProgress | undefined {
+    const removed = this.streamingRequests.get(requestId);
+    this.streamingRequests.delete(requestId);
+    return removed;
+  }
+
+  /**
+   * Get progress for a specific streaming request
+   */
+  getStreamingRequestProgress(requestId: string): StreamingRequestProgress | undefined {
+    return this.streamingRequests.get(requestId);
+  }
+
+  /**
+   * Get all streaming requests for a server
+   */
+  getStreamingRequestsForServer(serverId: string): StreamingRequestProgress[] {
+    const requests: StreamingRequestProgress[] = [];
+    for (const request of this.streamingRequests.values()) {
+      if (request.serverId === serverId) {
+        requests.push(request);
+      }
+    }
+    return requests;
+  }
+
+  /**
+   * Get all streaming requests
+   */
+  getAllStreamingRequests(): StreamingRequestProgress[] {
+    return Array.from(this.streamingRequests.values());
+  }
+
+  /**
+   * Get streaming requests grouped by server
+   */
+  getStreamingRequestsByServer(): Record<string, StreamingRequestProgress[]> {
+    const result: Record<string, StreamingRequestProgress[]> = {};
+    for (const request of this.streamingRequests.values()) {
+      if (!result[request.serverId]) {
+        result[request.serverId] = [];
+      }
+      result[request.serverId].push(request);
+    }
+    return result;
   }
 
   getActiveServerIds(): string[] {
