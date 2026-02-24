@@ -1865,6 +1865,26 @@ export class AIOrchestrator {
         }
       }
 
+      // Extract chunk data if present
+      if (isStreaming && result && typeof result === 'object' && '_chunkData' in result) {
+        const chunkData = (
+          result as {
+            _chunkData?: {
+              chunkCount?: number;
+              totalBytes?: number;
+              maxChunkGapMs?: number;
+              avgChunkSizeBytes?: number;
+            };
+          }
+        )._chunkData;
+        if (chunkData) {
+          requestContext.chunkCount = chunkData.chunkCount;
+          requestContext.totalBytes = chunkData.totalBytes;
+          requestContext.maxChunkGapMs = chunkData.maxChunkGapMs;
+          requestContext.avgChunkSizeBytes = chunkData.avgChunkSizeBytes;
+        }
+      }
+
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
 
@@ -1980,6 +2000,26 @@ export class AIOrchestrator {
           if (streamingMetrics) {
             requestContext.ttft = streamingMetrics.ttft;
             requestContext.streamingDuration = streamingMetrics.streamingDuration;
+          }
+        }
+
+        // Extract chunk data if present
+        if (isStreaming && result && typeof result === 'object' && '_chunkData' in result) {
+          const chunkData = (
+            result as {
+              _chunkData?: {
+                chunkCount?: number;
+                totalBytes?: number;
+                maxChunkGapMs?: number;
+                avgChunkSizeBytes?: number;
+              };
+            }
+          )._chunkData;
+          if (chunkData) {
+            requestContext.chunkCount = chunkData.chunkCount;
+            requestContext.totalBytes = chunkData.totalBytes;
+            requestContext.maxChunkGapMs = chunkData.maxChunkGapMs;
+            requestContext.avgChunkSizeBytes = chunkData.avgChunkSizeBytes;
           }
         }
 

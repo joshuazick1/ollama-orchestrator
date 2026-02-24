@@ -98,7 +98,13 @@ describe('streamResponse', () => {
     expect(onComplete).toHaveBeenCalledWith(
       expect.any(Number),
       expect.any(Number),
-      expect.any(Number)
+      expect.any(Number),
+      expect.objectContaining({
+        chunkCount: expect.any(Number),
+        totalBytes: expect.any(Number),
+        maxChunkGapMs: expect.any(Number),
+        avgChunkSizeBytes: expect.any(Number),
+      })
     );
   });
 

@@ -13,11 +13,21 @@ export interface StreamResponseOptions {
   /** Callback when first token is received */
   onFirstToken?: () => void;
   /** Callback when streaming is complete */
-  onComplete?: (duration: number, tokens: number) => void;
+  onComplete?: (duration: number, tokens: number, chunkData?: ChunkData) => void;
   /** Callback on each chunk received (useful for resetting activity timeout) */
   onChunk?: () => void;
   /** TTFT tracking options */
   ttftOptions?: TTFTOptions;
+}
+
+/**
+ * Chunk data collected during streaming
+ */
+export interface ChunkData {
+  chunkCount: number;
+  totalBytes: number;
+  maxChunkGapMs: number;
+  avgChunkSizeBytes: number;
 }
 
 // Re-export TTFTOptions for convenience
@@ -75,7 +85,12 @@ export async function streamResponse(
   upstreamResponse: globalThis.Response,
   clientResponse: Response,
   onFirstToken?: () => void,
-  onComplete?: (duration: number, tokensGenerated: number, tokensPrompt: number) => void,
+  onComplete?: (
+    duration: number,
+    tokensGenerated: number,
+    tokensPrompt: number,
+    chunkData?: ChunkData
+  ) => void,
   onChunk?: () => void,
   ttftOptions?: TTFTOptions
 ): Promise<void> {
@@ -259,7 +274,15 @@ export async function streamResponse(
     // Get TTFT metrics from tracker if enabled
     const ttftMetrics = ttftTracker.getMetrics();
 
-    onComplete?.(duration, tokensGenerated, tokensPrompt);
+    // Prepare chunk data for callback
+    const chunkData: ChunkData = {
+      chunkCount,
+      totalBytes,
+      maxChunkGapMs: maxChunkGap,
+      avgChunkSizeBytes: chunkCount > 0 ? Math.round(totalBytes / chunkCount) : 0,
+    };
+
+    onComplete?.(duration, tokensGenerated, tokensPrompt, chunkData);
 
     logger.info('Stream completed', {
       chunkCount,

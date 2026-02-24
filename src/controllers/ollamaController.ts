@@ -84,6 +84,12 @@ interface StreamingMetrics {
     tokensGenerated: number;
     tokensPrompt: number;
   };
+  _chunkData?: {
+    chunkCount: number;
+    totalBytes: number;
+    maxChunkGapMs: number;
+    avgChunkSizeBytes: number;
+  };
 }
 
 /**
@@ -186,13 +192,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                   timeToFirstToken: firstTokenAt - streamStartTime,
                 });
               },
-              (duration, tokensGenerated, tokensPrompt) => {
+              (duration, tokensGenerated, tokensPrompt, chunkData) => {
                 // Get TTFT metrics from tracker
                 const ttftMetrics = ttftTracker.getMetrics();
 
                 // Stream complete callback - capture token metrics
                 logger.info(
-                  `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}`
+                  `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}, chunks: ${chunkData?.chunkCount ?? 0}`
                 );
                 tokenMetrics = { tokensGenerated, tokensPrompt };
                 const metrics: StreamingMetrics = {
@@ -206,6 +212,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                     tokensGenerated,
                     tokensPrompt,
                   },
+                  _chunkData: chunkData,
                 };
                 res.write(`data: ${safeJsonStringify(metrics)}\n\n`);
                 res.end();
@@ -366,7 +373,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                   timeToFirstToken: firstTokenAt - streamStartTime,
                 });
               },
-              (duration, tokensGenerated, tokensPrompt) => {
+              (duration, tokensGenerated, tokensPrompt, _chunkData) => {
                 // Get TTFT metrics from tracker
                 const ttftMetrics = ttftTracker.getMetrics();
 
@@ -375,6 +382,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                   duration,
                   tokensGenerated,
                   tokensPrompt,
+                  chunks: _chunkData?.chunkCount ?? 0,
                   timeToFirstToken:
                     ttftMetrics.ttft ?? (firstTokenAt ? firstTokenAt - streamStartTime : undefined),
                 });
@@ -772,8 +780,12 @@ export async function handleStreamingGenerate(
               logger.debug(`First token received from ${server.id}`);
             }
           },
-          (duration, tokens) => {
-            logger.debug(`Stream from ${server.id} completed`, { duration, tokens });
+          (duration, _tokensGenerated, _tokensPrompt, _chunkData) => {
+            logger.debug(`Stream from ${server.id} completed`, {
+              duration,
+              tokens: _tokensGenerated,
+              chunks: _chunkData?.chunkCount ?? 0,
+            });
           },
           () => {
             // Reset activity timeout on each chunk

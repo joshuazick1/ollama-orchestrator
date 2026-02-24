@@ -110,6 +110,16 @@ export interface StreamingMetrics {
   // Total streaming duration tracking
   recentStreamingDurations: number[];
   streamingDurationPercentiles: LatencyPercentiles;
+
+  // Chunk tracking
+  recentChunkCounts: number[];
+  chunkCountPercentiles: LatencyPercentiles;
+  avgChunkCount: number;
+  recentMaxChunkGaps: number[];
+  maxChunkGapPercentiles: LatencyPercentiles;
+  avgChunkSizeBytes: number;
+  recentChunkSizes: number[];
+  chunkSizePercentiles: LatencyPercentiles;
 }
 
 /**
@@ -164,6 +174,11 @@ export interface RequestContext {
   // Streaming-specific metrics
   ttft?: number; // Time to first token in ms
   streamingDuration?: number; // Total streaming duration in ms
+  // Chunk tracking
+  chunkCount?: number;
+  totalBytes?: number;
+  maxChunkGapMs?: number;
+  avgChunkSizeBytes?: number;
 }
 
 /**
