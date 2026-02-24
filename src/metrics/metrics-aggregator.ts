@@ -657,6 +657,7 @@ export class MetricsAggregator {
         successRate: metrics.successRate,
         throughput: metrics.throughput,
         avgTokensPerRequest: metrics.avgTokensPerRequest,
+        streamingMetrics: metrics.streamingMetrics,
       };
     }
 
