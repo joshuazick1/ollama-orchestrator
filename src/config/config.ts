@@ -166,6 +166,8 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       ttftBlendAvg: 0.5,
       ttftBlendP95: 0.5,
       durationEstimateMultiplier: 2,
+      chunkWeight: 0.2,
+      maxChunkGapPenaltyMs: 5000,
     },
     roundRobin: {
       skipUnhealthy: true,

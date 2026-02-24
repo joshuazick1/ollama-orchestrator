@@ -142,6 +142,9 @@ export class MetricsAggregator {
         metrics.streamingMetrics.streamingDurationPercentiles = this.calculatePercentiles(
           metrics.streamingMetrics.recentStreamingDurations
         );
+        metrics.streamingMetrics.avgStreamingDuration = this.calculateAverage(
+          metrics.streamingMetrics.recentStreamingDurations
+        );
       }
 
       // Track chunk metrics
@@ -495,6 +498,7 @@ export class MetricsAggregator {
         avgTTFT: 0,
         recentStreamingDurations: [],
         streamingDurationPercentiles: { p50: 0, p95: 0, p99: 0 },
+        avgStreamingDuration: 0,
         recentChunkCounts: [],
         chunkCountPercentiles: { p50: 0, p95: 0, p99: 0 },
         avgChunkCount: 0,

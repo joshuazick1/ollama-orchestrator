@@ -67,6 +67,8 @@ export interface LoadBalancerConfig {
     ttftBlendAvg: number; // Weight for avgTTFT vs P95 TTFT (default: 0.5)
     ttftBlendP95: number; // Weight for P95 TTFT (default: 0.5)
     durationEstimateMultiplier: number; // Estimate duration as baseLatency * this (default: 2)
+    chunkWeight: number; // Weight for chunk throughput (default: 0.2)
+    maxChunkGapPenaltyMs: number; // Max gap before penalty (default: 5000ms)
   };
   // Round-robin algorithm settings
   roundRobin: {
@@ -113,6 +115,8 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     ttftBlendAvg: 0.5,
     ttftBlendP95: 0.5,
     durationEstimateMultiplier: 2,
+    chunkWeight: 0.2,
+    maxChunkGapPenaltyMs: 5000,
   },
   roundRobin: {
     skipUnhealthy: true,
@@ -774,6 +778,8 @@ export class LoadBalancer {
       // Get streaming metrics if available
       let ttft = baseLatency; // Default to base latency if no TTFT data
       let streamingDuration = baseLatency * streaming.durationEstimateMultiplier; // Estimate if no data
+      let chunkThroughputScore = 50; // Default middle score if no chunk data
+      let chunkGapPenalty = 1; // No penalty by default
 
       if (metrics?.streamingMetrics) {
         const sm = metrics.streamingMetrics;
@@ -787,6 +793,19 @@ export class LoadBalancer {
         if (sm.streamingDurationPercentiles.p95 > 0) {
           streamingDuration = sm.streamingDurationPercentiles.p95;
         }
+
+        // Calculate chunk throughput score
+        // Higher chunks/second = better score (0-100)
+        if (sm.avgChunkCount > 0 && sm.avgStreamingDuration > 0) {
+          const chunksPerSecond = (sm.avgChunkCount / sm.avgStreamingDuration) * 1000;
+          // Normalize: 10 chunks/s = 100, 1 chunk/s = 10
+          chunkThroughputScore = Math.min(100, chunksPerSecond * 10);
+        }
+
+        // Check for chunk gap penalty (stalled streams)
+        if (sm.maxChunkGapPercentiles?.p95 > streaming.maxChunkGapPenaltyMs) {
+          chunkGapPenalty = 0.5; // 50% penalty for frequently stalled streams
+        }
       }
 
       // Adjust for load using config value
@@ -795,14 +814,31 @@ export class LoadBalancer {
       // Calculate weighted score (lower is better)
       const adjustedTTFT = ttft * loadFactor;
       const adjustedDuration = streamingDuration * loadFactor;
-      const score =
-        adjustedTTFT * streaming.ttftWeight + adjustedDuration * streaming.durationWeight;
+
+      // Normalize scores to 0-100 scale where lower is better
+      // TTFT and duration: convert to score (100 - normalized value)
+      const ttftScore = Math.max(0, 100 - adjustedTTFT / 100); // ms -> score
+      const durationScore = Math.max(0, 100 - adjustedDuration / 100); // ms -> score
+
+      // Combined streaming score with weights (adjusted to account for chunkWeight)
+      const adjustedTtftWeight = streaming.ttftWeight * (1 - streaming.chunkWeight);
+      const adjustedDurationWeight = streaming.durationWeight * (1 - streaming.chunkWeight);
+      const chunkWeight = streaming.chunkWeight;
+
+      const combinedScore =
+        ttftScore * adjustedTtftWeight +
+        durationScore * adjustedDurationWeight +
+        chunkThroughputScore * chunkWeight;
+
+      // Apply chunk gap penalty
+      const finalScore = combinedScore * chunkGapPenalty;
 
       return {
         server,
-        score,
+        score: finalScore,
         ttft: adjustedTTFT,
         duration: adjustedDuration,
+        chunkThroughput: chunkThroughputScore,
         load: currentLoad,
       };
     });
