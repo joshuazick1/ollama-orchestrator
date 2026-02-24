@@ -153,6 +153,8 @@ export const loadBalancerConfigSchema = z.object({
     ttftBlendAvg: z.number().min(0).max(1).default(0.5), // Weight for avgTTFT vs P95 TTFT
     ttftBlendP95: z.number().min(0).max(1).default(0.5), // Weight for P95 TTFT
     durationEstimateMultiplier: z.number().min(1).max(10).default(2), // Estimate duration as baseLatency * this
+    chunkWeight: z.number().min(0).max(1).default(0.2), // Weight for chunk throughput
+    maxChunkGapPenaltyMs: z.number().min(0).default(5000), // Max gap before penalty
   }),
   // Round-robin algorithm settings
   roundRobin: z.object({

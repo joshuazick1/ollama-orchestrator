@@ -110,6 +110,7 @@ export interface StreamingMetrics {
   // Total streaming duration tracking
   recentStreamingDurations: number[];
   streamingDurationPercentiles: LatencyPercentiles;
+  avgStreamingDuration: number;
 
   // Chunk tracking
   recentChunkCounts: number[];
