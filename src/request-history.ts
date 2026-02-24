@@ -30,6 +30,11 @@ export interface RequestRecord {
   streamingDuration?: number;
   latencyPercentile?: number; // How this request compared to historical (p50, p95, etc.)
   queueWaitTime?: number;
+  // Chunk tracking
+  chunkCount?: number;
+  totalBytes?: number;
+  maxChunkGapMs?: number;
+  avgChunkSizeBytes?: number;
 }
 
 /**
@@ -132,6 +137,11 @@ export class RequestHistory {
       ttft: context.ttft,
       streamingDuration: context.streamingDuration,
       queueWaitTime,
+      // Chunk tracking
+      chunkCount: context.chunkCount,
+      totalBytes: context.totalBytes,
+      maxChunkGapMs: context.maxChunkGapMs,
+      avgChunkSizeBytes: context.avgChunkSizeBytes,
     };
 
     const serverId = record.serverId;

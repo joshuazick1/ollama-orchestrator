@@ -143,6 +143,45 @@ export class MetricsAggregator {
           metrics.streamingMetrics.recentStreamingDurations
         );
       }
+
+      // Track chunk metrics
+      if (context.chunkCount && context.chunkCount > 0) {
+        metrics.streamingMetrics.recentChunkCounts.push(context.chunkCount);
+        if (metrics.streamingMetrics.recentChunkCounts.length > this.maxRecentTTFTs) {
+          metrics.streamingMetrics.recentChunkCounts.shift();
+        }
+        metrics.streamingMetrics.chunkCountPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentChunkCounts
+        );
+        metrics.streamingMetrics.avgChunkCount = this.calculateAverage(
+          metrics.streamingMetrics.recentChunkCounts
+        );
+      }
+
+      // Track max chunk gap
+      if (context.maxChunkGapMs !== undefined && context.maxChunkGapMs > 0) {
+        metrics.streamingMetrics.recentMaxChunkGaps.push(context.maxChunkGapMs);
+        if (metrics.streamingMetrics.recentMaxChunkGaps.length > this.maxRecentTTFTs) {
+          metrics.streamingMetrics.recentMaxChunkGaps.shift();
+        }
+        metrics.streamingMetrics.maxChunkGapPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentMaxChunkGaps
+        );
+      }
+
+      // Track chunk sizes
+      if (context.avgChunkSizeBytes && context.avgChunkSizeBytes > 0) {
+        metrics.streamingMetrics.recentChunkSizes.push(context.avgChunkSizeBytes);
+        if (metrics.streamingMetrics.recentChunkSizes.length > this.maxRecentTTFTs) {
+          metrics.streamingMetrics.recentChunkSizes.shift();
+        }
+        metrics.streamingMetrics.chunkSizePercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentChunkSizes
+        );
+        metrics.streamingMetrics.avgChunkSizeBytes = this.calculateAverage(
+          metrics.streamingMetrics.recentChunkSizes
+        );
+      }
     }
 
     // Update derived metrics
@@ -456,6 +495,14 @@ export class MetricsAggregator {
         avgTTFT: 0,
         recentStreamingDurations: [],
         streamingDurationPercentiles: { p50: 0, p95: 0, p99: 0 },
+        recentChunkCounts: [],
+        chunkCountPercentiles: { p50: 0, p95: 0, p99: 0 },
+        avgChunkCount: 0,
+        recentMaxChunkGaps: [],
+        maxChunkGapPercentiles: { p50: 0, p95: 0, p99: 0 },
+        avgChunkSizeBytes: 0,
+        recentChunkSizes: [],
+        chunkSizePercentiles: { p50: 0, p95: 0, p99: 0 },
       },
       lastUpdated: now,
       recentLatencies: [],
@@ -608,6 +655,16 @@ export class MetricsAggregator {
       return 0;
     }
     return ttfts.reduce((sum, ttft) => sum + ttft, 0) / ttfts.length;
+  }
+
+  /**
+   * Calculate average from array
+   */
+  private calculateAverage(values: number[]): number {
+    if (values.length === 0) {
+      return 0;
+    }
+    return values.reduce((sum, val) => sum + val, 0) / values.length;
   }
 
   /**
