@@ -201,21 +201,6 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                   `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}, chunks: ${chunkData?.chunkCount ?? 0}`
                 );
                 tokenMetrics = { tokensGenerated, tokensPrompt };
-                const metrics: StreamingMetrics = {
-                  _streamingMetrics: {
-                    ttft:
-                      ttftMetrics.ttft ??
-                      (firstTokenAt ? firstTokenAt - streamStartTime : undefined),
-                    streamingDuration: duration,
-                  },
-                  _tokenMetrics: {
-                    tokensGenerated,
-                    tokensPrompt,
-                  },
-                  _chunkData: chunkData,
-                };
-                res.write(`data: ${safeJsonStringify(metrics)}\n\n`);
-                res.end();
               },
               () => {
                 // On each chunk, reset the activity timeout
@@ -268,7 +253,10 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
     );
 
     // Add debug headers if requested (before streaming starts for streaming requests)
-    addDebugHeaders(req, res, routingContext);
+    // Only add headers if response is still writable (not ended due to client disconnect)
+    if (!res.writableEnded) {
+      addDebugHeaders(req, res, routingContext);
+    }
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
@@ -442,7 +430,10 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
     );
 
     // Add debug headers if requested
-    addDebugHeaders(req, res, routingContext);
+    // Only add headers if response is still writable (not ended due to client disconnect)
+    if (!res.writableEnded) {
+      addDebugHeaders(req, res, routingContext);
+    }
 
     // Only send JSON response if not streaming
     if (!useStreaming) {

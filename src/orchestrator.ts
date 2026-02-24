@@ -1442,6 +1442,40 @@ export class AIOrchestrator {
   }
 
   /**
+   * Get load balancer score for any server:model (including those with open circuits)
+   * This is useful for showing "what-if" scores in the frontend
+   */
+  getLBScoreForServerModel(serverId: string, model: string) {
+    const server = this.servers.find(s => s.id === serverId);
+    if (!server) {
+      return undefined;
+    }
+
+    const currentLoad = this.getInFlight(server.id, model);
+    const totalLoad = this.getTotalInFlight(server.id);
+    const metrics = this.metricsAggregator.getMetrics(server.id, model);
+
+    // Calculate score as if circuit breaker was healthy (for "what-if" scenario)
+    const cbHealth = {
+      state: 'closed' as const,
+      failureCount: 0,
+      errorRate: 0,
+      lastFailure: undefined,
+    };
+
+    return calculateServerScore(
+      server,
+      model,
+      currentLoad,
+      totalLoad,
+      metrics,
+      undefined,
+      cbHealth,
+      this.getTimeout(server.id, model)
+    );
+  }
+
+  /**
    * Execute a request with automatic failover
    * Strategy: Try all servers first (no same-server retries), then retry the full cycle once more.
    * Only after exhausting all servers twice, attempt same-server retries on the original server.

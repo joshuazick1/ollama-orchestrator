@@ -169,6 +169,14 @@ const ServerBadge = ({
           <RefreshCw className="w-3 h-3" />
         </button>
       )}
+      {circuitBreaker?.lbScore && (
+        <span
+          className="ml-1 text-[10px] text-gray-400"
+          title={`LB Score: ${circuitBreaker.lbScore.totalScore.toFixed(1)}`}
+        >
+          ({circuitBreaker.lbScore.totalScore.toFixed(0)})
+        </span>
+      )}
     </div>
   );
 };

@@ -173,6 +173,8 @@ export const getInFlightByServer = async () => {
 
 export interface CircuitBreakerInfo {
   serverId: string;
+  serverIdOnly?: string;
+  model?: string;
   state: 'OPEN' | 'CLOSED' | 'HALF-OPEN';
   failureCount: number;
   successCount: number;
@@ -196,6 +198,16 @@ export interface CircuitBreakerInfo {
   halfOpenAttempts?: number;
   lastErrorType?: string;
   activeTestsInProgress?: number;
+  // LB score calculated as if circuit was closed
+  lbScore?: {
+    totalScore: number;
+    latencyScore: number;
+    successRateScore: number;
+    loadScore: number;
+    capacityScore: number;
+    circuitBreakerScore: number;
+    timeoutScore: number;
+  } | null;
 }
 
 export const getCircuitBreakers = async () => {

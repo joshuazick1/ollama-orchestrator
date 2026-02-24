@@ -249,26 +249,50 @@ export function getCircuitBreakers(req: Request, res: Response): void {
     const circuitBreakers = orchestrator.getCircuitBreakerStats();
 
     // Convert to array format for API response
-    const breakerArray = Object.entries(circuitBreakers).map(([name, stats]) => ({
-      serverId: name, // Use full breaker key (server:model) as serverId for frontend grouping
-      state: stats.state.toUpperCase(),
-      failureCount: stats.failureCount,
-      successCount: stats.successCount,
-      totalRequestCount: stats.totalRequestCount || 0,
-      blockedRequestCount: stats.blockedRequestCount || 0,
-      lastFailure: stats.lastFailure,
-      lastSuccess: stats.lastSuccess,
-      nextRetryAt: stats.nextRetryAt,
-      errorRate: Math.round(stats.errorRate * 100) / 100, // Round to 2 decimal places
-      errorCounts: stats.errorCounts,
-      consecutiveSuccesses: stats.consecutiveSuccesses,
-      modelType: stats.modelType,
-      lastFailureReason: stats.lastFailureReason,
-      halfOpenStartedAt: stats.halfOpenStartedAt,
-      halfOpenAttempts: stats.halfOpenAttempts,
-      lastErrorType: stats.lastErrorType,
-      activeTestsInProgress: stats.activeTestsInProgress,
-    }));
+    const breakerArray = Object.entries(circuitBreakers).map(([name, stats]) => {
+      // Extract serverId and model from breaker name (format: serverId:model)
+      const colonIndex = name.indexOf(':');
+      const serverId = colonIndex > 0 ? name.substring(0, colonIndex) : name;
+      const model = colonIndex > 0 ? name.substring(colonIndex + 1) : '';
+
+      // Calculate LB score as if circuit was closed (for "what-if" display)
+      const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
+
+      return {
+        serverId: name, // Use full breaker key (server:model) as serverId for frontend grouping
+        serverIdOnly: serverId,
+        model,
+        state: stats.state.toUpperCase(),
+        failureCount: stats.failureCount,
+        successCount: stats.successCount,
+        totalRequestCount: stats.totalRequestCount || 0,
+        blockedRequestCount: stats.blockedRequestCount || 0,
+        lastFailure: stats.lastFailure,
+        lastSuccess: stats.lastSuccess,
+        nextRetryAt: stats.nextRetryAt,
+        errorRate: Math.round(stats.errorRate * 100) / 100, // Round to 2 decimal places
+        errorCounts: stats.errorCounts,
+        consecutiveSuccesses: stats.consecutiveSuccesses,
+        modelType: stats.modelType,
+        lastFailureReason: stats.lastFailureReason,
+        halfOpenStartedAt: stats.halfOpenStartedAt,
+        halfOpenAttempts: stats.halfOpenAttempts,
+        lastErrorType: stats.lastErrorType,
+        activeTestsInProgress: stats.activeTestsInProgress,
+        // LB score calculated as if circuit was closed
+        lbScore: lbScore
+          ? {
+              totalScore: lbScore.totalScore,
+              latencyScore: lbScore.breakdown.latencyScore,
+              successRateScore: lbScore.breakdown.successRateScore,
+              loadScore: lbScore.breakdown.loadScore,
+              capacityScore: lbScore.breakdown.capacityScore,
+              circuitBreakerScore: lbScore.breakdown.circuitBreakerScore,
+              timeoutScore: lbScore.breakdown.timeoutScore,
+            }
+          : null,
+      };
+    });
 
     res.status(200).json({
       success: true,
