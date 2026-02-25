@@ -50,9 +50,9 @@ export class TTFTTracker {
   constructor(options: TTFTOptions = {}) {
     this.startTime = performance.now();
     this.options = {
-      trackFirstChunk: true,
-      trackFirstContent: true,
-      trackFirstToken: false,
+      trackFirstChunk: options.trackFirstChunk ?? true,
+      trackFirstContent: options.trackFirstContent ?? true,
+      trackFirstToken: options.trackFirstToken ?? false,
       serverId: options.serverId,
       model: options.model,
       requestId: options.requestId,

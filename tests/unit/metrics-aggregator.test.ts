@@ -120,7 +120,7 @@ describe('MetricsAggregator', () => {
   describe('Percentile Calculations', () => {
     it('should calculate P50 correctly', () => {
       const latencies = [100, 200, 300, 400, 500];
-      
+
       latencies.forEach((duration, i) => {
         aggregator.recordRequest({
           id: `req-${i}`,
@@ -185,7 +185,7 @@ describe('MetricsAggregator', () => {
 
     it('should calculate throughput', () => {
       const baseTime = Date.now();
-      
+
       // Record 60 requests spread over 60 seconds
       for (let i = 0; i < 60; i++) {
         aggregator.recordRequest({
@@ -325,6 +325,211 @@ describe('MetricsAggregator', () => {
 
       const metrics = aggregator.getAllMetrics();
       expect(metrics.size).toBe(0);
+    });
+  });
+
+  describe('Streaming Metrics', () => {
+    it('should record streaming request with TTFT', () => {
+      const context: RequestContext = {
+        id: 'stream-1',
+        startTime: Date.now() - 500,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 500,
+        ttft: 100,
+        streamingDuration: 400,
+        chunkCount: 10,
+        maxChunkGapMs: 50,
+        avgChunkSizeBytes: 100,
+      };
+
+      aggregator.recordRequest(context);
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+
+      expect(metrics?.streamingMetrics).toBeDefined();
+      expect(metrics?.streamingMetrics?.recentTTFTs).toContain(100);
+      expect(metrics?.streamingMetrics?.recentChunkCounts).toContain(10);
+      expect(metrics?.streamingMetrics?.recentStreamingDurations).toContain(400);
+      expect(metrics?.streamingMetrics?.recentMaxChunkGaps).toContain(50);
+      expect(metrics?.streamingMetrics?.recentChunkSizes).toContain(100);
+    });
+
+    it('should calculate average TTFT correctly', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        ttft: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'stream-2',
+        startTime: Date.now() - 200,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 200,
+        ttft: 200,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.avgTTFT).toBe(150);
+    });
+
+    it('should calculate TTFT percentiles', () => {
+      const ttfts = [50, 100, 150, 200, 250];
+      for (let i = 0; i < ttfts.length; i++) {
+        aggregator.recordRequest({
+          id: `stream-${i}`,
+          startTime: Date.now() - 300 + i,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: true,
+          success: true,
+          duration: 300,
+          ttft: ttfts[i],
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.ttftPercentiles.p50).toBeGreaterThan(0);
+      expect(metrics?.streamingMetrics?.ttftPercentiles.p95).toBeGreaterThan(0);
+      expect(metrics?.streamingMetrics?.ttftPercentiles.p99).toBeGreaterThan(0);
+    });
+
+    it('should not record TTFT when zero or undefined', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        ttft: 0,
+      });
+
+      aggregator.recordRequest({
+        id: 'non-stream-1',
+        startTime: Date.now() - 200,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 200,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.recentTTFTs).toHaveLength(0);
+      expect(metrics?.streamingMetrics?.avgTTFT).toBe(0);
+    });
+
+    it('should get streaming metrics summary', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        ttft: 100,
+        streamingDuration: 200,
+        chunkCount: 5,
+      });
+
+      aggregator.recordRequest({
+        id: 'stream-2',
+        startTime: Date.now() - 200,
+        serverId: 'server-2',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 200,
+        ttft: 150,
+        streamingDuration: 100,
+        chunkCount: 3,
+      });
+
+      const summary = aggregator.getStreamingMetricsSummary(2);
+      expect(summary).toBeDefined();
+      expect(summary?.totalStreamingRequests).toBe(2);
+      expect(summary?.avgTTFT).toBe(125);
+      expect(summary?.avgStreamingDuration).toBe(150);
+      expect(summary?.avgChunkCount).toBe(4);
+    });
+
+    it('should return undefined for streaming summary when no streaming requests', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const summary = aggregator.getStreamingMetricsSummary(1);
+      expect(summary).toBeUndefined();
+    });
+
+    it('should track chunk metrics correctly', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        chunkCount: 10,
+        maxChunkGapMs: 100,
+        avgChunkSizeBytes: 50,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.recentChunkCounts).toContain(10);
+      expect(metrics?.streamingMetrics?.recentMaxChunkGaps).toContain(100);
+      expect(metrics?.streamingMetrics?.recentChunkSizes).toContain(50);
+      expect(metrics?.streamingMetrics?.avgChunkCount).toBe(10);
+      expect(metrics?.streamingMetrics?.avgChunkSizeBytes).toBe(50);
+    });
+
+    it('should limit recent TTFTs array size', () => {
+      for (let i = 0; i < 600; i++) {
+        aggregator.recordRequest({
+          id: `stream-${i}`,
+          startTime: Date.now() - 600 + i,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: true,
+          success: true,
+          duration: 100,
+          ttft: 100 + i,
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.recentTTFTs.length).toBeLessThanOrEqual(500);
     });
   });
 });

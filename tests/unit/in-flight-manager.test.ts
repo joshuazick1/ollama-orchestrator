@@ -138,3 +138,117 @@ describe('getInFlightManager singleton', () => {
     expect(manager1).toBe(manager2);
   });
 });
+
+describe('InFlightManager streaming edge cases', () => {
+  let manager: InFlightManager;
+
+  beforeEach(() => {
+    manager = new InFlightManager();
+  });
+
+  describe('streaming request edge cases', () => {
+    it('should handle removing non-existent streaming request', () => {
+      const removed = manager.removeStreamingRequest('non-existent');
+      expect(removed).toBeUndefined();
+    });
+
+    it('should handle updating progress for non-existent request', () => {
+      expect(() => {
+        manager.updateChunkProgress('non-existent', 5);
+      }).not.toThrow();
+    });
+
+    it('should handle marking non-existent request as stalled', () => {
+      expect(() => {
+        manager.markStalled('non-existent');
+      }).not.toThrow();
+    });
+
+    it('should handle duplicate streaming request IDs', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3:8b');
+      manager.addStreamingRequest('req-1', 'server-2', 'llama3:8b');
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+      expect(progress?.serverId).toBe('server-2');
+    });
+
+    it('should track lastChunkTime correctly', () => {
+      manager.addStreamingRequest('req-123', 'server-1', 'llama3:8b');
+
+      manager.updateChunkProgress('req-123', 1);
+      const firstTime = manager.getStreamingRequestProgress('req-123')?.lastChunkTime;
+
+      manager.updateChunkProgress('req-123', 2);
+      const secondTime = manager.getStreamingRequestProgress('req-123')?.lastChunkTime;
+
+      expect(secondTime).toBeGreaterThanOrEqual(firstTime || 0);
+    });
+
+    it('should handle unstalling a stalled request', () => {
+      manager.addStreamingRequest('req-123', 'server-1', 'llama3:8b');
+      manager.markStalled('req-123');
+
+      const afterStall = manager.getStreamingRequestProgress('req-123');
+      expect(afterStall?.isStalled).toBe(true);
+
+      manager.updateChunkProgress('req-123', 5);
+      const afterProgress = manager.getStreamingRequestProgress('req-123');
+      expect(afterProgress?.isStalled).toBe(false);
+    });
+
+    it('should get streaming requests by server for empty manager', () => {
+      const byServer = manager.getStreamingRequestsByServer();
+      expect(Object.keys(byServer)).toHaveLength(0);
+    });
+
+    it('should correctly count total streaming requests', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3:8b');
+      manager.addStreamingRequest('req-2', 'server-1', 'codellama:7b');
+      manager.addStreamingRequest('req-3', 'server-2', 'llama3:8b');
+
+      const all = manager.getAllStreamingRequests();
+      expect(all).toHaveLength(3);
+    });
+
+    it('should track streaming requests with zero chunks', () => {
+      manager.addStreamingRequest('req-123', 'server-1', 'llama3:8b');
+
+      const progress = manager.getStreamingRequestProgress('req-123');
+      expect(progress?.chunkCount).toBe(0);
+      expect(progress?.lastChunkTime).toBeGreaterThan(0);
+      expect(progress?.isStalled).toBe(false);
+    });
+
+    it('should preserve chunkCount when request completes', () => {
+      manager.addStreamingRequest('req-123', 'server-1', 'llama3:8b');
+      manager.updateChunkProgress('req-123', 10);
+
+      const removed = manager.removeStreamingRequest('req-123');
+
+      expect(removed?.chunkCount).toBe(10);
+      expect(manager.getStreamingRequestProgress('req-123')).toBeUndefined();
+    });
+  });
+
+  describe('mixed in-flight and streaming', () => {
+    it('should handle both in-flight and streaming requests', () => {
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.addStreamingRequest('stream-1', 'server-1', 'llama3:8b');
+
+      expect(manager.getInFlight('server-1', 'llama3:8b')).toBe(2);
+      expect(manager.getAllStreamingRequests()).toHaveLength(1);
+    });
+
+    it('should handle clearing mixed requests', () => {
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.addStreamingRequest('stream-1', 'server-1', 'llama3:8b');
+      manager.addStreamingRequest('stream-2', 'server-2', 'llama3:8b');
+
+      manager.clear();
+
+      expect(manager.getInFlight('server-1', 'llama3:8b')).toBe(0);
+      expect(manager.getAllStreamingRequests()).toHaveLength(0);
+    });
+  });
+});
