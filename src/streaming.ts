@@ -14,8 +14,8 @@ export interface StreamResponseOptions {
   onFirstToken?: () => void;
   /** Callback when streaming is complete */
   onComplete?: (duration: number, tokens: number, chunkData?: ChunkData) => void;
-  /** Callback on each chunk received (useful for resetting activity timeout) */
-  onChunk?: () => void;
+  /** Callback on each chunk received (receives current chunk count) */
+  onChunk?: (chunkCount: number) => void;
   /** TTFT tracking options */
   ttftOptions?: TTFTOptions;
 }
@@ -91,7 +91,7 @@ export async function streamResponse(
     tokensPrompt: number,
     chunkData?: ChunkData
   ) => void,
-  onChunk?: () => void,
+  onChunk?: (chunkCount: number) => void,
   ttftOptions?: TTFTOptions
 ): Promise<void> {
   const ttftTracker = new TTFTTracker(ttftOptions);
@@ -149,11 +149,11 @@ export async function streamResponse(
       }
       lastChunkTime = now;
 
-      // Reset activity timeout on each chunk received
-      onChunk?.();
-
       chunkCount++;
       totalBytes += value.length;
+
+      // Call onChunk callback AFTER incrementing chunkCount so it receives correct count
+      onChunk?.(chunkCount);
 
       // Parse chunk to understand content
       const chunkInfo = parseStreamChunk(value);
@@ -207,10 +207,8 @@ export async function streamResponse(
         });
       }
 
-      // Increment chunk counter in tracker
-      if (firstTokenTime) {
-        ttftTracker.incrementChunk();
-      }
+      // Note: We don't call incrementChunk() here because markFirstChunk and markFirstContent
+      // already handle chunk counting internally. Calling incrementChunk would double-count.
 
       // Log progress periodically for long streams
       if (now - lastLogTime >= LOG_INTERVAL) {

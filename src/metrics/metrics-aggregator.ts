@@ -13,6 +13,7 @@ import type {
   LatencyPercentiles,
   GlobalMetrics,
   MetricsExport,
+  StreamingMetricsSummary,
 } from '../orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
@@ -628,6 +629,68 @@ export class MetricsAggregator {
       requestsPerSecond,
       avgLatency,
       errorRate,
+      streaming: this.getStreamingMetricsSummary(totalRequests),
+    };
+  }
+
+  /**
+   * Get aggregated streaming metrics summary across all server:model combinations
+   */
+  getStreamingMetricsSummary(totalRequests: number = 0): StreamingMetricsSummary | undefined {
+    let totalStreaming = 0;
+    let totalChunks = 0;
+    let totalTTFT = 0;
+    let ttftCount = 0;
+    let totalDuration = 0;
+    let durationCount = 0;
+    let totalChunkSize = 0;
+    let chunkSizeCount = 0;
+    let maxP95ChunkGap = 0;
+
+    for (const metrics of this.metrics.values()) {
+      const sm = metrics.streamingMetrics;
+      if (!sm) continue;
+
+      // Count streaming requests (from recentTTFTs which tracks each streaming request)
+      totalStreaming += sm.recentTTFTs.length;
+      totalChunks += sm.recentChunkCounts.reduce((a, b) => a + b, 0);
+
+      // Aggregate TTFT
+      if (sm.recentTTFTs.length > 0) {
+        totalTTFT += sm.recentTTFTs.reduce((a, b) => a + b, 0);
+        ttftCount += sm.recentTTFTs.length;
+      }
+
+      // Aggregate streaming duration
+      if (sm.recentStreamingDurations.length > 0) {
+        totalDuration += sm.recentStreamingDurations.reduce((a, b) => a + b, 0);
+        durationCount += sm.recentStreamingDurations.length;
+      }
+
+      // Aggregate chunk sizes
+      if (sm.recentChunkSizes.length > 0) {
+        totalChunkSize += sm.recentChunkSizes.reduce((a, b) => a + b, 0);
+        chunkSizeCount += sm.recentChunkSizes.length;
+      }
+
+      // Track max P95 chunk gap
+      if (sm.maxChunkGapPercentiles.p95 > maxP95ChunkGap) {
+        maxP95ChunkGap = sm.maxChunkGapPercentiles.p95;
+      }
+    }
+
+    if (totalStreaming === 0) {
+      return undefined;
+    }
+
+    return {
+      totalStreamingRequests: totalStreaming,
+      avgChunkCount: totalChunks / totalStreaming,
+      avgTTFT: ttftCount > 0 ? totalTTFT / ttftCount : 0,
+      avgStreamingDuration: durationCount > 0 ? totalDuration / durationCount : 0,
+      avgChunkSizeBytes: chunkSizeCount > 0 ? totalChunkSize / chunkSizeCount : 0,
+      p95ChunkGap: maxP95ChunkGap,
+      streamingPercentage: totalRequests > 0 ? (totalStreaming / totalRequests) * 100 : 0,
     };
   }
 

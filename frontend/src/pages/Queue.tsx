@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getQueueStatus, getInFlightByServer, pauseQueue, resumeQueue } from '../api';
-import { Clock, Layers, Zap, Pause, Play } from 'lucide-react';
+import {
+  getQueueStatus,
+  getInFlightByServer,
+  pauseQueue,
+  resumeQueue,
+  type StreamingRequestProgress,
+} from '../api';
+import { Clock, Layers, Zap, Pause, Play, Radio, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import { StatCard } from '../components/StatCard';
 import { formatDuration } from '../utils/formatting';
@@ -48,6 +54,17 @@ export const Queue = () => {
   const inFlight = inFlightData?.inFlight || [];
   const totalInFlight = inFlightData?.total || 0;
   const isPaused = queue?.paused ?? false;
+
+  // Calculate streaming stats
+  const allStreamingRequests: StreamingRequestProgress[] = [];
+  inFlight.forEach((server: { streamingRequests?: StreamingRequestProgress[] }) => {
+    if (server.streamingRequests) {
+      allStreamingRequests.push(...server.streamingRequests);
+    }
+  });
+  const streamingCount = allStreamingRequests.length;
+  const nonStreamingCount = totalInFlight - streamingCount;
+  const stalledCount = allStreamingRequests.filter(r => r.isStalled).length;
 
   return (
     <div className="space-y-8">
@@ -110,6 +127,35 @@ export const Queue = () => {
           color={queue?.paused ? 'text-red-400' : 'text-green-400'}
         />
       </div>
+
+      {/* Streaming Stats */}
+      {(streamingCount > 0 || nonStreamingCount > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <StatCard
+            title="Streaming Requests"
+            value={streamingCount}
+            subtext={`${nonStreamingCount} non-streaming`}
+            icon={Radio}
+            color="text-cyan-400"
+          />
+          <StatCard
+            title="Active Streams"
+            value={streamingCount}
+            subtext="Currently streaming"
+            icon={Zap}
+            color="text-teal-400"
+          />
+          {stalledCount > 0 && (
+            <StatCard
+              title="Stalled Streams"
+              value={stalledCount}
+              subtext="Needs attention"
+              icon={AlertTriangle}
+              color="text-red-400"
+            />
+          )}
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="flex space-x-1 bg-gray-800 rounded-lg p-1 w-fit">
@@ -241,6 +287,7 @@ export const Queue = () => {
                 healthy?: boolean;
                 serverUrl?: string;
                 total?: number;
+                streamingRequests?: StreamingRequestProgress[];
               }) => (
                 <div
                   key={server.serverId}
@@ -261,6 +308,67 @@ export const Queue = () => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Streaming Requests */}
+                  {server.streamingRequests && server.streamingRequests.length > 0 && (
+                    <div className="p-6 border-b border-gray-700 bg-cyan-900/10">
+                      <h4 className="text-sm font-medium text-cyan-400 mb-4 flex items-center gap-2">
+                        <Radio className="w-4 h-4" />
+                        Streaming Requests
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {server.streamingRequests.map((req: StreamingRequestProgress) => {
+                          const duration = Date.now() - req.startTime;
+                          const chunksPerSec =
+                            req.chunkCount > 0
+                              ? (req.chunkCount / (duration / 1000)).toFixed(1)
+                              : '0';
+                          return (
+                            <div
+                              key={req.id}
+                              className={`rounded-lg p-3 ${req.isStalled ? 'bg-red-900/30 border border-red-500/50' : 'bg-gray-900'}`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div
+                                  className="text-sm text-white truncate font-mono"
+                                  title={req.id}
+                                >
+                                  {req.id.slice(0, 8)}...
+                                </div>
+                                {req.isStalled && (
+                                  <span className="text-xs px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    Stalled
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-400 mt-1">{req.model}</div>
+                              <div className="flex items-center gap-4 mt-2">
+                                <div>
+                                  <span className="text-lg font-bold text-cyan-400">
+                                    {req.chunkCount}
+                                  </span>
+                                  <span className="text-xs text-gray-500 ml-1">chunks</span>
+                                </div>
+                                <div>
+                                  <span className="text-lg font-bold text-teal-400">
+                                    {chunksPerSec}
+                                  </span>
+                                  <span className="text-xs text-gray-500 ml-1">ch/s</span>
+                                </div>
+                                <div>
+                                  <span className="text-lg font-bold text-purple-400">
+                                    {formatDuration(duration)}
+                                  </span>
+                                  <span className="text-xs text-gray-500 ml-1">duration</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {Object.entries(server.byModel).length > 0 && (
                     <div className="p-6">
