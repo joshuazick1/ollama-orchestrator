@@ -532,4 +532,391 @@ describe('MetricsAggregator', () => {
       expect(metrics?.streamingMetrics?.recentTTFTs.length).toBeLessThanOrEqual(500);
     });
   });
+
+  describe('getRawMetrics', () => {
+    it('should return raw metrics without fallback', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const rawMetrics = aggregator.getRawMetrics('server-1', 'llama3:latest');
+
+      expect(rawMetrics).toBeDefined();
+      expect(rawMetrics?.serverId).toBe('server-1');
+      expect(rawMetrics?.model).toBe('llama3:latest');
+      expect(rawMetrics?.windows['5m'].count).toBe(1);
+    });
+
+    it('should return undefined for non-existent metrics', () => {
+      const rawMetrics = aggregator.getRawMetrics('non-existent', 'model');
+
+      expect(rawMetrics).toBeUndefined();
+    });
+  });
+
+  describe('getAllMetricsForServer', () => {
+    it('should return all metrics for a specific server', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'codellama:7b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 150,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-3',
+        startTime: Date.now() - 100,
+        serverId: 'server-2',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 200,
+      });
+
+      const serverMetrics = aggregator.getAllMetricsForServer('server-1');
+
+      expect(serverMetrics).toHaveLength(2);
+      expect(serverMetrics.map(m => m.model).sort()).toEqual(['codellama:7b', 'llama3:latest']);
+    });
+
+    it('should return empty array for non-existent server', () => {
+      const serverMetrics = aggregator.getAllMetricsForServer('non-existent');
+
+      expect(serverMetrics).toHaveLength(0);
+    });
+  });
+
+  describe('getMetricsByParameterSize', () => {
+    it('should group metrics by parameter size', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:70b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 200,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:8b', { parameterSize: '8B' });
+      aggregator.updateModelMetadata('server-1', 'llama3:70b', { parameterSize: '70B' });
+
+      const sizeMetrics = aggregator.getMetricsByParameterSize('server-1', '8B');
+
+      expect(sizeMetrics).toBeDefined();
+      expect(sizeMetrics?.model).toBe('llama3:8b');
+    });
+
+    it('should return undefined for non-existent parameter size', () => {
+      const sizeMetrics = aggregator.getMetricsByParameterSize('server-1', '999b');
+
+      expect(sizeMetrics).toBeUndefined();
+    });
+  });
+
+  describe('getServerCapabilityScore', () => {
+    it('should calculate capability score based on metrics', () => {
+      for (let i = 0; i < 10; i++) {
+        aggregator.recordRequest({
+          id: `req-${i}`,
+          startTime: Date.now() - 100,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: false,
+          success: true,
+          duration: 100,
+        });
+      }
+
+      const score = aggregator.getServerCapabilityScore('server-1');
+
+      expect(score).toBeGreaterThan(0);
+    });
+
+    it('should return 0 for non-existent server', () => {
+      const score = aggregator.getServerCapabilityScore('non-existent');
+
+      expect(score).toBe(0);
+    });
+  });
+
+  describe('getMetricsWithFallback', () => {
+    it('should return specific model metrics when available', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 150,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'llama3:latest');
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.model).toBe('llama3:latest');
+    });
+
+    it('should return undefined when model not found and no parameterSize provided', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'unknown-model');
+
+      expect(metrics).toBeUndefined();
+    });
+
+    it('should fallback to parameter size when enabled and parameterSize provided and metadata set', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', { parameterSize: '8B' });
+
+      aggregator.setCrossModelInferenceConfig({
+        enabled: true,
+        useParameterSize: true,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'llama3:8b', '8B');
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.model).toContain('llama3:latest');
+      expect(metrics?.parameterSize).toBe('8B');
+    });
+
+    it('should return undefined when no fallback available', () => {
+      const metrics = aggregator.getMetricsWithFallback('non-existent', 'unknown-model');
+
+      expect(metrics).toBeUndefined();
+    });
+
+    it('should not fallback when cross-model inference is disabled', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', { parameterSize: '8B' });
+
+      aggregator.setCrossModelInferenceConfig({
+        enabled: false,
+        useParameterSize: true,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'llama3:8b', '8B');
+
+      expect(metrics).toBeUndefined();
+    });
+  });
+
+  describe('updateModelMetadata', () => {
+    it('should update parameter size and rebuild index', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', {
+        parameterSize: '8B',
+        quantization: 'Q4_K_M',
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.parameterSize).toBe('8B');
+      expect(metrics?.quantization).toBe('Q4_K_M');
+    });
+
+    it('should make parameter size fallback available after metadata update', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', { parameterSize: '8B' });
+
+      const sizeMetrics = aggregator.getMetricsByParameterSize('server-1', '8B');
+
+      expect(sizeMetrics).toBeDefined();
+      expect(sizeMetrics?.model).toBe('llama3:latest');
+    });
+  });
+
+  describe('getAllMetrics', () => {
+    it('should return all metrics as a Map', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const allMetrics = aggregator.getAllMetrics();
+
+      expect(allMetrics).toBeInstanceOf(Map);
+      expect(allMetrics.size).toBe(1);
+      expect(allMetrics.has('server-1:llama3:latest')).toBe(true);
+    });
+
+    it('should return empty Map when no metrics', () => {
+      const allMetrics = aggregator.getAllMetrics();
+
+      expect(allMetrics).toBeInstanceOf(Map);
+      expect(allMetrics.size).toBe(0);
+    });
+  });
+
+  describe('getGlobalMetrics', () => {
+    it('should aggregate global metrics', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-2',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: false,
+        success: false,
+        duration: 200,
+      });
+
+      const global = aggregator.getGlobalMetrics();
+
+      expect(global).toBeDefined();
+      expect(global.totalRequests).toBe(2);
+      expect(global.totalErrors).toBe(1);
+    });
+  });
+
+  describe('Cross-Model Inference Config', () => {
+    it('should set and get cross-model inference config', () => {
+      aggregator.setCrossModelInferenceConfig({
+        enabled: true,
+        useParameterSize: false,
+      });
+
+      const config = (aggregator as any).config.crossModelInference;
+
+      expect(config.enabled).toBe(true);
+      expect(config.useParameterSize).toBe(false);
+    });
+  });
+
+  describe('Decay Config', () => {
+    it('should get default decay config', () => {
+      const config = aggregator.getDecayConfig();
+
+      expect(config).toBeDefined();
+      expect(config).toHaveProperty('enabled');
+      expect(config).toHaveProperty('halfLifeMs');
+    });
+
+    it('should set decay config', () => {
+      aggregator.setDecayConfig({
+        enabled: false,
+        halfLifeMs: 60000,
+      });
+
+      const config = aggregator.getDecayConfig();
+
+      expect(config.enabled).toBe(false);
+      expect(config.halfLifeMs).toBe(60000);
+    });
+  });
 });
