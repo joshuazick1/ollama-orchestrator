@@ -24,6 +24,7 @@ describe('circuitBreakerController', () => {
     mockOrchestrator = {
       getServerCircuitBreaker: vi.fn(),
       getModelCircuitBreakerPublic: vi.fn(),
+      getLBScoreForServerModel: vi.fn().mockReturnValue(null),
     };
 
     mockCoordinator = {
@@ -190,6 +191,7 @@ describe('circuitBreakerController', () => {
         key: 'server-1',
         serverId: 'server-1',
         model: 'server-level',
+        lbScore: null,
         stats: { state: 'closed', failures: 0 },
       });
     });
@@ -208,6 +210,7 @@ describe('circuitBreakerController', () => {
         key: 'server-1:llama3:latest',
         serverId: 'server-1',
         model: 'llama3:latest',
+        lbScore: null,
         stats: { state: 'open', failures: 5 },
       });
     });
