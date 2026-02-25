@@ -80,11 +80,26 @@ export function getBreakerDetails(req: Request, res: Response): void {
       return;
     }
 
+    // Get LB score breakdown
+    const lbScore =
+      model !== 'server' ? orchestrator.getLBScoreForServerModel(serverId, model) : null;
+
     res.json({
       key: model === 'server' ? serverId : `${serverId}:${model}`,
       serverId,
       model: model === 'server' ? 'server-level' : model,
       stats: breaker.getStats(),
+      lbScore: lbScore
+        ? {
+            total: lbScore.totalScore,
+            components: {
+              latency: lbScore.breakdown.latencyScore,
+              successRate: lbScore.breakdown.successRateScore,
+              load: lbScore.breakdown.loadScore,
+              capacity: lbScore.breakdown.capacityScore,
+            },
+          }
+        : null,
     });
   } catch (error) {
     logger.error('Error getting circuit breaker details:', error);

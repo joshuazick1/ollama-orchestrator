@@ -460,23 +460,31 @@ export function getMetricsImpact(req: Request, res: Response): void {
 /**
  * Get request history for a server
  * GET /api/orchestrator/analytics/requests/:serverId
+ * Optional query param: model (to filter by specific model)
  */
 export function getServerRequestHistory(req: Request, res: Response): void {
   const { serverId } = req.params;
-  const { limit = '100', offset = '0' } = req.query;
+  const { limit = '100', offset = '0', model } = req.query;
 
   const analytics = getAnalyticsEngine();
 
   try {
-    const requests = analytics.getServerRequestHistory(
+    let requests = analytics.getServerRequestHistory(
       Array.isArray(serverId) ? serverId[0] : serverId,
       parseInt(limit as string, 10),
       parseInt(offset as string, 10)
     );
 
+    // Filter by model if provided
+    if (model) {
+      const modelFilter = Array.isArray(model) ? model[0] : model;
+      requests = requests.filter(req => req.model === modelFilter);
+    }
+
     res.status(200).json({
       success: true,
       serverId,
+      model: model || null,
       count: requests.length,
       requests: requests.map(req => ({
         id: req.id,

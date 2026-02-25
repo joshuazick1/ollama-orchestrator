@@ -649,7 +649,9 @@ export class MetricsAggregator {
 
     for (const metrics of this.metrics.values()) {
       const sm = metrics.streamingMetrics;
-      if (!sm) continue;
+      if (!sm) {
+        continue;
+      }
 
       // Count streaming requests (from recentTTFTs which tracks each streaming request)
       totalStreaming += sm.recentTTFTs.length;
