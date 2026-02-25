@@ -456,3 +456,207 @@ function createMockUpstreamResponse(body: ReadableStream): any {
     }),
   };
 }
+
+describe('streamResponse TTFT integration', () => {
+  let mockResponse: Partial<Response>;
+  let writtenChunks: Buffer[];
+
+  beforeEach(() => {
+    writtenChunks = [];
+    mockResponse = {
+      setHeader: vi.fn(),
+      write: vi.fn((chunk: Buffer) => {
+        writtenChunks.push(chunk);
+        return true;
+      }),
+      end: vi.fn(),
+      writableEnded: false,
+      headersSent: false,
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+  });
+
+  it('should track chunk counts correctly without double counting', async () => {
+    const chunkCounts: number[] = [];
+    const onChunk: (chunkCount: number) => void = count => {
+      chunkCounts.push(count);
+    };
+    const mockBody = createMockBody([
+      'data: {"response":"H","done":false}\n\n',
+      'data: {"response":"He","done":false}\n\n',
+      'data: {"response":"Hel","done":false}\n\n',
+      'data: {"response":"Hell","done":false}\n\n',
+      'data: {"response":"Hello","done":true}\n\n',
+    ]);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      undefined,
+      onChunk
+    );
+
+    expect(chunkCounts).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('should provide correct chunkCount in onComplete callback for single chunk', async () => {
+    const onComplete = vi.fn();
+    const mockBody = createMockBody(['data: {"response":"x","done":true}\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete
+    );
+
+    const chunkData = onComplete.mock.calls[0][3];
+    expect(chunkData.chunkCount).toBe(1);
+  });
+
+  it('should provide correct chunkCount for empty response', async () => {
+    const onComplete = vi.fn();
+    const onChunk = vi.fn();
+    const mockBody = createMockBody([]);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete,
+      onChunk
+    );
+
+    expect(onChunk).not.toHaveBeenCalled();
+    const chunkData = onComplete.mock.calls[0][3];
+    expect(chunkData.chunkCount).toBe(0);
+  });
+
+  it('should call onChunk before onFirstToken for first chunk', async () => {
+    const callOrder: string[] = [];
+    const onFirstToken = () => callOrder.push('firstToken');
+    const onChunk = () => callOrder.push('chunk');
+
+    const mockBody = createMockBody(['data: {"response":"test","done":false}\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      onFirstToken,
+      undefined,
+      onChunk
+    );
+
+    expect(callOrder).toEqual(['chunk', 'firstToken']);
+  });
+
+  it('should handle multiple rapid chunks with correct timing', async () => {
+    const onChunk = vi.fn();
+    const mockBody = createMockBody(['data: chunk1\n\n', 'data: chunk2\n\n', 'data: chunk3\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      undefined,
+      onChunk
+    );
+
+    expect(onChunk).toHaveBeenCalledTimes(3);
+    expect(onChunk).toHaveBeenNthCalledWith(1, 1);
+    expect(onChunk).toHaveBeenNthCalledWith(2, 2);
+    expect(onChunk).toHaveBeenNthCalledWith(3, 3);
+  });
+
+  it('should handle malformed JSON chunks gracefully', async () => {
+    const onComplete = vi.fn();
+    const onChunk = vi.fn();
+    const mockBody = createMockBody([
+      'data: not json\n\n',
+      'data: {"response":"valid","done":false}\n\n',
+      'data: [DONE]\n\n',
+    ]);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete,
+      onChunk
+    );
+
+    expect(onChunk).toHaveBeenCalledTimes(3);
+    expect(onComplete).toHaveBeenCalled();
+  });
+
+  it('should include totalBytes in onComplete callback', async () => {
+    const onComplete = vi.fn();
+    const mockBody = createMockBody(['data: {"response":"Hello","done":true,"eval_count":5}\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete
+    );
+
+    const chunkData = onComplete.mock.calls[0][3];
+    expect(chunkData.totalBytes).toBeGreaterThan(0);
+  });
+
+  it('should track maxChunkGapMs in onComplete callback', async () => {
+    const onComplete = vi.fn();
+    const mockBody = createMockBody([
+      'data: {"response":"1","done":false}\n\n',
+      'data: {"response":"2","done":true}\n\n',
+    ]);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete
+    );
+
+    const chunkData = onComplete.mock.calls[0][3];
+    expect(chunkData.maxChunkGapMs).toBeDefined();
+    expect(typeof chunkData.maxChunkGapMs).toBe('number');
+  });
+});
+
+describe('parseSSEData edge cases', () => {
+  it('should handle JSON parse errors gracefully', () => {
+    const data = new TextEncoder().encode('data: {"incomplete":\n\n');
+    const events = parseSSEData(data);
+    expect(events).toHaveLength(1);
+  });
+
+  it('should handle multiple events in single data chunk', () => {
+    const data = new TextEncoder().encode('data: {"e":1}\ndata: {"e":2}\n\n');
+    const events = parseSSEData(data);
+    expect(events).toHaveLength(2);
+  });
+
+  it('should handle events with newlines in content', () => {
+    const data = new TextEncoder().encode('data: {"response":"line1\\nline2","done":false}\n\n');
+    const events = parseSSEData(data);
+    expect(events).toHaveLength(1);
+    expect(events[0].data.response).toBe('line1\nline2');
+  });
+
+  it('should handle empty lines between events', () => {
+    const data = new TextEncoder().encode('data: {"e":1}\n\n\ndata: {"e":2}\n\n');
+    const events = parseSSEData(data);
+    expect(events).toHaveLength(2);
+  });
+});
