@@ -171,6 +171,16 @@ export const getInFlightByServer = async () => {
   });
 };
 
+export interface StreamingRequestProgress {
+  id: string;
+  serverId: string;
+  model: string;
+  startTime: number;
+  chunkCount: number;
+  lastChunkTime: number;
+  isStalled: boolean;
+}
+
 export interface CircuitBreakerInfo {
   serverId: string;
   serverIdOnly?: string;

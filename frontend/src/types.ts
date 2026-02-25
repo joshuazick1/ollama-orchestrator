@@ -391,6 +391,20 @@ export interface GlobalMetrics {
   requestsPerSecond: number;
   avgLatency: number;
   errorRate: number;
+  streaming?: StreamingMetricsSummary;
+}
+
+/**
+ * Aggregated streaming metrics across all server:model combinations
+ */
+export interface StreamingMetricsSummary {
+  totalStreamingRequests: number;
+  avgChunkCount: number;
+  avgTTFT: number;
+  avgStreamingDuration: number;
+  avgChunkSizeBytes: number;
+  p95ChunkGap: number;
+  streamingPercentage: number;
 }
 
 /**
@@ -415,6 +429,7 @@ export interface ModelMetricsExport {
   successRate: number;
   throughput: number;
   avgTokensPerRequest: number;
+  streamingMetrics?: StreamingMetrics;
 }
 
 /**

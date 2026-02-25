@@ -14,6 +14,7 @@ import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../st
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
+import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
@@ -174,7 +175,6 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
           const ttftTracker = new TTFTTracker({ serverId: server.id, model });
           const streamStartTime = Date.now();
-          let firstTokenAt: number | undefined;
           let tokenMetrics: { tokensGenerated: number; tokensPrompt: number } | undefined;
           let streamingChunkData:
             | {
@@ -184,6 +184,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 avgChunkSizeBytes?: number;
               }
             | undefined;
+          let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
           try {
             await streamResponse(
@@ -191,22 +192,20 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               res,
               () => {
                 // First token callback
-                firstTokenAt = Date.now();
-
                 // Track with TTFTTracker
                 ttftTracker.markFirstChunk(0);
 
                 logger.debug(`First token received for model ${model}`, {
-                  timeToFirstToken: firstTokenAt - streamStartTime,
+                  timeToFirstToken: ttftTracker.getCurrentElapsed(),
                 });
               },
               (duration, tokensGenerated, tokensPrompt, chunkData) => {
                 // Get TTFT metrics from tracker
-                const ttftMetrics = ttftTracker.getMetrics();
+                ttftMetrics = ttftTracker.getMetrics();
 
                 // Stream complete callback - capture token metrics
                 logger.info(
-                  `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}, chunks: ${chunkData?.chunkCount ?? 0}`
+                  `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}, chunks: ${chunkData?.chunkCount ?? 0}, ttft: ${ttftMetrics?.ttft}ms`
                 );
                 tokenMetrics = { tokensGenerated, tokensPrompt };
                 // Store chunk data for return value
@@ -227,7 +226,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           const finalDuration = Date.now() - streamStartTime;
           return {
             _streamingMetrics: {
-              ttft: firstTokenAt ? firstTokenAt - streamStartTime : undefined,
+              ttft: ttftMetrics?.ttft,
               streamingDuration: finalDuration,
             },
             _tokenMetrics: tokenMetrics ?? {
@@ -354,7 +353,6 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
           const ttftTracker = new TTFTTracker({ serverId: server.id, model });
           const streamStartTime = Date.now();
-          let firstTokenAt: number | undefined;
           let tokenMetrics: { tokensGenerated: number; tokensPrompt: number } | undefined;
           let streamingChunkData:
             | {
@@ -364,6 +362,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 avgChunkSizeBytes?: number;
               }
             | undefined;
+          let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
           try {
             await streamResponse(
@@ -371,18 +370,16 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               res,
               () => {
                 // First token callback
-                firstTokenAt = Date.now();
-
                 // Track with TTFTTracker
                 ttftTracker.markFirstChunk(0);
 
                 logger.debug(`First token received for chat model ${model}`, {
-                  timeToFirstToken: firstTokenAt - streamStartTime,
+                  timeToFirstToken: ttftTracker.getCurrentElapsed(),
                 });
               },
               (duration, tokensGenerated, tokensPrompt, _chunkData) => {
                 // Get TTFT metrics from tracker
-                const ttftMetrics = ttftTracker.getMetrics();
+                ttftMetrics = ttftTracker.getMetrics();
 
                 // Stream complete callback - capture token metrics
                 logger.debug(`Chat stream completed for model ${model}`, {
@@ -390,14 +387,20 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                   tokensGenerated,
                   tokensPrompt,
                   chunks: _chunkData?.chunkCount ?? 0,
-                  timeToFirstToken:
-                    ttftMetrics.ttft ?? (firstTokenAt ? firstTokenAt - streamStartTime : undefined),
+                  timeToFirstToken: ttftMetrics?.ttft,
                 });
                 tokenMetrics = { tokensGenerated, tokensPrompt };
               },
-              () => {
+              chunkCount => {
                 // On each chunk, reset the activity timeout
                 activityController.resetTimeout();
+
+                // Update InFlightManager with current chunk count for real-time tracking
+                const requestId = (server as AIServer & { _streamingRequestId?: string })
+                  ._streamingRequestId;
+                if (requestId) {
+                  getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                }
               },
               // Pass TTFT options
               { serverId: server.id, model }
@@ -406,14 +409,11 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             activityController.clearTimeout();
           }
 
-          // Get final TTFT metrics
-          const ttftMetrics = ttftTracker.getMetrics();
-
           // Return streaming metrics and token metrics so orchestrator can record them
           const finalDuration = Date.now() - streamStartTime;
           return {
             _streamingMetrics: {
-              ttft: ttftMetrics.ttft ?? (firstTokenAt ? firstTokenAt - streamStartTime : undefined),
+              ttft: ttftMetrics?.ttft,
               streamingDuration: finalDuration,
             },
             _tokenMetrics: tokenMetrics ?? {
@@ -798,9 +798,16 @@ export async function handleStreamingGenerate(
               chunks: _chunkData?.chunkCount ?? 0,
             });
           },
-          () => {
-            // Reset activity timeout on each chunk
+          chunkCount => {
+            // On each chunk, reset the activity timeout
             activityController.resetTimeout();
+
+            // Update InFlightManager with current chunk count for real-time tracking
+            const requestId = (server as AIServer & { _streamingRequestId?: string })
+              ._streamingRequestId;
+            if (requestId) {
+              getInFlightManager().updateChunkProgress(requestId, chunkCount);
+            }
           },
           // Pass TTFT options
           { serverId: server.id, model }

@@ -1869,6 +1869,9 @@ export class AIOrchestrator {
       // Track streaming requests for real-time progress monitoring
       if (isStreaming) {
         this.inFlightManager.addStreamingRequest(requestContext.id, server.id, model);
+        // Pass requestId to server object for streaming handlers to use
+        (server as AIServer & { _streamingRequestId?: string })._streamingRequestId =
+          requestContext.id;
       }
 
       const result = await fn(server);

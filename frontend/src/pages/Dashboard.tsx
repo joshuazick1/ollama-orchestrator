@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { getHealth, getQueueStatus, getAnalyticsSummary } from '../api';
-import { Activity, Zap, Clock, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { getHealth, getQueueStatus, getAnalyticsSummary, getMetrics } from '../api';
+import { Activity, Zap, Clock, AlertCircle, CheckCircle, XCircle, Radio } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 
 export const Dashboard = () => {
@@ -21,6 +21,11 @@ export const Dashboard = () => {
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
     queryKey: ['analytics-summary'],
     queryFn: getAnalyticsSummary,
+  });
+  const { data: metrics, isLoading: metricsLoading } = useQuery({
+    queryKey: ['metrics'],
+    queryFn: getMetrics,
+    refetchInterval: 30000,
   });
 
   const activeServers = health?.orchestrator?.healthyServers || 0;
@@ -153,6 +158,52 @@ export const Dashboard = () => {
           color={analyticsLoading ? 'text-gray-400' : 'text-purple-400'}
         />
       </div>
+
+      {/* Streaming Stats */}
+      {metrics?.global?.streaming && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard
+            title="Streaming Requests"
+            value={
+              metricsLoading
+                ? '...'
+                : metrics.global.streaming?.totalStreamingRequests?.toLocaleString() || '0'
+            }
+            subtext={metricsLoading ? 'Loading...' : 'Last 5 minutes'}
+            icon={Radio}
+            color={metricsLoading ? 'text-gray-400' : 'text-cyan-400'}
+          />
+          <StatCard
+            title="Avg Chunks/Request"
+            value={
+              metricsLoading ? '...' : (metrics.global.streaming?.avgChunkCount || 0).toFixed(1)
+            }
+            subtext={metricsLoading ? 'Loading...' : 'Chunks per stream'}
+            icon={Activity}
+            color={metricsLoading ? 'text-gray-400' : 'text-teal-400'}
+          />
+          <StatCard
+            title="Avg TTFT"
+            value={
+              metricsLoading ? '...' : `${Math.round(metrics.global.streaming?.avgTTFT || 0)}ms`
+            }
+            subtext={metricsLoading ? 'Loading...' : 'Time to first token'}
+            icon={Zap}
+            color={metricsLoading ? 'text-gray-400' : 'text-indigo-400'}
+          />
+          <StatCard
+            title="Streaming %"
+            value={
+              metricsLoading
+                ? '...'
+                : `${(metrics.global.streaming?.streamingPercentage || 0).toFixed(1)}%`
+            }
+            subtext={metricsLoading ? 'Loading...' : 'Of total requests'}
+            icon={Radio}
+            color={metricsLoading ? 'text-gray-400' : 'text-blue-400'}
+          />
+        </div>
+      )}
 
       {/* Quick Actions or Recent Activity could go here */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

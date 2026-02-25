@@ -82,6 +82,44 @@ describe('streamResponse', () => {
     expect(onFirstToken).toHaveBeenCalledTimes(1);
   });
 
+  it('should call onChunk callback with chunkCount on each chunk', async () => {
+    const onChunk = vi.fn();
+    const mockBody = createMockBody(['data: first\n\n', 'data: second\n\n', 'data: third\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      undefined,
+      onChunk
+    );
+
+    // onChunk should be called with the current chunk count (1, 2, 3)
+    expect(onChunk).toHaveBeenCalledTimes(3);
+    expect(onChunk).toHaveBeenNthCalledWith(1, 1);
+    expect(onChunk).toHaveBeenNthCalledWith(2, 2);
+    expect(onChunk).toHaveBeenNthCalledWith(3, 3);
+  });
+
+  it('should track correct chunkCount in onComplete callback', async () => {
+    const onComplete = vi.fn();
+    const mockBody = createMockBody(['data: chunk1\n\n', 'data: chunk2\n\n', 'data: chunk3\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    await streamResponse(
+      mockUpstreamResponse as any,
+      mockResponse as Response,
+      undefined,
+      onComplete
+    );
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    const chunkData = onComplete.mock.calls[0][3];
+    // Should have exactly 3 chunks, not more due to double counting
+    expect(chunkData.chunkCount).toBe(3);
+  });
+
   it('should call complete callback with duration and token count', async () => {
     const onComplete = vi.fn();
     const mockBody = createMockBody(['data: test\n\n']);

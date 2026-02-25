@@ -27,6 +27,7 @@ import type { AIServer } from '../types';
 import { useState, useMemo } from 'react';
 import type { CircuitBreakerInfo } from '../api';
 import { toastSuccess, toastError } from '../utils/toast';
+import { CircuitDetailModal } from '../components/CircuitDetailModal';
 
 type SortKey = 'name' | 'replicas';
 type SortDirection = 'asc' | 'desc';
@@ -78,6 +79,7 @@ const ServerBadge = ({
   inFlightData,
   modelStatus,
   onReset,
+  onClick,
 }: {
   server: AIServer;
   model: string;
@@ -85,6 +87,7 @@ const ServerBadge = ({
   inFlightData?: InFlightServer;
   modelStatus?: ModelServerStatus;
   onReset?: () => void;
+  onClick?: () => void;
 }) => {
   // Get in-flight count for this server:model
   const inFlightCount = inFlightData?.byModel?.[model]?.regular || 0;
@@ -142,8 +145,9 @@ const ServerBadge = ({
 
   return (
     <div
-      className={`flex items-center space-x-1.5 text-xs px-2.5 py-1.5 rounded-md transition-all ${badgeClass} ${hasInFlight ? 'animate-pulse' : ''}`}
+      className={`flex items-center space-x-1.5 text-xs px-2.5 py-1.5 rounded-md transition-all cursor-pointer hover:opacity-80 ${badgeClass} ${hasInFlight ? 'animate-pulse' : ''}`}
       title={tooltip}
+      onClick={onClick}
     >
       {icon}
       <span className="truncate max-w-[150px]">{label}</span>
@@ -216,6 +220,10 @@ export const Models = () => {
     key: 'name',
     direction: 'asc',
   });
+  const [selectedCircuit, setSelectedCircuit] = useState<{
+    serverId: string;
+    model: string;
+  } | null>(null);
 
   const { data: modelMap, isLoading: mapLoading } = useQuery({
     queryKey: ['modelMap'],
@@ -430,6 +438,7 @@ export const Models = () => {
                             inFlightData={inFlightMap.get(server.id)}
                             modelStatus={modelStatusMap.get(model)?.[server.id]}
                             onReset={() => resetCbMutation.mutate({ serverId: server.id, model })}
+                            onClick={() => setSelectedCircuit({ serverId: server.id, model })}
                           />
                         ))}
                       </div>
@@ -449,6 +458,16 @@ export const Models = () => {
           </table>
         </div>
       </div>
+
+      {/* Circuit Detail Modal */}
+      {selectedCircuit && (
+        <CircuitDetailModal
+          isOpen={!!selectedCircuit}
+          onClose={() => setSelectedCircuit(null)}
+          serverId={selectedCircuit.serverId}
+          model={selectedCircuit.model}
+        />
+      )}
     </div>
   );
 };
