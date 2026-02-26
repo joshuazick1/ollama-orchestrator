@@ -12,7 +12,7 @@ import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-in
 import type { AIServer } from '../orchestrator.types.js';
 import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../streaming.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
-import { addDebugHeaders } from '../utils/debug-headers.js';
+import { addDebugHeaders, getDebugInfo } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
@@ -227,6 +227,14 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               // Pass streaming request ID for InFlightManager tracking
               (server as AIServer & { _streamingRequestId?: string })._streamingRequestId
             );
+
+            const includeDebug = req.query.debug === 'true';
+            if (includeDebug && !res.writableEnded) {
+              const debugInfo = getDebugInfo(routingContext);
+              if (debugInfo) {
+                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+              }
+            }
           } finally {
             activityController.clearTimeout();
           }
@@ -279,6 +287,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
+      const includeDebug = req.query.debug === 'true';
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo && typeof result === 'object' && result !== null) {
+          (result as Record<string, unknown>).debug = debugInfo;
+        }
+      }
       res.json(result);
     }
   } catch (error) {
@@ -414,6 +429,14 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               // Pass TTFT options
               { serverId: server.id, model }
             );
+
+            const includeDebug = req.query.debug === 'true';
+            if (includeDebug && !res.writableEnded) {
+              const debugInfo = getDebugInfo(routingContext);
+              if (debugInfo) {
+                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+              }
+            }
           } finally {
             activityController.clearTimeout();
           }
@@ -466,6 +489,13 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
+      const includeDebug = req.query.debug === 'true';
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo && typeof result === 'object' && result !== null) {
+          (result as Record<string, unknown>).debug = debugInfo;
+        }
+      }
       res.json(result);
     }
   } catch (error) {
