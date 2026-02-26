@@ -15,6 +15,7 @@ import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { addDebugHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
+import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
@@ -408,6 +409,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           }
 
           try {
+            let chunkCount = 0;
             await streamOpenAIResponse(
               response,
               res,
@@ -415,7 +417,16 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               model,
               true,
               body.stream_options?.include_usage,
-              () => activityController.resetTimeout()
+              () => {
+                activityController.resetTimeout();
+                chunkCount++;
+                // Update InFlightManager with current chunk count for real-time tracking
+                const requestId = (server as AIServer & { _streamingRequestId?: string })
+                  ._streamingRequestId;
+                if (requestId) {
+                  getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                }
+              }
             );
           } finally {
             activityController.clearTimeout();
@@ -772,6 +783,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
           }
 
           try {
+            let chunkCount = 0;
             await streamOpenAIResponse(
               response,
               res,
@@ -779,7 +791,16 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               model,
               true,
               body.stream_options?.include_usage,
-              () => activityController.resetTimeout()
+              () => {
+                activityController.resetTimeout();
+                chunkCount++;
+                // Update InFlightManager with current chunk count for real-time tracking
+                const requestId = (server as AIServer & { _streamingRequestId?: string })
+                  ._streamingRequestId;
+                if (requestId) {
+                  getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                }
+              }
             );
           } finally {
             activityController.clearTimeout();

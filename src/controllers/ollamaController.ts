@@ -211,12 +211,21 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 // Store chunk data for return value
                 streamingChunkData = chunkData;
               },
-              () => {
+              chunkCount => {
                 // On each chunk, reset the activity timeout
                 activityController.resetTimeout();
+
+                // Update InFlightManager with current chunk count for real-time tracking
+                const requestId = (server as AIServer & { _streamingRequestId?: string })
+                  ._streamingRequestId;
+                if (requestId) {
+                  getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                }
               },
               // Pass TTFT options
-              ttftTracker ? { serverId: server.id, model } : undefined
+              ttftTracker ? { serverId: server.id, model } : undefined,
+              // Pass streaming request ID for InFlightManager tracking
+              (server as AIServer & { _streamingRequestId?: string })._streamingRequestId
             );
           } finally {
             activityController.clearTimeout();
@@ -799,12 +808,24 @@ export async function handleStreamingGenerate(
             });
           },
           chunkCount => {
+            console.log('GENERATE CHUNK CALLBACK FIRED', {
+              chunkCount,
+              serverId: server.id,
+              requestId: (server as AIServer & { _streamingRequestId?: string })
+                ._streamingRequestId,
+            });
             // On each chunk, reset the activity timeout
             activityController.resetTimeout();
 
             // Update InFlightManager with current chunk count for real-time tracking
             const requestId = (server as AIServer & { _streamingRequestId?: string })
               ._streamingRequestId;
+            logger.info('GEN_CHUNK_RECEIVED', {
+              requestId,
+              chunkCount,
+              serverId: server.id,
+              model,
+            });
             if (requestId) {
               getInFlightManager().updateChunkProgress(requestId, chunkCount);
             }

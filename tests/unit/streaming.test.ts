@@ -17,6 +17,15 @@ vi.mock('../../src/utils/logger.js', () => ({
   },
 }));
 
+// Mock InFlightManager
+vi.mock('../../src/utils/in-flight-manager.js', () => ({
+  getInFlightManager: vi.fn(() => ({
+    updateChunkProgress: vi.fn(),
+    addStreamingRequest: vi.fn(),
+    removeStreamingRequest: vi.fn(),
+  })),
+}));
+
 describe('streamResponse', () => {
   let mockResponse: Partial<Response>;
   let writtenChunks: Buffer[];
@@ -29,10 +38,11 @@ describe('streamResponse', () => {
     headersSent = false;
 
     mockResponse = {
-      setHeader: vi.fn((name: string, value: string) => {
+      setHeader: vi.fn((_name: string, _value: string) => {
         if (!headersSent) {
           headersSent = true;
         }
+        return mockResponse as Response;
       }),
       write: vi.fn((chunk: Buffer) => {
         writtenChunks.push(chunk);
@@ -40,6 +50,7 @@ describe('streamResponse', () => {
       }),
       end: vi.fn(() => {
         responseEnded = true;
+        return mockResponse as Response;
       }),
       writableEnded: false,
       headersSent: false,
@@ -230,6 +241,7 @@ describe('streamResponse', () => {
       if (event === 'drain') {
         setTimeout(callback, 10);
       }
+      return mockResponse as Response;
     });
 
     await streamResponse(mockUpstreamResponse as any, mockResponse as Response);
@@ -632,6 +644,121 @@ describe('streamResponse TTFT integration', () => {
     expect(chunkData.maxChunkGapMs).toBeDefined();
     expect(typeof chunkData.maxChunkGapMs).toBe('number');
   });
+
+  describe('streamingRequestId parameter', () => {
+    it('should accept streamingRequestId as 7th parameter and update InFlightManager', async () => {
+      const { getInFlightManager } = await import('../../src/utils/in-flight-manager.js');
+      const mockUpdateChunkProgress = vi.fn();
+      (getInFlightManager as any).mockReturnValue({
+        updateChunkProgress: mockUpdateChunkProgress,
+        addStreamingRequest: vi.fn(),
+        removeStreamingRequest: vi.fn(),
+      });
+
+      const mockBody = createMockBody(['data: chunk1\n\n', 'data: chunk2\n\n', 'data: chunk3\n\n']);
+      const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+      await streamResponse(
+        mockUpstreamResponse as any,
+        mockResponse as Response,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'test-request-id-123'
+      );
+
+      expect(mockUpdateChunkProgress).toHaveBeenCalledTimes(3);
+      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(1, 'test-request-id-123', 1);
+      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(2, 'test-request-id-123', 2);
+      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(3, 'test-request-id-123', 3);
+    });
+
+    it('should update chunk progress with correct incrementing count', async () => {
+      const { getInFlightManager } = await import('../../src/utils/in-flight-manager.js');
+      const mockUpdateChunkProgress = vi.fn();
+      (getInFlightManager as any).mockReturnValue({
+        updateChunkProgress: mockUpdateChunkProgress,
+        addStreamingRequest: vi.fn(),
+        removeStreamingRequest: vi.fn(),
+      });
+
+      const mockBody = createMockBody([
+        'data: first\n\n',
+        'data: second\n\n',
+        'data: third\n\n',
+        'data: fourth\n\n',
+        'data: fifth\n\n',
+      ]);
+      const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+      await streamResponse(
+        mockUpstreamResponse as any,
+        mockResponse as Response,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'streaming-id-abc'
+      );
+
+      expect(mockUpdateChunkProgress).toHaveBeenCalledTimes(5);
+      for (let i = 1; i <= 5; i++) {
+        expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(i, 'streaming-id-abc', i);
+      }
+    });
+
+    it('should not call InFlightManager when streamingRequestId is not provided', async () => {
+      const { getInFlightManager } = await import('../../src/utils/in-flight-manager.js');
+      const mockUpdateChunkProgress = vi.fn();
+      (getInFlightManager as any).mockReturnValue({
+        updateChunkProgress: mockUpdateChunkProgress,
+        addStreamingRequest: vi.fn(),
+        removeStreamingRequest: vi.fn(),
+      });
+
+      const mockBody = createMockBody(['data: test\n\n']);
+      const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+      await streamResponse(
+        mockUpstreamResponse as any,
+        mockResponse as Response,
+        undefined,
+        undefined,
+        undefined,
+        undefined
+      );
+
+      expect(mockUpdateChunkProgress).not.toHaveBeenCalled();
+    });
+
+    it('should handle InFlightManager errors gracefully', async () => {
+      const { getInFlightManager } = await import('../../src/utils/in-flight-manager.js');
+      const mockUpdateChunkProgress = vi.fn(() => {
+        throw new Error('InFlightManager error');
+      });
+      (getInFlightManager as any).mockReturnValue({
+        updateChunkProgress: mockUpdateChunkProgress,
+        addStreamingRequest: vi.fn(),
+        removeStreamingRequest: vi.fn(),
+      });
+
+      const mockBody = createMockBody(['data: test\n\n']);
+      const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+      await expect(
+        streamResponse(
+          mockUpstreamResponse as any,
+          mockResponse as Response,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          'error-test-id'
+        )
+      ).resolves.not.toThrow();
+    });
+  });
 });
 
 describe('parseSSEData edge cases', () => {
@@ -651,7 +778,7 @@ describe('parseSSEData edge cases', () => {
     const data = new TextEncoder().encode('data: {"response":"line1\\nline2","done":false}\n\n');
     const events = parseSSEData(data);
     expect(events).toHaveLength(1);
-    expect(events[0].data.response).toBe('line1\nline2');
+    expect((events[0] as any).data.response).toBe('line1\nline2');
   });
 
   it('should handle empty lines between events', () => {
