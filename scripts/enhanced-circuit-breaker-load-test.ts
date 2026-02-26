@@ -589,7 +589,7 @@ class EnhancedCircuitBreakerLoadTest {
           const timeout = setTimeout(() => controller.abort(), 10000);
 
           try {
-            const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}`, {
+            const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}?debug=true`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-Include-Debug-Info': 'true' },
               body,
@@ -674,7 +674,7 @@ class EnhancedCircuitBreakerLoadTest {
         });
       }
 
-      const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}`, {
+      const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}?debug=true`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
