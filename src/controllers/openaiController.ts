@@ -13,30 +13,12 @@ import type { AIServer } from '../orchestrator.types.js';
 import { type OllamaStreamChunk } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
-import { addDebugHeaders } from '../utils/debug-headers.js';
+import { addDebugHeaders, getDebugInfo } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
-
-/**
-  if (context.serverCircuitState) {
-    res.setHeader('X-Server-Circuit-State', context.serverCircuitState);
-  }
-  if (context.modelCircuitState) {
-    res.setHeader('X-Model-Circuit-State', context.modelCircuitState);
-  }
-  if (context.availableServerCount !== undefined) {
-    res.setHeader('X-Available-Servers', context.availableServerCount.toString());
-  }
-  if (context.routedToOpenCircuit) {
-    res.setHeader('X-Routed-To-Open-Circuit', 'true');
-  }
-  if (context.retryCount !== undefined && context.retryCount > 0) {
-    res.setHeader('X-Retry-Count', context.retryCount.toString());
-  }
-}
 
 /**
  * Get headers for backend requests including optional auth
@@ -428,6 +410,14 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 }
               }
             );
+
+            const includeDebug = req.query.debug === 'true';
+            if (includeDebug) {
+              const debugInfo = getDebugInfo(routingContext);
+              if (debugInfo) {
+                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+              }
+            }
           } finally {
             activityController.clearTimeout();
           }
@@ -470,6 +460,13 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
     // Send non-streaming response
     if (!stream && result && !result._streamed) {
+      const includeDebug = req.query.debug === 'true';
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          result.debug = debugInfo;
+        }
+      }
       res.json(result);
     }
   } catch (error) {
@@ -551,6 +548,14 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               }
               res.write(decoder.decode(value, { stream: true }));
             }
+
+            const includeDebug = req.query.debug === 'true';
+            if (includeDebug) {
+              const debugInfo = getDebugInfo(routingContext);
+              if (debugInfo) {
+                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+              }
+            }
             res.end();
           } finally {
             activityController.clearTimeout();
@@ -585,6 +590,13 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     addDebugHeaders(req, res, routingContext);
 
     if (!stream && result && !result._streamed) {
+      const includeDebug = req.query.debug === 'true';
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          result.debug = debugInfo;
+        }
+      }
       res.json(result);
     }
   } catch (error) {

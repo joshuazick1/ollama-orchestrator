@@ -1007,6 +1007,128 @@ describe('OpenAI Controller', () => {
       expect(mockRes.setHeader).toHaveBeenCalledWith('X-Available-Servers', '3');
       expect(mockRes.setHeader).toHaveBeenCalledWith('X-Retry-Count', '1');
     });
+
+    it('should add debug info to JSON response when debug=true query param is set', async () => {
+      mockReq.body = {
+        model: 'llama3:latest',
+        messages: [{ role: 'user', content: 'Hello' }],
+      };
+      mockReq.query = { debug: 'true' };
+
+      const mockResult = { id: 'test', choices: [] };
+
+      mockOrchestrator.tryRequestWithFailover.mockImplementation(
+        async (model, callback, stream, operation, format, context) => {
+          context.selectedServerId = 'server-1';
+          context.serverCircuitState = 'closed';
+          context.modelCircuitState = 'closed';
+          context.availableServerCount = 3;
+          context.retryCount = 1;
+          return mockResult;
+        }
+      );
+
+      await handleChatCompletions(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          debug: expect.objectContaining({
+            selectedServerId: 'server-1',
+            serverCircuitState: 'closed',
+            modelCircuitState: 'closed',
+            availableServerCount: 3,
+            retryCount: 1,
+          }),
+        })
+      );
+    });
+
+    it('should not add debug info to JSON response when debug param is not set', async () => {
+      mockReq.body = {
+        model: 'llama3:latest',
+        messages: [{ role: 'user', content: 'Hello' }],
+      };
+      mockReq.query = {};
+
+      const mockResult = { id: 'test', choices: [] };
+
+      mockOrchestrator.tryRequestWithFailover.mockResolvedValue(mockResult);
+
+      await handleChatCompletions(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('should not add debug info when debug=false query param is set', async () => {
+      mockReq.body = {
+        model: 'llama3:latest',
+        messages: [{ role: 'user', content: 'Hello' }],
+      };
+      mockReq.query = { debug: 'false' };
+
+      const mockResult = { id: 'test', choices: [] };
+
+      mockOrchestrator.tryRequestWithFailover.mockResolvedValue(mockResult);
+
+      await handleChatCompletions(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith(mockResult);
+    });
+
+    it('should handle partial debug info correctly', async () => {
+      mockReq.body = {
+        model: 'llama3:latest',
+        messages: [{ role: 'user', content: 'Hello' }],
+      };
+      mockReq.query = { debug: 'true' };
+
+      const mockResult = { id: 'test', choices: [] };
+
+      mockOrchestrator.tryRequestWithFailover.mockImplementation(
+        async (model, callback, stream, operation, format, context) => {
+          context.selectedServerId = 'server-1';
+          return mockResult;
+        }
+      );
+
+      await handleChatCompletions(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          debug: expect.objectContaining({
+            selectedServerId: 'server-1',
+          }),
+        })
+      );
+    });
+
+    it('should not include retryCount when retryCount is 0', async () => {
+      mockReq.body = {
+        model: 'llama3:latest',
+        messages: [{ role: 'user', content: 'Hello' }],
+      };
+      mockReq.query = { debug: 'true' };
+
+      const mockResult = { id: 'test', choices: [] };
+
+      mockOrchestrator.tryRequestWithFailover.mockImplementation(
+        async (model, callback, stream, operation, format, context) => {
+          context.selectedServerId = 'server-1';
+          context.retryCount = 0;
+          return mockResult;
+        }
+      );
+
+      await handleChatCompletions(mockReq as Request, mockRes as Response);
+
+      const calledWith = (mockRes.json as any).mock.calls[0][0];
+      expect(calledWith.debug).toEqual(
+        expect.objectContaining({
+          selectedServerId: 'server-1',
+        })
+      );
+      expect(calledWith.debug.retryCount).toBeUndefined();
+    });
   });
 
   describe('handleCompletions', () => {
