@@ -61,6 +61,19 @@ export function addDebugHeaders(req: Request, res: Response, context: RoutingCon
   if (context.retryCount !== undefined && context.retryCount > 0) {
     res.setHeader('X-Retry-Count', context.retryCount.toString());
   }
+  // Enhanced debug headers
+  if (context.serversTried && context.serversTried.length > 0) {
+    res.setHeader('X-Servers-Tried', context.serversTried.join(','));
+  }
+  if (context.totalCandidates !== undefined) {
+    res.setHeader('X-Total-Candidates', context.totalCandidates.toString());
+  }
+  if (context.serverLoad !== undefined) {
+    res.setHeader('X-Server-Load', context.serverLoad.toString());
+  }
+  if (context.maxConcurrency !== undefined) {
+    res.setHeader('X-Max-Concurrency', context.maxConcurrency.toString());
+  }
 }
 
 export function getDebugInfo(

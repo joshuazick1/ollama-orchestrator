@@ -49,6 +49,11 @@ interface EnhancedTestResult {
   selectedServerRank?: number;
   retryCount?: number;
   endpoint: string;
+  // Enhanced debug fields
+  serversTried?: string[];
+  totalCandidates?: number;
+  serverLoad?: number;
+  maxConcurrency?: number;
 }
 
 interface ModelInfo {
@@ -703,6 +708,12 @@ class EnhancedCircuitBreakerLoadTest {
       const availableServers = response.headers.get('X-Available-Servers');
       const wasRoutedToOpen = response.headers.get('X-Routed-To-Open-Circuit');
 
+      // Enhanced debug fields from headers
+      const serversTried = response.headers.get('X-Servers-Tried');
+      const totalCandidates = response.headers.get('X-Total-Candidates');
+      const serverLoad = response.headers.get('X-Server-Load');
+      const maxConcurrency = response.headers.get('X-Max-Concurrency');
+
       this.results.push({
         model,
         serverId: selectedServer || 'unknown',
@@ -717,6 +728,10 @@ class EnhancedCircuitBreakerLoadTest {
         availableServers: availableServers ? parseInt(availableServers, 10) : undefined,
         retryCount,
         endpoint,
+        serversTried: serversTried ? serversTried.split(',') : undefined,
+        totalCandidates: totalCandidates ? parseInt(totalCandidates, 10) : undefined,
+        serverLoad: serverLoad ? parseInt(serverLoad, 10) : undefined,
+        maxConcurrency: maxConcurrency ? parseInt(maxConcurrency, 10) : undefined,
       });
 
       // Track server coverage
