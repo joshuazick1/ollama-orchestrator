@@ -547,7 +547,7 @@ class StreamingLoadTest {
           const timeout = setTimeout(() => controller.abort(), 10000);
 
           try {
-            const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}`, {
+            const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}?debug=true`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'X-Include-Debug-Info': 'true' },
               body,
@@ -637,7 +637,7 @@ class StreamingLoadTest {
         });
       }
 
-      const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}`, {
+      const response = await fetch(`${ORCHESTRATOR_URL}${endpoint}?debug=true`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -649,6 +649,16 @@ class StreamingLoadTest {
 
       const duration = Date.now() - startTime;
       const success = response.ok;
+
+      // Variable to capture debug info from final SSE event
+      interface DebugInfo {
+        selectedServerId?: string;
+        serverCircuitState?: string;
+        modelCircuitState?: string;
+        availableServerCount?: number;
+        routedToOpenCircuit?: boolean;
+      }
+      let debugFromSSE: DebugInfo | null = null;
 
       if (success && response.body) {
         const reader = response.body.getReader();
@@ -727,6 +737,11 @@ class StreamingLoadTest {
                       avgChunkSizeBytesFromStream = Math.floor(cd.avgChunkSizeBytes);
                     }
                   }
+
+                  // Capture debug info from final SSE event
+                  if (parsed.debug && typeof parsed.debug === 'object') {
+                    debugFromSSE = parsed.debug as DebugInfo;
+                  }
                 } catch (e) {
                   // Skip invalid JSON
                 }
@@ -747,11 +762,24 @@ class StreamingLoadTest {
         }
       }
 
-      const serverCbState = response.headers.get('X-Server-Circuit-State');
-      const modelCbState = response.headers.get('X-Model-Circuit-State');
-      const selectedServer = response.headers.get('X-Selected-Server');
-      const availableServers = response.headers.get('X-Available-Servers');
-      const wasRoutedToOpen = response.headers.get('X-Routed-To-Open-Circuit');
+      // Extract debug info from headers (for non-streaming fallback) or SSE (for streaming)
+      // For streaming, debug info comes from the final SSE event
+      let serverCbState = response.headers.get('X-Server-Circuit-State');
+      let modelCbState = response.headers.get('X-Model-Circuit-State');
+      let selectedServer = response.headers.get('X-Selected-Server');
+      let availableServers = response.headers.get('X-Available-Servers');
+      let wasRoutedToOpen = response.headers.get('X-Routed-To-Open-Circuit');
+
+      // Override with SSE debug info if available (takes precedence for streaming)
+      if (debugFromSSE) {
+        if (debugFromSSE.selectedServerId) selectedServer = debugFromSSE.selectedServerId;
+        if (debugFromSSE.serverCircuitState) serverCbState = debugFromSSE.serverCircuitState;
+        if (debugFromSSE.modelCircuitState) modelCbState = debugFromSSE.modelCircuitState;
+        if (debugFromSSE.availableServerCount !== undefined) {
+          availableServers = debugFromSSE.availableServerCount.toString();
+        }
+        if (debugFromSSE.routedToOpenCircuit) wasRoutedToOpen = 'true';
+      }
 
       this.results.push({
         model,
