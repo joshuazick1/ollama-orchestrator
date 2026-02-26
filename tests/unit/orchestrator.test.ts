@@ -677,8 +677,12 @@ describe('AIOrchestrator', () => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
 
       // Mock in-flight requests
-      orchestrator['inFlightManager'].inFlight.set('server-1:llama3:latest', 3);
-      orchestrator['inFlightManager'].inFlight.set('server-1:llama2:latest', 2);
+      for (let i = 0; i < 3; i++) {
+        orchestrator.incrementInFlight('server-1', 'llama3:latest');
+      }
+      for (let i = 0; i < 2; i++) {
+        orchestrator.incrementInFlight('server-1', 'llama2:latest');
+      }
 
       const stats = orchestrator.getStats();
 
@@ -957,10 +961,50 @@ describe('AIOrchestrator', () => {
     it('should return undefined when server is at max concurrency', () => {
       // Remove server-2
       orchestrator.removeServer('server-2');
-      orchestrator['inFlightManager'].inFlight.set('server-1:llama2:latest', 4);
+      for (let i = 0; i < 4; i++) {
+        orchestrator.incrementInFlight('server-1', 'llama2:latest');
+      }
 
       const server = orchestrator.getBestServerForModel('llama2:latest');
       expect(server).toBeUndefined();
+    });
+
+    it('should enforce server-level max concurrency across different models', () => {
+      // Ensure only server-1 is present
+      orchestrator.removeServer('server-2');
+
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.models = ['model-a', 'model-b', 'model-c'];
+        s1.maxConcurrency = 4;
+      }
+
+      // Simulate 2 concurrent requests for model-a and 2 for model-b => total 4
+      for (let i = 0; i < 2; i++) orchestrator.incrementInFlight('server-1', 'model-a');
+      for (let i = 0; i < 2; i++) orchestrator.incrementInFlight('server-1', 'model-b');
+
+      // Request for model-c should be rejected due to server-level capacity being full
+      const server = orchestrator.getBestServerForModel('model-c');
+      expect(server).toBeUndefined();
+    });
+
+    it('should allow routing when server total load is below max even if per-model is zero', () => {
+      // Ensure only server-1 is present
+      orchestrator.removeServer('server-2');
+
+      const s1 = orchestrator.getServer('server-1');
+      if (s1) {
+        s1.models = ['model-x', 'model-y'];
+        s1.maxConcurrency = 4;
+      }
+
+      // Simulate 3 concurrent requests for model-x => total 3 (< max 4)
+      for (let i = 0; i < 3; i++) orchestrator.incrementInFlight('server-1', 'model-x');
+
+      // Request for model-y should be allowed since total < max
+      const server = orchestrator.getBestServerForModel('model-y');
+      expect(server).toBeDefined();
+      expect(server?.id).toBe('server-1');
     });
 
     it('should resolve :latest tag', () => {

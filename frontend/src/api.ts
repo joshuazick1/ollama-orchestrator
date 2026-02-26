@@ -17,7 +17,7 @@ export interface ApiErrorInfo {
   details?: unknown;
 }
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: '/api/orchestrator',
   timeout: 30000, // 30 second timeout
 });
@@ -138,7 +138,10 @@ export const getServerModelMetrics = async (
   model: string
 ): Promise<ServerModelMetrics> => {
   return apiCall(async () => {
-    const response = await api.get(`/metrics/${serverId}/${model}`);
+    // Encode both serverId and model to safely include slashes and special chars
+    const sid = encodeURIComponent(serverId);
+    const m = encodeURIComponent(model);
+    const response = await api.get(`/metrics/${sid}/${m}`);
     return response.data;
   });
 };

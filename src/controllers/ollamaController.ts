@@ -844,7 +844,7 @@ export async function handleStreamingGenerate(
             });
           },
           chunkCount => {
-            console.log('GENERATE CHUNK CALLBACK FIRED', {
+            logger.debug('GENERATE CHUNK CALLBACK FIRED', {
               chunkCount,
               serverId: server.id,
               requestId: (server as AIServer & { _streamingRequestId?: string })
@@ -948,7 +948,15 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             throw new Error('No response body');
           }
 
-          await streamResponse(response, res);
+          await streamResponse(
+            response,
+            res,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            (server as AIServer & { _streamingRequestId?: string })._streamingRequestId
+          );
           return null;
         } else {
           // No timeout for per-server requests - let active tests determine appropriate timeouts
@@ -1048,7 +1056,15 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             throw new Error('No response body');
           }
 
-          await streamResponse(response, res);
+          await streamResponse(
+            response,
+            res,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            (server as AIServer & { _streamingRequestId?: string })._streamingRequestId
+          );
           return null;
         } else {
           // No timeout for per-server requests - let active tests determine appropriate timeouts

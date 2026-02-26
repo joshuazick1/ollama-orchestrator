@@ -191,7 +191,14 @@ export class InFlightManager {
       lastChunkTime: Date.now(),
       isStalled: false,
     });
-    logger.debug(`Added streaming request ${requestId} for ${serverId}:${model}`);
+    // Gated debug: include a short caller stack to help correlate where requests are registered
+    const stack = new Error().stack
+      ?.split('\n')
+      .slice(2, 6)
+      .map(s => s.trim());
+    logger.debug(`Added streaming request ${requestId} for ${serverId}:${model}`, {
+      caller: stack,
+    });
   }
 
   /**
@@ -199,7 +206,6 @@ export class InFlightManager {
    */
   updateChunkProgress(requestId: string, chunkCount: number): void {
     const request = this.streamingRequests.get(requestId);
-    logger.debug('InFlightManager.updateChunkProgress called', { requestId, chunkCount });
     if (request) {
       request.chunkCount = chunkCount;
       request.lastChunkTime = Date.now();
@@ -211,9 +217,15 @@ export class InFlightManager {
         model: request.model,
       });
     } else {
+      // When request not found, log a short caller stack to help find the origin of updates
+      const stack = new Error().stack
+        ?.split('\n')
+        .slice(2, 6)
+        .map(s => s.trim());
       logger.debug('InFlightManager.updateChunkProgress: request not found', {
         requestId,
         chunkCount,
+        caller: stack,
       });
     }
   }
