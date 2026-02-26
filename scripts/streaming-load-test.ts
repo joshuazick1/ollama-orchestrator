@@ -56,6 +56,11 @@ interface StreamingTestResult {
   tokensPrompt?: number;
   maxChunkGapMs?: number;
   avgChunkSizeBytes?: number;
+  // Enhanced debug fields from SSE
+  serversTried?: string[];
+  totalCandidates?: number;
+  serverLoad?: number;
+  maxConcurrency?: number;
 }
 
 interface ModelInfo {
@@ -657,6 +662,16 @@ class StreamingLoadTest {
         modelCircuitState?: string;
         availableServerCount?: number;
         routedToOpenCircuit?: boolean;
+        retryCount?: number;
+        serversTried?: string[];
+        totalCandidates?: number;
+        serverLoad?: number;
+        maxConcurrency?: number;
+        timeToFirstToken?: number;
+        streamingDuration?: number;
+        tokensGenerated?: number;
+        tokensPrompt?: number;
+        lastError?: string;
       }
       let debugFromSSE: DebugInfo | null = null;
 
@@ -770,6 +785,13 @@ class StreamingLoadTest {
       let availableServers = response.headers.get('X-Available-Servers');
       let wasRoutedToOpen = response.headers.get('X-Routed-To-Open-Circuit');
 
+      // New debug fields from SSE
+      let serversTried: string[] | undefined;
+      let totalCandidates: number | undefined;
+      let serverLoad: number | undefined;
+      let maxConcurrency: number | undefined;
+      let debugRetryCount: number | undefined;
+
       // Override with SSE debug info if available (takes precedence for streaming)
       if (debugFromSSE) {
         if (debugFromSSE.selectedServerId) selectedServer = debugFromSSE.selectedServerId;
@@ -779,6 +801,12 @@ class StreamingLoadTest {
           availableServers = debugFromSSE.availableServerCount.toString();
         }
         if (debugFromSSE.routedToOpenCircuit) wasRoutedToOpen = 'true';
+        if (debugFromSSE.serversTried) serversTried = debugFromSSE.serversTried;
+        if (debugFromSSE.totalCandidates !== undefined)
+          totalCandidates = debugFromSSE.totalCandidates;
+        if (debugFromSSE.serverLoad !== undefined) serverLoad = debugFromSSE.serverLoad;
+        if (debugFromSSE.maxConcurrency !== undefined) maxConcurrency = debugFromSSE.maxConcurrency;
+        if (debugFromSSE.retryCount !== undefined) debugRetryCount = debugFromSSE.retryCount;
       }
 
       this.results.push({
@@ -786,14 +814,14 @@ class StreamingLoadTest {
         serverId: selectedServer || 'unknown',
         success,
         duration,
-        error: success ? undefined : `HTTP ${response.status}`,
+        error: success ? undefined : debugFromSSE?.lastError || `HTTP ${response.status}`,
         timestamp: startTime,
         circuitBreakerState: response.headers.get('X-Circuit-Breaker-State') || undefined,
         serverCircuitState: serverCbState || undefined,
         modelCircuitState: modelCbState || undefined,
         wasRoutedToOpenCircuit: wasRoutedToOpen === 'true',
         availableServers: availableServers ? parseInt(availableServers, 10) : undefined,
-        retryCount,
+        retryCount: debugRetryCount ?? retryCount,
         endpoint,
         chunksReceived,
         totalTokens,
@@ -801,11 +829,13 @@ class StreamingLoadTest {
         avgChunkDelay,
         // prefer metrics from headers, fallback to values captured in SSE payload
         streamingDuration: (() => {
+          if (debugFromSSE?.streamingDuration) return debugFromSSE.streamingDuration;
           const headerVal = response.headers.get('X-Streaming-Duration');
           if (headerVal) return parseInt(headerVal, 10);
           return streamingDurationFromStream;
         })(),
         tokensPrompt: (() => {
+          if (debugFromSSE?.tokensPrompt !== undefined) return debugFromSSE.tokensPrompt;
           const headerVal = response.headers.get('X-Tokens-Prompt');
           if (headerVal) return parseInt(headerVal, 10);
           return tokensPromptFromStream;
@@ -820,6 +850,11 @@ class StreamingLoadTest {
           if (headerVal) return parseInt(headerVal, 10);
           return avgChunkSizeBytesFromStream;
         })(),
+        // New debug fields
+        serversTried,
+        totalCandidates,
+        serverLoad,
+        maxConcurrency,
       });
 
       if (selectedServer && selectedServer !== 'unknown') {
