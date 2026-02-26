@@ -2032,6 +2032,14 @@ export class AIOrchestrator {
       try {
         this.incrementInFlight(server.id, model);
 
+        // Track streaming requests for real-time progress monitoring
+        if (isStreaming) {
+          this.inFlightManager.addStreamingRequest(requestContext.id, server.id, model);
+          // Pass requestId to server object for streaming handlers to use
+          (server as AIServer & { _streamingRequestId?: string })._streamingRequestId =
+            requestContext.id;
+        }
+
         if (retryCount > 0) {
           logger.info(
             `Retry ${retryCount}/${retryConfig.maxRetriesPerServer} on ${server.id} for model ${model}`
@@ -2106,6 +2114,11 @@ export class AIOrchestrator {
         this.metricsAggregator.recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
 
+        // Remove streaming request tracking
+        if (isStreaming) {
+          this.inFlightManager.removeStreamingRequest(requestContext.id);
+        }
+
         // Reset failure count on success - server is working
         this.resetServerFailureCount(server.id);
         this.recordSuccess(server.id, model, requestContext.duration);
@@ -2126,6 +2139,12 @@ export class AIOrchestrator {
         return { success: true, value: result };
       } catch (error) {
         this.decrementInFlight(server.id, model);
+
+        // Remove streaming request tracking on failure
+        if (isStreaming) {
+          this.inFlightManager.removeStreamingRequest(requestContext.id);
+        }
+
         lastError = error instanceof Error ? error : new Error(String(error));
 
         // Record failed request metrics

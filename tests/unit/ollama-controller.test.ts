@@ -27,6 +27,13 @@ import { mockResponses, mockServers, mockErrors } from '../fixtures/index.js';
 
 vi.mock('../../src/orchestrator-instance.js');
 vi.mock('../../src/streaming.js');
+vi.mock('../../src/utils/in-flight-manager.js', () => ({
+  getInFlightManager: vi.fn(() => ({
+    addStreamingRequest: vi.fn(),
+    removeStreamingRequest: vi.fn(),
+    updateChunkProgress: vi.fn(),
+  })),
+}));
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -142,6 +149,61 @@ describe('Ollama Controller', () => {
       await handleGenerate(mockReq as Request, mockRes as Response);
 
       expect(mockOrchestrator.tryRequestWithFailover).toHaveBeenCalled();
+    });
+
+    it('should update chunk progress during streaming generate requests', async () => {
+      const { getInFlightManager } = await import('../../src/utils/in-flight-manager.js');
+      const mockInFlightManager = {
+        addStreamingRequest: vi.fn(),
+        removeStreamingRequest: vi.fn(),
+        updateChunkProgress: vi.fn(),
+      };
+      (getInFlightManager as any).mockReturnValue(mockInFlightManager);
+
+      // Mock streamResponse to actually call the onChunk callback
+      (streamResponse as any).mockImplementation(
+        async (
+          _upstreamResponse: any,
+          _clientResponse: any,
+          _onFirstToken?: () => void,
+          _onComplete?: (duration: number, tokensGenerated: number, tokensPrompt: number) => void,
+          onChunk?: (chunkCount: number) => void
+        ) => {
+          // Simulate streaming by calling onChunk multiple times
+          onChunk?.(1);
+          onChunk?.(2);
+          onChunk?.(3);
+        }
+      );
+
+      const requestBody = {
+        model: 'llama3:latest',
+        prompt: 'Hello world',
+        stream: true,
+      };
+      mockReq.body = requestBody;
+
+      (isStreamingRequest as any).mockReturnValue(true);
+
+      mockOrchestrator.tryRequestWithFailover.mockImplementation(async (model, callback) => {
+        const server = {
+          ...mockServers.healthy,
+          models: [...mockServers.healthy.models],
+          _streamingRequestId: 'test-request-id',
+        };
+        await callback(server);
+        return null;
+      });
+
+      const mockResponse = {
+        ok: true,
+        body: { getReader: vi.fn() },
+      };
+      mockFetch.mockResolvedValue(mockResponse);
+
+      await handleGenerate(mockReq as Request, mockRes as Response);
+
+      expect(mockInFlightManager.updateChunkProgress).toHaveBeenCalled();
     });
 
     it('should return 400 when model is missing', async () => {
@@ -263,6 +325,61 @@ describe('Ollama Controller', () => {
       await handleChat(mockReq as Request, mockRes as Response);
 
       expect(mockOrchestrator.tryRequestWithFailover).toHaveBeenCalled();
+    });
+
+    it('should update chunk progress during streaming chat requests', async () => {
+      const { getInFlightManager } = await import('../../src/utils/in-flight-manager.js');
+      const mockInFlightManager = {
+        addStreamingRequest: vi.fn(),
+        removeStreamingRequest: vi.fn(),
+        updateChunkProgress: vi.fn(),
+      };
+      (getInFlightManager as any).mockReturnValue(mockInFlightManager);
+
+      // Mock streamResponse to actually call the onChunk callback
+      (streamResponse as any).mockImplementation(
+        async (
+          _upstreamResponse: any,
+          _clientResponse: any,
+          _onFirstToken?: () => void,
+          _onComplete?: (duration: number, tokensGenerated: number, tokensPrompt: number) => void,
+          onChunk?: (chunkCount: number) => void
+        ) => {
+          // Simulate streaming by calling onChunk multiple times
+          onChunk?.(1);
+          onChunk?.(2);
+          onChunk?.(3);
+        }
+      );
+
+      const requestBody = {
+        model: 'llama3:latest',
+        messages: [{ role: 'user', content: 'Hello' }],
+        stream: true,
+      };
+      mockReq.body = requestBody;
+
+      (isStreamingRequest as any).mockReturnValue(true);
+
+      mockOrchestrator.tryRequestWithFailover.mockImplementation(async (model, callback) => {
+        const server = {
+          ...mockServers.healthy,
+          models: [...mockServers.healthy.models],
+          _streamingRequestId: 'test-chat-request-id',
+        };
+        await callback(server);
+        return null;
+      });
+
+      const mockResponse = {
+        ok: true,
+        body: { getReader: vi.fn() },
+      };
+      mockFetch.mockResolvedValue(mockResponse);
+
+      await handleChat(mockReq as Request, mockRes as Response);
+
+      expect(mockInFlightManager.updateChunkProgress).toHaveBeenCalled();
     });
 
     it('should return 400 when model is missing', async () => {
