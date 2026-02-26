@@ -1313,8 +1313,8 @@ export class AIOrchestrator {
 
       // Must have capacity
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-      const currentLoad = this.getInFlight(server.id, model);
-      if (currentLoad >= maxConcurrency) {
+      const totalLoad = this.getTotalInFlight(server.id);
+      if (totalLoad >= maxConcurrency) {
         return false;
       }
 
@@ -1329,14 +1329,13 @@ export class AIOrchestrator {
       const selected = candidates[0];
       // Record the decision even for single candidate
       const scores = candidates.map(server => {
-        const currentLoad = this.getInFlight(server.id, model);
         const totalLoad = this.getTotalInFlight(server.id);
         const metrics = this.metricsAggregator.getMetrics(server.id, model);
         const cbHealth = this.getCircuitBreakerHealth(server.id, model);
         return calculateServerScore(
           server,
           model,
-          currentLoad,
+          totalLoad,
           totalLoad,
           metrics,
           undefined,
@@ -1359,7 +1358,7 @@ export class AIOrchestrator {
     const selected = this.loadBalancer.select(
       candidates,
       model,
-      (serverId, model) => this.getInFlight(serverId, model),
+      serverId => this.getTotalInFlight(serverId),
       serverId => this.getTotalInFlight(serverId),
       (serverId, model) => this.metricsAggregator.getMetrics(serverId, model),
       isStreaming,
@@ -1370,14 +1369,13 @@ export class AIOrchestrator {
     // Record the decision for historical analysis
     if (selected) {
       const scores = candidates.map(server => {
-        const currentLoad = this.getInFlight(server.id, model);
         const totalLoad = this.getTotalInFlight(server.id);
         const metrics = this.metricsAggregator.getMetrics(server.id, model);
         const cbHealth = this.getCircuitBreakerHealth(server.id, model);
         return calculateServerScore(
           server,
           model,
-          currentLoad,
+          totalLoad,
           totalLoad,
           metrics,
           undefined,
@@ -1419,8 +1417,8 @@ export class AIOrchestrator {
         return false;
       }
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-      const currentLoad = this.getInFlight(server.id, model);
-      if (currentLoad >= maxConcurrency) {
+      const totalLoad = this.getTotalInFlight(server.id);
+      if (totalLoad >= maxConcurrency) {
         return false;
       }
       return true;
@@ -1428,14 +1426,13 @@ export class AIOrchestrator {
 
     return candidates
       .map(server => {
-        const currentLoad = this.getInFlight(server.id, model);
         const totalLoad = this.getTotalInFlight(server.id);
         const metrics = this.metricsAggregator.getMetrics(server.id, model);
         const cbHealth = this.getCircuitBreakerHealth(server.id, model);
         return calculateServerScore(
           server,
           model,
-          currentLoad,
+          totalLoad,
           totalLoad,
           metrics,
           undefined,
@@ -1456,7 +1453,6 @@ export class AIOrchestrator {
       return undefined;
     }
 
-    const currentLoad = this.getInFlight(server.id, model);
     const totalLoad = this.getTotalInFlight(server.id);
     const metrics = this.metricsAggregator.getMetrics(server.id, model);
 
@@ -1468,10 +1464,11 @@ export class AIOrchestrator {
       lastFailure: undefined,
     };
 
+    // Use totalLoad as the current load for server-level capacity scoring
     return calculateServerScore(
       server,
       model,
-      currentLoad,
+      totalLoad,
       totalLoad,
       metrics,
       undefined,
@@ -1523,7 +1520,7 @@ export class AIOrchestrator {
       const selected = this.loadBalancer.select(
         remainingServers,
         model,
-        (serverId, model) => this.getInFlight(serverId, model),
+        serverId => this.getTotalInFlight(serverId),
         serverId => this.getTotalInFlight(serverId),
         (serverId, model) => this.metricsAggregator.getMetrics(serverId, model),
         isStreaming,
@@ -1538,14 +1535,13 @@ export class AIOrchestrator {
       // Record decision for the first selection (actual routing decision)
       if (!firstSelectionRecorded) {
         const scores = remainingServers.map(server => {
-          const currentLoad = this.getInFlight(server.id, model);
           const totalLoad = this.getTotalInFlight(server.id);
           const metrics = this.metricsAggregator.getMetrics(server.id, model);
           const cbHealth = this.getCircuitBreakerHealth(server.id, model);
           return calculateServerScore(
             server,
             model,
-            currentLoad,
+            totalLoad,
             totalLoad,
             metrics,
             undefined,
@@ -1587,7 +1583,7 @@ export class AIOrchestrator {
       totalCandidates: candidates.length,
       initialServer: initialServer.id,
       serverHealth: initialServer.healthy,
-      serverLoad: this.getInFlight(initialServer.id, model),
+      serverLoad: this.getTotalInFlight(initialServer.id),
     });
 
     const retryConfig = this.config.retry;
@@ -1597,11 +1593,11 @@ export class AIOrchestrator {
     logger.info(`Phase 1: Trying ${candidates.length} candidate(s) once each`, { model });
     for (const server of candidates) {
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-      const currentLoad = this.getInFlight(server.id, model);
+      const totalLoad = this.getTotalInFlight(server.id);
 
-      if (currentLoad >= maxConcurrency) {
+      if (totalLoad >= maxConcurrency) {
         logger.info(`Skipping server ${server.id} for model ${model}: at max concurrency`, {
-          currentLoad,
+          totalLoad,
           maxConcurrency,
         });
         continue;
@@ -1617,7 +1613,7 @@ export class AIOrchestrator {
         }
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-        const serverLoad = this.getInFlight(server.id, model);
+        const serverLoad = this.getTotalInFlight(server.id);
         this.populateRoutingContext(
           routingContext,
           server.id,
@@ -1636,9 +1632,9 @@ export class AIOrchestrator {
     logger.info(`Phase 2: Retrying full cycle of ${candidates.length} candidate(s)`, { model });
     for (const server of candidates) {
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-      const currentLoad = this.getInFlight(server.id, model);
+      const totalLoad = this.getTotalInFlight(server.id);
 
-      if (currentLoad >= maxConcurrency) {
+      if (totalLoad >= maxConcurrency) {
         continue;
       }
 
@@ -1653,7 +1649,7 @@ export class AIOrchestrator {
         }
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-        const serverLoad = this.getInFlight(server.id, model);
+        const serverLoad = this.getTotalInFlight(server.id);
         this.populateRoutingContext(
           routingContext,
           server.id,
@@ -1673,9 +1669,9 @@ export class AIOrchestrator {
     );
     const maxConcurrency =
       initialServer.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-    const currentLoad = this.getInFlight(initialServer.id, model);
+    const totalLoad = this.getTotalInFlight(initialServer.id);
 
-    if (currentLoad < maxConcurrency) {
+    if (totalLoad < maxConcurrency) {
       const result = await this.tryRequestOnServerWithRetries(
         initialServer,
         model,
@@ -1694,7 +1690,7 @@ export class AIOrchestrator {
           routingContext,
           initialServer.id,
           model,
-          currentLoad,
+          totalLoad,
           maxConcurrency
         );
         return result.value;
@@ -2050,7 +2046,7 @@ export class AIOrchestrator {
       isStreaming,
       maxRetries: retryConfig.maxRetriesPerServer,
       serverHealth: server.healthy,
-      serverLoad: this.getInFlight(server.id, model),
+      serverLoad: this.getTotalInFlight(server.id),
     });
 
     while (retryCount <= retryConfig.maxRetriesPerServer) {

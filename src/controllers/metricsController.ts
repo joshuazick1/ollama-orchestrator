@@ -41,7 +41,11 @@ export function getMetrics(req: Request, res: Response): void {
 export function getServerModelMetrics(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const serverId = req.params.serverId as string;
-  const model = req.params.model as string;
+  // Model may contain slashes and therefore might be captured as a wildcard segment
+  // on the route (e.g. '/metrics/:serverId/*'). Prefer explicit param if present,
+  // otherwise fall back to the wildcard capture at req.params[0]. Decode to be safe.
+  const rawModel = (req.params.model as string) || (req.params[0] as string) || '';
+  const model = rawModel ? decodeURIComponent(rawModel) : '';
 
   try {
     const metrics = orchestrator.getDetailedMetrics(serverId, model);

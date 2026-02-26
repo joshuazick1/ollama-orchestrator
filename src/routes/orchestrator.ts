@@ -161,6 +161,8 @@ monitoringRouter.get('/in-flight', getInFlightByServer);
 // Metrics
 monitoringRouter.get('/metrics', getMetrics);
 monitoringRouter.get('/metrics/prometheus', getPrometheusMetrics);
+// Model names can contain slashes. Support both encoded param and wildcard tail.
+monitoringRouter.get('/metrics/:serverId/*', getServerModelMetrics);
 monitoringRouter.get('/metrics/:serverId/:model', getServerModelMetrics);
 
 // Recovery Test Metrics
@@ -322,3 +324,14 @@ v1Router.post('/embeddings--:serverId', asyncHandler(handleOpenAIEmbeddingsToSer
 
 // Export the routers
 export { monitoringRouter, adminRouter, inferenceRouter, v1Router };
+
+// Composite router: export a default router that mounts all sub-routers
+// This is convenient for tests and for mounting at a single base path like
+// `app.use('/api/orchestrator', router)`.
+const router = Router();
+router.use('/', monitoringRouter);
+router.use('/', adminRouter);
+router.use('/', inferenceRouter);
+router.use('/', v1Router);
+
+export default router;
