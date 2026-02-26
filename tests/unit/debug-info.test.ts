@@ -199,4 +199,144 @@ describe('Debug info edge cases', () => {
     const result = getDebugInfo(context);
     expect(result?.availableServerCount).toBe(0);
   });
+
+  // New fields tests
+  it('should include serversTried when provided', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-2',
+      serversTried: ['server-1', 'server-2'],
+    };
+    const result = getDebugInfo(context);
+    expect(result).toEqual({
+      selectedServerId: 'server-2',
+      serversTried: ['server-1', 'server-2'],
+    });
+  });
+
+  it('should include totalCandidates', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      totalCandidates: 5,
+    };
+    const result = getDebugInfo(context);
+    expect(result).toEqual({
+      selectedServerId: 'server-1',
+      totalCandidates: 5,
+    });
+  });
+
+  it('should include serverLoad', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      serverLoad: 3,
+    };
+    const result = getDebugInfo(context);
+    expect(result).toEqual({
+      selectedServerId: 'server-1',
+      serverLoad: 3,
+    });
+  });
+
+  it('should include maxConcurrency', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      maxConcurrency: 10,
+    };
+    const result = getDebugInfo(context);
+    expect(result).toEqual({
+      selectedServerId: 'server-1',
+      maxConcurrency: 10,
+    });
+  });
+
+  it('should include timing metrics from options', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+    };
+    const result = getDebugInfo(context, {
+      timeToFirstToken: 150,
+      streamingDuration: 3000,
+    });
+    expect(result).toEqual({
+      selectedServerId: 'server-1',
+      timeToFirstToken: 150,
+      streamingDuration: 3000,
+    });
+  });
+
+  it('should include token metrics from options', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+    };
+    const result = getDebugInfo(context, {
+      tokensGenerated: 150,
+      tokensPrompt: 20,
+    });
+    expect(result).toEqual({
+      selectedServerId: 'server-1',
+      tokensGenerated: 150,
+      tokensPrompt: 20,
+    });
+  });
+
+  it('should include lastError from options', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+    };
+    const result = getDebugInfo(context, {
+      lastError: 'Connection timeout',
+    });
+    expect(result).toEqual({
+      selectedServerId: 'server-1',
+      lastError: 'Connection timeout',
+    });
+  });
+
+  it('should include all enhanced fields together', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-2',
+      serverCircuitState: 'closed',
+      modelCircuitState: 'closed',
+      availableServerCount: 5,
+      routedToOpenCircuit: false,
+      retryCount: 1,
+      serversTried: ['server-1', 'server-2'],
+      totalCandidates: 5,
+      serverLoad: 2,
+      maxConcurrency: 10,
+    };
+    const result = getDebugInfo(context, {
+      timeToFirstToken: 100,
+      streamingDuration: 2500,
+      tokensGenerated: 200,
+      tokensPrompt: 30,
+    });
+    expect(result).toEqual({
+      selectedServerId: 'server-2',
+      serverCircuitState: 'closed',
+      modelCircuitState: 'closed',
+      availableServerCount: 5,
+      retryCount: 1,
+      serversTried: ['server-1', 'server-2'],
+      totalCandidates: 5,
+      serverLoad: 2,
+      maxConcurrency: 10,
+      timeToFirstToken: 100,
+      streamingDuration: 2500,
+      tokensGenerated: 200,
+      tokensPrompt: 30,
+    });
+  });
+
+  it('should NOT include serversTried when empty array', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      serversTried: [],
+    };
+    const result = getDebugInfo(context);
+    expect(result).toEqual({
+      selectedServerId: 'server-1',
+    });
+    expect(result?.serversTried).toBeUndefined();
+  });
 });

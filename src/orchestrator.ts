@@ -59,6 +59,10 @@ export interface RoutingContext {
   availableServerCount?: number;
   routedToOpenCircuit?: boolean;
   retryCount?: number;
+  serversTried?: string[];
+  totalCandidates?: number;
+  serverLoad?: number;
+  maxConcurrency?: number;
 }
 
 export class AIOrchestrator {
@@ -1575,6 +1579,7 @@ export class AIOrchestrator {
     // Populate routing context with available server count
     if (routingContext) {
       routingContext.availableServerCount = candidates.length;
+      routingContext.totalCandidates = candidates.length;
     }
 
     logger.info(`Selected server ${initialServer.id} for model ${model}`, {
@@ -1607,8 +1612,18 @@ export class AIOrchestrator {
       if (result.success) {
         if (routingContext) {
           routingContext.retryCount = retryCount;
+          routingContext.serversTried = candidates.slice(0, retryCount + 1).map(s => s.id);
         }
-        this.populateRoutingContext(routingContext, server.id, model);
+        const serverMaxConcurrency =
+          server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
+        const serverLoad = this.getInFlight(server.id, model);
+        this.populateRoutingContext(
+          routingContext,
+          server.id,
+          model,
+          serverLoad,
+          serverMaxConcurrency
+        );
         return result.value;
       }
 
@@ -1631,8 +1646,20 @@ export class AIOrchestrator {
       if (result.success) {
         if (routingContext) {
           routingContext.retryCount = retryCount;
+          routingContext.serversTried = candidates
+            .slice(0, candidates.length + retryCount + 1)
+            .map(s => s.id);
         }
-        this.populateRoutingContext(routingContext, server.id, model);
+        const serverMaxConcurrency =
+          server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
+        const serverLoad = this.getInFlight(server.id, model);
+        this.populateRoutingContext(
+          routingContext,
+          server.id,
+          model,
+          serverLoad,
+          serverMaxConcurrency
+        );
         return result.value;
       }
       retryCount++;
@@ -1660,8 +1687,15 @@ export class AIOrchestrator {
       if (result.success) {
         if (routingContext) {
           routingContext.retryCount = retryCount;
+          routingContext.serversTried = [initialServer.id];
         }
-        this.populateRoutingContext(routingContext, initialServer.id, model);
+        this.populateRoutingContext(
+          routingContext,
+          initialServer.id,
+          model,
+          currentLoad,
+          maxConcurrency
+        );
         return result.value;
       }
     }
@@ -3015,7 +3049,9 @@ export class AIOrchestrator {
   private populateRoutingContext(
     context: RoutingContext | undefined,
     serverId: string,
-    model: string
+    model: string,
+    serverLoad?: number,
+    maxConcurrency?: number
   ): void {
     if (!context) {
       return;
@@ -3038,6 +3074,14 @@ export class AIOrchestrator {
     // Check if we routed to an open circuit
     if (context.serverCircuitState === 'open' || context.modelCircuitState === 'open') {
       context.routedToOpenCircuit = true;
+    }
+
+    // Add server load info
+    if (serverLoad !== undefined) {
+      context.serverLoad = serverLoad;
+    }
+    if (maxConcurrency !== undefined) {
+      context.maxConcurrency = maxConcurrency;
     }
   }
 
