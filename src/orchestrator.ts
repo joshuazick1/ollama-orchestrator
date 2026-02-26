@@ -42,7 +42,7 @@ import { getRequestHistory } from './request-history.js';
 import { BanManager } from './utils/ban-manager.js';
 import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
-import { InFlightManager } from './utils/in-flight-manager.js';
+import { InFlightManager, getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { ModelAggregator } from './utils/model-aggregator.js';
@@ -133,8 +133,9 @@ export class AIOrchestrator {
     // Initialize BanManager
     this.banManager = new BanManager();
 
-    // Initialize InFlightManager
-    this.inFlightManager = new InFlightManager();
+    // Initialize InFlightManager - use the shared singleton so all modules
+    // (controllers, streaming handlers, etc.) operate on the same manager.
+    this.inFlightManager = getInFlightManager();
 
     // Initialize ModelAggregator
     this.modelAggregator = new ModelAggregator();
