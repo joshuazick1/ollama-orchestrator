@@ -2072,6 +2072,11 @@ export class AIOrchestrator {
           // Pass requestId to server object for streaming handlers to use
           (server as AIServer & { _streamingRequestId?: string })._streamingRequestId =
             requestContext.id;
+          logger.debug('orchestrator assigned _streamingRequestId to server', {
+            serverId: server.id,
+            streamingRequestId: requestContext.id,
+            model,
+          });
         }
 
         if (retryCount > 0) {

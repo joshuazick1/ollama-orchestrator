@@ -199,10 +199,22 @@ export class InFlightManager {
    */
   updateChunkProgress(requestId: string, chunkCount: number): void {
     const request = this.streamingRequests.get(requestId);
+    logger.debug('InFlightManager.updateChunkProgress called', { requestId, chunkCount });
     if (request) {
       request.chunkCount = chunkCount;
       request.lastChunkTime = Date.now();
       request.isStalled = false;
+      logger.debug('InFlightManager.updateChunkProgress updated request', {
+        requestId,
+        chunkCount: request.chunkCount,
+        serverId: request.serverId,
+        model: request.model,
+      });
+    } else {
+      logger.debug('InFlightManager.updateChunkProgress: request not found', {
+        requestId,
+        chunkCount,
+      });
     }
   }
 

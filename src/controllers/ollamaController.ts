@@ -225,7 +225,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               // Pass TTFT options
               ttftTracker ? { serverId: server.id, model } : undefined,
               // Pass streaming request ID for InFlightManager tracking
-              (server as AIServer & { _streamingRequestId?: string })._streamingRequestId
+              (server as AIServer & { _streamingRequestId?: string })._streamingRequestId,
+              // Pass the TTFTTracker instance so streaming.ts uses the same tracker
+              ttftTracker
             );
 
             const includeDebug = req.query.debug === 'true';
@@ -427,7 +429,11 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 }
               },
               // Pass TTFT options
-              { serverId: server.id, model }
+              { serverId: server.id, model },
+              // Pass streaming request ID for InFlightManager tracking
+              (server as AIServer & { _streamingRequestId?: string })._streamingRequestId,
+              // Pass the TTFTTracker instance so streaming.ts uses the same tracker
+              ttftTracker
             );
 
             const includeDebug = req.query.debug === 'true';
@@ -861,7 +867,11 @@ export async function handleStreamingGenerate(
             }
           },
           // Pass TTFT options
-          { serverId: server.id, model }
+          { serverId: server.id, model },
+          // Pass streaming request ID for InFlightManager tracking
+          (server as AIServer & { _streamingRequestId?: string })._streamingRequestId,
+          // Pass the TTFTTracker instance so streaming.ts uses the same tracker
+          ttftTracker
         );
       } finally {
         activityController.clearTimeout();
