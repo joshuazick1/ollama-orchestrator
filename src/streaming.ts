@@ -5,7 +5,7 @@
 
 import type { Response } from 'express';
 
-import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
+import { TTFTTracker, type TTFTMetrics, type TTFTOptions } from './metrics/ttft-tracker.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
@@ -19,6 +19,8 @@ export interface StreamResponseOptions {
   onChunk?: (chunkCount: number) => void;
   /** TTFT tracking options */
   ttftOptions?: TTFTOptions;
+  /** Existing TTFTTracker instance to use (for sharing with caller) */
+  ttftTracker?: TTFTTracker;
 }
 
 /**
@@ -94,9 +96,10 @@ export async function streamResponse(
   ) => void,
   onChunk?: (chunkCount: number) => void,
   ttftOptions?: TTFTOptions,
-  streamingRequestId?: string
+  streamingRequestId?: string,
+  existingTtftTracker?: TTFTTracker
 ): Promise<void> {
-  const ttftTracker = new TTFTTracker(ttftOptions);
+  const ttftTracker = existingTtftTracker ?? new TTFTTracker(ttftOptions);
   const startTime = Date.now();
   let firstTokenTime: number | undefined;
   let firstContentTime: number | undefined;
@@ -157,10 +160,18 @@ export async function streamResponse(
       // Update InFlightManager directly if streamingRequestId is provided
       if (streamingRequestId) {
         try {
+          logger.debug('streaming.ts calling updateChunkProgress', {
+            streamingRequestId,
+            chunkCount,
+          });
           getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount);
         } catch (e) {
           logger.error('Failed to update chunk progress', { error: e });
         }
+      } else {
+        logger.debug('streaming.ts no streamingRequestId provided for chunk update', {
+          chunkCount,
+        });
       }
 
       // Call onChunk callback AFTER incrementing chunkCount so it receives correct count

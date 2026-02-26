@@ -10,9 +10,9 @@ import type { AIServer } from '../../src/orchestrator.types.js';
 describe('Weighted Selection Algorithms Tests', () => {
   let loadBalancer: LoadBalancer;
 
-  const createServer = (id: string, latency = 100, successRate = 1.0): AIServer => ({
+  const createServer = (id: string, latency = 100): AIServer => ({
     id,
-    url: `http://localhost:${11434 + parseInt(id.split('-')[1])}`,
+    url: `http://localhost:${11434 + parseInt(id.split('-')[1] || '1')}`,
     type: 'ollama',
     healthy: true,
     supportsOllama: true,
@@ -21,14 +21,18 @@ describe('Weighted Selection Algorithms Tests', () => {
     maxConcurrency: 4,
   });
 
+  const getLoad = (serverId: string, model: string): number => 1;
+  const getTotalLoad = (serverId: string): number => 2;
+
   beforeEach(() => {
     loadBalancer = new LoadBalancer({});
     vi.clearAllMocks();
   });
 
   describe('Load Balancer Configuration', () => {
-    it('should create load balancer with defaults', () => {
-      expect(loadBalancer).toBeDefined();
+    it('should create load balancer with fastest-response algorithm by default', () => {
+      const lb = new LoadBalancer({});
+      expect(lb.getAlgorithm()).toBe('fastest-response');
     });
 
     it('should accept custom weights', () => {
@@ -98,293 +102,299 @@ describe('Weighted Selection Algorithms Tests', () => {
           skipUnhealthy: true,
           considerCapacity: true,
           considerFailureRate: true,
-          failureRatePenalty: 2.0,
-        },
-      });
-      expect(lb).toBeDefined();
-    });
-
-    it('should accept cross-model inference config', () => {
-      const lb = new LoadBalancer({
-        crossModelInference: {
-          enabled: true,
-          useParameterSize: true,
-          minSamplesForExact: 5,
-          fallbackWeight: 0.5,
+          failureRatePenalty: 0.5,
         },
       });
       expect(lb).toBeDefined();
     });
   });
 
-  describe('Server Selection', () => {
-    it('should select from single server', () => {
-      const server = createServer('ollama-1');
-      const candidates = [server];
-
-      expect(candidates.length).toBe(1);
-      expect(candidates[0].id).toBe('ollama-1');
+  describe('Algorithm Selection', () => {
+    it('should set weighted algorithm', () => {
+      loadBalancer.setAlgorithm('weighted');
+      expect(loadBalancer.getAlgorithm()).toBe('weighted');
     });
 
-    it('should handle empty candidates', () => {
-      const candidates: AIServer[] = [];
-      expect(candidates.length).toBe(0);
+    it('should set round-robin algorithm', () => {
+      loadBalancer.setAlgorithm('round-robin');
+      expect(loadBalancer.getAlgorithm()).toBe('round-robin');
     });
 
-    it('should handle multiple servers', () => {
+    it('should set least-connections algorithm', () => {
+      loadBalancer.setAlgorithm('least-connections');
+      expect(loadBalancer.getAlgorithm()).toBe('least-connections');
+    });
+
+    it('should set random algorithm', () => {
+      loadBalancer.setAlgorithm('random');
+      expect(loadBalancer.getAlgorithm()).toBe('random');
+    });
+
+    it('should set fastest-response algorithm', () => {
+      loadBalancer.setAlgorithm('fastest-response');
+      expect(loadBalancer.getAlgorithm()).toBe('fastest-response');
+    });
+
+    it('should set streaming-optimized algorithm', () => {
+      loadBalancer.setAlgorithm('streaming-optimized');
+      expect(loadBalancer.getAlgorithm()).toBe('streaming-optimized');
+    });
+  });
+
+  describe('Server Selection - Empty Candidates', () => {
+    it('should return undefined when no candidates provided', () => {
+      const result = loadBalancer.select(
+        [],
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle unhealthy servers appropriately', () => {
+      const unhealthyServer = { ...createServer('ollama-1'), healthy: false };
+      const healthyServer = createServer('ollama-2');
+      const result = loadBalancer.select(
+        [unhealthyServer, healthyServer],
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('Server Selection - Weighted Algorithm', () => {
+    it('should select server with weighted scoring', () => {
+      loadBalancer.setAlgorithm('weighted');
+      const servers = [createServer('ollama-1', 100), createServer('ollama-2', 200)];
+
+      const result = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result).toBeDefined();
+      expect(servers).toContain(result);
+    });
+
+    it('should consider latency in weighted selection', () => {
+      loadBalancer.setAlgorithm('weighted');
+      const fastServer = createServer('fast', 50);
+      const slowServer = createServer('slow', 500);
+      const servers = [slowServer, fastServer];
+
+      const results = Array.from({ length: 10 }, () =>
+        loadBalancer.select(servers, 'llama3:latest', getLoad, getTotalLoad, () => undefined)
+      );
+      const fastSelected = results.filter(r => r?.id === 'fast').length;
+      expect(fastSelected).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Server Selection - Round Robin', () => {
+    it('should rotate through servers', () => {
+      loadBalancer.setAlgorithm('round-robin');
       const servers = [
         createServer('ollama-1'),
         createServer('ollama-2'),
         createServer('ollama-3'),
       ];
-      expect(servers.length).toBe(3);
-    });
 
-    it('should handle servers with different latencies', () => {
-      const servers = [
-        createServer('ollama-1', 50),
-        createServer('ollama-2', 100),
-        createServer('ollama-3', 200),
+      const results = [
+        loadBalancer.select(servers, 'llama3:latest', getLoad, getTotalLoad, () => undefined),
+        loadBalancer.select(servers, 'llama3:latest', getLoad, getTotalLoad, () => undefined),
+        loadBalancer.select(servers, 'llama3:latest', getLoad, getTotalLoad, () => undefined),
+        loadBalancer.select(servers, 'llama3:latest', getLoad, getTotalLoad, () => undefined),
       ];
 
-      const sorted = [...servers].sort((a, b) => a.lastResponseTime - b.lastResponseTime);
-      expect(sorted[0].id).toBe('ollama-1');
+      const ids = results.map(r => r?.id).filter(Boolean);
+      expect(new Set(ids).size).toBeGreaterThan(1);
     });
 
-    it('should handle servers with different success rates', () => {
-      const server1 = createServer('ollama-1', 100, 0.95);
-      const server2 = createServer('ollama-2', 100, 0.8);
+    it('should skip unhealthy servers when configured', () => {
+      loadBalancer.setAlgorithm('round-robin');
+      const servers = [
+        { ...createServer('ollama-1'), healthy: false },
+        createServer('ollama-2'),
+        createServer('ollama-3'),
+      ];
 
-      expect(server1.lastResponseTime).toBe(server2.lastResponseTime);
-    });
-
-    it('should handle servers with different capacities', () => {
-      const server1 = { ...createServer('ollama-1'), maxConcurrency: 8 };
-      const server2 = { ...createServer('ollama-2'), maxConcurrency: 2 };
-
-      expect(server1.maxConcurrency).toBe(8);
-      expect(server2.maxConcurrency).toBe(2);
-    });
-
-    it('should handle unhealthy servers', () => {
-      const healthy = createServer('ollama-1');
-      const unhealthy: AIServer = {
-        ...createServer('ollama-2'),
-        healthy: false,
-      };
-
-      expect(healthy.healthy).toBe(true);
-      expect(unhealthy.healthy).toBe(false);
-    });
-
-    it('should handle draining servers', () => {
-      const draining: AIServer = {
-        ...createServer('ollama-1'),
-        draining: true,
-      };
-
-      expect(draining.draining).toBe(true);
+      const result = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result?.healthy).toBe(true);
     });
   });
 
-  describe('Algorithm Variations', () => {
-    it('should handle latency-weighted selection', () => {
-      const lb = new LoadBalancer({
+  describe('Server Selection - Least Connections', () => {
+    it('should consider load in selection', () => {
+      loadBalancer.setAlgorithm('least-connections');
+      const servers = [createServer('ollama-1'), createServer('ollama-2')];
+      const getLoadFn = (serverId: string) => serverId === 'ollama-1' ? 10 : 1;
+
+      const result = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoadFn,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result).toBeDefined();
+    });
+  });
+  });
+
+  describe('Server Selection - Random', () => {
+    it('should randomly select from candidates', () => {
+      loadBalancer.setAlgorithm('random');
+      const servers = [
+        createServer('ollama-1'),
+        createServer('ollama-2'),
+        createServer('ollama-3'),
+      ];
+
+      const results = Array.from({ length: 20 }, () =>
+        loadBalancer.select(servers, 'llama3:latest', getLoad, getTotalLoad, () => undefined)
+      );
+
+      const ids = results.map(r => r?.id).filter(Boolean);
+      expect(new Set(ids).size).toBeGreaterThan(1);
+    });
+  });
+
+  describe('Server Selection - Fastest Response', () => {
+    it('should select fastest responding server by lastResponseTime', () => {
+      loadBalancer.setAlgorithm('fastest-response');
+      const servers = [createServer('ollama-1', 100), createServer('ollama-2', 50)];
+
+      const result = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result?.id).toBe('ollama-2');
+    });
+  });
+
+  describe('Sticky Sessions', () => {
+    it('should maintain sticky session for same client', () => {
+      loadBalancer.setAlgorithm('round-robin');
+      const servers = [createServer('ollama-1'), createServer('ollama-2')];
+
+      const first = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined,
+        false,
+        'client-1'
+      );
+
+      const second = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined,
+        false,
+        'client-1'
+      );
+
+      expect(second?.id).toBe(first?.id);
+    });
+  });
+
+  describe('Config Updates', () => {
+    it('should update weights at runtime', () => {
+      loadBalancer.updateConfig({
         weights: {
-          latency: 1.0,
-          successRate: 0.0,
+          latency: 0.5,
+          successRate: 0.5,
           load: 0.0,
           capacity: 0.0,
           circuitBreaker: 0.0,
           timeout: 0.0,
         },
       });
-      expect(lb).toBeDefined();
+      expect(loadBalancer.getAlgorithm()).toBeDefined();
     });
 
-    it('should handle success-rate weighted selection', () => {
-      const lb = new LoadBalancer({
-        weights: {
-          latency: 0.0,
-          successRate: 1.0,
-          load: 0.0,
-          capacity: 0.0,
-          circuitBreaker: 0.0,
-          timeout: 0.0,
+    it('should update thresholds at runtime', () => {
+      loadBalancer.updateConfig({
+        thresholds: {
+          maxP95Latency: 5000,
+          minSuccessRate: 0.9,
+          latencyPenalty: 0.5,
+          errorPenalty: 0.3,
+          circuitBreakerPenalty: 0.1,
         },
       });
-      expect(lb).toBeDefined();
+      expect(loadBalancer.getAlgorithm()).toBeDefined();
+    });
+  });
+
+  describe('Dual Protocol Support', () => {
+    it('should select from Ollama servers', () => {
+      const servers: AIServer[] = [
+        { ...createServer('ollama-1'), type: 'ollama', supportsOllama: true, supportsV1: false },
+      ];
+      const result = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result?.type).toBe('ollama');
     });
 
-    it('should handle capacity-weighted selection', () => {
-      const lb = new LoadBalancer({
-        weights: {
-          latency: 0.0,
-          successRate: 0.0,
-          load: 0.0,
-          capacity: 1.0,
-          circuitBreaker: 0.0,
-          timeout: 0.0,
-        },
-      });
-      expect(lb).toBeDefined();
-    });
-
-    it('should handle equal weights', () => {
-      const lb = new LoadBalancer({
-        weights: {
-          latency: 0.25,
-          successRate: 0.25,
-          load: 0.25,
-          capacity: 0.25,
-          circuitBreaker: 0.0,
-          timeout: 0.0,
-        },
-      });
-      expect(lb).toBeDefined();
-    });
-
-    it('should handle extreme weight values', () => {
-      const lb = new LoadBalancer({
-        weights: {
-          latency: 1.0,
-          successRate: 0.0,
-          load: 0.0,
-          capacity: 0.0,
-          circuitBreaker: 0.0,
-          timeout: 0.0,
-        },
-      });
-      expect(lb).toBeDefined();
+    it('should select from servers supporting OpenAI', () => {
+      const servers: AIServer[] = [
+        { ...createServer('openai-1'), type: 'ollama', supportsOllama: false, supportsV1: true },
+      ];
+      const result = loadBalancer.select(servers, 'gpt-4', getLoad, getTotalLoad, () => undefined);
+      expect(result).toBeDefined();
     });
   });
 
   describe('Edge Cases', () => {
-    it('should handle all servers with same score', () => {
-      const servers = [
-        createServer('ollama-1', 100, 1.0),
-        createServer('ollama-2', 100, 1.0),
-        createServer('ollama-3', 100, 1.0),
-      ];
-      expect(servers.length).toBe(3);
+    it('should handle servers with missing metrics', () => {
+      loadBalancer.setAlgorithm('fastest-response');
+      const servers = [createServer('ollama-1', 100), createServer('ollama-2', 200)];
+
+      const result = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result).toBeDefined();
     });
 
-    it('should handle servers at capacity', () => {
-      const atCapacity: AIServer = {
-        ...createServer('ollama-1'),
-        maxConcurrency: 0,
-      };
-      expect(atCapacity.maxConcurrency).toBe(0);
-    });
-
-    it('should handle undefined max concurrency', () => {
-      const noMax: AIServer = {
-        ...createServer('ollama-1'),
-        maxConcurrency: undefined,
-      };
-      expect(noMax.maxConcurrency).toBeUndefined();
-    });
-
-    it('should handle very large latency values', () => {
-      const highLatency = createServer('ollama-1', 100000);
-      expect(highLatency.lastResponseTime).toBe(100000);
-    });
-
-    it('should handle zero latency', () => {
-      const zeroLatency = createServer('ollama-1', 0);
-      expect(zeroLatency.lastResponseTime).toBe(0);
-    });
-
-    it('should handle servers with maintenance flag', () => {
-      const maintenance: AIServer = {
-        ...createServer('ollama-1'),
-        maintenance: true,
-      };
-      expect(maintenance.maintenance).toBe(true);
-    });
-  });
-
-  describe('Dual-Protocol Selection', () => {
-    it('should handle Ollama servers', () => {
-      const ollamaServer = createServer('ollama-1');
-      expect(ollamaServer.supportsOllama).toBe(true);
-    });
-
-    it('should handle OpenAI servers', () => {
-      const openaiServer: AIServer = {
-        id: 'openai-1',
-        url: 'http://localhost:8000',
-        type: 'ollama',
-        healthy: true,
-        supportsV1: true,
-        v1Models: ['gpt-4'],
-        lastResponseTime: 100,
-        models: [],
-      };
-      expect(openaiServer.supportsV1).toBe(true);
-    });
-
-    it('should handle dual-capability servers', () => {
-      const dualServer: AIServer = {
-        id: 'dual-1',
-        url: 'http://localhost:9000',
-        type: 'ollama',
-        healthy: true,
-        supportsOllama: true,
-        supportsV1: true,
-        models: ['llama3:latest'],
-        v1Models: ['gpt-4'],
-        lastResponseTime: 100,
-      };
-      expect(dualServer.supportsOllama).toBe(true);
-      expect(dualServer.supportsV1).toBe(true);
-    });
-  });
-
-  describe('Streaming Selection', () => {
-    it('should handle TTFT weight', () => {
-      const lb = new LoadBalancer({
-        streaming: {
-          ttftWeight: 0.8,
-          durationWeight: 0.2,
-          ttftBlendAvg: 0.5,
-          ttftBlendP95: 0.5,
-          durationEstimateMultiplier: 2,
-          chunkWeight: 0.2,
-          maxChunkGapPenaltyMs: 5000,
-        },
-      });
-      expect(lb).toBeDefined();
-    });
-
-    it('should handle duration weight', () => {
-      const lb = new LoadBalancer({
-        streaming: {
-          ttftWeight: 0.5,
-          durationWeight: 0.5,
-          ttftBlendAvg: 0.5,
-          ttftBlendP95: 0.5,
-          durationEstimateMultiplier: 2,
-          chunkWeight: 0.2,
-          maxChunkGapPenaltyMs: 5000,
-        },
-      });
-      expect(lb).toBeDefined();
-    });
-
-    it('should handle chunk weight', () => {
-      const lb = new LoadBalancer({
-        streaming: {
-          ttftWeight: 0.4,
-          durationWeight: 0.4,
-          ttftBlendAvg: 0.5,
-          ttftBlendP95: 0.5,
-          durationEstimateMultiplier: 2,
-          chunkWeight: 0.2,
-          maxChunkGapPenaltyMs: 5000,
-        },
-      });
-      expect(lb).toBeDefined();
+    it('should handle single server cluster', () => {
+      const servers = [createServer('ollama-1')];
+      const result = loadBalancer.select(
+        servers,
+        'llama3:latest',
+        getLoad,
+        getTotalLoad,
+        () => undefined
+      );
+      expect(result?.id).toBe('ollama-1');
     });
   });
 });
