@@ -129,6 +129,63 @@ describe('InFlightManager', () => {
       expect(manager.getAllStreamingRequests()).toHaveLength(0);
     });
   });
+
+  describe('getTotalInFlight', () => {
+    it('should return total in-flight for server', () => {
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.incrementInFlight('server-1', 'codellama:7b');
+
+      const total = manager.getTotalInFlight('server-1');
+      expect(total).toBe(3);
+    });
+
+    it('should return 0 for non-existent server', () => {
+      const total = manager.getTotalInFlight('non-existent');
+      expect(total).toBe(0);
+    });
+
+    it('should include bypass requests in total', () => {
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.incrementInFlight('server-1', 'llama3:8b', true);
+
+      const total = manager.getTotalInFlight('server-1');
+      expect(total).toBe(2);
+    });
+  });
+
+  describe('getInFlightByServer', () => {
+    it('should return in-flight grouped by model for server', () => {
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.incrementInFlight('server-1', 'codellama:7b');
+
+      const byModel = manager.getInFlightByServer('server-1');
+      expect(byModel['llama3:8b']).toBe(2);
+      expect(byModel['codellama:7b']).toBe(1);
+    });
+
+    it('should return empty object for non-existent server', () => {
+      const byModel = manager.getInFlightByServer('non-existent');
+      expect(byModel).toEqual({});
+    });
+  });
+
+  describe('getAllInFlight', () => {
+    it('should return all in-flight grouped by server and model', () => {
+      manager.incrementInFlight('server-1', 'llama3:8b');
+      manager.incrementInFlight('server-2', 'codellama:7b');
+
+      const all = manager.getAllInFlight();
+      expect(all['server-1']['llama3:8b']).toBe(1);
+      expect(all['server-2']['codellama:7b']).toBe(1);
+    });
+
+    it('should return empty object when nothing in-flight', () => {
+      const all = manager.getAllInFlight();
+      expect(all).toEqual({});
+    });
+  });
 });
 
 describe('getInFlightManager singleton', () => {
