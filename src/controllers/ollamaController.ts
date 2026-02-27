@@ -383,7 +383,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               // Stall threshold from config
               stallThreshold,
               // Stall check interval from config
-              stallCheckInterval
+              stallCheckInterval,
+              // Cleanup callback - remove streaming request from InFlightManager when stream ends
+              () => {
+                if (streamingRequestId) {
+                  getInFlightManager().removeStreamingRequest(streamingRequestId);
+                }
+              }
             );
 
             const includeDebug = req.query.debug === 'true';
@@ -706,7 +712,13 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               // Stall threshold from config
               stallThreshold,
               // Stall check interval from config
-              stallCheckInterval
+              stallCheckInterval,
+              // Cleanup callback - remove streaming request from InFlightManager when stream ends
+              () => {
+                if (requestId) {
+                  getInFlightManager().removeStreamingRequest(requestId);
+                }
+              }
             );
 
             const includeDebug = req.query.debug === 'true';

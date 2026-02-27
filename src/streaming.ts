@@ -171,7 +171,8 @@ export async function streamResponse(
     streamingRequestId?: string
   ) => Promise<StallHandlerResult | void>,
   stallThresholdMs?: number,
-  stallCheckIntervalMs?: number
+  stallCheckIntervalMs?: number,
+  onStreamEnd?: () => void
 ): Promise<void> {
   const ttftTracker = existingTtftTracker ?? new TTFTTracker(ttftOptions);
   const startTime = Date.now();
@@ -410,6 +411,7 @@ export async function streamResponse(
                     streamingRequestId,
                     handoffError: result.error,
                   });
+                  onStreamEnd?.();
                   return;
                 }
               } catch (stallError) {
@@ -564,6 +566,8 @@ export async function streamResponse(
       clearInterval(stallCheckInterval);
       stallCheckInterval = undefined;
     }
+    // Call onStreamEnd callback for cleanup (e.g., remove from InFlightManager)
+    onStreamEnd?.();
   }
 }
 
