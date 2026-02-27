@@ -173,12 +173,12 @@ describe('InFlightManager', () => {
 
   describe('getAllInFlight', () => {
     it('should return all in-flight grouped by server and model', () => {
-      manager.incrementInFlight('server-1', 'llama3:8b');
-      manager.incrementInFlight('server-2', 'codellama:7b');
+      manager.incrementInFlight('server-1', 'llama3');
+      manager.incrementInFlight('server-2', 'codellama');
 
       const all = manager.getAllInFlight();
-      expect(all['server-1']['llama3:8b']).toBe(1);
-      expect(all['server-2']['codellama:7b']).toBe(1);
+      expect(all['server-1']['llama3']).toBe(1);
+      expect(all['server-2']['codellama']).toBe(1);
     });
 
     it('should return empty object when nothing in-flight', () => {
