@@ -318,11 +318,20 @@ export async function streamResponse(
         });
 
         // Start stall detection after first chunk
+        if (!hasReceivedFirstChunk) {
+          if (!onStall) {
+            logger.error('STALL_DETECTION_SKIPPED_NO_CALLBACK', {
+              streamingRequestId,
+              chunkCount,
+            });
+          }
+        }
+
         if (!hasReceivedFirstChunk && onStall) {
           hasReceivedFirstChunk = true;
           lastChunkTime = now; // Reset lastChunkTime to now since we just received a chunk
 
-          logger.info('STALL_DETECTION_STARTED', {
+          logger.error('STALL_DETECTION_STARTED', {
             streamingRequestId,
             stallThreshold: effectiveStallThreshold,
             stallCheckInterval: effectiveStallCheckInterval,
