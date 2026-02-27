@@ -240,7 +240,7 @@ describe('Weighted Selection Algorithms Tests', () => {
     it('should consider load in selection', () => {
       loadBalancer.setAlgorithm('least-connections');
       const servers = [createServer('ollama-1'), createServer('ollama-2')];
-      const getLoadFn = (serverId: string) => serverId === 'ollama-1' ? 10 : 1;
+      const getLoadFn = (serverId: string) => (serverId === 'ollama-1' ? 10 : 1);
 
       const result = loadBalancer.select(
         servers,
@@ -251,7 +251,6 @@ describe('Weighted Selection Algorithms Tests', () => {
       );
       expect(result).toBeDefined();
     });
-  });
   });
 
   describe('Server Selection - Random', () => {
@@ -290,6 +289,13 @@ describe('Weighted Selection Algorithms Tests', () => {
 
   describe('Sticky Sessions', () => {
     it('should maintain sticky session for same client', () => {
+      loadBalancer.updateConfig({
+        roundRobin: {
+          skipUnhealthy: true,
+          checkCapacity: true,
+          stickySessionsTtlMs: 300000,
+        },
+      });
       loadBalancer.setAlgorithm('round-robin');
       const servers = [createServer('ollama-1'), createServer('ollama-2')];
 
