@@ -669,9 +669,27 @@ describe('streamResponse TTFT integration', () => {
       );
 
       expect(mockUpdateChunkProgress).toHaveBeenCalledTimes(3);
-      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(1, 'test-request-id-123', 1);
-      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(2, 'test-request-id-123', 2);
-      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(3, 'test-request-id-123', 3);
+      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(
+        1,
+        'test-request-id-123',
+        1,
+        '',
+        undefined
+      );
+      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(
+        2,
+        'test-request-id-123',
+        2,
+        '',
+        undefined
+      );
+      expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(
+        3,
+        'test-request-id-123',
+        3,
+        '',
+        undefined
+      );
     });
 
     it('should update chunk progress with correct incrementing count', async () => {
@@ -704,7 +722,13 @@ describe('streamResponse TTFT integration', () => {
 
       expect(mockUpdateChunkProgress).toHaveBeenCalledTimes(5);
       for (let i = 1; i <= 5; i++) {
-        expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(i, 'streaming-id-abc', i);
+        expect(mockUpdateChunkProgress).toHaveBeenNthCalledWith(
+          i,
+          'streaming-id-abc',
+          i,
+          '',
+          undefined
+        );
       }
     });
 

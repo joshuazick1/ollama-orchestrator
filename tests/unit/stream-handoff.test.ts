@@ -186,30 +186,9 @@ describe('Stream Handoff', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should succeed for OpenAI chat endpoint', async () => {
+    it('should return unsupported for OpenAI chat endpoint', async () => {
       mockOriginalRequest.protocol = 'openai';
       mockOriginalRequest.endpoint = 'chat';
-      mockOriginalRequest.accumulatedText = 'Hello, how can I help you?';
-
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        body: {
-          getReader: vi.fn().mockReturnValue({
-            read: vi
-              .fn()
-              .mockResolvedValueOnce({
-                done: false,
-                value: new TextEncoder().encode('data: {"choices":[{"delta":{"content":"Hi"}}]}\n'),
-              })
-              .mockResolvedValueOnce({
-                done: true,
-                value: new TextEncoder().encode('data: [DONE]\n'),
-              }),
-          }),
-        },
-      });
-
-      global.fetch = mockFetch;
 
       const handoffRequest: HandoffRequest = {
         originalRequest: mockOriginalRequest,
@@ -223,7 +202,8 @@ describe('Stream Handoff', () => {
 
       const result = await performStreamHandoff(handoffRequest);
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Endpoint does not support continuation');
     });
 
     it('should return error when upstream request fails', async () => {
