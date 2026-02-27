@@ -119,12 +119,29 @@ async function streamOpenAIResponse(
   model: string,
   isChat: boolean,
   includeUsage: boolean = false,
-  onChunk?: () => void
+  onChunk?: () => void,
+  // Optional streamingRequestId to pass through to onStall
+  streamingRequestId?: string,
+  // Accept optional streamingRequestId to match streaming.ts onStall signature
+  onStall?: (
+    abortController: AbortController,
+    streamingRequestId?: string
+  ) => Promise<{ success: boolean; error?: string } | void>,
+  stallThresholdMs?: number,
+  stallCheckIntervalMs?: number
 ): Promise<void> {
   const startTime = Date.now();
   let totalTokens = 0;
   let promptTokens = 0;
   let completionTokens = 0;
+  let lastChunkTime = startTime;
+  let hasReceivedFirstChunk = false;
+  let stallCheckInterval: ReturnType<typeof setInterval> | undefined;
+  let stallTriggered = false;
+  const effectiveStallThreshold = stallThresholdMs ?? 300000; // Default 5 minutes
+  const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000; // Default 10 seconds
+
+  const abortController = new AbortController();
 
   try {
     // Set SSE headers for OpenAI-style streaming
@@ -146,7 +163,76 @@ async function streamOpenAIResponse(
       const { done, value } = await reader.read();
 
       if (done) {
+        // Clear stall check interval on completion
+        if (stallCheckInterval) {
+          clearInterval(stallCheckInterval);
+          stallCheckInterval = undefined;
+        }
         break;
+      }
+
+      const now = Date.now();
+
+      // Start stall detection after first chunk
+      if (!hasReceivedFirstChunk && onStall) {
+        hasReceivedFirstChunk = true;
+        lastChunkTime = now;
+
+        stallCheckInterval = setInterval(async () => {
+          if (stallTriggered) {
+            return;
+          }
+
+          const timeSinceLastChunk = Date.now() - lastChunkTime;
+          if (timeSinceLastChunk > effectiveStallThreshold) {
+            logger.warn('OpenAI stream stall detected', {
+              responseId,
+              model,
+              timeSinceLastChunk,
+              stallThreshold: effectiveStallThreshold,
+            });
+            stallTriggered = true;
+
+            // Clear the interval since we've triggered stall handling
+            if (stallCheckInterval) {
+              clearInterval(stallCheckInterval);
+              stallCheckInterval = undefined;
+            }
+
+            // Try to handle the stall - call the async handler
+            try {
+              // onStall returns a promise; call and await its result because OpenAI
+              // stall handler returns immediately with success:false. Awaiting here
+              // keeps behavior consistent with the rest of the codepath.
+              const res = await onStall(abortController, streamingRequestId);
+
+              // If handler says it handled the handoff successfully, we're done
+              if (res?.success) {
+                logger.info('OpenAI stall handled successfully via handoff', {
+                  responseId,
+                });
+                return;
+              }
+            } catch (stallError) {
+              logger.error('OpenAI stall handler threw error', {
+                responseId,
+                error: stallError instanceof Error ? stallError.message : String(stallError),
+              });
+            }
+
+            // If we get here, handoff didn't work - abort the stream
+            try {
+              reader.cancel();
+            } catch (e) {
+              // Ignore cancel errors
+            }
+          }
+        }, effectiveStallCheckInterval);
+      }
+
+      // Update last chunk time for stall detection
+      if (hasReceivedFirstChunk) {
+        lastChunkTime = now;
       }
 
       onChunk?.();
@@ -326,7 +412,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
   }
 
   const orchestrator = getOrchestratorInstance();
-  const config = getConfigManager().getConfig();
+  const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
   const responseId = generateId('chatcmpl');
 
@@ -367,8 +453,25 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
         if (stream) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const requestId = (server as AIServer & { _streamingRequestId?: string })
+            ._streamingRequestId;
+          const stallThreshold = _config.streaming.stallThresholdMs;
+          const stallCheckInterval = _config.streaming.stallCheckIntervalMs;
+
+          logger.info('STREAM_REQUEST_START', {
+            requestId,
+            serverId: server.id,
+            model,
+            endpoint: 'chat',
+            protocol: 'openai',
+            timeoutMs,
+            stallThresholdMs: stallThreshold,
+            stallCheckIntervalMs: stallCheckInterval,
+            messageCount: messages?.length ?? 0,
+          });
+
           logger.debug(
-            `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}`
+            `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}, stallThreshold: ${stallThreshold}ms`
           );
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
@@ -393,6 +496,30 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             throw new Error(errorMessage);
           }
 
+          const streamStartTime = Date.now();
+          let firstChunkTime: number | undefined;
+
+          const onStallCallback = async (
+            _abortController: AbortController,
+            _streamingRequestId?: string
+          ) => {
+            logger.warn('STREAM_STALL_DETECTED', {
+              requestId,
+              serverId: server.id,
+              model,
+              endpoint: 'chat',
+              protocol: 'openai',
+              message: 'Stall detected - OpenAI does not support continuation, failing gracefully',
+            });
+
+            // OpenAI doesn't support continuation, so we just return false
+            // The stream will end gracefully with what we have
+            return {
+              success: false,
+              error: 'OpenAI protocol does not support stream continuation',
+            };
+          };
+
           try {
             let chunkCount = 0;
             await streamOpenAIResponse(
@@ -403,16 +530,47 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               true,
               body.stream_options?.include_usage,
               () => {
+                if (!firstChunkTime) {
+                  firstChunkTime = Date.now();
+                  logger.info('STREAM_FIRST_CHUNK', {
+                    requestId,
+                    serverId: server.id,
+                    model,
+                    timeToFirstChunk: firstChunkTime - streamStartTime,
+                  });
+                }
+
                 activityController.resetTimeout();
                 chunkCount++;
+
+                logger.debug('STREAM_CHUNK', {
+                  requestId,
+                  serverId: server.id,
+                  model,
+                  chunkCount,
+                });
+
                 // Update InFlightManager with current chunk count for real-time tracking
-                const requestId = (server as AIServer & { _streamingRequestId?: string })
-                  ._streamingRequestId;
                 if (requestId) {
                   getInFlightManager().updateChunkProgress(requestId, chunkCount);
                 }
-              }
+              },
+              // streamingRequestId (for onStall)
+              requestId,
+              // Stall detection parameters
+              onStallCallback,
+              stallThreshold,
+              stallCheckInterval
             );
+
+            logger.info('STREAM_COMPLETE', {
+              requestId,
+              serverId: server.id,
+              model,
+              endpoint: 'chat',
+              duration: Date.now() - streamStartTime,
+              chunkCount,
+            });
 
             const includeDebug = req.query.debug === 'true';
             if (includeDebug) {
@@ -508,7 +666,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   }
 
   const orchestrator = getOrchestratorInstance();
-  const config = getConfigManager().getConfig();
+  const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
 
   try {
@@ -780,6 +938,23 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
 
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const requestId = (server as AIServer & { _streamingRequestId?: string })
+            ._streamingRequestId;
+          const stallThreshold = config.streaming.stallThresholdMs;
+          const stallCheckInterval = config.streaming.stallCheckIntervalMs;
+
+          logger.info('STREAM_REQUEST_START', {
+            requestId,
+            serverId: server.id,
+            model,
+            endpoint: 'chat',
+            protocol: 'openai',
+            timeoutMs,
+            stallThresholdMs: stallThreshold,
+            stallCheckIntervalMs: stallCheckInterval,
+            messageCount: messages?.length ?? 0,
+          });
+
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
             {
@@ -797,6 +972,30 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
             throw new Error(errorMessage);
           }
 
+          const streamStartTime = Date.now();
+          let firstChunkTime: number | undefined;
+
+          const onStallCallback = async (
+            _abortController: AbortController,
+            _streamingRequestId?: string
+          ) => {
+            logger.warn('STREAM_STALL_DETECTED', {
+              requestId,
+              serverId: server.id,
+              model,
+              endpoint: 'chat',
+              protocol: 'openai',
+              message: 'Stall detected - OpenAI does not support continuation, failing gracefully',
+            });
+
+            // OpenAI doesn't support continuation, so we just return false
+            // The stream will end gracefully with what we have
+            return {
+              success: false,
+              error: 'OpenAI protocol does not support stream continuation',
+            };
+          };
+
           try {
             let chunkCount = 0;
             await streamOpenAIResponse(
@@ -807,16 +1006,47 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               true,
               body.stream_options?.include_usage,
               () => {
+                if (!firstChunkTime) {
+                  firstChunkTime = Date.now();
+                  logger.info('STREAM_FIRST_CHUNK', {
+                    requestId,
+                    serverId: server.id,
+                    model,
+                    timeToFirstChunk: firstChunkTime - streamStartTime,
+                  });
+                }
+
                 activityController.resetTimeout();
                 chunkCount++;
+
+                logger.debug('STREAM_CHUNK', {
+                  requestId,
+                  serverId: server.id,
+                  model,
+                  chunkCount,
+                });
+
                 // Update InFlightManager with current chunk count for real-time tracking
-                const requestId = (server as AIServer & { _streamingRequestId?: string })
-                  ._streamingRequestId;
                 if (requestId) {
                   getInFlightManager().updateChunkProgress(requestId, chunkCount);
                 }
-              }
+              },
+              // streamingRequestId (for onStall)
+              requestId,
+              // Stall detection parameters
+              onStallCallback,
+              stallThreshold,
+              stallCheckInterval
             );
+
+            logger.info('STREAM_COMPLETE', {
+              requestId,
+              serverId: server.id,
+              model,
+              endpoint: 'chat',
+              duration: Date.now() - streamStartTime,
+              chunkCount,
+            });
           } finally {
             activityController.clearTimeout();
           }

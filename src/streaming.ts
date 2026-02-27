@@ -21,8 +21,13 @@ export interface StreamResponseOptions {
   ttftOptions?: TTFTOptions;
   /** Existing TTFTTracker instance to use (for sharing with caller) */
   ttftTracker?: TTFTTracker;
-  /** Callback when stream is detected as stalled (no chunks for threshold period after first chunk) */
-  onStall?: () => void;
+  /** Callback when stream is detected as stalled (no chunks for threshold period after first chunk)
+   * Handler should accept the authoritative streamingRequestId (may be undefined) and may
+   * return a StallHandlerResult to indicate whether it handled continuation. */
+  onStall?: (
+    abortController: AbortController,
+    streamingRequestId?: string
+  ) => Promise<StallHandlerResult | void> | void;
   /** Stall detection threshold in ms (default: 5 minutes) */
   stallThresholdMs?: number;
   /** How often to check for stall (default: 10 seconds) */
@@ -139,6 +144,11 @@ function extractChunkContext(chunk: Uint8Array): { context?: number[] } {
   return {};
 }
 
+export interface StallHandlerResult {
+  success: boolean;
+  error?: string;
+}
+
 /**
  * Stream a response from upstream server to client
  */
@@ -156,7 +166,10 @@ export async function streamResponse(
   ttftOptions?: TTFTOptions,
   streamingRequestId?: string,
   existingTtftTracker?: TTFTTracker,
-  onStall?: () => void,
+  onStall?: (
+    abortController: AbortController,
+    streamingRequestId?: string
+  ) => Promise<StallHandlerResult | void>,
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number
 ): Promise<void> {
@@ -180,6 +193,8 @@ export async function streamResponse(
   const LOG_INTERVAL = 30000; // Log progress every 30 seconds
   const effectiveStallThreshold = stallThresholdMs ?? 300000; // Default 5 minutes
   const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000; // Default 10 seconds
+
+  const abortController = new AbortController();
 
   try {
     // Set SSE headers
@@ -306,12 +321,52 @@ export async function streamResponse(
           hasReceivedFirstChunk = true;
           lastChunkTime = now; // Reset lastChunkTime to now since we just received a chunk
 
-          stallCheckInterval = setInterval(() => {
+          logger.info('STALL_DETECTION_STARTED', {
+            streamingRequestId,
+            stallThreshold: effectiveStallThreshold,
+            stallCheckInterval: effectiveStallCheckInterval,
+            chunkCount,
+          });
+
+          // Log current InFlightManager state for this request to help debug mismatches
+          try {
+            const progress = streamingRequestId
+              ? getInFlightManager().getStreamingRequestProgress(streamingRequestId)
+              : undefined;
+            const allTracked = getInFlightManager().getAllStreamingRequests();
+            logger.debug('STALL_DETECTION_STATE', {
+              streamingRequestId,
+              progressFound: !!progress,
+              progressSummary: progress
+                ? {
+                    chunkCount: progress.chunkCount,
+                    accumulatedLength: progress.accumulatedText.length,
+                  }
+                : undefined,
+              trackedRequestCount: allTracked.length,
+              trackedRequestIds: allTracked.slice(0, 20).map(r => r.id),
+            });
+          } catch (e) {
+            logger.debug('STALL_DETECTION_STATE_ERROR', {
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+
+          // Start periodic stall checking in the background
+          stallCheckInterval = setInterval(async () => {
             if (stallTriggered) {
               return;
             }
 
             const timeSinceLastChunk = Date.now() - lastChunkTime;
+            logger.debug('STALL_CHECK', {
+              streamingRequestId,
+              timeSinceLastChunk,
+              stallThreshold: effectiveStallThreshold,
+              chunkCount,
+              wouldTrigger: timeSinceLastChunk > effectiveStallThreshold,
+            });
+
             if (timeSinceLastChunk > effectiveStallThreshold) {
               logger.warn('Stream stall detected', {
                 streamingRequestId,
@@ -320,12 +375,55 @@ export async function streamResponse(
                 chunkCount,
               });
               stallTriggered = true;
-              onStall();
 
               // Clear the interval since we've triggered stall handling
               if (stallCheckInterval) {
                 clearInterval(stallCheckInterval);
                 stallCheckInterval = undefined;
+              }
+
+              // Try to handle the stall - call the async handler
+              try {
+                // Log InFlightManager state right before invoking handler
+                try {
+                  const progressBefore = streamingRequestId
+                    ? getInFlightManager().getStreamingRequestProgress(streamingRequestId)
+                    : undefined;
+                  logger.debug('ON_STALL_INVOKE', {
+                    streamingRequestId,
+                    progressFound: !!progressBefore,
+                    progressChunkCount: progressBefore?.chunkCount,
+                  });
+                } catch (e) {
+                  logger.debug('ON_STALL_INVOKE_ERROR', {
+                    error: e instanceof Error ? e.message : String(e),
+                  });
+                }
+
+                const result = await onStall(abortController, streamingRequestId);
+
+                // If handler says it handled the handoff successfully, we're done
+                // The handoff has already started streaming to clientResponse
+                // Just return gracefully without canceling the reader
+                if (result?.success) {
+                  logger.info('Stall handled successfully via handoff, exiting stream gracefully', {
+                    streamingRequestId,
+                    handoffError: result.error,
+                  });
+                  return;
+                }
+              } catch (stallError) {
+                logger.error('Stall handler threw error', {
+                  streamingRequestId,
+                  error: stallError instanceof Error ? stallError.message : String(stallError),
+                });
+              }
+
+              // If we get here, handoff didn't work - abort the stream
+              try {
+                reader.cancel();
+              } catch (e) {
+                // Ignore cancel errors
               }
             }
           }, effectiveStallCheckInterval);

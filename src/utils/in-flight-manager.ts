@@ -251,15 +251,18 @@ export class InFlightManager {
         accumulatedLength: request.accumulatedText.length,
       });
     } else {
-      // When request not found, log a short caller stack to help find the origin of updates
+      // When request not found, log a short caller stack and current tracked IDs
       const stack = new Error().stack
         ?.split('\n')
         .slice(2, 6)
         .map(s => s.trim());
+      const trackedIds = Array.from(this.streamingRequests.keys());
       logger.debug('InFlightManager.updateChunkProgress: request not found', {
         requestId,
         chunkCount,
         caller: stack,
+        trackedRequestCount: trackedIds.length,
+        trackedRequestIds: trackedIds.slice(0, 20), // cap to avoid huge logs
       });
     }
   }
