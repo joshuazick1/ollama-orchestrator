@@ -35,6 +35,11 @@ const STALL_CHECK_INTERVAL_MS = parseInt(
   10
 );
 
+// For testing with very short thresholds to trigger stall detection
+const FORCE_SHORT_STALL = process.env.FORCE_SHORT_STALL === 'true';
+const DEBUG_STALL_THRESHOLD = FORCE_SHORT_STALL ? 3000 : STALL_THRESHOLD_MS;
+const DEBUG_STALL_INTERVAL = FORCE_SHORT_STALL ? 1000 : STALL_CHECK_INTERVAL_MS;
+
 interface ServerInfo {
   id: string;
   url: string;
@@ -104,7 +109,9 @@ class StreamingStallTest {
     console.log('STREAMING STALL DETECTION AND FAILOVER TEST');
     console.log('='.repeat(80));
     console.log(`Orchestrator: ${ORCHESTRATOR_URL}`);
-    console.log(`Stall Threshold: ${this.config.stallThreshold}ms`);
+    console.log(
+      `Stall Threshold: ${this.config.stallThreshold}ms${FORCE_SHORT_STALL ? ' (FORCED SHORT)' : ''}`
+    );
     console.log(`Stall Check Interval: ${this.config.stallCheckInterval}ms`);
     console.log('');
 
