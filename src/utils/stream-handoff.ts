@@ -108,14 +108,31 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
       messagesCount: ((continuationRequest.messages as unknown[]) || []).length,
     });
 
-    const upstreamResponse = await fetch(upstreamUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(newServer.apiKey ? { Authorization: `Bearer ${newServer.apiKey}` } : {}),
-      },
-      body: JSON.stringify(continuationRequest),
-    });
+    let upstreamResponse: globalThis.Response;
+    try {
+      upstreamResponse = await fetch(upstreamUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(newServer.apiKey ? { Authorization: `Bearer ${newServer.apiKey}` } : {}),
+        },
+        body: JSON.stringify(continuationRequest),
+      });
+    } catch (fetchError) {
+      const fetchErrorMessage =
+        fetchError instanceof Error ? fetchError.message : String(fetchError);
+      logger.error('Continuation fetch failed', {
+        requestId: originalRequest.id,
+        newServer: newServer.id,
+        error: fetchErrorMessage,
+      });
+      return {
+        success: false,
+        chunksFromHandoff: 0,
+        finalChunkCount: originalRequest.chunkCount,
+        error: `Continuation fetch failed: ${fetchErrorMessage}`,
+      };
+    }
 
     if (!upstreamResponse.ok) {
       const errorText = await upstreamResponse.text();
