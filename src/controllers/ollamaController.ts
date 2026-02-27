@@ -212,6 +212,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
             ._streamingRequestId;
 
+          logger.error('STREAM_RESPONSE_PARAMS', {
+            requestId: streamingRequestId,
+            serverId: server.id,
+            model,
+            hasOnStall: true,
+          });
+
           const onStallCallback = async (
             _abortController: AbortController,
             passedRequestId?: string
@@ -220,6 +227,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             // Do NOT fall back to the closure-captured streamingRequestId to avoid races.
             const requestId = passedRequestId;
 
+            logger.error('OLLAMA_ON_STALL_CALLED', {
+              requestId,
+              serverId: server.id,
+              model,
+              endpoint: 'generate',
+              passedRequestId,
+            });
             logger.warn('STREAM_STALL_DETECTED', {
               requestId,
               serverId: server.id,

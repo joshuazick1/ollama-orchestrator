@@ -360,20 +360,22 @@ export async function streamResponse(
             }
 
             const timeSinceLastChunk = Date.now() - lastChunkTime;
-            logger.debug('STALL_CHECK', {
+            logger.info('STALL_CHECK', {
               streamingRequestId,
               timeSinceLastChunk,
               stallThreshold: effectiveStallThreshold,
+              stallCheckInterval: effectiveStallCheckInterval,
               chunkCount,
               wouldTrigger: timeSinceLastChunk > effectiveStallThreshold,
             });
 
             if (timeSinceLastChunk > effectiveStallThreshold) {
-              logger.warn('Stream stall detected', {
+              logger.error('Stream stall detected - WILL ATTEMPT HANDOFF', {
                 streamingRequestId,
                 timeSinceLastChunk,
                 stallThreshold: effectiveStallThreshold,
                 chunkCount,
+                onStallExists: !!onStall,
               });
               stallTriggered = true;
 
@@ -385,18 +387,25 @@ export async function streamResponse(
 
               // Try to handle the stall - call the async handler
               try {
+                logger.error('ON_STALL_CALLBACK_INVOKING', {
+                  streamingRequestId,
+                  onStallType: typeof onStall,
+                  onStallIsFunction: typeof onStall === 'function',
+                });
+
                 // Log InFlightManager state right before invoking handler
                 try {
                   const progressBefore = streamingRequestId
                     ? getInFlightManager().getStreamingRequestProgress(streamingRequestId)
                     : undefined;
-                  logger.debug('ON_STALL_INVOKE', {
+                  logger.error('ON_STALL_INVOKE', {
                     streamingRequestId,
                     progressFound: !!progressBefore,
                     progressChunkCount: progressBefore?.chunkCount,
+                    progressAccumulatedLength: progressBefore?.accumulatedText.length,
                   });
                 } catch (e) {
-                  logger.debug('ON_STALL_INVOKE_ERROR', {
+                  logger.error('ON_STALL_INVOKE_ERROR', {
                     error: e instanceof Error ? e.message : String(e),
                   });
                 }
