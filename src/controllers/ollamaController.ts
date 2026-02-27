@@ -291,17 +291,32 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             const allServers = orchestrator.getServers();
 
             // Filter for healthy servers with the model, excluding current server
+            // Also check that the circuit breaker is not open (allows requests)
             const newServer = allServers.find(
-              s => s.id !== server.id && s.healthy && s.models.includes(model)
+              s =>
+                s.id !== server.id &&
+                s.healthy &&
+                s.models.includes(model) &&
+                orchestrator.isCircuitAllowed(s.id)
             );
 
             if (!newServer) {
-              logger.warn('No eligible servers for handoff', {
-                requestId,
-                currentServer: server.id,
-                model,
-              });
-              return { success: false, error: 'No alternative servers' };
+              logger.warn(
+                'No eligible servers for handoff - all circuits open or no servers with model',
+                {
+                  requestId,
+                  currentServer: server.id,
+                  model,
+                  checkedServers: allServers
+                    .filter(s => s.id !== server.id && s.models.includes(model))
+                    .map(s => ({
+                      id: s.id,
+                      healthy: s.healthy,
+                      circuitOpen: !orchestrator.isCircuitAllowed(s.id),
+                    })),
+                }
+              );
+              return { success: false, error: 'No alternative servers with closed circuit' };
             }
 
             logger.info('Attempting seamless handoff to new server', {
@@ -620,17 +635,32 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             const allServers = orchestrator.getServers();
 
             // Filter for healthy servers with the model, excluding current server
+            // Also check that the circuit breaker is not open (allows requests)
             const newServer = allServers.find(
-              s => s.id !== server.id && s.healthy && s.models.includes(model)
+              s =>
+                s.id !== server.id &&
+                s.healthy &&
+                s.models.includes(model) &&
+                orchestrator.isCircuitAllowed(s.id)
             );
 
             if (!newServer) {
-              logger.warn('No eligible servers for handoff', {
-                requestId: effectiveRequestId,
-                currentServer: server.id,
-                model,
-              });
-              return { success: false, error: 'No alternative servers' };
+              logger.warn(
+                'No eligible servers for handoff - all circuits open or no servers with model',
+                {
+                  requestId: effectiveRequestId,
+                  currentServer: server.id,
+                  model,
+                  checkedServers: allServers
+                    .filter(s => s.id !== server.id && s.models.includes(model))
+                    .map(s => ({
+                      id: s.id,
+                      healthy: s.healthy,
+                      circuitOpen: !orchestrator.isCircuitAllowed(s.id),
+                    })),
+                }
+              );
+              return { success: false, error: 'No alternative servers with closed circuit' };
             }
 
             logger.info('Attempting seamless handoff to new server', {
