@@ -2675,6 +2675,19 @@ export class AIOrchestrator {
   }
 
   /**
+   * Check if server's circuit breaker allows requests (not open)
+   * Returns true if circuit is closed or half-open (allowing test requests)
+   */
+  isCircuitAllowed(serverId: string): boolean {
+    const cb = this.circuitBreakerRegistry.get(serverId);
+    if (!cb) {
+      return true; // No circuit breaker = allowed
+    }
+    const stats = cb.getStats();
+    return stats.state !== 'open';
+  }
+
+  /**
    * Mark a server:model combination as failed and put it in cooldown
    */
   private markFailure(serverId: string, model: string): void {
