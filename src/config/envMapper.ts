@@ -75,6 +75,9 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_STREAMING_BUFFER_SIZE: 'streaming.bufferSize',
   ORCHESTRATOR_STREAMING_TTFT_WEIGHT: 'streaming.ttftWeight',
   ORCHESTRATOR_STREAMING_DURATION_WEIGHT: 'streaming.durationWeight',
+  ORCHESTRATOR_STREAMING_STALL_THRESHOLD_MS: 'streaming.stallThresholdMs',
+  ORCHESTRATOR_STREAMING_STALL_CHECK_INTERVAL_MS: 'streaming.stallCheckIntervalMs',
+  ORCHESTRATOR_STREAMING_MAX_HANDOFF_ATTEMPTS: 'streaming.maxHandoffAttempts',
 
   // Health check settings
   ORCHESTRATOR_HC_ENABLED: 'healthCheck.enabled',

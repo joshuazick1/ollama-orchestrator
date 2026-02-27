@@ -29,6 +29,9 @@ export interface LoadBalancerStreaming {
   durationEstimateMultiplier: number;
   chunkWeight: number;
   maxChunkGapPenaltyMs: number;
+  stallThresholdMs: number;
+  stallCheckIntervalMs: number;
+  maxHandoffAttempts: number;
 }
 
 export interface LoadBalancerCrossModelInference {
@@ -125,10 +128,14 @@ export interface StreamingConfig {
   maxConcurrentStreams: number;
   timeoutMs: number;
   bufferSize: number;
+  activityTimeoutMs: number;
   ttftWeight: number;
   durationWeight: number;
   chunkWeight: number;
   maxChunkGapPenaltyMs: number;
+  stallThresholdMs: number;
+  stallCheckIntervalMs: number;
+  maxHandoffAttempts: number;
 }
 
 export interface HealthCheckConfig {

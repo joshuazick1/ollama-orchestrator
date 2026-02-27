@@ -5,7 +5,7 @@
 
 import type { Response } from 'express';
 
-import { TTFTTracker, type TTFTMetrics, type TTFTOptions } from './metrics/ttft-tracker.js';
+import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
@@ -21,6 +21,12 @@ export interface StreamResponseOptions {
   ttftOptions?: TTFTOptions;
   /** Existing TTFTTracker instance to use (for sharing with caller) */
   ttftTracker?: TTFTTracker;
+  /** Callback when stream is detected as stalled (no chunks for threshold period after first chunk) */
+  onStall?: () => void;
+  /** Stall detection threshold in ms (default: 5 minutes) */
+  stallThresholdMs?: number;
+  /** How often to check for stall (default: 10 seconds) */
+  stallCheckIntervalMs?: number;
 }
 
 /**
@@ -82,6 +88,58 @@ function parseStreamChunk(chunk: Uint8Array): {
 }
 
 /**
+ * Extract text content from a streaming chunk
+ */
+function extractChunkText(chunk: Uint8Array): string {
+  try {
+    const text = new TextDecoder().decode(chunk);
+    const lines = text.split('\n').filter(l => l.trim());
+
+    for (const line of lines) {
+      try {
+        const parsed = safeJsonParse(line) as OllamaStreamChunk;
+        if (parsed.response) {
+          return parsed.response;
+        }
+        if (parsed.message?.content) {
+          return parsed.message.content;
+        }
+      } catch {
+        // Not valid JSON, continue
+      }
+    }
+  } catch {
+    // Ignore decode errors
+  }
+  return '';
+}
+
+/**
+ * Extract context array from a streaming chunk (Ollama specific)
+ * Returns context only from the final chunk (done: true)
+ */
+function extractChunkContext(chunk: Uint8Array): { context?: number[] } {
+  try {
+    const text = new TextDecoder().decode(chunk);
+    const lines = text.split('\n').filter(l => l.trim());
+
+    for (const line of lines) {
+      try {
+        const parsed = safeJsonParse(line) as OllamaStreamChunk & { context?: number[] };
+        if (parsed.done && parsed.context) {
+          return { context: parsed.context };
+        }
+      } catch {
+        // Not valid JSON, continue
+      }
+    }
+  } catch {
+    // Ignore decode errors
+  }
+  return {};
+}
+
+/**
  * Stream a response from upstream server to client
  */
 export async function streamResponse(
@@ -97,7 +155,10 @@ export async function streamResponse(
   onChunk?: (chunkCount: number) => void,
   ttftOptions?: TTFTOptions,
   streamingRequestId?: string,
-  existingTtftTracker?: TTFTTracker
+  existingTtftTracker?: TTFTTracker,
+  onStall?: () => void,
+  stallThresholdMs?: number,
+  stallCheckIntervalMs?: number
 ): Promise<void> {
   const ttftTracker = existingTtftTracker ?? new TTFTTracker(ttftOptions);
   const startTime = Date.now();
@@ -107,11 +168,18 @@ export async function streamResponse(
   let chunkCount = 0;
   let totalBytes = 0;
   let lastChunkTime = startTime;
+  let stallCheckInterval: ReturnType<typeof setInterval> | undefined;
+  let stallTriggered = false;
+  let hasReceivedFirstChunk = false;
   let maxChunkGap = 0;
   let lastLogTime = startTime;
   let doneChunkReceived = false;
   let lastChunkPreview = '';
+  let accumulatedText = '';
+  let lastContext: number[] | undefined;
   const LOG_INTERVAL = 30000; // Log progress every 30 seconds
+  const effectiveStallThreshold = stallThresholdMs ?? 300000; // Default 5 minutes
+  const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000; // Default 10 seconds
 
   try {
     // Set SSE headers
@@ -157,14 +225,32 @@ export async function streamResponse(
       chunkCount++;
       totalBytes += value.length;
 
+      // Parse chunk to extract content and context
+      const chunkText = extractChunkText(value);
+      if (chunkText) {
+        accumulatedText += chunkText;
+      }
+
+      // Extract context from done chunk (Ollama specific)
+      const parsedChunk = extractChunkContext(value);
+      if (parsedChunk?.context) {
+        lastContext = parsedChunk.context;
+      }
+
       // Update InFlightManager directly if streamingRequestId is provided
       if (streamingRequestId) {
         try {
           logger.debug('streaming.ts calling updateChunkProgress', {
             streamingRequestId,
             chunkCount,
+            accumulatedLength: accumulatedText.length,
           });
-          getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount);
+          getInFlightManager().updateChunkProgress(
+            streamingRequestId,
+            chunkCount,
+            accumulatedText,
+            lastContext
+          );
         } catch (e) {
           logger.error('Failed to update chunk progress', { error: e });
         }
@@ -214,6 +300,36 @@ export async function streamResponse(
           hasContent: chunkInfo.hasContent,
           preview: chunkInfo.preview,
         });
+
+        // Start stall detection after first chunk
+        if (!hasReceivedFirstChunk && onStall) {
+          hasReceivedFirstChunk = true;
+          lastChunkTime = now; // Reset lastChunkTime to now since we just received a chunk
+
+          stallCheckInterval = setInterval(() => {
+            if (stallTriggered) {
+              return;
+            }
+
+            const timeSinceLastChunk = Date.now() - lastChunkTime;
+            if (timeSinceLastChunk > effectiveStallThreshold) {
+              logger.warn('Stream stall detected', {
+                streamingRequestId,
+                timeSinceLastChunk,
+                stallThreshold: effectiveStallThreshold,
+                chunkCount,
+              });
+              stallTriggered = true;
+              onStall();
+
+              // Clear the interval since we've triggered stall handling
+              if (stallCheckInterval) {
+                clearInterval(stallCheckInterval);
+                stallCheckInterval = undefined;
+              }
+            }
+          }, effectiveStallCheckInterval);
+        }
       }
 
       // Track first actual content
@@ -343,6 +459,12 @@ export async function streamResponse(
     } else {
       // Otherwise just end the stream
       clientResponse.end();
+    }
+  } finally {
+    // Always clean up stall detection interval
+    if (stallCheckInterval) {
+      clearInterval(stallCheckInterval);
+      stallCheckInterval = undefined;
     }
   }
 }

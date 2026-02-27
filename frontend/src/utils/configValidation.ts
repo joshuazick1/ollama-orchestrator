@@ -98,6 +98,31 @@ export const validateConfig = (config: Record<string, unknown>): ValidationResul
     }
   }
 
+  if (streaming?.stallThresholdMs) {
+    const threshold = Number(streaming.stallThresholdMs);
+    if (threshold < 1000) {
+      errors['streaming.stallThresholdMs'] = 'Stall threshold must be at least 1000ms';
+    }
+    if (threshold > 600000) {
+      warnings['streaming.stallThresholdMs'] =
+        'Very high stall threshold may delay stall detection';
+    }
+  }
+
+  if (streaming?.stallCheckIntervalMs) {
+    const interval = Number(streaming.stallCheckIntervalMs);
+    if (interval < 1000) {
+      errors['streaming.stallCheckIntervalMs'] = 'Stall check interval must be at least 1000ms';
+    }
+  }
+
+  if (streaming?.maxHandoffAttempts) {
+    const attempts = Number(streaming.maxHandoffAttempts);
+    if (attempts < 0 || attempts > 5) {
+      errors['streaming.maxHandoffAttempts'] = 'Max handoff attempts must be between 0 and 5';
+    }
+  }
+
   return {
     success: Object.keys(errors).length === 0,
     errors,

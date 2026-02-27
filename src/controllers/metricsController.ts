@@ -44,7 +44,7 @@ export function getServerModelMetrics(req: Request, res: Response): void {
   // Model may contain slashes and therefore might be captured as a wildcard segment
   // on the route (e.g. '/metrics/:serverId/*'). Prefer explicit param if present,
   // otherwise fall back to the wildcard capture at req.params[0]. Decode to be safe.
-  const rawModel = (req.params.model as string) || (req.params[0] as string) || '';
+  const rawModel = (req.params.model as string) || (req.params[0]) || '';
   const model = rawModel ? decodeURIComponent(rawModel) : '';
 
   try {

@@ -1036,6 +1036,33 @@ export const Settings = () => {
                 suffix="ms"
                 description="Max gap before penalizing for stalled streams"
               />
+              <NumberInput
+                label="Stall Threshold"
+                value={currentConfig.streaming?.stallThresholdMs ?? 300000}
+                onChange={value => updateField('streaming', 'stallThresholdMs', value)}
+                min={1000}
+                step={30000}
+                suffix="ms"
+                description="Mark stream as stalled after no chunks for this duration"
+              />
+              <NumberInput
+                label="Stall Check Interval"
+                value={currentConfig.streaming?.stallCheckIntervalMs ?? 10000}
+                onChange={value => updateField('streaming', 'stallCheckIntervalMs', value)}
+                min={1000}
+                step={1000}
+                suffix="ms"
+                description="How often to check for stalled streams"
+              />
+              <NumberInput
+                label="Max Handoff Attempts"
+                value={currentConfig.streaming?.maxHandoffAttempts ?? 2}
+                onChange={value => updateField('streaming', 'maxHandoffAttempts', value)}
+                min={0}
+                max={5}
+                step={1}
+                description="Max times to attempt handoff to different server"
+              />
             </div>
           </ConfigSection>
         )}
