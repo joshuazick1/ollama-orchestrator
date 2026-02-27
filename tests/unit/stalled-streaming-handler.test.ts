@@ -665,4 +665,260 @@ describe('Stalled Streaming Handler - InFlightManager', () => {
       expect(manager.getInFlight('server-1', 'llama3')).toBe(2);
     });
   });
+
+  // ============================================================================
+  // SECTION 6.10: New Stall Detection Fields Tests
+  // ============================================================================
+
+  describe('Stall Detection Fields', () => {
+    it('should initialize accumulatedText as empty string', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.accumulatedText).toBe('');
+    });
+
+    it('should track accumulated text through chunk updates', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      manager.updateChunkProgress('req-1', 1, 'Hello');
+      manager.updateChunkProgress('req-1', 2, 'Hello World');
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.accumulatedText).toBe('Hello World');
+    });
+
+    it('should track lastContext when provided', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      const context = [1, 2, 3, 4, 5];
+      manager.updateChunkProgress('req-1', 1, 'Hello', context);
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.lastContext).toEqual(context);
+    });
+
+    it('should track protocol and endpoint from addStreamingRequest', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3', 'ollama', 'generate');
+      manager.addStreamingRequest('req-2', 'server-1', 'gpt-4', 'openai', 'chat');
+
+      const progress1 = manager.getStreamingRequestProgress('req-1');
+      const progress2 = manager.getStreamingRequestProgress('req-2');
+
+      expect(progress1?.protocol).toBe('ollama');
+      expect(progress1?.endpoint).toBe('generate');
+      expect(progress2?.protocol).toBe('openai');
+      expect(progress2?.endpoint).toBe('chat');
+    });
+
+    it('should default protocol to ollama and endpoint to generate', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.protocol).toBe('ollama');
+      expect(progress?.endpoint).toBe('generate');
+    });
+
+    it('should initialize handoffCount to 0', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.handoffCount).toBe(0);
+    });
+
+    it('should initialize hasReceivedFirstChunk to false', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.hasReceivedFirstChunk).toBe(false);
+    });
+
+    it('should set hasReceivedFirstChunk to true after updateChunkProgress', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.updateChunkProgress('req-1', 1);
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.hasReceivedFirstChunk).toBe(true);
+    });
+
+    it('should increment handoffCount when incrementHandoffCount is called', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      manager.incrementHandoffCount('req-1');
+      manager.incrementHandoffCount('req-1');
+      manager.incrementHandoffCount('req-1');
+
+      const progress = manager.getStreamingRequestProgress('req-1');
+
+      expect(progress?.handoffCount).toBe(3);
+    });
+
+    it('should not throw when incrementHandoffCount for non-existent request', () => {
+      expect(() => {
+        manager.incrementHandoffCount('non-existent');
+      }).not.toThrow();
+    });
+  });
+
+  // ============================================================================
+  // SECTION 6.11: Stall Detection Helper Methods Tests
+  // ============================================================================
+
+  describe('Stall Detection Helper Methods', () => {
+    beforeEach(() => {
+      manager = new InFlightManager();
+    });
+
+    afterEach(() => {
+      manager.clear();
+    });
+
+    it('should get all stalled requests with getStalledRequests', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-2', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-3', 'server-2', 'gpt-4');
+
+      manager.updateChunkProgress('req-1', 1);
+      manager.updateChunkProgress('req-2', 1);
+      manager.updateChunkProgress('req-3', 1);
+
+      manager.markStalled('req-1');
+      manager.markStalled('req-3');
+
+      const stalled = manager.getStalledRequests();
+
+      expect(stalled).toHaveLength(2);
+      expect(stalled.map(r => r.id).sort()).toEqual(['req-1', 'req-3']);
+    });
+
+    it('should NOT include requests without first chunk in getStalledRequests', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-2', 'server-1', 'llama3');
+
+      manager.markStalled('req-1');
+      manager.markStalled('req-2');
+
+      const stalled = manager.getStalledRequests();
+
+      expect(stalled).toHaveLength(0);
+    });
+
+    it('should check if server has stalled requests with hasStalledRequests', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-2', 'server-1', 'mistral');
+      manager.addStreamingRequest('req-3', 'server-2', 'gpt-4');
+
+      manager.updateChunkProgress('req-1', 1);
+      manager.updateChunkProgress('req-2', 1);
+      manager.updateChunkProgress('req-3', 1);
+
+      manager.markStalled('req-1');
+
+      expect(manager.hasStalledRequests('server-1')).toBe(true);
+      expect(manager.hasStalledRequests('server-2')).toBe(false);
+      expect(manager.hasStalledRequests('server-3')).toBe(false);
+    });
+
+    it('should check stalled requests per model with hasStalledRequests', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-2', 'server-1', 'mistral');
+
+      manager.updateChunkProgress('req-1', 1);
+      manager.updateChunkProgress('req-2', 1);
+
+      manager.markStalled('req-1');
+
+      expect(manager.hasStalledRequests('server-1', 'llama3')).toBe(true);
+      expect(manager.hasStalledRequests('server-1', 'mistral')).toBe(false);
+      expect(manager.hasStalledRequests('server-1', 'gpt-4')).toBe(false);
+    });
+
+    it('should get count of stalled requests with getStalledRequestCount', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-2', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-3', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-4', 'server-1', 'mistral');
+
+      manager.updateChunkProgress('req-1', 1);
+      manager.updateChunkProgress('req-2', 1);
+      manager.updateChunkProgress('req-3', 1);
+      manager.updateChunkProgress('req-4', 1);
+
+      manager.markStalled('req-1');
+      manager.markStalled('req-2');
+      manager.markStalled('req-4');
+
+      expect(manager.getStalledRequestCount('server-1')).toBe(3);
+      expect(manager.getStalledRequestCount('server-1', 'llama3')).toBe(2);
+      expect(manager.getStalledRequestCount('server-1', 'mistral')).toBe(1);
+      expect(manager.getStalledRequestCount('server-1', 'gpt-4')).toBe(0);
+    });
+
+    it('should get potentially stalled requests based on time threshold', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-2', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-3', 'server-1', 'gpt-4');
+
+      // Update with old timestamps by manipulating lastChunkTime
+      manager.updateChunkProgress('req-1', 1);
+      manager.updateChunkProgress('req-2', 1);
+      manager.updateChunkProgress('req-3', 1);
+
+      // Manually set lastChunkTime to simulate old timestamps
+      const oldTime = Date.now() - 400000; // 6+ minutes ago
+      const progress1 = manager.getStreamingRequestProgress('req-1');
+      const progress3 = manager.getStreamingRequestProgress('req-3');
+      if (progress1) progress1.lastChunkTime = oldTime;
+      if (progress3) progress3.lastChunkTime = oldTime;
+
+      // 5 minute threshold
+      const potentiallyStalled = manager.getPotentiallyStalledRequests(300000);
+
+      expect(potentiallyStalled.length).toBeGreaterThanOrEqual(2);
+      expect(potentiallyStalled.map(r => r.id).sort()).toContain('req-1');
+      expect(potentiallyStalled.map(r => r.id).sort()).toContain('req-3');
+    });
+
+    it('should NOT include requests without first chunk in getPotentiallyStalledRequests', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+      manager.addStreamingRequest('req-2', 'server-1', 'llama3');
+
+      manager.updateChunkProgress('req-1', 1);
+
+      // Set old timestamp for req-1
+      const oldTime = Date.now() - 400000;
+      const progress1 = manager.getStreamingRequestProgress('req-1');
+      if (progress1) progress1.lastChunkTime = oldTime;
+
+      const potentiallyStalled = manager.getPotentiallyStalledRequests(300000);
+
+      expect(potentiallyStalled).toHaveLength(1);
+      expect(potentiallyStalled[0].id).toBe('req-1');
+    });
+
+    it('should NOT include already stalled requests in getPotentiallyStalledRequests', () => {
+      manager.addStreamingRequest('req-1', 'server-1', 'llama3');
+
+      manager.updateChunkProgress('req-1', 1);
+
+      // Set old timestamp
+      const oldTime = Date.now() - 400000;
+      const progress1 = manager.getStreamingRequestProgress('req-1');
+      if (progress1) progress1.lastChunkTime = oldTime;
+
+      // Mark as already stalled
+      manager.markStalled('req-1');
+
+      const potentiallyStalled = manager.getPotentiallyStalledRequests(300000);
+
+      expect(potentiallyStalled).toHaveLength(0);
+    });
+  });
 });

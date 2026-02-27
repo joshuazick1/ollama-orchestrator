@@ -50,6 +50,9 @@ export interface StreamingConfig {
   timeoutMs: number;
   bufferSize: number;
   activityTimeoutMs: number; // Timeout between chunks - resets on each chunk received
+  stallThresholdMs: number; // Mark request as stalled after this many ms without chunks (after first chunk)
+  stallCheckIntervalMs: number; // How often to check for stalls
+  maxHandoffAttempts: number; // Max attempts to handoff to different server
 }
 
 export interface HealthCheckConfig {
@@ -262,6 +265,9 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     timeoutMs: 300000,
     bufferSize: 1024,
     activityTimeoutMs: 60000, // 60 seconds between chunks before timeout
+    stallThresholdMs: 300000, // 5 minutes - mark as stalled after no chunks (after first chunk)
+    stallCheckIntervalMs: 10000, // Check every 10 seconds
+    maxHandoffAttempts: 2, // Max handoff attempts before giving up
   },
 
   healthCheck: {

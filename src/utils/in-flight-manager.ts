@@ -16,6 +16,13 @@ export interface StreamingRequestProgress {
   chunkCount: number;
   lastChunkTime: number;
   isStalled: boolean;
+  accumulatedText: string; // Accumulated text chunks for handoff
+  lastContext?: number[]; // Ollama context array for continuation
+  originalPrompt?: string; // Original prompt for retry
+  protocol: 'ollama' | 'openai'; // Track protocol for handoff logic
+  endpoint: 'generate' | 'chat'; // Track endpoint for handoff logic
+  handoffCount: number; // Number of handoff attempts made
+  hasReceivedFirstChunk: boolean; // Whether first chunk has been received (stall detection applies after this)
 }
 
 export class InFlightManager {
@@ -181,7 +188,13 @@ export class InFlightManager {
   /**
    * Add a streaming request for tracking
    */
-  addStreamingRequest(requestId: string, serverId: string, model: string): void {
+  addStreamingRequest(
+    requestId: string,
+    serverId: string,
+    model: string,
+    protocol: 'ollama' | 'openai' = 'ollama',
+    endpoint: 'generate' | 'chat' = 'generate'
+  ): void {
     this.streamingRequests.set(requestId, {
       id: requestId,
       serverId,
@@ -190,6 +203,11 @@ export class InFlightManager {
       chunkCount: 0,
       lastChunkTime: Date.now(),
       isStalled: false,
+      accumulatedText: '',
+      protocol,
+      endpoint,
+      handoffCount: 0,
+      hasReceivedFirstChunk: false,
     });
     // Gated debug: include a short caller stack to help correlate where requests are registered
     const stack = new Error().stack
@@ -198,23 +216,39 @@ export class InFlightManager {
       .map(s => s.trim());
     logger.debug(`Added streaming request ${requestId} for ${serverId}:${model}`, {
       caller: stack,
+      protocol,
+      endpoint,
     });
   }
 
   /**
    * Update chunk progress for a streaming request
    */
-  updateChunkProgress(requestId: string, chunkCount: number): void {
+  updateChunkProgress(
+    requestId: string,
+    chunkCount: number,
+    accumulatedText?: string,
+    context?: number[]
+  ): void {
     const request = this.streamingRequests.get(requestId);
     if (request) {
       request.chunkCount = chunkCount;
       request.lastChunkTime = Date.now();
       request.isStalled = false;
+      request.hasReceivedFirstChunk = true;
+      if (accumulatedText !== undefined) {
+        request.accumulatedText = accumulatedText;
+      }
+      if (context !== undefined) {
+        request.lastContext = context;
+      }
       logger.debug('InFlightManager.updateChunkProgress updated request', {
         requestId,
         chunkCount: request.chunkCount,
         serverId: request.serverId,
         model: request.model,
+        hasReceivedFirstChunk: request.hasReceivedFirstChunk,
+        accumulatedLength: request.accumulatedText.length,
       });
     } else {
       // When request not found, log a short caller stack to help find the origin of updates
@@ -318,6 +352,79 @@ export class InFlightManager {
       }
     }
     return false;
+  }
+
+  /**
+   * Get all stalled streaming requests (that have received at least one chunk)
+   */
+  getStalledRequests(): StreamingRequestProgress[] {
+    const stalled: StreamingRequestProgress[] = [];
+    for (const request of this.streamingRequests.values()) {
+      if (request.isStalled && request.hasReceivedFirstChunk) {
+        stalled.push(request);
+      }
+    }
+    return stalled;
+  }
+
+  /**
+   * Check if a server has any stalled requests
+   */
+  hasStalledRequests(serverId: string, model?: string): boolean {
+    for (const request of this.streamingRequests.values()) {
+      if (request.isStalled && request.serverId === serverId) {
+        if (model === undefined || request.model === model) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get count of stalled requests for a server:model combination
+   */
+  getStalledRequestCount(serverId: string, model?: string): number {
+    let count = 0;
+    for (const request of this.streamingRequests.values()) {
+      if (request.isStalled && request.serverId === serverId) {
+        if (model === undefined || request.model === model) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Increment handoff count for a request
+   */
+  incrementHandoffCount(requestId: string): void {
+    const request = this.streamingRequests.get(requestId);
+    if (request) {
+      request.handoffCount++;
+      logger.debug('Incremented handoff count', {
+        requestId,
+        handoffCount: request.handoffCount,
+      });
+    }
+  }
+
+  /**
+   * Get requests that may be stalled based on time since last chunk
+   * Only considers requests that have received at least one chunk
+   */
+  getPotentiallyStalledRequests(stallThresholdMs: number): StreamingRequestProgress[] {
+    const now = Date.now();
+    const potentiallyStalled: StreamingRequestProgress[] = [];
+    for (const request of this.streamingRequests.values()) {
+      if (request.hasReceivedFirstChunk && !request.isStalled) {
+        if (now - request.lastChunkTime > stallThresholdMs) {
+          potentiallyStalled.push(request);
+        }
+      }
+    }
+    return potentiallyStalled;
   }
 }
 

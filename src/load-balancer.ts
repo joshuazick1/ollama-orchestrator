@@ -4,6 +4,7 @@
  */
 
 import type { AIServer, ServerModelMetrics } from './orchestrator.types.js';
+import { getInFlightManager } from './utils/in-flight-manager.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -819,6 +820,23 @@ export class LoadBalancer {
         if (sm.maxChunkGapPercentiles?.p95 > streaming.maxChunkGapPenaltyMs) {
           chunkGapPenalty = 0.5; // 50% penalty for frequently stalled streams
         }
+      }
+
+      // Check for actively stalled requests (real-time stall detection)
+      const inFlightManager = getInFlightManager();
+      const stalledRequestCount = inFlightManager.getStalledRequestCount(server.id, model);
+      if (stalledRequestCount > 0) {
+        // Apply penalty based on number of stalled requests
+        // More stalled requests = higher penalty (capped at 50% penalty)
+        const stallPenalty = Math.max(0.5, 1 - stalledRequestCount * 0.1);
+        chunkGapPenalty = Math.min(chunkGapPenalty, stallPenalty);
+
+        logger.debug('Applying stall penalty to server', {
+          serverId: server.id,
+          model,
+          stalledRequestCount,
+          chunkGapPenalty,
+        });
       }
 
       // Adjust for load using config value
