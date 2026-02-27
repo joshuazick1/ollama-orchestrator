@@ -367,6 +367,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
         if (stream) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
+          logger.debug(
+            `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}`
+          );
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
             {
@@ -379,8 +382,8 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
                 ...(body.tools && { tools: body.tools }),
               }),
-              connectionTimeout: timeoutMs, // Use dynamic timeout
-              activityTimeout: config.streaming.activityTimeoutMs,
+              connectionTimeout: timeoutMs,
+              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
             }
           );
 
@@ -523,7 +526,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               headers,
               body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs, // Use dynamic timeout
-              activityTimeout: config.streaming.activityTimeoutMs,
+              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
             }
           );
 
@@ -784,7 +787,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...requestBody, stream: true }),
               connectionTimeout: timeoutMs, // Use dynamic timeout
-              activityTimeout: config.streaming.activityTimeoutMs,
+              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
             }
           );
 
@@ -906,7 +909,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...requestBody, stream: true }),
               connectionTimeout: timeoutMs, // Use dynamic timeout
-              activityTimeout: config.streaming.activityTimeoutMs,
+              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
             }
           );
 
