@@ -42,9 +42,25 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
     model: originalRequest.model,
     handoffCount: originalRequest.handoffCount,
     accumulatedTextLength: originalRequest.accumulatedText.length,
+    accumulatedTextPreview: originalRequest.accumulatedText.slice(0, 100),
     hasContext: !!originalRequest.lastContext,
+    contextLength: originalRequest.lastContext?.length ?? 0,
     protocol: originalRequest.protocol,
     endpoint: originalRequest.endpoint,
+    chunkCount: originalRequest.chunkCount,
+    timeSinceLastChunk: Date.now() - originalRequest.lastChunkTime,
+  });
+
+  logger.info('Stream handoff initiated', {
+    requestId: originalRequest.id,
+    currentServer: originalRequest.serverId,
+    newServer: newServer.id,
+    model: originalRequest.model,
+    handoffCount: originalRequest.handoffCount,
+    maxHandoffAttempts,
+    accumulatedTextLength: originalRequest.accumulatedText.length,
+    accumulatedTextPreview: originalRequest.accumulatedText.slice(0, 50),
+    timeSinceLastChunk: Date.now() - originalRequest.lastChunkTime,
   });
 
   if (originalRequest.handoffCount >= maxHandoffAttempts) {
@@ -108,6 +124,14 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
         status: upstreamResponse.status,
         error: errorText,
       });
+      logger.warn('Stream handoff failed - upstream error', {
+        requestId: originalRequest.id,
+        currentServer: originalRequest.serverId,
+        newServer: newServer.id,
+        status: upstreamResponse.status,
+        error: errorText,
+        chunksReceivedBeforeHandoff: originalRequest.chunkCount,
+      });
       return {
         success: false,
         chunksFromHandoff: 0,
@@ -117,12 +141,28 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
     }
 
     let handoffChunkCount = 0;
+    const handoffStartTime = Date.now();
+
     await streamResponse(
       upstreamResponse,
       clientResponse,
-      undefined,
-      (_duration, _tokensGenerated, _tokensPrompt) => {
-        // Stream complete
+      () => {
+        logger.debug('Handoff: first token received', {
+          requestId: originalRequest.id,
+          newServer: newServer.id,
+          timeToFirstToken: Date.now() - handoffStartTime,
+        });
+      },
+      (duration, _tokensGenerated, _tokensPrompt) => {
+        logger.info('Stream handoff completed successfully', {
+          requestId: originalRequest.id,
+          currentServer: originalRequest.serverId,
+          newServer: newServer.id,
+          duration,
+          chunksFromHandoff: handoffChunkCount,
+          totalChunks: originalRequest.chunkCount + handoffChunkCount,
+          originalChunks: originalRequest.chunkCount,
+        });
       },
       chunkCount => {
         handoffChunkCount = chunkCount;
@@ -131,12 +171,6 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
       undefined,
       undefined
     );
-
-    logger.info('Stream handoff completed', {
-      requestId: originalRequest.id,
-      chunksFromHandoff: handoffChunkCount,
-      totalChunks: originalRequest.chunkCount + handoffChunkCount,
-    });
 
     return {
       success: true,
@@ -162,12 +196,13 @@ function checkSupportsContinuation(
   protocol: 'ollama' | 'openai',
   endpoint: 'generate' | 'chat'
 ): boolean {
+  // Ollama supports true continuation via context array
   if (protocol === 'ollama') {
     return true;
   }
-  if (protocol === 'openai' && endpoint === 'chat') {
-    return true;
-  }
+  // OpenAI: Does NOT support true continuation
+  // We could do pseudo-continuation (add accumulated text as assistant message),
+  // but that's not true continuation and may produce different results
   return false;
 }
 

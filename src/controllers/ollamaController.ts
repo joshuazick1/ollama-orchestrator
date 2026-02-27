@@ -18,6 +18,7 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { performStreamHandoff } from '../utils/stream-handoff.js';
 
 /** Request body for /api/generate */
 interface GenerateRequestBody {
@@ -143,7 +144,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
   const orchestrator = getOrchestratorInstance();
   const useStreaming = isStreamingRequest(body);
-  const config = getConfigManager().getConfig();
+  const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
 
   try {
@@ -154,8 +155,26 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         // This timeout adapts based on historical response times
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const requestId = (server as AIServer & { _streamingRequestId?: string })
+            ._streamingRequestId;
+          const _config = getConfigManager().getConfig();
+          const stallThreshold = _config.streaming.stallThresholdMs;
+          const stallCheckInterval = _config.streaming.stallCheckIntervalMs;
+
+          logger.info('STREAM_REQUEST_START', {
+            requestId,
+            serverId: server.id,
+            model,
+            endpoint: 'generate',
+            protocol: 'ollama',
+            timeoutMs,
+            stallThresholdMs: stallThreshold,
+            stallCheckIntervalMs: stallCheckInterval,
+            promptLength: prompt?.length ?? 0,
+          });
+
           logger.debug(
-            `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}`
+            `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}, stallThreshold: ${stallThreshold}ms`
           );
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
@@ -190,7 +209,118 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             | undefined;
           let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
+          const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
+            ._streamingRequestId;
+
+          const onStallCallback = async (
+            _abortController: AbortController,
+            passedRequestId?: string
+          ) => {
+            // Use only the authoritative streamingRequestId passed into the handler.
+            // Do NOT fall back to the closure-captured streamingRequestId to avoid races.
+            const requestId = passedRequestId;
+
+            logger.warn('STREAM_STALL_DETECTED', {
+              requestId,
+              serverId: server.id,
+              model,
+              endpoint: 'generate',
+              protocol: 'ollama',
+              message: 'Stall detected - attempting seamless handoff',
+            });
+
+            logger.info('ON_STALL_DEBUG', {
+              requestId,
+              hasRequestId: !!requestId,
+            });
+
+            // Extra debug: log list of tracked request IDs to help diagnose missing progress
+            try {
+              const tracked = getInFlightManager().getAllStreamingRequests();
+              logger.debug('ON_STALL_TRACKED_IDS', {
+                authoritativeRequestId: requestId,
+                trackedCount: tracked.length,
+                trackedIds: tracked.slice(0, 20).map(r => r.id),
+              });
+            } catch (e) {
+              logger.debug('ON_STALL_TRACKED_IDS_ERROR', {
+                error: e instanceof Error ? e.message : String(e),
+              });
+            }
+
+            // Try to get the streaming request progress from InFlightManager using authoritative id
+            const progress = requestId
+              ? getInFlightManager().getStreamingRequestProgress(requestId)
+              : undefined;
+
+            logger.info('ON_STALL_PROGRESS', {
+              requestId,
+              progressFound: !!progress,
+              progressDetails: progress
+                ? {
+                    chunkCount: progress.chunkCount,
+                    accumulatedTextLength: progress.accumulatedText.length,
+                    lastChunkTime: progress.lastChunkTime,
+                  }
+                : undefined,
+            });
+
+            if (!progress) {
+              logger.warn('No streaming progress found for handoff', {
+                requestId,
+              });
+              return { success: false, error: 'No progress tracked' };
+            }
+
+            // Get a new server for failover (excluding current)
+            const orchestrator = getOrchestratorInstance();
+            const allServers = orchestrator.getServers();
+
+            // Filter for healthy servers with the model, excluding current server
+            const newServer = allServers.find(
+              s => s.id !== server.id && s.healthy && s.models.includes(model)
+            );
+
+            if (!newServer) {
+              logger.warn('No eligible servers for handoff', {
+                requestId,
+                currentServer: server.id,
+                model,
+              });
+              return { success: false, error: 'No alternative servers' };
+            }
+
+            logger.info('Attempting seamless handoff to new server', {
+              requestId,
+              fromServer: server.id,
+              toServer: newServer.id,
+              accumulatedTextLength: progress.accumulatedText.length,
+            });
+
+            // Perform the handoff - this will stream directly to clientResponse
+            try {
+              logger.debug('PERFORM_HANDOFF_INVOKE', { requestId, toServer: newServer.id });
+              const result = await performStreamHandoff({
+                originalRequest: progress,
+                newServer,
+                clientResponse: res,
+                originalRequestBody: body as Record<string, unknown>,
+              });
+              logger.debug('PERFORM_HANDOFF_RESULT', { requestId, result });
+
+              return { success: result.success, error: result.error };
+            } catch (handoffError) {
+              logger.error('Handoff failed with exception', {
+                requestId,
+                error: handoffError instanceof Error ? handoffError.message : String(handoffError),
+              });
+              return { success: false, error: 'Handoff failed' };
+            }
+          };
+
           try {
+            // Pass authoritative streamingRequestId into onStall so handlers can
+            // look up progress reliably and avoid races with server._streamingRequestId
             await streamResponse(
               response,
               res,
@@ -199,7 +329,10 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 // Track with TTFTTracker
                 ttftTracker.markFirstChunk(0);
 
-                logger.debug(`First token received for model ${model}`, {
+                logger.info('STREAM_FIRST_CHUNK', {
+                  requestId: streamingRequestId,
+                  serverId: server.id,
+                  model,
                   timeToFirstToken: ttftTracker.getCurrentElapsed(),
                 });
               },
@@ -208,9 +341,17 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 ttftMetrics = ttftTracker.getMetrics();
 
                 // Stream complete callback - capture token metrics
-                logger.info(
-                  `Streaming completed in ${duration}ms, tokensGenerated: ${tokensGenerated}, tokensPrompt: ${tokensPrompt}, chunks: ${chunkData?.chunkCount ?? 0}, ttft: ${ttftMetrics?.ttft}ms`
-                );
+                logger.info('STREAM_COMPLETE', {
+                  requestId: streamingRequestId,
+                  serverId: server.id,
+                  model,
+                  duration,
+                  tokensGenerated,
+                  tokensPrompt,
+                  chunkCount: chunkData?.chunkCount ?? 0,
+                  ttft: ttftMetrics?.ttft,
+                  maxChunkGapMs: chunkData?.maxChunkGapMs,
+                });
                 tokenMetrics = { tokensGenerated, tokensPrompt };
                 // Store chunk data for return value
                 streamingChunkData = chunkData;
@@ -219,19 +360,30 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 // On each chunk, reset the activity timeout
                 activityController.resetTimeout();
 
+                logger.debug('STREAM_CHUNK', {
+                  requestId: streamingRequestId,
+                  serverId: server.id,
+                  model,
+                  chunkCount,
+                });
+
                 // Update InFlightManager with current chunk count for real-time tracking
-                const requestId = (server as AIServer & { _streamingRequestId?: string })
-                  ._streamingRequestId;
-                if (requestId) {
-                  getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                if (streamingRequestId) {
+                  getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount);
                 }
               },
               // Pass TTFT options
               ttftTracker ? { serverId: server.id, model } : undefined,
               // Pass streaming request ID for InFlightManager tracking
-              (server as AIServer & { _streamingRequestId?: string })._streamingRequestId,
+              streamingRequestId,
               // Pass the TTFTTracker instance so streaming.ts uses the same tracker
-              ttftTracker
+              ttftTracker,
+              // Stall detection callback
+              onStallCallback,
+              // Stall threshold from config
+              stallThreshold,
+              // Stall check interval from config
+              stallCheckInterval
             );
 
             const includeDebug = req.query.debug === 'true';
@@ -361,8 +513,25 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         // Use dynamic timeout for streaming (same as non-streaming requests)
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const requestId = (server as AIServer & { _streamingRequestId?: string })
+            ._streamingRequestId;
+          const stallThreshold = config.streaming.stallThresholdMs;
+          const stallCheckInterval = config.streaming.stallCheckIntervalMs;
+
+          logger.info('STREAM_REQUEST_START', {
+            requestId,
+            serverId: server.id,
+            model,
+            endpoint: 'chat',
+            protocol: 'ollama',
+            timeoutMs,
+            stallThresholdMs: stallThreshold,
+            stallCheckIntervalMs: stallCheckInterval,
+            messageCount: messages?.length ?? 0,
+          });
+
           logger.debug(
-            `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}`
+            `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}, stallThreshold: ${stallThreshold}ms`
           );
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
@@ -397,6 +566,84 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             | undefined;
           let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
+          const onStallCallback = async (
+            _abortController: AbortController,
+            passedRequestId?: string
+          ) => {
+            // Use only the authoritative streamingRequestId passed into the handler.
+            // Do NOT fall back to the closure-captured requestId to avoid races.
+            const effectiveRequestId = passedRequestId;
+
+            logger.warn('STREAM_STALL_DETECTED', {
+              requestId: effectiveRequestId,
+              serverId: server.id,
+              model,
+              endpoint: 'chat',
+              protocol: 'ollama',
+              message: 'Stall detected - attempting seamless handoff',
+            });
+
+            // Try to get the streaming request progress from InFlightManager using authoritative id
+            const progress = effectiveRequestId
+              ? getInFlightManager().getStreamingRequestProgress(effectiveRequestId)
+              : undefined;
+
+            if (!progress) {
+              logger.warn('No streaming progress found for handoff', {
+                requestId: effectiveRequestId,
+              });
+              return { success: false, error: 'No progress tracked' };
+            }
+
+            // Get a new server for failover (excluding current)
+            const orchestrator = getOrchestratorInstance();
+            const allServers = orchestrator.getServers();
+
+            // Filter for healthy servers with the model, excluding current server
+            const newServer = allServers.find(
+              s => s.id !== server.id && s.healthy && s.models.includes(model)
+            );
+
+            if (!newServer) {
+              logger.warn('No eligible servers for handoff', {
+                requestId: effectiveRequestId,
+                currentServer: server.id,
+                model,
+              });
+              return { success: false, error: 'No alternative servers' };
+            }
+
+            logger.info('Attempting seamless handoff to new server', {
+              requestId: effectiveRequestId,
+              fromServer: server.id,
+              toServer: newServer.id,
+              accumulatedTextLength: progress.accumulatedText.length,
+            });
+
+            // Perform the handoff - this will stream directly to clientResponse
+            try {
+              logger.debug('PERFORM_HANDOFF_INVOKE', {
+                requestId: effectiveRequestId,
+                toServer: newServer.id,
+              });
+              const result = await performStreamHandoff({
+                originalRequest: progress,
+                newServer,
+                clientResponse: res,
+                originalRequestBody: body as Record<string, unknown>,
+              });
+              logger.debug('PERFORM_HANDOFF_RESULT', { requestId: effectiveRequestId, result });
+
+              return { success: result.success, error: result.error };
+            } catch (handoffError) {
+              logger.error('Handoff failed with exception', {
+                requestId: effectiveRequestId,
+                error: handoffError instanceof Error ? handoffError.message : String(handoffError),
+              });
+              return { success: false, error: 'Handoff failed' };
+            }
+          };
+
           try {
             await streamResponse(
               response,
@@ -406,7 +653,10 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 // Track with TTFTTracker
                 ttftTracker.markFirstChunk(0);
 
-                logger.debug(`First token received for chat model ${model}`, {
+                logger.info('STREAM_FIRST_CHUNK', {
+                  requestId,
+                  serverId: server.id,
+                  model,
                   timeToFirstToken: ttftTracker.getCurrentElapsed(),
                 });
               },
@@ -415,12 +665,17 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 ttftMetrics = ttftTracker.getMetrics();
 
                 // Stream complete callback - capture token metrics
-                logger.debug(`Chat stream completed for model ${model}`, {
+                logger.info('STREAM_COMPLETE', {
+                  requestId,
+                  serverId: server.id,
+                  model,
+                  endpoint: 'chat',
                   duration,
                   tokensGenerated,
                   tokensPrompt,
-                  chunks: _chunkData?.chunkCount ?? 0,
-                  timeToFirstToken: ttftMetrics?.ttft,
+                  chunkCount: _chunkData?.chunkCount ?? 0,
+                  ttft: ttftMetrics?.ttft,
+                  maxChunkGapMs: _chunkData?.maxChunkGapMs,
                 });
                 tokenMetrics = { tokensGenerated, tokensPrompt };
               },
@@ -428,9 +683,14 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 // On each chunk, reset the activity timeout
                 activityController.resetTimeout();
 
+                logger.debug('STREAM_CHUNK', {
+                  requestId,
+                  serverId: server.id,
+                  model,
+                  chunkCount,
+                });
+
                 // Update InFlightManager with current chunk count for real-time tracking
-                const requestId = (server as AIServer & { _streamingRequestId?: string })
-                  ._streamingRequestId;
                 if (requestId) {
                   getInFlightManager().updateChunkProgress(requestId, chunkCount);
                 }
@@ -438,9 +698,15 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               // Pass TTFT options
               { serverId: server.id, model },
               // Pass streaming request ID for InFlightManager tracking
-              (server as AIServer & { _streamingRequestId?: string })._streamingRequestId,
+              requestId,
               // Pass the TTFTTracker instance so streaming.ts uses the same tracker
-              ttftTracker
+              ttftTracker,
+              // Stall detection callback
+              onStallCallback,
+              // Stall threshold from config
+              stallThreshold,
+              // Stall check interval from config
+              stallCheckInterval
             );
 
             const includeDebug = req.query.debug === 'true';
