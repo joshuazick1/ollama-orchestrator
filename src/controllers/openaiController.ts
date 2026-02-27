@@ -128,7 +128,8 @@ async function streamOpenAIResponse(
     streamingRequestId?: string
   ) => Promise<{ success: boolean; error?: string } | void>,
   stallThresholdMs?: number,
-  stallCheckIntervalMs?: number
+  stallCheckIntervalMs?: number,
+  onStreamEnd?: () => void
 ): Promise<void> {
   const startTime = Date.now();
   let totalTokens = 0;
@@ -560,7 +561,13 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               // Stall detection parameters
               onStallCallback,
               stallThreshold,
-              stallCheckInterval
+              stallCheckInterval,
+              // Cleanup callback
+              () => {
+                if (requestId) {
+                  getInFlightManager().removeStreamingRequest(requestId);
+                }
+              }
             );
 
             logger.info('STREAM_COMPLETE', {
@@ -1036,7 +1043,13 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               // Stall detection parameters
               onStallCallback,
               stallThreshold,
-              stallCheckInterval
+              stallCheckInterval,
+              // Cleanup callback
+              () => {
+                if (requestId) {
+                  getInFlightManager().removeStreamingRequest(requestId);
+                }
+              }
             );
 
             logger.info('STREAM_COMPLETE', {

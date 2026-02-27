@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AIOrchestrator } from '../../src/orchestrator.js';
 import { classifyError } from '../../src/utils/errorClassifier.js';
+import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
 describe('AIOrchestrator', () => {
   let orchestrator: AIOrchestrator;
 
   beforeEach(() => {
+    resetInFlightManager();
     orchestrator = new AIOrchestrator(undefined, undefined, undefined, {
       enabled: false,
       intervalMs: 30000,

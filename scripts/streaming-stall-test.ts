@@ -11,17 +11,29 @@
  *
  * Usage:
  *   node scripts/streaming-stall-test.ts [--duration 120] [--concurrency auto]
- *   STALL_THRESHOLD_MS=10000 node scripts/streaming-stall-test.ts
+ *   ORCHESTRATOR_STREAMING_STALL_THRESHOLD_MS=10000 node scripts/streaming-stall-test.ts
  *
  * Environment Variables:
  *   ORCHESTRATOR_URL - URL of the orchestrator (default: http://localhost:5100)
- *   STALL_THRESHOLD_MS - Stall detection threshold in ms (default: 10000)
- *   STALL_CHECK_INTERVAL_MS - How often to check for stalls (default: 2000)
+ *   ORCHESTRATOR_STREAMING_STALL_THRESHOLD_MS - Server stall detection threshold in ms (default: 60000)
+ *   ORCHESTRATOR_STREAMING_STALL_CHECK_INTERVAL_MS - Server stall check interval in ms (default: 5000)
+ *   STALL_THRESHOLD_MS - Client-side stall detection threshold in ms (default: 60000, should be > server threshold)
+ *   STALL_CHECK_INTERVAL_MS - Client-side check interval in ms (default: 5000)
  */
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:5100';
-const STALL_THRESHOLD_MS = parseInt(process.env.STALL_THRESHOLD_MS || '10000', 10);
-const STALL_CHECK_INTERVAL_MS = parseInt(process.env.STALL_CHECK_INTERVAL_MS || '2000', 10);
+const STALL_THRESHOLD_MS = parseInt(
+  process.env.STALL_THRESHOLD_MS ||
+    process.env.ORCHESTRATOR_STREAMING_STALL_THRESHOLD_MS ||
+    '60000',
+  10
+);
+const STALL_CHECK_INTERVAL_MS = parseInt(
+  process.env.STALL_CHECK_INTERVAL_MS ||
+    process.env.ORCHESTRATOR_STREAMING_STALL_CHECK_INTERVAL_MS ||
+    '5000',
+  10
+);
 
 interface ServerInfo {
   id: string;

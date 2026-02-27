@@ -122,8 +122,8 @@ export class MetricsAggregator {
     // Track streaming metrics if applicable
     if (context.streaming && metrics.streamingMetrics) {
       // Track TTFT (time to first token)
-      // Accept 0ms measurements as valid (rounding can produce 0). Only ignore undefined/null.
-      if (context.ttft !== undefined && context.ttft !== null && context.ttft >= 0) {
+      // Only record when > 0 (undefined, null, and 0 should be ignored)
+      if (context.ttft !== undefined && context.ttft !== null && context.ttft > 0) {
         metrics.streamingMetrics.recentTTFTs.push(context.ttft);
         if (metrics.streamingMetrics.recentTTFTs.length > this.maxRecentTTFTs) {
           metrics.streamingMetrics.recentTTFTs.shift();
