@@ -664,6 +664,22 @@ export class ConfigManager {
       }
     }
 
+    if (env.ORCHESTRATOR_STREAMING_STALL_THRESHOLD_MS) {
+      const threshold = parseInt(env.ORCHESTRATOR_STREAMING_STALL_THRESHOLD_MS, 10);
+      if (!isNaN(threshold) && threshold >= 1000) {
+        this.config.streaming.stallThresholdMs = threshold;
+        logger.info(`Stall threshold overridden by env: ${threshold}ms`);
+      }
+    }
+
+    if (env.ORCHESTRATOR_STREAMING_STALL_CHECK_INTERVAL_MS) {
+      const interval = parseInt(env.ORCHESTRATOR_STREAMING_STALL_CHECK_INTERVAL_MS, 10);
+      if (!isNaN(interval) && interval >= 500) {
+        this.config.streaming.stallCheckIntervalMs = interval;
+        logger.info(`Stall check interval overridden by env: ${interval}ms`);
+      }
+    }
+
     // Health check settings
     if (env.ORCHESTRATOR_HEALTH_CHECK_ENABLED) {
       this.config.healthCheck.enabled = env.ORCHESTRATOR_HEALTH_CHECK_ENABLED === 'true';

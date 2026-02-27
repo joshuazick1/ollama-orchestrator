@@ -150,24 +150,24 @@ describe('BanManager', () => {
 
   describe('getBanDetails', () => {
     it('should return permanent bans', () => {
-      manager.addBan('server-1', 'llama3:latest');
+      manager.addBan('server-1', 'llama3');
       const details = manager.getBanDetails();
       expect(details).toContainEqual(
         expect.objectContaining({
           serverId: 'server-1',
-          model: 'llama3:latest',
+          model: 'llama3',
           type: 'permanent',
         })
       );
     });
 
     it('should return cooldown bans', () => {
-      manager.markFailure('server-1', 'llama3:latest');
+      manager.markFailure('server-1', 'llama3');
       const details = manager.getBanDetails();
       expect(details).toContainEqual(
         expect.objectContaining({
           serverId: 'server-1',
-          model: 'llama3:latest',
+          model: 'llama3',
           type: 'cooldown',
         })
       );
@@ -175,7 +175,7 @@ describe('BanManager', () => {
 
     it('should exclude expired cooldowns', async () => {
       const shortCooldown = new BanManager({ failureCooldownMs: 10 });
-      shortCooldown.markFailure('server-1', 'llama3:latest');
+      shortCooldown.markFailure('server-1', 'llama3');
       const detailsBefore = shortCooldown.getBanDetails();
       expect(detailsBefore.length).toBeGreaterThan(0);
       await new Promise(resolve => setTimeout(resolve, 20));
@@ -183,7 +183,7 @@ describe('BanManager', () => {
       expect(detailsAfter).not.toContainEqual(
         expect.objectContaining({
           serverId: 'server-1',
-          model: 'llama3:latest',
+          model: 'llama3',
           type: 'cooldown',
         })
       );
