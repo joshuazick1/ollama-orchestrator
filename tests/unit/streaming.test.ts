@@ -115,9 +115,10 @@ describe('streamResponse', () => {
 
   it('should call activityController.resetTimeout on each chunk', async () => {
     const resetTimeout = vi.fn();
+    const controller = { abort: vi.fn(), signal: { aborted: false } };
     const activityController = {
       resetTimeout,
-      controller: { abort: vi.fn(), signal: { aborted: false } } as unknown as AbortController,
+      controller: controller as unknown as AbortController,
     };
     const onChunk = vi.fn();
     const mockBody = createMockBody(['data: first\n\n', 'data: second\n\n', 'data: third\n\n']);
