@@ -19,6 +19,7 @@
  *   ORCHESTRATOR_STREAMING_STALL_CHECK_INTERVAL_MS - Server stall check interval in ms (default: 5000)
  *   STALL_THRESHOLD_MS - Client-side stall detection threshold in ms (default: 60000, should be > server threshold)
  *   STALL_CHECK_INTERVAL_MS - Client-side check interval in ms (default: 5000)
+ *   POLL_INFLIGHT_INTERVAL_MS - How often to poll in-flight requests (default: 5000)
  */
 
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:5100';
@@ -39,6 +40,28 @@ const STALL_CHECK_INTERVAL_MS = parseInt(
 const FORCE_SHORT_STALL = process.env.FORCE_SHORT_STALL === 'true';
 const DEBUG_STALL_THRESHOLD = FORCE_SHORT_STALL ? 3000 : STALL_THRESHOLD_MS;
 const DEBUG_STALL_INTERVAL = FORCE_SHORT_STALL ? 1000 : STALL_CHECK_INTERVAL_MS;
+const POLL_INFLIGHT_INTERVAL_MS = parseInt(process.env.POLL_INFLIGHT_INTERVAL_MS || '5000', 10);
+
+interface InFlightRequest {
+  id: string;
+  serverId: string;
+  model: string;
+  startTime: number;
+  chunkCount: number;
+  lastChunkTime: number;
+  isStalled: boolean;
+  accumulatedText: string;
+  protocol: string;
+  endpoint: string;
+}
+
+interface ErrorInfo {
+  timestamp: string;
+  serverId: string;
+  model: string;
+  errorType: string;
+  message: string;
+}
 
 interface ServerInfo {
   id: string;
@@ -94,6 +117,21 @@ class StreamingStallTest {
   private modelServerMap: Map<string, string[]> = new Map();
   private totalCapacity: number = 0;
   private requestStartTime: number = 0;
+
+  // New: Track in-flight requests over time
+  private inFlightSnapshots: Array<{
+    timestamp: number;
+    count: number;
+    byModel: Record<string, number>;
+    stalled: number;
+  }> = [];
+
+  // New: Track errors
+  private recentErrors: ErrorInfo[] = [];
+
+  // New: Final debug data
+  private finalInFlight: InFlightRequest[] = [];
+  private finalErrors: ErrorInfo[] = [];
 
   constructor(config: Partial<TestConfig> = {}) {
     this.config = {
@@ -158,7 +196,8 @@ class StreamingStallTest {
     const progressInterval = setInterval(() => {
       this.printProgress();
       this.fetchCircuitBreakers(); // Keep updating circuit breaker state
-    }, 3000);
+      this.pollInFlightRequests(); // Poll in-flight requests
+    }, POLL_INFLIGHT_INTERVAL_MS);
 
     const requestPromises: Promise<void>[] = [];
 
@@ -174,6 +213,12 @@ class StreamingStallTest {
     await Promise.all(requestPromises);
 
     clearInterval(progressInterval);
+
+    // Fetch final state for debugging
+    console.log('\nFetching final debug info...');
+    this.finalInFlight = await this.fetchInFlightRequests();
+    this.finalErrors = await this.fetchRecentErrors();
+    await this.fetchCircuitBreakers();
 
     await this.generateReport();
   }
@@ -214,6 +259,79 @@ class StreamingStallTest {
       }
     } catch (error) {
       // Silent fail
+    }
+  }
+
+  private async fetchInFlightRequests(): Promise<InFlightRequest[]> {
+    try {
+      const response = await fetch(`${ORCHESTRATOR_URL}/api/orchestrator/in-flight`);
+      if (!response.ok) return [];
+
+      const data = await response.json();
+      const requests: InFlightRequest[] = [];
+
+      if (data.inFlight) {
+        for (const serverData of data.inFlight) {
+          if (serverData.streamingRequests) {
+            for (const req of serverData.streamingRequests) {
+              requests.push({
+                id: req.id,
+                serverId: req.serverId,
+                model: req.model,
+                startTime: req.startTime,
+                chunkCount: req.chunkCount,
+                lastChunkTime: req.lastChunkTime,
+                isStalled: req.isStalled,
+                accumulatedText: req.accumulatedText,
+                protocol: req.protocol,
+                endpoint: req.endpoint,
+              });
+            }
+          }
+        }
+      }
+      return requests;
+    } catch {
+      return [];
+    }
+  }
+
+  private async fetchRecentErrors(): Promise<ErrorInfo[]> {
+    try {
+      const response = await fetch(
+        `${ORCHESTRATOR_URL}/api/orchestrator/analytics/errors?includeRecent=true&timeRange=1m`
+      );
+      if (!response.ok) return [];
+
+      const data = await response.json();
+      return data.recentErrors || [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async pollInFlightRequests(): Promise<void> {
+    const requests = await this.fetchInFlightRequests();
+
+    const byModel: Record<string, number> = {};
+    let stalled = 0;
+
+    for (const req of requests) {
+      byModel[req.model] = (byModel[req.model] || 0) + 1;
+      if (req.isStalled || req.chunkCount === 0) {
+        stalled++;
+      }
+    }
+
+    this.inFlightSnapshots.push({
+      timestamp: Date.now(),
+      count: requests.length,
+      byModel,
+      stalled,
+    });
+
+    if (requests.length > 0) {
+      console.log(`  [INFLIGHT] ${requests.length} requests, ${stalled} stalled`);
     }
   }
 
@@ -601,6 +719,64 @@ class StreamingStallTest {
     );
     console.log('');
 
+    // Show in-flight snapshot summary
+    if (this.inFlightSnapshots.length > 0) {
+      console.log('IN-FLIGHT REQUEST SNAPSHOTS:');
+      console.log('-'.repeat(80));
+      const maxCount = Math.max(...this.inFlightSnapshots.map(s => s.count));
+      const maxStalled = Math.max(...this.inFlightSnapshots.map(s => s.stalled));
+      console.log(`  Max concurrent in-flight: ${maxCount}`);
+      console.log(`  Max stalled at any point: ${maxStalled}`);
+      console.log(`  Snapshots taken: ${this.inFlightSnapshots.length}`);
+      console.log('');
+    }
+
+    // Show final in-flight requests
+    if (this.finalInFlight.length > 0) {
+      console.log('FINAL IN-FLIGHT REQUESTS (after test):');
+      console.log('-'.repeat(80));
+      console.log(`  Total: ${this.finalInFlight.length}`);
+
+      const byModel: Record<string, number> = {};
+      const zeroChunks = this.finalInFlight.filter(r => r.chunkCount === 0);
+      const stalled = this.finalInFlight.filter(r => r.isStalled);
+
+      for (const req of this.finalInFlight) {
+        byModel[req.model] = (byModel[req.model] || 0) + 1;
+      }
+
+      console.log(`  With 0 chunks: ${zeroChunks.length}`);
+      console.log(`  Marked as stalled: ${stalled.length}`);
+      console.log(`  By model:`, byModel);
+
+      // Show requests stuck for > 30 seconds
+      const now = Date.now();
+      const stuckLong = this.finalInFlight.filter(r => now - r.lastChunkTime > 30000);
+      if (stuckLong.length > 0) {
+        console.log(`  Stuck > 30s without chunks:`);
+        stuckLong.slice(0, 5).forEach(r => {
+          console.log(
+            `    ${r.id}: ${r.model} on ${r.serverId.slice(0, 20)}... (chunks: ${r.chunkCount})`
+          );
+        });
+      }
+      console.log('');
+    }
+
+    // Show recent errors
+    if (this.finalErrors.length > 0) {
+      console.log('RECENT ERRORS:');
+      console.log('-'.repeat(80));
+      console.log(`  Total: ${this.finalErrors.length}`);
+
+      const errorTypes: Record<string, number> = {};
+      for (const err of this.finalErrors) {
+        errorTypes[err.errorType] = (errorTypes[err.errorType] || 0) + 1;
+      }
+      console.log(`  By type:`, errorTypes);
+      console.log('');
+    }
+
     const reportPath = `reports/streaming-stall-test-${Date.now()}.json`;
     await import('fs').then(fs => fs.mkdirSync('reports', { recursive: true }));
 
@@ -623,6 +799,9 @@ class StreamingStallTest {
         failoverAttempts: failoverAttempts.length,
       },
       circuitBreakerState: Object.fromEntries(this.circuitBreakers),
+      inFlightSnapshots: this.inFlightSnapshots,
+      finalInFlight: this.finalInFlight,
+      finalErrors: this.finalErrors,
       results: this.results,
     };
 
