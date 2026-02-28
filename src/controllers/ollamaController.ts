@@ -158,10 +158,11 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           const requestId = (server as AIServer & { _streamingRequestId?: string })
             ._streamingRequestId;
 
-          // Use dynamic timeout as stall threshold (2.5x the request timeout)
-          // This ensures we wait long enough for potential slow responses before declaring a stall
-          const stallThreshold = Math.max(timeoutMs * 2.5, 30000);
-          const stallCheckInterval = Math.min(timeoutMs / 4, 5000);
+          // Use dynamic timeout as stall threshold
+          // Multiplier of 1.5x gives enough buffer for slow responses but detects true stalls
+          // Minimum 10 seconds, max 60 seconds to keep detection timely
+          const stallThreshold = Math.min(Math.max(timeoutMs * 1.5, 10000), 60000);
+          const stallCheckInterval = Math.min(timeoutMs / 8, 3000);
 
           logger.info('STREAM_REQUEST_START', {
             requestId,
@@ -552,9 +553,11 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
           const requestId = (server as AIServer & { _streamingRequestId?: string })
             ._streamingRequestId;
-          // Use dynamic timeout as stall threshold (2.5x the request timeout)
-          const stallThreshold = Math.max(timeoutMs * 2.5, 30000);
-          const stallCheckInterval = Math.min(timeoutMs / 4, 5000);
+          // Use dynamic timeout as stall threshold
+          // Multiplier of 1.5x gives enough buffer for slow responses but detects true stalls
+          // Minimum 10 seconds, max 60 seconds to keep detection timely
+          const stallThreshold = Math.min(Math.max(timeoutMs * 1.5, 10000), 60000);
+          const stallCheckInterval = Math.min(timeoutMs / 8, 3000);
 
           logger.info('STREAM_REQUEST_START', {
             requestId,
