@@ -504,7 +504,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isNoServersError = errorMessage.startsWith('No healthy servers available');
+      const isNoServersError =
+        errorMessage.includes('No') && errorMessage.includes('servers available');
 
       if (isNoServersError) {
         res.status(503).json({
@@ -861,7 +862,8 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isNoServersError = errorMessage.startsWith('No healthy servers available');
+      const isNoServersError =
+        errorMessage.includes('No') && errorMessage.includes('servers available');
 
       if (isNoServersError) {
         res.status(503).json({
@@ -931,7 +933,8 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     logger.error('Embeddings request failed:', { error, model });
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const isNoServersError = errorMessage.startsWith('No healthy servers available');
+    const isNoServersError =
+      errorMessage.includes('No') && errorMessage.includes('servers available');
 
     if (isNoServersError) {
       res.status(503).json({

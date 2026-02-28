@@ -113,6 +113,37 @@ describe('streamResponse', () => {
     expect(onChunk).toHaveBeenNthCalledWith(3, 3);
   });
 
+  it('should call activityController.resetTimeout on each chunk', async () => {
+    const resetTimeout = vi.fn();
+    const activityController = {
+      resetTimeout,
+      controller: { abort: vi.fn(), signal: { aborted: false } } as unknown as AbortController,
+    };
+    const onChunk = vi.fn();
+    const mockBody = createMockBody(['data: first\n\n', 'data: second\n\n', 'data: third\n\n']);
+    const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
+
+    // Call with all parameters up to activityController
+    await streamResponse(
+      mockUpstreamResponse as any, // upstreamResponse
+      mockResponse as Response, // clientResponse
+      undefined, // onFirstToken
+      undefined, // onComplete
+      onChunk, // onChunk
+      undefined, // ttftOptions
+      undefined, // streamingRequestId
+      undefined, // existingTtftTracker
+      undefined, // onStall
+      undefined, // stallThresholdMs
+      undefined, // stallCheckIntervalMs
+      undefined, // onStreamEnd
+      activityController // activityController
+    );
+
+    // resetTimeout should be called once per chunk (3 times)
+    expect(resetTimeout).toHaveBeenCalledTimes(3);
+  });
+
   it('should track correct chunkCount in onComplete callback', async () => {
     const onComplete = vi.fn();
     const mockBody = createMockBody(['data: chunk1\n\n', 'data: chunk2\n\n', 'data: chunk3\n\n']);
