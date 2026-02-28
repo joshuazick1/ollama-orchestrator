@@ -220,6 +220,19 @@ export async function streamResponse(
       upstreamHeaders: Object.fromEntries(upstreamResponse.headers.entries()),
     });
 
+    // Set up abort listener for more reliable timeout detection
+    let abortHandler: (() => void) | undefined;
+    const abortPromise = new Promise<void>(resolve => {
+      abortHandler = () => {
+        logger.warn('Abort signal received in stream', { streamingRequestId, chunkCount });
+        resolve();
+      };
+    });
+    const abortSignal = activityController?.controller.signal;
+    if (abortSignal && abortHandler) {
+      abortSignal.addEventListener('abort', abortHandler);
+    }
+
     // Read and forward chunks
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -236,7 +249,13 @@ export async function streamResponse(
       let readResult: { done: boolean; value?: Uint8Array };
 
       try {
-        readResult = await reader.read();
+        // Use Promise.race to break out of read() when abort fires
+        readResult = await Promise.race([
+          reader.read(),
+          abortPromise.then(
+            () => ({ done: true, value: undefined }) as { done: boolean; value?: Uint8Array }
+          ),
+        ]);
       } catch (readError) {
         // Check if this is an abort error
         if (readError instanceof Error && readError.name === 'AbortError') {
