@@ -172,7 +172,11 @@ export async function streamResponse(
   ) => Promise<StallHandlerResult | void>,
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number,
-  onStreamEnd?: () => void
+  onStreamEnd?: () => void,
+  activityController?: {
+    resetTimeout: () => void;
+    controller: AbortController;
+  }
 ): Promise<void> {
   const ttftTracker = existingTtftTracker ?? new TTFTTracker(ttftOptions);
   const startTime = Date.now();
@@ -240,6 +244,9 @@ export async function streamResponse(
 
       chunkCount++;
       totalBytes += value.length;
+
+      // Reset activity timeout on each chunk (this is the key to making streaming timeouts work!)
+      activityController?.resetTimeout();
 
       // Parse chunk to extract content and context
       const chunkText = extractChunkText(value);
