@@ -222,7 +222,26 @@ export async function streamResponse(
     // Read and forward chunks
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { done, value } = await reader.read();
+      let readResult: { done: boolean; value?: Uint8Array };
+
+      try {
+        readResult = await reader.read();
+      } catch (readError) {
+        // Check if this is an abort error
+        if (readError instanceof Error && readError.name === 'AbortError') {
+          logger.warn('Stream reader aborted (activity timeout)', {
+            streamingRequestId,
+            chunkCount,
+            duration: Date.now() - startTime,
+          });
+          // Re-throw to trigger error handling
+          throw readError;
+        }
+        // Re-throw other errors
+        throw readError;
+      }
+
+      const { done, value } = readResult;
 
       if (done) {
         logger.debug('Upstream reader signaled done (stream closed)', {
