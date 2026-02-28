@@ -193,6 +193,7 @@ export async function streamResponse(
   let lastLogTime = startTime;
   let doneChunkReceived = false;
   let lastChunkPreview = '';
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined = undefined;
   let accumulatedText = '';
   let lastContext: number[] | undefined;
   const LOG_INTERVAL = 30000; // Log progress every 30 seconds
@@ -209,7 +210,7 @@ export async function streamResponse(
     clientResponse.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
 
     // Get reader from upstream response body
-    const reader = upstreamResponse.body?.getReader();
+    reader = upstreamResponse.body?.getReader();
     if (!reader) {
       throw new Error('No response body to stream');
     }
@@ -222,6 +223,16 @@ export async function streamResponse(
     // Read and forward chunks
     // eslint-disable-next-line no-constant-condition
     while (true) {
+      // Check if abort was triggered before reading
+      if (activityController?.controller.signal.aborted) {
+        logger.warn('Stream aborted before read (activity timeout)', {
+          streamingRequestId,
+          chunkCount,
+          duration: Date.now() - startTime,
+        });
+        throw new Error('Activity timeout - stream aborted');
+      }
+
       let readResult: { done: boolean; value?: Uint8Array };
 
       try {
@@ -472,7 +483,7 @@ export async function streamResponse(
 
               // If we get here, handoff didn't work - abort the stream
               try {
-                reader.cancel();
+                reader?.cancel();
               } catch (e) {
                 // Ignore cancel errors
               }
