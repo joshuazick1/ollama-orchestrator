@@ -2042,6 +2042,9 @@ export class AIOrchestrator {
     let lastError: Error | undefined;
     let retryCount = 0;
 
+    // Generate base request ID once, append retry count for each attempt
+    const baseRequestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
     logger.info(`Attempting request on server ${server.id} for model ${model} with retries`, {
       isStreaming,
       maxRetries: retryConfig.maxRetriesPerServer,
@@ -2050,8 +2053,11 @@ export class AIOrchestrator {
     });
 
     while (retryCount <= retryConfig.maxRetriesPerServer) {
+      // Use base request ID with retry suffix, or just base on first attempt
+      const requestId = retryCount === 0 ? baseRequestId : `${baseRequestId}-retry-${retryCount}`;
+
       const requestContext: RequestContext = {
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        id: requestId,
         startTime: Date.now(),
         serverId: server.id,
         model,
