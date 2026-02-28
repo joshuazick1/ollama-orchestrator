@@ -421,7 +421,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 if (streamingRequestId) {
                   getInFlightManager().removeStreamingRequest(streamingRequestId);
                 }
-              }
+              },
+              // Pass activityController for timeout-based abort (pre-first-chunk detection)
+              activityController
             );
 
             const includeDebug = req.query.debug === 'true';
@@ -495,17 +497,27 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
   } catch (error) {
     logger.error('Generate request failed:', { error, model });
 
-    // Handle client disconnection gracefully
     if (res.writableEnded) {
       logger.info('Client disconnected during generate request');
       return;
     }
 
     if (!res.headersSent) {
-      res.status(500).json({
-        error: 'Generate request failed',
-        details: error instanceof Error ? error.message : String(error),
-      });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNoServersError = errorMessage.startsWith('No healthy servers available');
+
+      if (isNoServersError) {
+        res.status(503).json({
+          error: 'No available servers for model',
+          model,
+          message: errorMessage,
+        });
+      } else {
+        res.status(500).json({
+          error: 'Generate request failed',
+          details: errorMessage,
+        });
+      }
     }
   }
 }
@@ -842,17 +854,27 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   } catch (error) {
     logger.error('Chat request failed:', { error, model });
 
-    // Handle client disconnection gracefully
     if (res.writableEnded) {
       logger.info('Client disconnected during chat request');
       return;
     }
 
     if (!res.headersSent) {
-      res.status(500).json({
-        error: 'Chat request failed',
-        details: error instanceof Error ? error.message : String(error),
-      });
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNoServersError = errorMessage.startsWith('No healthy servers available');
+
+      if (isNoServersError) {
+        res.status(503).json({
+          error: 'No available servers for model',
+          model,
+          message: errorMessage,
+        });
+      } else {
+        res.status(500).json({
+          error: 'Chat request failed',
+          details: errorMessage,
+        });
+      }
     }
   }
 }
@@ -907,10 +929,22 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     res.json(result);
   } catch (error) {
     logger.error('Embeddings request failed:', { error, model });
-    res.status(500).json({
-      error: 'Embeddings request failed',
-      details: error instanceof Error ? error.message : String(error),
-    });
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isNoServersError = errorMessage.startsWith('No healthy servers available');
+
+    if (isNoServersError) {
+      res.status(503).json({
+        error: 'No available servers for model',
+        model,
+        message: errorMessage,
+      });
+    } else {
+      res.status(500).json({
+        error: 'Embeddings request failed',
+        details: errorMessage,
+      });
+    }
   }
 }
 
