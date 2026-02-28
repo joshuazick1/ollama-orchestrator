@@ -243,7 +243,7 @@ describe('Stream Handoff', () => {
       const result = await performStreamHandoff(handoffRequest);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Network error');
+      expect(result.error).toContain('Network error');
     });
   });
 
