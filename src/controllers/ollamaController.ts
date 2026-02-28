@@ -190,6 +190,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs, // Use same dynamic timeout for activity (between chunks)
+              requestId: requestId,
             }
           );
 
@@ -598,6 +599,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs, // Use same dynamic timeout for activity
+              requestId,
             }
           );
 

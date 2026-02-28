@@ -14,6 +14,8 @@ export interface FetchWithActivityTimeoutOptions extends RequestInit {
   connectionTimeout?: number;
   /** Timeout between chunks during streaming - resets on each chunk (ms) */
   activityTimeout?: number;
+  /** Optional request ID for logging */
+  requestId?: string;
 }
 
 export interface ActivityTimeoutController {
@@ -69,11 +71,13 @@ export async function fetchWithTimeout(
  *
  * @param activityTimeout - Timeout between chunks in milliseconds
  * @param url - URL being fetched (for logging)
+ * @param requestId - Optional request ID for logging
  * @returns ActivityTimeoutController with abort controller and reset/clear functions
  */
 export function createActivityTimeoutController(
   activityTimeout: number,
-  url?: string
+  url?: string,
+  requestId?: string
 ): ActivityTimeoutController {
   const controller = new AbortController();
   let timeoutId: NodeJS.Timeout | null = null;
@@ -90,6 +94,7 @@ export function createActivityTimeoutController(
     timeoutId = setTimeout(() => {
       const timeSinceLastReset = Date.now() - lastResetTime;
       logger.warn('Activity timeout fired - no data received', {
+        requestId,
         activityTimeout,
         timeSinceLastReset,
         resetCount,
@@ -133,9 +138,15 @@ export async function fetchWithActivityTimeout(
   url: string,
   options: FetchWithActivityTimeoutOptions = {}
 ): Promise<{ response: Response; activityController: ActivityTimeoutController }> {
-  const { connectionTimeout = 30000, activityTimeout = 60000, ...fetchOptions } = options;
+  const {
+    connectionTimeout = 30000,
+    activityTimeout = 60000,
+    requestId,
+    ...fetchOptions
+  } = options;
 
   logger.debug('Starting fetch with activity timeout', {
+    requestId,
     url: new URL(url).pathname,
     connectionTimeout,
     activityTimeout,
@@ -144,7 +155,11 @@ export async function fetchWithActivityTimeout(
   // Use a regular timeout for the initial connection
   const connectionController = new AbortController();
   const connectionTimeoutId = setTimeout(() => {
-    logger.warn('Connection timeout fired', { connectionTimeout, url: new URL(url).pathname });
+    logger.warn('Connection timeout fired', {
+      requestId,
+      connectionTimeout,
+      url: new URL(url).pathname,
+    });
     connectionController.abort();
   }, connectionTimeout);
 
@@ -163,7 +178,7 @@ export async function fetchWithActivityTimeout(
     });
 
     // Create activity timeout controller for streaming phase
-    const activityController = createActivityTimeoutController(activityTimeout, url);
+    const activityController = createActivityTimeoutController(activityTimeout, url, requestId);
 
     return { response, activityController };
   } catch (error) {
