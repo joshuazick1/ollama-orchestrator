@@ -216,7 +216,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
             ._streamingRequestId;
 
-          logger.error('STREAM_RESPONSE_PARAMS', {
+          logger.debug('STREAM_RESPONSE_PARAMS', {
             requestId: streamingRequestId,
             serverId: server.id,
             model,
@@ -588,6 +588,16 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
           logger.debug(
             `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}, stallThreshold: ${stallThreshold}ms`
           );
+
+          // Register streaming request with InFlightManager for stall detection and handoff
+          getInFlightManager().addStreamingRequest(
+            requestId ?? 'unknown',
+            server.id,
+            model,
+            'ollama',
+            'chat'
+          );
+
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
@@ -1323,14 +1333,59 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             throw new Error('No response body');
           }
 
+          const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
+            ._streamingRequestId;
+
+          // Register streaming request with InFlightManager for tracking
+          if (streamingRequestId) {
+            getInFlightManager().addStreamingRequest(
+              streamingRequestId,
+              server.id,
+              model,
+              'ollama',
+              'generate'
+            );
+          }
+
           await streamResponse(
             response,
             res,
             undefined,
+            (duration, tokensGenerated, tokensPrompt, chunkData) => {
+              // Stream complete callback
+              logger.info('STREAM_COMPLETE', {
+                requestId: streamingRequestId,
+                serverId: server.id,
+                model,
+                endpoint: 'generate-to-server',
+                duration,
+                tokensGenerated,
+                tokensPrompt,
+                chunkCount: chunkData?.chunkCount ?? 0,
+              });
+            },
+            chunkCount => {
+              // On each chunk
+              activityController.resetTimeout();
+              // Update InFlightManager with current chunk count
+              if (streamingRequestId) {
+                getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount);
+              }
+            },
+            undefined,
+            streamingRequestId,
             undefined,
             undefined,
             undefined,
-            (server as AIServer & { _streamingRequestId?: string })._streamingRequestId
+            undefined,
+            () => {
+              // Cleanup callback - remove from InFlightManager and clear activity timeout
+              if (streamingRequestId) {
+                getInFlightManager().removeStreamingRequest(streamingRequestId);
+              }
+              activityController.clearTimeout();
+            },
+            activityController
           );
           return null;
         } else {
@@ -1431,14 +1486,59 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             throw new Error('No response body');
           }
 
+          const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
+            ._streamingRequestId;
+
+          // Register streaming request with InFlightManager for tracking
+          if (streamingRequestId) {
+            getInFlightManager().addStreamingRequest(
+              streamingRequestId,
+              server.id,
+              model,
+              'ollama',
+              'chat'
+            );
+          }
+
           await streamResponse(
             response,
             res,
             undefined,
+            (duration, tokensGenerated, tokensPrompt, chunkData) => {
+              // Stream complete callback
+              logger.info('STREAM_COMPLETE', {
+                requestId: streamingRequestId,
+                serverId: server.id,
+                model,
+                endpoint: 'chat-to-server',
+                duration,
+                tokensGenerated,
+                tokensPrompt,
+                chunkCount: chunkData?.chunkCount ?? 0,
+              });
+            },
+            chunkCount => {
+              // On each chunk
+              activityController.resetTimeout();
+              // Update InFlightManager with current chunk count
+              if (streamingRequestId) {
+                getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount);
+              }
+            },
+            undefined,
+            streamingRequestId,
             undefined,
             undefined,
             undefined,
-            (server as AIServer & { _streamingRequestId?: string })._streamingRequestId
+            undefined,
+            () => {
+              // Cleanup callback - remove from InFlightManager and clear activity timeout
+              if (streamingRequestId) {
+                getInFlightManager().removeStreamingRequest(streamingRequestId);
+              }
+              activityController.clearTimeout();
+            },
+            activityController
           );
           return null;
         } else {
