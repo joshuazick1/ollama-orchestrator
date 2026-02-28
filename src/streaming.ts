@@ -254,6 +254,11 @@ export async function streamResponse(
         break;
       }
 
+      // If value is undefined (shouldn't happen but TypeScript doesn't know), skip this chunk
+      if (!value) {
+        continue;
+      }
+
       const now = Date.now();
       const chunkGap = now - lastChunkTime;
       if (chunkGap > maxChunkGap) {
