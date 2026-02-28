@@ -11,7 +11,11 @@ export const safeJsonParse = (jsonString: string, fallback: any = null): any => 
   try {
     return JSON.parse(jsonString);
   } catch (error) {
-    console.error('Failed to parse JSON string:', error);
+    // Only log errors in DEBUG mode to avoid noisy test output
+    if (process.env.DEBUG === 'true') {
+      // eslint-disable-next-line no-console
+      console.error('Failed to parse JSON string:', error);
+    }
     return fallback;
   }
 };
@@ -19,6 +23,8 @@ export const safeJsonParse = (jsonString: string, fallback: any = null): any => 
 /**
  * Converts a value to a JSON string.
  * @param {any} value - The value to stringify.
+ * @param {(number | string)[] | ((this: any, key: string, value: any) => any) | null} [replacer] - Optional replacer function or array.
+ * @param {string | number} [space] - Optional space for formatting.
  * @returns {string} The JSON string representation.
  */
 export const safeJsonStringify = (
@@ -29,7 +35,11 @@ export const safeJsonStringify = (
   try {
     return JSON.stringify(value, replacer as any, space as any);
   } catch (error) {
-    console.error('Failed to stringify value:', error);
+    // Only log errors in DEBUG mode to avoid noisy test output
+    if (process.env.DEBUG === 'true') {
+      // eslint-disable-next-line no-console
+      console.error('Failed to stringify value:', error);
+    }
     return '';
   }
 };

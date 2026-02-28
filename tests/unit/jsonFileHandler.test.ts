@@ -123,14 +123,10 @@ describe('JsonFileHandler', () => {
       fs.writeFileSync(testFilePath, 'invalid json {', 'utf-8');
 
       const handler = new JsonFileHandler(testFilePath);
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const result = handler.read();
 
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalled();
-
-      consoleSpy.mockRestore();
     });
   });
 

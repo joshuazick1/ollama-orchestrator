@@ -194,6 +194,7 @@ export async function streamResponse(
   let doneChunkReceived = false;
   let lastChunkPreview = '';
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined = undefined;
+  let abortHandler: (() => void) | undefined;
   let accumulatedText = '';
   let lastContext: number[] | undefined;
   const LOG_INTERVAL = 30000; // Log progress every 30 seconds
@@ -221,16 +222,35 @@ export async function streamResponse(
     });
 
     // Set up abort listener for more reliable timeout detection
-    let abortHandler: (() => void) | undefined;
     const abortPromise = new Promise<void>(resolve => {
       abortHandler = () => {
         logger.warn('Abort signal received in stream', { streamingRequestId, chunkCount });
+        // Ensure reader.read() settles by cancelling the reader if present.
+        try {
+          void reader?.cancel();
+        } catch (e) {
+          logger.error('Error while cancelling reader in abortHandler', {
+            streamingRequestId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
         resolve();
       };
     });
     const abortSignal = activityController?.controller.signal;
     if (abortSignal && abortHandler) {
-      abortSignal.addEventListener('abort', abortHandler);
+      try {
+        if (typeof (abortSignal as any).addEventListener === 'function') {
+          (abortSignal as any).addEventListener('abort', abortHandler);
+        } else if ('onabort' in (abortSignal as any)) {
+          // Some test mocks provide an `onabort` handler instead of addEventListener.
+          (abortSignal as any).onabort = abortHandler;
+        }
+      } catch (e) {
+        logger.debug('Failed to attach abort listener to activityController.signal', {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
     }
 
     // Read and forward chunks
@@ -317,11 +337,6 @@ export async function streamResponse(
       // Update InFlightManager directly if streamingRequestId is provided
       if (streamingRequestId) {
         try {
-          logger.debug('streaming.ts calling updateChunkProgress', {
-            streamingRequestId,
-            chunkCount,
-            accumulatedLength: accumulatedText.length,
-          });
           getInFlightManager().updateChunkProgress(
             streamingRequestId,
             chunkCount,
@@ -346,21 +361,14 @@ export async function streamResponse(
 
       if (chunkInfo.done) {
         doneChunkReceived = true;
-        logger.debug('Received done:true in stream chunk', {
+        logger.info('Received done:true in stream chunk', {
           chunkCount,
           totalBytes,
-          duration: now - startTime,
-          preview: chunkInfo.preview,
         });
       }
 
       if (chunkInfo.error) {
-        logger.warn('Received error in stream chunk', {
-          error: chunkInfo.error,
-          chunkCount,
-          totalBytes,
-          duration: now - startTime,
-        });
+        logger.warn('Received error in stream chunk', { error: chunkInfo.error, chunkCount });
       }
 
       // Track first token timing
@@ -371,12 +379,7 @@ export async function streamResponse(
         // Track with TTFTTracker
         ttftTracker.markFirstChunk(value.length);
 
-        logger.debug('First chunk received', {
-          timeToFirstChunk: firstTokenTime - startTime,
-          chunkSize: value.length,
-          hasContent: chunkInfo.hasContent,
-          preview: chunkInfo.preview,
-        });
+        logger.info('First chunk received', { timeToFirstChunk: firstTokenTime - startTime });
 
         // Start stall detection after first chunk
         if (!hasReceivedFirstChunk) {
@@ -392,36 +395,12 @@ export async function streamResponse(
           hasReceivedFirstChunk = true;
           lastChunkTime = now; // Reset lastChunkTime to now since we just received a chunk
 
-          logger.error('STALL_DETECTION_STARTED', {
+          logger.info('STALL_DETECTION_STARTED', {
             streamingRequestId,
             stallThreshold: effectiveStallThreshold,
             stallCheckInterval: effectiveStallCheckInterval,
             chunkCount,
           });
-
-          // Log current InFlightManager state for this request to help debug mismatches
-          try {
-            const progress = streamingRequestId
-              ? getInFlightManager().getStreamingRequestProgress(streamingRequestId)
-              : undefined;
-            const allTracked = getInFlightManager().getAllStreamingRequests();
-            logger.debug('STALL_DETECTION_STATE', {
-              streamingRequestId,
-              progressFound: !!progress,
-              progressSummary: progress
-                ? {
-                    chunkCount: progress.chunkCount,
-                    accumulatedLength: progress.accumulatedText.length,
-                  }
-                : undefined,
-              trackedRequestCount: allTracked.length,
-              trackedRequestIds: allTracked.slice(0, 20).map(r => r.id),
-            });
-          } catch (e) {
-            logger.debug('STALL_DETECTION_STATE_ERROR', {
-              error: e instanceof Error ? e.message : String(e),
-            });
-          }
 
           // Start periodic stall checking in the background
           stallCheckInterval = setInterval(async () => {
@@ -430,22 +409,13 @@ export async function streamResponse(
             }
 
             const timeSinceLastChunk = Date.now() - lastChunkTime;
-            logger.info('STALL_CHECK', {
-              streamingRequestId,
-              timeSinceLastChunk,
-              stallThreshold: effectiveStallThreshold,
-              stallCheckInterval: effectiveStallCheckInterval,
-              chunkCount,
-              wouldTrigger: timeSinceLastChunk > effectiveStallThreshold,
-            });
 
             if (timeSinceLastChunk > effectiveStallThreshold) {
-              logger.error('Stream stall detected - WILL ATTEMPT HANDOFF', {
+              logger.warn('Stream stall detected - attempting handoff', {
                 streamingRequestId,
                 timeSinceLastChunk,
                 stallThreshold: effectiveStallThreshold,
                 chunkCount,
-                onStallExists: !!onStall,
               });
               stallTriggered = true;
 
@@ -457,29 +427,6 @@ export async function streamResponse(
 
               // Try to handle the stall - call the async handler
               try {
-                logger.error('ON_STALL_CALLBACK_INVOKING', {
-                  streamingRequestId,
-                  onStallType: typeof onStall,
-                  onStallIsFunction: typeof onStall === 'function',
-                });
-
-                // Log InFlightManager state right before invoking handler
-                try {
-                  const progressBefore = streamingRequestId
-                    ? getInFlightManager().getStreamingRequestProgress(streamingRequestId)
-                    : undefined;
-                  logger.error('ON_STALL_INVOKE', {
-                    streamingRequestId,
-                    progressFound: !!progressBefore,
-                    progressChunkCount: progressBefore?.chunkCount,
-                    progressAccumulatedLength: progressBefore?.accumulatedText.length,
-                  });
-                } catch (e) {
-                  logger.error('ON_STALL_INVOKE_ERROR', {
-                    error: e instanceof Error ? e.message : String(e),
-                  });
-                }
-
                 const result = await onStall(abortController, streamingRequestId);
 
                 // If handler says it handled the handoff successfully, we're done
@@ -502,9 +449,23 @@ export async function streamResponse(
 
               // If we get here, handoff didn't work - abort the stream
               try {
-                reader?.cancel();
+                try {
+                  logger.warn('Handoff did not succeed, cancelling reader to abort stream', {
+                    streamingRequestId,
+                    chunkCount,
+                  });
+                  reader?.cancel();
+                } catch (e) {
+                  logger.error('Error cancelling reader after failed handoff', {
+                    streamingRequestId,
+                    error: String(e),
+                  });
+                }
               } catch (e) {
-                // Ignore cancel errors
+                logger.error('Error cancelling reader after failed handoff', {
+                  streamingRequestId,
+                  error: String(e),
+                });
               }
             }
           }, effectiveStallCheckInterval);
@@ -544,6 +505,11 @@ export async function streamResponse(
       tokenCount += value.length / 4; // Approximate
 
       // Forward chunk to client
+      logger.debug('Forwarding chunk to client', {
+        streamingRequestId,
+        chunkCount,
+        bytes: value.length,
+      });
       const writeResult = clientResponse.write(value);
       if (!writeResult) {
         // Buffer is full, wait for drain
@@ -558,7 +524,18 @@ export async function streamResponse(
           totalBytes,
           duration: Date.now() - startTime,
         });
-        void reader.cancel();
+        try {
+          logger.debug('Cancelling reader due to client disconnect', {
+            streamingRequestId,
+            chunkCount,
+          });
+          void reader.cancel();
+        } catch (e) {
+          logger.error('Error cancelling reader on client disconnect', {
+            streamingRequestId,
+            error: String(e),
+          });
+        }
         break;
       }
     }
@@ -645,6 +622,39 @@ export async function streamResponse(
       clearInterval(stallCheckInterval);
       stallCheckInterval = undefined;
     }
+    // Remove abort listener if we added one
+    try {
+      const abortSignal = activityController?.controller.signal;
+      if (abortSignal && abortHandler) {
+        try {
+          if (typeof (abortSignal as any).removeEventListener === 'function') {
+            abortSignal.removeEventListener('abort', abortHandler);
+            logger.debug('Removed abort listener via removeEventListener', { streamingRequestId });
+          } else if ('onabort' in (abortSignal as any)) {
+            // If test-mock set onabort, clear it
+            try {
+              (abortSignal as any).onabort = undefined;
+              logger.debug('Cleared onabort property on abortSignal (test-mock path)', {
+                streamingRequestId,
+              });
+            } catch (e) {
+              logger.debug('Failed to clear onabort property', {
+                streamingRequestId,
+                error: String(e),
+              });
+            }
+          }
+        } catch (e) {
+          logger.debug('Error while removing abort listener', {
+            streamingRequestId,
+            error: String(e),
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore removal errors
+    }
+
     // Call onStreamEnd callback for cleanup (e.g., remove from InFlightManager)
     onStreamEnd?.();
   }
