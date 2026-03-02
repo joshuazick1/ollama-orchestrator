@@ -12,7 +12,7 @@ describe('Phase 2 Integration', () => {
 
   beforeEach(() => {
     // Create fresh instances for tests (not from singleton to avoid persistence)
-    orchestrator = new AIOrchestrator(undefined, undefined, undefined, {
+    orchestrator = new AIOrchestrator(undefined, undefined, {
       enabled: false,
       intervalMs: 30000,
       timeoutMs: 5000,
@@ -68,15 +68,13 @@ describe('Phase 2 Integration', () => {
 
   describe('Orchestrator with Config Manager', () => {
     it('should apply configuration settings to orchestrator behavior', () => {
-      // Update config to change queue settings
+      // Update config to change feature flags
       configManager.updateConfig({
-        queue: { maxSize: 500 } as any,
-        enableQueue: true,
+        enableCircuitBreaker: true,
       });
 
       const config = configManager.getConfig();
-      expect(config.queue.maxSize).toBe(500);
-      expect(config.enableQueue).toBe(true);
+      expect(config.enableCircuitBreaker).toBe(true);
     });
 
     it('should support hot reload configuration updates', async () => {
@@ -84,35 +82,22 @@ describe('Phase 2 Integration', () => {
       configManager.onChange(watcher);
 
       // Simulate config update
-      configManager.updateSection('queue', { maxSize: 200 } as any);
+      configManager.updateSection('circuitBreaker', { baseFailureThreshold: 10 } as any);
 
       expect(watcher).toHaveBeenCalled();
       const updatedConfig = watcher.mock.calls[0][0];
-      expect(updatedConfig.queue.maxSize).toBe(200);
+      expect(updatedConfig.circuitBreaker.baseFailureThreshold).toBe(10);
     });
   });
 
   describe('Orchestrator Metrics Integration', () => {
-    it('should track in-flight requests with queue stats', () => {
+    it('should track in-flight requests', () => {
       // Simulate adding in-flight requests
       orchestrator.incrementInFlight('server-1', 'model-1');
       orchestrator.incrementInFlight('server-1', 'model-2');
 
       const stats = orchestrator.getStats();
       expect(stats.inFlightRequests).toBe(2);
-
-      const queueStats = orchestrator.getQueueStats();
-      expect(queueStats.currentSize).toBe(0); // Queue is empty initially
-    });
-
-    it('should support queue pause and resume', () => {
-      // Pause queue
-      orchestrator.pauseQueue();
-      expect(orchestrator.isQueuePaused()).toBe(true);
-
-      // Resume queue
-      orchestrator.resumeQueue();
-      expect(orchestrator.isQueuePaused()).toBe(false);
     });
   });
 

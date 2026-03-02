@@ -211,7 +211,7 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
 
 function checkSupportsContinuation(
   protocol: 'ollama' | 'openai',
-  endpoint: 'generate' | 'chat'
+  _endpoint: 'generate' | 'chat'
 ): boolean {
   // Ollama supports true continuation via context array
   if (protocol === 'ollama') {

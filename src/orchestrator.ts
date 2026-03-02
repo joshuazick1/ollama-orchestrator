@@ -36,7 +36,6 @@ import type {
   GlobalMetrics,
   MetricsExport,
 } from './orchestrator.types.js';
-import { RequestQueue, type QueueConfig } from './queue/index.js';
 import { getRecoveryTestCoordinator } from './recovery-test-coordinator.js';
 import { getRequestHistory } from './request-history.js';
 import { BanManager } from './utils/ban-manager.js';
@@ -74,7 +73,6 @@ export class AIOrchestrator {
   private circuitBreakerPersistence: CircuitBreakerPersistence;
   private metricsAggregator: MetricsAggregator;
   private loadBalancer: LoadBalancer;
-  private requestQueue: RequestQueue;
   private healthCheckScheduler: HealthCheckScheduler;
   private draining = false;
   private config: OrchestratorConfig;
@@ -112,7 +110,6 @@ export class AIOrchestrator {
 
   constructor(
     loadBalancerConfig?: LoadBalancerConfig,
-    queueConfig?: QueueConfig,
     circuitBreakerConfig?: CircuitBreakerConfig,
     healthCheckConfig?: HealthCheckConfig,
     config?: OrchestratorConfig
@@ -120,7 +117,6 @@ export class AIOrchestrator {
     this.config = config ?? { ...DEFAULT_CONFIG };
     this.metricsAggregator = new MetricsAggregator();
     this.loadBalancer = new LoadBalancer(loadBalancerConfig ?? this.config.loadBalancer);
-    this.requestQueue = new RequestQueue(queueConfig ?? this.config.queue);
     this.circuitBreakerRegistry = new CircuitBreakerRegistry(
       circuitBreakerConfig ?? this.config.circuitBreaker
     );
@@ -224,9 +220,6 @@ export class AIOrchestrator {
 
     // Update load balancer
     this.loadBalancer.updateConfig(config.loadBalancer);
-
-    // Update queue
-    this.requestQueue.updateConfig(config.queue);
 
     // Update circuit breaker registry
     this.circuitBreakerRegistry.updateAllConfig(config.circuitBreaker);
@@ -3571,41 +3564,6 @@ export class AIOrchestrator {
   }
 
   /**
-   * Get queue statistics
-   */
-  getQueueStats() {
-    return this.requestQueue.getStats();
-  }
-
-  /**
-   * Get detailed queue items with wait times
-   */
-  getQueueItems() {
-    return this.requestQueue.getAllItems();
-  }
-
-  /**
-   * Pause request queue
-   */
-  pauseQueue(): void {
-    this.requestQueue.pause();
-  }
-
-  /**
-   * Resume request queue
-   */
-  resumeQueue(): void {
-    this.requestQueue.resume();
-  }
-
-  /**
-   * Check if queue is paused
-   */
-  isQueuePaused(): boolean {
-    return this.requestQueue.isPaused();
-  }
-
-  /**
    * Put server into draining mode
    * No new requests accepted, waits for in-flight to complete
    */
@@ -3618,15 +3576,13 @@ export class AIOrchestrator {
     while (Date.now() - startTime < timeoutMs) {
       const stats = this.getStats();
 
-      if (stats.inFlightRequests === 0 && this.requestQueue.size() === 0) {
+      if (stats.inFlightRequests === 0) {
         logger.info('Drain complete - all requests finished');
         this.draining = false;
         return true;
       }
 
-      logger.debug(
-        `Draining: ${stats.inFlightRequests} in-flight, ${this.requestQueue.size()} queued`
-      );
+      logger.debug(`Draining: ${stats.inFlightRequests} in-flight`);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
@@ -3710,9 +3666,6 @@ export class AIOrchestrator {
     // Stop persistence timers
     getDecisionHistory().stop();
     getRequestHistory().stop();
-
-    // Drain queue first
-    this.requestQueue.shutdown();
 
     this.inFlightManager.clear();
     this.banManager.clearAllCooldowns();

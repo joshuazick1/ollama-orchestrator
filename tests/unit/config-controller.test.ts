@@ -158,9 +158,9 @@ describe('Config Controller', () => {
 
   describe('updateConfigSection', () => {
     it('should update configuration section successfully', async () => {
-      const section = 'queue';
-      const updates = { maxSize: 500 };
-      const updatedConfig = { queue: updates };
+      const section = 'loadBalancer';
+      const updates = { strategy: 'round-robin' };
+      const updatedConfig = { loadBalancer: updates };
       mockReq.params = { section };
       mockReq.body = updates;
       mockConfigManager.getConfig.mockReturnValue(updatedConfig);
@@ -197,19 +197,12 @@ describe('Config Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: 'Invalid configuration section',
-        validSections: [
-          'queue',
-          'loadBalancer',
-          'circuitBreaker',
-          'security',
-          'metrics',
-          'streaming',
-        ],
+        validSections: ['loadBalancer', 'circuitBreaker', 'security', 'metrics', 'streaming'],
       });
     });
 
     it('should return 400 for invalid request body', async () => {
-      mockReq.params = { section: 'queue' };
+      mockReq.params = { section: 'loadBalancer' };
       mockReq.body = null;
 
       await updateConfigSection(mockReq as Request, mockRes as Response);

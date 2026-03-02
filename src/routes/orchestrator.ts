@@ -75,16 +75,6 @@ import {
   handleOpenAIEmbeddingsToServer,
 } from '../controllers/openaiController.js';
 import {
-  getQueueStatus,
-  pauseQueue,
-  resumeQueue,
-  drainServer,
-  getInFlightByServer,
-  drainSpecificServer,
-  undrainSpecificServer,
-  setServerMaintenance,
-} from '../controllers/queueController.js';
-import {
   getRecoveryFailuresSummary,
   getServerRecoveryStats,
   getServerFailureHistory,
@@ -154,10 +144,6 @@ monitoringRouter.post('/health-check', asyncHandler(healthCheck));
 monitoringRouter.get('/stats', getStats);
 monitoringRouter.get('/circuit-breakers', getCircuitBreakers);
 
-// Queue monitoring
-monitoringRouter.get('/queue', getQueueStatus);
-monitoringRouter.get('/in-flight', getInFlightByServer);
-
 // Metrics
 monitoringRouter.get('/metrics', getMetrics);
 monitoringRouter.get('/metrics/prometheus', getPrometheusMetrics);
@@ -218,16 +204,6 @@ adminRouter.post('/servers/:id/models/copy', asyncHandler(copyModelToServer));
 adminRouter.post('/models/:model/warmup', asyncHandler(warmupModel));
 adminRouter.post('/models/:model/unload', unloadModel);
 adminRouter.post('/models/:model/cancel', cancelWarmup);
-
-// Queue management
-adminRouter.post('/queue/pause', pauseQueue);
-adminRouter.post('/queue/resume', resumeQueue);
-adminRouter.post('/drain', asyncHandler(drainServer));
-
-// Per-server drain and maintenance
-adminRouter.post('/servers/:id/drain', asyncHandler(drainSpecificServer));
-adminRouter.post('/servers/:id/undrain', asyncHandler(undrainSpecificServer));
-adminRouter.post('/servers/:id/maintenance', asyncHandler(setServerMaintenance));
 
 // Configuration
 adminRouter.get('/config', getConfig);

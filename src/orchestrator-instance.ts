@@ -67,7 +67,6 @@ export function getOrchestratorInstance(): AIOrchestrator {
     const config = configManager.getConfig();
     orchestrator = new AIOrchestrator(
       config.loadBalancer,
-      config.queue,
       config.circuitBreaker,
       config.healthCheck
     );

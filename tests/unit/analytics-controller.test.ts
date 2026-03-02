@@ -54,7 +54,6 @@ describe('Analytics Controller', () => {
     mockOrchestrator = {
       getAllDetailedMetrics: vi.fn(),
       getGlobalMetrics: vi.fn(),
-      getQueueStats: vi.fn(),
     };
     mockGetOrchestratorInstance.mockReturnValue(mockOrchestrator);
 
@@ -587,7 +586,6 @@ describe('Analytics Controller', () => {
     });
 
     it('should return capacity analysis successfully', () => {
-      const mockQueueStats = { currentSize: 5 };
       const mockCapacity = {
         current: { utilization: 0.8, availableSlots: 2 },
         forecast: { nextHour: 0.9, nextDay: 0.7 },
@@ -598,14 +596,12 @@ describe('Analytics Controller', () => {
         },
         recommendations: ['Scale up server1', 'Add more workers'],
       };
-      mockOrchestrator.getQueueStats.mockReturnValue(mockQueueStats);
       mockAnalytics.getCapacityAnalysis.mockReturnValue(mockCapacity);
       mockOrchestrator.getAllDetailedMetrics.mockReturnValue(new Map());
 
       getCapacityAnalysis(mockReq as Request, mockRes as Response);
 
-      expect(mockOrchestrator.getQueueStats).toHaveBeenCalledTimes(1);
-      expect(mockAnalytics.getCapacityAnalysis).toHaveBeenCalledWith(5, '24h');
+      expect(mockAnalytics.getCapacityAnalysis).toHaveBeenCalledWith(0, '24h');
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
@@ -622,14 +618,12 @@ describe('Analytics Controller', () => {
 
     it('should use default time range', () => {
       mockReq.query = {};
-      const mockQueueStats = { currentSize: 0 };
       const mockCapacity = {
         current: {},
         forecast: {},
         trends: { requestsPerHour: [], saturationLevels: [], timestamps: [] },
         recommendations: [],
       };
-      mockOrchestrator.getQueueStats.mockReturnValue(mockQueueStats);
       mockAnalytics.getCapacityAnalysis.mockReturnValue(mockCapacity);
       mockOrchestrator.getAllDetailedMetrics.mockReturnValue(new Map());
 
@@ -644,7 +638,6 @@ describe('Analytics Controller', () => {
       mockAnalytics.getCapacityAnalysis.mockImplementation(() => {
         throw mockError;
       });
-      mockOrchestrator.getQueueStats.mockReturnValue({ currentSize: 0 });
       mockOrchestrator.getAllDetailedMetrics.mockReturnValue(new Map());
 
       getCapacityAnalysis(mockReq as Request, mockRes as Response);
