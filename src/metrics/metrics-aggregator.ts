@@ -132,6 +132,20 @@ export class MetricsAggregator {
       });
     }
 
+    // REC-35: Compute network overhead = client latency - server total_duration
+    if (
+      context.duration !== undefined &&
+      context.totalDuration !== undefined &&
+      context.totalDuration > 0
+    ) {
+      const networkOverheadMs = context.duration - context.totalDuration / 1e6;
+      if (metrics.avgNetworkOverheadMs === undefined || metrics.avgNetworkOverheadMs === 0) {
+        metrics.avgNetworkOverheadMs = networkOverheadMs;
+      } else {
+        metrics.avgNetworkOverheadMs = metrics.avgNetworkOverheadMs * 0.8 + networkOverheadMs * 0.2;
+      }
+    }
+
     // Update all time windows
     (Object.keys(this.windowSizes) as TimeWindow[]).forEach(window => {
       this.updateWindow(
@@ -822,6 +836,7 @@ export class MetricsAggregator {
       avgTokensPerRequest: 0,
       avgTokensPerSecond: 0,
       coldStartCount: 0,
+      avgNetworkOverheadMs: 0,
       streamingMetrics: {
         recentTTFTs: [],
         ttftPercentiles: { p50: 0, p95: 0, p99: 0 },
