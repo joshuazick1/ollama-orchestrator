@@ -88,9 +88,10 @@ export class InFlightManager {
     bypass: boolean = false
   ): boolean {
     const key = `${serverId}:${model}`;
-    const current = this.getInFlight(serverId, model);
+    // REC-64: check total in-flight for server (not per-model) to match candidate filtering
+    const totalCurrent = this.getTotalInFlight(serverId);
 
-    if (current >= maxConcurrency) {
+    if (totalCurrent >= maxConcurrency) {
       return false;
     }
 

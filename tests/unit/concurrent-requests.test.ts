@@ -357,4 +357,70 @@ describe('Concurrent Requests Tests', () => {
       expect(state2?.loaded).toBe(true);
     });
   });
+
+  describe('REC-65: Independent streaming requestId per request', () => {
+    it('two concurrent streaming requests to same server receive independent context requestIds', async () => {
+      // REC-65: the orchestrator passes a per-request context object with a unique requestId
+      // to each fn(server, context) invocation — never mutates shared server state.
+      // Simulate by capturing the context passed in each callback.
+      const capturedContexts: Array<{ requestId?: string }> = [];
+
+      // We use a minimal mock that intercepts context objects
+      const collectContext = async (
+        _server: AIServer,
+        context?: { requestId?: string }
+      ): Promise<{ done: boolean }> => {
+        capturedContexts.push({ requestId: context?.requestId });
+        return { done: true };
+      };
+
+      // Verify that each call creates a fresh context (by checking uniqueness if requestId is set)
+      // The orchestrator generates requestId via crypto.randomUUID or similar
+      const { AIOrchestrator } = await import('../../src/orchestrator.js');
+      const { resetInFlightManager } = await import('../../src/utils/in-flight-manager.js');
+      resetInFlightManager();
+
+      const orch = new AIOrchestrator(undefined, undefined, {
+        enabled: false,
+        intervalMs: 30000,
+        timeoutMs: 5000,
+        maxConcurrentChecks: 10,
+        retryAttempts: 2,
+        retryDelayMs: 1000,
+        recoveryIntervalMs: 60000,
+        failureThreshold: 3,
+        successThreshold: 2,
+        backoffMultiplier: 1.5,
+      });
+
+      orch.addServer({
+        id: 'server-1',
+        url: 'http://localhost:11434',
+        type: 'ollama',
+        maxConcurrency: 8,
+      });
+      const s = orch.getServer('server-1');
+      if (s) {
+        s.healthy = true;
+        s.models = ['llama3:latest'];
+      }
+
+      // Run two concurrent requests and capture the context each receives
+      const [r1, r2] = await Promise.all([
+        orch.tryRequestWithFailover('llama3:latest', collectContext, false, 'generate'),
+        orch.tryRequestWithFailover('llama3:latest', collectContext, false, 'generate'),
+      ]);
+
+      expect(r1.done).toBe(true);
+      expect(r2.done).toBe(true);
+      expect(capturedContexts).toHaveLength(2);
+
+      // Each context should carry a requestId
+      const ids = capturedContexts.map(c => c.requestId).filter(Boolean);
+      expect(ids.length).toBe(2);
+
+      // The two requestIds must be distinct (independent per-request contexts)
+      expect(ids[0]).not.toBe(ids[1]);
+    });
+  });
 });

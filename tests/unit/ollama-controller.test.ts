@@ -58,6 +58,7 @@ describe('Ollama Controller', () => {
 
     mockReq = {
       query: {},
+      headers: {},
     };
     mockRes = {
       status: vi.fn().mockReturnThis(),
@@ -191,7 +192,7 @@ describe('Ollama Controller', () => {
           models: [...mockServers.healthy.models],
           _streamingRequestId: 'test-request-id',
         };
-        await callback(server);
+        await callback(server, { requestId: 'test-request-id' });
         return null;
       });
 
@@ -367,7 +368,7 @@ describe('Ollama Controller', () => {
           models: [...mockServers.healthy.models],
           _streamingRequestId: 'test-chat-request-id',
         };
-        await callback(server);
+        await callback(server, { requestId: 'test-chat-request-id' });
         return null;
       });
 

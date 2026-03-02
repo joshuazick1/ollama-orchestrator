@@ -1556,13 +1556,14 @@ describe('AIOrchestrator', () => {
 
       await expect(
         orchestrator.tryRequestWithFailover('llama2', async () => ({ ok: true }))
-      ).rejects.toThrow('No healthy servers available');
+      ).rejects.toThrow("for model 'llama2'");
     });
 
     it('should throw when model not on any server', async () => {
       await expect(
         orchestrator.tryRequestWithFailover('nonexistent', async () => ({ ok: true }))
-      ).rejects.toThrow("No healthy servers available for model 'nonexistent'");
+        // REC-71: now produces specific "Model not found" message
+      ).rejects.toThrow("Model 'nonexistent' not found on any configured server");
     });
 
     it('should execute request successfully on first server', async () => {
@@ -1581,7 +1582,8 @@ describe('AIOrchestrator', () => {
 
       await expect(
         orchestrator.tryRequestWithFailover('llama2', async () => ({}), false, 'generate', 'ollama')
-      ).rejects.toThrow('No healthy servers available');
+        // REC-71: now produces specific capability message
+      ).rejects.toThrow("No servers support required capability 'ollama'");
     });
 
     it('should respect requiredCapability openai', async () => {
@@ -1592,7 +1594,8 @@ describe('AIOrchestrator', () => {
 
       await expect(
         orchestrator.tryRequestWithFailover('llama2', async () => ({}), false, 'generate', 'openai')
-      ).rejects.toThrow('No healthy servers available');
+        // REC-71: now produces specific capability message
+      ).rejects.toThrow("No servers support required capability 'openai'");
     });
 
     it('should populate routing context', async () => {
@@ -2457,7 +2460,8 @@ describe('AIOrchestrator', () => {
       orchestrator.removeServer('server-2');
 
       await expect(orchestrator.tryRequestWithFailover('llama2', async () => ({}))).rejects.toThrow(
-        'No healthy servers available'
+        // REC-71: now produces specific message instead of generic "No healthy servers available"
+        "for model 'llama2'"
       );
     });
   });
