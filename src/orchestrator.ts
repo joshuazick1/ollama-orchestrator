@@ -322,6 +322,11 @@ export class AIOrchestrator {
           if (!wasHealthy) {
             getRecoveryFailureTracker().recordRecoverySuccess(server.id, result.responseTime);
             logger.info(`Server ${server.id} successfully recovered after being unhealthy`);
+            // REC-20: clear any cooldown penalties so the server is immediately eligible
+            this.banManager.clearCooldown(server.id, '');
+            // REC-14: immediately queue model-level active tests so we don't wait for the next
+            // health-check cycle to discover which model breakers can also be closed
+            void this.runActiveTestsForServer(server);
           }
         }
 
@@ -373,6 +378,10 @@ export class AIOrchestrator {
         // Record successful recovery
         getRecoveryFailureTracker().recordRecoverySuccess(server.id, result.responseTime);
         logger.info(`Server ${server.id} successfully recovered after being unhealthy`);
+        // REC-20: clear any cooldown penalties so the server is immediately eligible
+        this.banManager.clearCooldown(server.id, '');
+        // REC-14: immediately queue model-level active tests
+        void this.runActiveTestsForServer(server);
 
         // Invalidate cache since server is now healthy
         this.invalidateServerTagsCache(server.id);
@@ -1948,6 +1957,37 @@ export class AIOrchestrator {
       logger.debug(
         `Circuit breaker half-open for ${server.id}:${model}, performing coordinated recovery test`
       );
+
+      // REC-19: if a half-open breaker has been stuck in that state longer than
+      // its configured halfOpenTimeout, push it back to open immediately rather
+      // than spawning another recovery test that will never land.
+      const now = Date.now();
+      const checkHalfOpenExpiry = (cb: import('./circuit-breaker.js').CircuitBreaker): boolean => {
+        if (cb.getState() !== 'half-open') return false;
+        const stats = cb.getStats();
+        const cfg = cb.getConfig();
+        if (stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
+          const timeInHalfOpen = now - stats.halfOpenStartedAt;
+          if (timeInHalfOpen > cfg.halfOpenTimeout) {
+            logger.warn(
+              `Half-open breaker ${(cb as any).name} timed out in request path after ${timeInHalfOpen}ms (limit: ${cfg.halfOpenTimeout}ms), reverting to open`
+            );
+            cb.recordFailure(new Error('Half-open timeout in request path'), 'transient');
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const serverExpired = isServerHalfOpen && checkHalfOpenExpiry(serverCb);
+      const modelExpired = isModelHalfOpen && checkHalfOpenExpiry(modelCb);
+
+      if (serverExpired || modelExpired) {
+        const errorMsg = `Circuit breaker half-open timeout for ${server.id}:${model}`;
+        logger.debug(errorMsg);
+        errors.push({ server: server.id, error: errorMsg, type: 'transient' });
+        return { success: false };
+      }
 
       // Use RecoveryTestCoordinator for coordinated testing
       // - Server-level breakers: lightweight /api/tags test
