@@ -411,7 +411,7 @@ export class CircuitBreaker {
   /**
    * Record a failed execution with error classification
    */
-  recordFailure(error: Error | string, errorType?: ErrorType): void {
+  recordFailure(error: Error | string, errorType?: ErrorType, retryAfterMs?: number): void {
     const now = Date.now();
 
     // Always record the error in the sliding window for statistics
@@ -477,7 +477,7 @@ export class CircuitBreaker {
       );
       this.transitionTo('open');
       // Apply error-type-specific backoff (48h for non-retryable, 24h for permanent, etc.)
-      this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType);
+      this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType, retryAfterMs);
       logger.warn(
         `Circuit breaker opened due to failure in half-open state (recovery attempt ${this.consecutiveFailedRecoveries} failed)`,
         {
@@ -498,7 +498,7 @@ export class CircuitBreaker {
         this.lastFailureReason = error instanceof Error ? error.message : String(error);
         this.lastErrorType = classifiedType;
         this.transitionTo('open');
-        this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType);
+        this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType, retryAfterMs);
         logger.warn(
           `Circuit breaker opened: ${this.failureCount} failures, ${(this.errorRate * 100).toFixed(1)}% error rate`,
           {
@@ -797,8 +797,13 @@ export class CircuitBreaker {
    * Calculate backoff timeout based on error type
    * Uses unified backoff from recovery-backoff.ts
    */
-  private getBackoffForErrorType(errorType: ErrorType): number {
-    return calculateCircuitBreakerBackoff(errorType, undefined, this.consecutiveFailedRecoveries);
+  private getBackoffForErrorType(errorType: ErrorType, retryAfterMs?: number): number {
+    return calculateCircuitBreakerBackoff(
+      errorType,
+      undefined,
+      this.consecutiveFailedRecoveries,
+      retryAfterMs
+    );
   }
 
   /**

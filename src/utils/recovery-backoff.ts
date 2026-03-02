@@ -146,13 +146,45 @@ export function calculateActiveTestTimeout(
 }
 
 /**
+ * Parse a Retry-After header value into milliseconds.
+ * Supports both delta-seconds (integer) and HTTP-date formats.
+ * The result is capped at 5 minutes (300_000 ms) to prevent runaway waits.
+ *
+ * Returns undefined when the header is absent or unparseable.
+ */
+export function parseRetryAfterMs(header: string | undefined | null): number | undefined {
+  if (!header) return undefined;
+
+  const MAX_RETRY_AFTER_MS = 5 * 60 * 1000; // 5 minutes
+
+  // Try delta-seconds first (most common for OpenAI)
+  const seconds = Number(header.trim());
+  if (!isNaN(seconds) && seconds >= 0) {
+    return Math.min(Math.ceil(seconds * 1000), MAX_RETRY_AFTER_MS);
+  }
+
+  // Try HTTP-date format
+  const retryDate = new Date(header).getTime();
+  if (!isNaN(retryDate)) {
+    const delayMs = retryDate - Date.now();
+    if (delayMs > 0) {
+      return Math.min(delayMs, MAX_RETRY_AFTER_MS);
+    }
+    return 0;
+  }
+
+  return undefined;
+}
+
+/**
  * Calculate backoff for circuit breaker open->half-open transition
  * Uses longer delays than active test backoff
  */
 export function calculateCircuitBreakerBackoff(
   errorType: ErrorType,
   failureReason?: string,
-  consecutiveFailures: number = 0
+  consecutiveFailures: number = 0,
+  retryAfterMs?: number
 ): number {
   switch (errorType) {
     case 'permanent':
@@ -162,6 +194,10 @@ export function calculateCircuitBreakerBackoff(
     case 'retryable':
       return 12 * 60 * 60 * 1000; // 12 hours
     case 'rateLimited':
+      // Honor Retry-After header when provided (REC-45); otherwise exponential backoff
+      if (retryAfterMs !== undefined) {
+        return retryAfterMs;
+      }
       // Exponential backoff for rate limits: 5min, 15min, 45min, 60min
       return Math.min(300000 * Math.pow(3, consecutiveFailures), 3600000);
     case 'transient':
