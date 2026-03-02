@@ -19,6 +19,7 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 /**
  * Get headers for backend requests including optional auth
@@ -701,7 +702,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         const headers = getBackendHeaders(server);
 
         if (stream) {
-          const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const timeoutMs = resolveRequestTimeout(
+            req.headers,
+            orchestrator.getTimeout(server.id, model)
+          );
           const requestId = context?.requestId;
           const stallThreshold = _config.streaming.stallThresholdMs;
           const stallCheckInterval = _config.streaming.stallCheckIntervalMs;
@@ -899,7 +903,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         }
 
         // Non-streaming request - proxy to Ollama's OpenAI endpoint
-        const timeoutMs = orchestrator.getTimeout(server.id, model);
+        const timeoutMs = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
           {
@@ -986,7 +993,10 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
         const headers = getBackendHeaders(server);
 
         if (stream) {
-          const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const timeoutMs = resolveRequestTimeout(
+            req.headers,
+            orchestrator.getTimeout(server.id, model)
+          );
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
@@ -1035,7 +1045,10 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
           return { _streamed: true } as Record<string, unknown>;
         }
 
-        const timeoutMs = orchestrator.getTimeout(server.id, model);
+        const timeoutMs = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
           {
@@ -1107,7 +1120,10 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       model,
       async (server: AIServer) => {
         const headers = getBackendHeaders(server);
-        const timeoutMs = orchestrator.getTimeout(server.id, model);
+        const timeoutMs = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers,
@@ -1256,7 +1272,10 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
         };
 
         if (useStreaming) {
-          const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const timeoutMs = resolveRequestTimeout(
+            req.headers,
+            orchestrator.getTimeout(server.id, model)
+          );
           const requestId = context?.requestId;
           const stallThreshold = config.streaming.stallThresholdMs;
           const stallCheckInterval = config.streaming.stallCheckIntervalMs;
@@ -1378,7 +1397,10 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
           return { _streamed: true } as Record<string, unknown>;
         }
 
-        const timeoutMs = orchestrator.getTimeout(server.id, model);
+        const timeoutMs = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
           {
@@ -1456,7 +1478,10 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
         };
 
         if (useStreaming) {
-          const timeoutMs = orchestrator.getTimeout(server.id, model);
+          const timeoutMs = resolveRequestTimeout(
+            req.headers,
+            orchestrator.getTimeout(server.id, model)
+          );
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
@@ -1499,7 +1524,10 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
           return { _streamed: true };
         }
 
-        const timeoutMs = orchestrator.getTimeout(server.id, model);
+        const timeoutMs = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
           {
@@ -1576,7 +1604,10 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
       model,
       async (server, _context) => {
         // Call OpenAI-compatible embeddings endpoint directly
-        const timeoutMs = orchestrator.getTimeout(server.id, model);
+        const timeoutMs = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

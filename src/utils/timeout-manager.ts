@@ -230,3 +230,32 @@ export function resetTimeoutManager(): void {
 export function createTimeoutManager(config?: Partial<TimeoutConfig>): TimeoutManager {
   return new TimeoutManager(config);
 }
+
+/**
+ * Resolve the effective request timeout, honouring an optional `X-Request-Timeout`
+ * header sent by the client.
+ *
+ * The header value (milliseconds as a decimal integer string) is clamped to
+ * `[1, maxAllowedTimeoutMs]`.  If the header is absent or unparseable the
+ * `orchestratorTimeoutMs` value (from TimeoutManager) is returned unchanged.
+ *
+ * @param headers         - Express-compatible headers object (req.headers)
+ * @param orchestratorTimeoutMs - Timeout from TimeoutManager for this server:model
+ * @param maxAllowedTimeoutMs   - Upper bound for client-supplied values (default: 600 000 ms)
+ */
+export function resolveRequestTimeout(
+  headers: Record<string, string | string[] | undefined>,
+  orchestratorTimeoutMs: number,
+  maxAllowedTimeoutMs: number = DEFAULT_TIMEOUT_CONFIG.maxTimeout
+): number {
+  const headerValue = headers['x-request-timeout'];
+  if (!headerValue) {
+    return orchestratorTimeoutMs;
+  }
+  const raw = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return orchestratorTimeoutMs;
+  }
+  return Math.min(parsed, maxAllowedTimeoutMs);
+}
