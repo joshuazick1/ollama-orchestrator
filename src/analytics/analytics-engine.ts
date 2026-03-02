@@ -114,6 +114,31 @@ interface PersistedAnalyticsData {
 }
 
 /**
+ * Hourly summary snapshot for long-term trend analysis (REC-33)
+ */
+export interface MetricsSummarySnapshot {
+  timestamp: number;
+  servers: {
+    [serverId: string]: {
+      [model: string]: {
+        avgLatency: number;
+        avgTokenThroughput: number;
+        requestCount: number;
+        errorRate: number;
+      };
+    };
+  };
+}
+
+/**
+ * Shape of the persisted metrics summary JSON file
+ */
+interface PersistedMetricsSummary {
+  timestamp: number;
+  snapshots: MetricsSummarySnapshot[];
+}
+
+/**
  * Analytics engine for querying and aggregating historical metrics
  */
 export class AnalyticsEngine {
@@ -132,14 +157,28 @@ export class AnalyticsEngine {
   private readonly persistenceIntervalMs = 60000; // 60 seconds
   private readonly retentionMs = 24 * 60 * 60 * 1000; // 24 hours
 
+  // REC-33: Hourly summary snapshots for long-term trends
+  private summarySnapshots: MetricsSummarySnapshot[] = [];
+  private summaryTimer?: NodeJS.Timeout;
+  private summaryFileHandler: JsonFileHandler;
+  private readonly summaryIntervalMs = 60 * 60 * 1000; // 1 hour
+  private readonly summaryRetentionMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+
   constructor() {
     const filePath = path.join(process.cwd(), 'data', 'analytics-engine.json');
     this.fileHandler = new JsonFileHandler(filePath, {
       createBackups: true,
       maxBackups: 3,
     });
+    const summaryFilePath = path.join(process.cwd(), 'data', 'metrics-summary.json');
+    this.summaryFileHandler = new JsonFileHandler(summaryFilePath, {
+      createBackups: true,
+      maxBackups: 3,
+    });
     this.loadFromDisk();
+    this.loadSummaryFromDisk();
     this.startPersistence();
+    this.startSummaryTimer();
   }
 
   /**
@@ -863,6 +902,115 @@ export class AnalyticsEngine {
       clearInterval(this.persistenceTimer);
       this.persistenceTimer = undefined;
     }
+    if (this.summaryTimer) {
+      clearInterval(this.summaryTimer);
+      this.summaryTimer = undefined;
+    }
+  }
+
+  // ==========================================
+  // Summary Persistence Methods (REC-33)
+  // ==========================================
+
+  /**
+   * Start hourly summary snapshot timer
+   */
+  private startSummaryTimer(): void {
+    this.summaryTimer = setInterval(() => {
+      this.takeSummarySnapshot();
+      void this.persistSummary();
+    }, this.summaryIntervalMs);
+  }
+
+  /**
+   * Take a snapshot of current metrics for long-term trend tracking
+   */
+  takeSummarySnapshot(): MetricsSummarySnapshot {
+    const snapshot: MetricsSummarySnapshot = {
+      timestamp: Date.now(),
+      servers: {},
+    };
+
+    for (const [key, metrics] of this.metrics.entries()) {
+      const colonIdx = key.indexOf(':');
+      if (colonIdx === -1) {
+        continue;
+      }
+      const serverId = key.slice(0, colonIdx);
+      const model = key.slice(colonIdx + 1);
+
+      if (!snapshot.servers[serverId]) {
+        snapshot.servers[serverId] = {};
+      }
+
+      const window = metrics.windows['1h'];
+      const requestCount = window?.count ?? 0;
+      const avgLatency = requestCount > 0 ? (window?.latencySum ?? 0) / requestCount : 0;
+      const errorRate = requestCount > 0 ? (window?.errors ?? 0) / requestCount : 0;
+
+      snapshot.servers[serverId][model] = {
+        avgLatency: Math.round(avgLatency),
+        avgTokenThroughput: metrics.avgTokensPerSecond,
+        requestCount,
+        errorRate: Math.round(errorRate * 1000) / 1000,
+      };
+    }
+
+    this.summarySnapshots.push(snapshot);
+    // Prune old snapshots (30-day retention)
+    const cutoff = Date.now() - this.summaryRetentionMs;
+    this.summarySnapshots = this.summarySnapshots.filter(s => s.timestamp >= cutoff);
+
+    return snapshot;
+  }
+
+  /**
+   * Persist summary snapshots to disk
+   */
+  persistSummary(): Promise<void> {
+    try {
+      const data: PersistedMetricsSummary = {
+        timestamp: Date.now(),
+        snapshots: this.summarySnapshots,
+      };
+      const success = this.summaryFileHandler.write(data);
+      if (!success) {
+        logger.error('Failed to persist metrics summary');
+      } else {
+        logger.debug('Metrics summary persisted', { snapshotCount: this.summarySnapshots.length });
+      }
+    } catch (error) {
+      logger.error('Failed to persist metrics summary:', { error });
+    }
+    return Promise.resolve();
+  }
+
+  /**
+   * Load summary snapshots from disk
+   */
+  private loadSummaryFromDisk(): void {
+    try {
+      const data = this.summaryFileHandler.read<PersistedMetricsSummary>();
+      if (data?.snapshots && Array.isArray(data.snapshots)) {
+        // Prune stale snapshots on load (30-day retention)
+        const cutoff = Date.now() - this.summaryRetentionMs;
+        this.summarySnapshots = data.snapshots.filter(s => s.timestamp >= cutoff);
+        logger.info('Metrics summary loaded from disk', {
+          snapshotCount: this.summarySnapshots.length,
+        });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.error('Failed to load metrics summary:', { error });
+      }
+    }
+  }
+
+  /**
+   * Get all summary snapshots (for trend analysis)
+   */
+  getSummarySnapshots(): MetricsSummarySnapshot[] {
+    return [...this.summarySnapshots];
   }
 
   // ==========================================
