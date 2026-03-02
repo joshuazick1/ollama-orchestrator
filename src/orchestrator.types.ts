@@ -153,6 +153,8 @@ export interface ServerModelMetrics {
   avgTokensPerSecond: number;
   /** Number of cold-start requests observed (load_duration > threshold) */
   coldStartCount: number;
+  /** Average network overhead in ms (client latency - server total_duration) */
+  avgNetworkOverheadMs?: number;
 
   // Streaming-specific metrics
   streamingMetrics?: StreamingMetrics;
