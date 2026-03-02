@@ -211,15 +211,17 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
 
 function checkSupportsContinuation(
   protocol: 'ollama' | 'openai',
-  _endpoint: 'generate' | 'chat'
+  endpoint: 'generate' | 'chat'
 ): boolean {
   // Ollama supports true continuation via context array
   if (protocol === 'ollama') {
     return true;
   }
-  // OpenAI: Does NOT support true continuation
-  // We could do pseudo-continuation (add accumulated text as assistant message),
-  // but that's not true continuation and may produce different results
+  // OpenAI: support pseudo-continuation for chat endpoint by appending
+  // accumulated text as an assistant message and continuing from there
+  if (protocol === 'openai' && endpoint === 'chat') {
+    return true;
+  }
   return false;
 }
 
@@ -305,6 +307,16 @@ function buildOllamaChatContinuation(
   if (originalBody.keep_alive !== undefined) {
     continuation.keep_alive = originalBody.keep_alive;
   }
+  // REC-51: Preserve additional parameters
+  if (originalBody.tools !== undefined) {
+    continuation.tools = originalBody.tools;
+  }
+  if (originalBody.format !== undefined) {
+    continuation.format = originalBody.format;
+  }
+  if (request.lastContext) {
+    continuation.context = request.lastContext;
+  }
 
   return continuation;
 }
@@ -340,6 +352,22 @@ function buildOpenAIChatContinuation(
   }
   if (originalBody.tools !== undefined) {
     continuation.tools = originalBody.tools;
+  }
+  // REC-51: Preserve additional parameters
+  if (originalBody.stop !== undefined) {
+    continuation.stop = originalBody.stop;
+  }
+  if (originalBody.presence_penalty !== undefined) {
+    continuation.presence_penalty = originalBody.presence_penalty;
+  }
+  if (originalBody.frequency_penalty !== undefined) {
+    continuation.frequency_penalty = originalBody.frequency_penalty;
+  }
+  if (originalBody.seed !== undefined) {
+    continuation.seed = originalBody.seed;
+  }
+  if (originalBody.response_format !== undefined) {
+    continuation.response_format = originalBody.response_format;
   }
 
   return continuation;
