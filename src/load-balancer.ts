@@ -394,7 +394,8 @@ export class LoadBalancer {
     getMetrics: (serverId: string, model: string) => ServerModelMetrics | undefined,
     isStreaming: boolean = false,
     clientId?: string,
-    getTimeout?: (serverId: string, model: string) => number
+    getTimeout?: (serverId: string, model: string) => number,
+    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined
   ): AIServer | undefined {
     switch (this.algorithm) {
       case 'weighted':
@@ -404,7 +405,8 @@ export class LoadBalancer {
           getLoad,
           getTotalLoad,
           getMetrics,
-          getTimeout
+          getTimeout,
+          getCircuitBreakerHealth
         );
 
       case 'round-robin':
@@ -450,13 +452,15 @@ export class LoadBalancer {
     getLoad: (serverId: string, model: string) => number,
     getTotalLoad: (serverId: string) => number,
     getMetrics: (serverId: string, model: string) => ServerModelMetrics | undefined,
-    getTimeout?: (serverId: string, model: string) => number
+    getTimeout?: (serverId: string, model: string) => number,
+    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined
   ): AIServer | undefined {
     const scores = candidates.map(server => {
       const currentLoad = getLoad(server.id, model);
       const totalLoad = getTotalLoad(server.id);
       const metrics = getMetrics(server.id, model);
       const timeoutMs = getTimeout?.(server.id, model);
+      const circuitBreakerHealth = getCircuitBreakerHealth?.(server.id);
 
       return calculateServerScore(
         server,
@@ -465,7 +469,7 @@ export class LoadBalancer {
         totalLoad,
         metrics,
         this.config,
-        undefined,
+        circuitBreakerHealth,
         timeoutMs
       );
     });
