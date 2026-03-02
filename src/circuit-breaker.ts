@@ -92,6 +92,22 @@ export interface CircuitBreakerConfig {
   };
 }
 
+/**
+ * Test-safe defaults for CircuitBreaker used in unit/integration tests and as fallback
+ * when no config is supplied to the CircuitBreaker constructor.
+ *
+ * NOTE: These intentionally differ from DEFAULT_CONFIG.circuitBreaker in config.ts, which
+ * carries the production-tuned values loaded by the orchestrator at startup.
+ * Key differences:
+ *   - errorRateThreshold: 1.0 (permissive) — prevents rate-based tripping on small sample
+ *     windows so tests that rely on failure-count-only tripping stay deterministic.
+ *   - adaptiveThresholds: false — keeps failure thresholds stable during tests.
+ *   - baseFailureThreshold: 3 (vs 5 in prod) — allows faster tripping in isolated tests.
+ *   - halfOpenMaxRequests / recoverySuccessThreshold differ accordingly.
+ *
+ * Production code always receives a full CircuitBreakerConfig merged from DEFAULT_CONFIG
+ * (see config.ts) so these fallback values are never used in production.
+ */
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
   baseFailureThreshold: 3, // Reduced from 5 for faster failure detection
   maxFailureThreshold: 8, // Reduced from 10
