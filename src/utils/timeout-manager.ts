@@ -107,7 +107,9 @@ export class TimeoutManager {
       this.config.maxTimeout
     );
 
-    state.currentTimeout = Math.max(state.baseTimeout, newTimeout);
+    const alpha = 0.3;
+    state.currentTimeout = alpha * newTimeout + (1 - alpha) * state.currentTimeout;
+    state.currentTimeout = Math.max(state.currentTimeout, this.config.minTimeout);
     state.lastUpdated = Date.now();
     state.consecutiveSuccesses++;
     state.consecutiveFailures = 0;

@@ -597,6 +597,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         }
 
         // Non-streaming request - proxy to Ollama's OpenAI endpoint
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
           {
@@ -609,7 +610,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
               ...(body.tools && { tools: body.tools }),
             }),
-            timeout: 120000,
+            timeout: timeoutMs,
           }
         );
 
@@ -735,13 +736,14 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
           return { _streamed: true } as Record<string, unknown>;
         }
 
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
           {
             method: 'POST',
             headers,
             body: safeJsonStringify(body),
-            timeout: 180000,
+            timeout: timeoutMs,
           }
         );
 
@@ -1070,13 +1072,14 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
           return { _streamed: true } as Record<string, unknown>;
         }
 
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: safeJsonStringify(requestBody),
-            timeout: 180000,
+            timeout: timeoutMs,
           }
         );
 
@@ -1190,13 +1193,14 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
           return { _streamed: true };
         }
 
+        const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: safeJsonStringify(requestBody),
-            timeout: 180000,
+            timeout: timeoutMs,
           }
         );
 

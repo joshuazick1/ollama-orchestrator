@@ -917,11 +917,12 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     const result = await orchestrator.tryRequestWithFailover(
       model,
       async server => {
+        const timeout = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: safeJsonStringify({ ...body, model, prompt }),
-          timeout: 30000, // 30 second timeout for embeddings
+          timeout,
         });
 
         if (!response.ok) {

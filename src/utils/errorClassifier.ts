@@ -469,6 +469,22 @@ export class ErrorClassifier {
       };
     }
 
+    // HTTP 500 Internal Server Error - transient (retryable with short backoff)
+    // Previously classified as non-retryable which caused 48h backoff
+    if (statusCode === 500) {
+      return {
+        type: 'transient',
+        isRetryable: true,
+        isTransient: true,
+        isPermanent: false,
+        shouldCircuitBreak: true,
+        category: ErrorCategory.NETWORK,
+        severity: ErrorSeverity.MEDIUM,
+        retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.NETWORK],
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
     // Other 5xx errors - retryable but circuit-breaking
     if (statusCode >= 500) {
       return {
