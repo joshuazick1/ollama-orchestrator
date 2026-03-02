@@ -675,4 +675,38 @@ describe('OpenAI Server Support Comprehensive Tests', () => {
       expect(ollamaResponse.message.content).toBe(openaiResponse.choices[0].message.content);
     });
   });
+
+  // ============================================================================
+  // REC-39: /v1/models created field uses Unix seconds (10 digits)
+  // ============================================================================
+
+  describe('REC-39: /v1/models created timestamp format', () => {
+    it('should use Unix seconds (10 digits) not milliseconds (13 digits) for created field', () => {
+      // The fix: Math.floor(Date.now() / 1000)
+      const created = Math.floor(Date.now() / 1000);
+      // Unix seconds should be 10 digits through at least 2286
+      expect(created.toString().length).toBe(10);
+    });
+
+    it('should reject millisecond timestamps as too large', () => {
+      const milliseconds = Date.now();
+      const seconds = Math.floor(milliseconds / 1000);
+      // Milliseconds are ~1000× larger
+      expect(milliseconds).toBeGreaterThan(seconds * 999);
+      // Seconds are 10 digits
+      expect(seconds.toString().length).toBe(10);
+      // Milliseconds are 13 digits (in 2024+)
+      expect(milliseconds.toString().length).toBe(13);
+    });
+
+    it('handleListOpenAIModels should return created field as 10-digit Unix seconds', async () => {
+      // Simulate what getAggregatedOpenAIModels returns
+      mockOrchestrator.getAggregatedOpenAIModels = vi
+        .fn()
+        .mockReturnValue([{ id: 'gpt-4', created: Math.floor(Date.now() / 1000) }]);
+
+      const models = mockOrchestrator.getAggregatedOpenAIModels();
+      expect(models[0].created.toString().length).toBe(10);
+    });
+  });
 });

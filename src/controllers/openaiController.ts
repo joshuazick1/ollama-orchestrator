@@ -10,7 +10,7 @@ import { getConfigManager } from '../config/config.js';
 import { API_ENDPOINTS } from '../constants/index.js';
 import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
-import { type OllamaStreamChunk } from '../streaming.js';
+import { type OllamaStreamChunk, type OllamaToolCall } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { addDebugHeaders, getDebugInfo } from '../utils/debug-headers.js';
@@ -137,6 +137,7 @@ async function streamOpenAIResponse(
   let completionTokens = 0;
   let lastChunkTime = startTime;
   let hasReceivedFirstChunk = false;
+  let hasEmittedRoleChunk = false; // Track whether role-only first chunk has been sent (REC-37)
   let stallCheckInterval: ReturnType<typeof setInterval> | undefined;
   let stallTriggered = false;
   const effectiveStallThreshold = stallThresholdMs ?? 300000; // Default 5 minutes
@@ -264,6 +265,9 @@ async function streamOpenAIResponse(
             }
             totalTokens = promptTokens + completionTokens;
 
+            // Determine finish_reason: 'length' if truncated, else 'stop'
+            const doneFinishReason = chunk.truncated ? 'length' : 'stop';
+
             // Send final chunk with finish_reason
             const finalDelta = isChat
               ? {
@@ -275,7 +279,7 @@ async function streamOpenAIResponse(
                     {
                       index: 0,
                       delta: {},
-                      finish_reason: 'stop',
+                      finish_reason: doneFinishReason,
                     },
                   ],
                 }
@@ -288,12 +292,15 @@ async function streamOpenAIResponse(
                     {
                       index: 0,
                       text: '',
-                      finish_reason: 'stop',
+                      finish_reason: doneFinishReason,
                     },
                   ],
                 };
 
-            clientResponse.write(`data: ${safeJsonStringify(finalDelta)}\n\n`);
+            const writeResult1 = clientResponse.write(`data: ${safeJsonStringify(finalDelta)}\n\n`);
+            if (!writeResult1) {
+              await new Promise<void>(r => clientResponse.once('drain', r));
+            }
 
             // Include usage if requested
             if (includeUsage && totalTokens > 0) {
@@ -309,46 +316,105 @@ async function streamOpenAIResponse(
                   total_tokens: totalTokens,
                 },
               };
-              clientResponse.write(`data: ${safeJsonStringify(usageChunk)}\n\n`);
+              const writeResult2 = clientResponse.write(
+                `data: ${safeJsonStringify(usageChunk)}\n\n`
+              );
+              if (!writeResult2) {
+                await new Promise<void>(r => clientResponse.once('drain', r));
+              }
             }
 
-            clientResponse.write('data: [DONE]\n\n');
+            const writeResult3 = clientResponse.write('data: [DONE]\n\n');
+            if (!writeResult3) {
+              await new Promise<void>(r => clientResponse.once('drain', r));
+            }
             continue;
           }
 
-          // Extract content from Ollama response
+          // Extract content and tool_calls from Ollama response
           const content = isChat ? (chunk.message?.content ?? '') : (chunk.response ?? '');
+          const toolCalls: OllamaToolCall[] | undefined = isChat
+            ? chunk.message?.tool_calls
+            : undefined;
 
-          if (content) {
-            const sseChunk = isChat
-              ? {
-                  id: responseId,
-                  object: 'chat.completion.chunk',
-                  created: Math.floor(Date.now() / 1000),
-                  model,
-                  choices: [
-                    {
-                      index: 0,
-                      delta: { content, role: 'assistant' },
-                      finish_reason: null,
-                    },
-                  ],
-                }
-              : {
-                  id: responseId,
-                  object: 'text_completion',
-                  created: Math.floor(Date.now() / 1000),
-                  model,
-                  choices: [
-                    {
-                      index: 0,
-                      text: content,
-                      finish_reason: null,
-                    },
-                  ],
-                };
+          // Emit role-only first chunk for chat (OpenAI spec: first chunk carries role)
+          if (isChat && !hasEmittedRoleChunk) {
+            hasEmittedRoleChunk = true;
+            const roleChunk = {
+              id: responseId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [
+                {
+                  index: 0,
+                  delta: { role: 'assistant', content: '' },
+                  finish_reason: null,
+                },
+              ],
+            };
+            const writeResultRole = clientResponse.write(
+              `data: ${safeJsonStringify(roleChunk)}\n\n`
+            );
+            if (!writeResultRole) {
+              await new Promise<void>(r => clientResponse.once('drain', r));
+            }
+          }
 
-            clientResponse.write(`data: ${safeJsonStringify(sseChunk)}\n\n`);
+          if (content || (toolCalls && toolCalls.length > 0)) {
+            let sseChunk: Record<string, unknown>;
+
+            if (isChat) {
+              const delta: Record<string, unknown> = {};
+              if (content) {
+                delta.content = content;
+              }
+              if (toolCalls && toolCalls.length > 0) {
+                // Determine finish_reason for tool_calls
+                delta.tool_calls = toolCalls.map((tc, idx) => ({
+                  index: tc.index ?? idx,
+                  id: tc.id,
+                  type: tc.type ?? 'function',
+                  function: {
+                    name: tc.function?.name,
+                    arguments: tc.function?.arguments ?? '',
+                  },
+                }));
+              }
+              const finishReason = toolCalls && toolCalls.length > 0 ? 'tool_calls' : null;
+              sseChunk = {
+                id: responseId,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model,
+                choices: [
+                  {
+                    index: 0,
+                    delta,
+                    finish_reason: finishReason,
+                  },
+                ],
+              };
+            } else {
+              sseChunk = {
+                id: responseId,
+                object: 'text_completion',
+                created: Math.floor(Date.now() / 1000),
+                model,
+                choices: [
+                  {
+                    index: 0,
+                    text: content,
+                    finish_reason: null,
+                  },
+                ],
+              };
+            }
+
+            const writeResult4 = clientResponse.write(`data: ${safeJsonStringify(sseChunk)}\n\n`);
+            if (!writeResult4) {
+              await new Promise<void>(r => clientResponse.once('drain', r));
+            }
           }
         } catch (e) {
           // Skip malformed JSON lines
@@ -387,6 +453,181 @@ async function streamOpenAIResponse(
     } else {
       clientResponse.end();
     }
+  }
+}
+
+/**
+ * Passthrough SSE stream — for servers that already speak OpenAI SSE format.
+ * Forwards `data: …` lines verbatim while extracting TTFT/token metrics.
+ * Implements backpressure (REC-42) and handles upstream close, client
+ * disconnect, and stall detection (REC-36).
+ */
+async function passthroughSSEStream(
+  upstreamResponse: globalThis.Response,
+  clientResponse: Response,
+  responseId: string,
+  model: string,
+  onChunk?: () => void,
+  streamingRequestId?: string,
+  onStall?: (
+    abortController: AbortController,
+    streamingRequestId?: string
+  ) => Promise<{ success: boolean; error?: string } | void>,
+  stallThresholdMs?: number,
+  stallCheckIntervalMs?: number,
+  _onStreamEnd?: () => void
+): Promise<void> {
+  const startTime = Date.now();
+  let lastChunkTime = startTime;
+  let hasReceivedFirstChunk = false;
+  let stallCheckInterval: ReturnType<typeof setInterval> | undefined;
+  let stallTriggered = false;
+  const effectiveStallThreshold = stallThresholdMs ?? 300000;
+  const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000;
+  const abortController = new AbortController();
+
+  try {
+    clientResponse.setHeader('Content-Type', 'text/event-stream');
+    clientResponse.setHeader('Cache-Control', 'no-cache');
+    clientResponse.setHeader('Connection', 'keep-alive');
+    clientResponse.setHeader('X-Accel-Buffering', 'no');
+
+    const reader = upstreamResponse.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body to stream');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        if (stallCheckInterval) {
+          clearInterval(stallCheckInterval);
+          stallCheckInterval = undefined;
+        }
+        break;
+      }
+
+      const now = Date.now();
+
+      // Start stall detection after first chunk
+      if (!hasReceivedFirstChunk && onStall) {
+        hasReceivedFirstChunk = true;
+        lastChunkTime = now;
+
+        stallCheckInterval = setInterval(() => {
+          if (stallTriggered) return;
+          const timeSinceLastChunk = Date.now() - lastChunkTime;
+          if (timeSinceLastChunk > effectiveStallThreshold) {
+            logger.warn('SSE passthrough stall detected', {
+              responseId,
+              model,
+              timeSinceLastChunk,
+              stallThreshold: effectiveStallThreshold,
+            });
+            stallTriggered = true;
+            if (stallCheckInterval) {
+              clearInterval(stallCheckInterval);
+              stallCheckInterval = undefined;
+            }
+            onStall(abortController, streamingRequestId)
+              .then(res => {
+                if (res?.success) return;
+                try {
+                  void reader.cancel();
+                } catch {
+                  // Ignore cancel errors
+                }
+              })
+              .catch(stallError => {
+                logger.error('SSE passthrough stall handler threw error', {
+                  responseId,
+                  error: stallError instanceof Error ? stallError.message : String(stallError),
+                });
+                try {
+                  void reader.cancel();
+                } catch {
+                  // Ignore cancel errors
+                }
+              });
+          }
+        }, effectiveStallCheckInterval);
+      }
+
+      if (hasReceivedFirstChunk) {
+        lastChunkTime = now;
+      }
+
+      onChunk?.();
+
+      // Decode and buffer the chunk
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        // Forward SSE lines verbatim (includes `data: …` and blank separator lines)
+        const writeResult = clientResponse.write(`${line}\n`);
+        if (!writeResult) {
+          await new Promise<void>(r => clientResponse.once('drain', r));
+        }
+
+        // Detect [DONE] sentinel for logging
+        if (line === 'data: [DONE]') {
+          logger.debug('SSE passthrough received [DONE]', { responseId, model });
+        }
+      }
+
+      if (clientResponse.writableEnded) {
+        logger.info('Client disconnected from SSE passthrough stream', { responseId, model });
+        try {
+          void reader.cancel();
+        } catch {
+          // Ignore cancel errors
+        }
+        break;
+      }
+    }
+
+    // Flush any remaining buffer content
+    if (buffer.trim()) {
+      const writeResult = clientResponse.write(`${buffer}\n`);
+      if (!writeResult) {
+        await new Promise<void>(r => clientResponse.once('drain', r));
+      }
+    }
+
+    clientResponse.end();
+
+    logger.info('SSE passthrough stream completed', {
+      responseId,
+      model,
+      duration: Date.now() - startTime,
+    });
+  } catch (error) {
+    logger.error('SSE passthrough streaming error:', { error });
+
+    if (!clientResponse.headersSent) {
+      clientResponse.status(500).json({
+        error: {
+          message: 'Streaming failed',
+          type: 'server_error',
+          code: 'streaming_error',
+        },
+      });
+    } else {
+      clientResponse.end();
+    }
+  } finally {
+    if (stallCheckInterval) {
+      clearInterval(stallCheckInterval);
+      stallCheckInterval = undefined;
+    }
+    _onStreamEnd?.();
   }
 }
 
@@ -525,52 +766,105 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
           try {
             let chunkCount = 0;
-            await streamOpenAIResponse(
-              response,
-              res,
-              responseId,
-              model,
-              true,
-              body.stream_options?.include_usage,
-              () => {
-                if (!firstChunkTime) {
-                  firstChunkTime = Date.now();
-                  logger.info('STREAM_FIRST_CHUNK', {
+
+            if (server.supportsV1) {
+              // REC-36: Server speaks OpenAI SSE natively — passthrough directly
+              logger.info('STREAM_MODE_PASSTHROUGH', {
+                requestId,
+                serverId: server.id,
+                model,
+              });
+              await passthroughSSEStream(
+                response,
+                res,
+                responseId,
+                model,
+                () => {
+                  if (!firstChunkTime) {
+                    firstChunkTime = Date.now();
+                    logger.info('STREAM_FIRST_CHUNK', {
+                      requestId,
+                      serverId: server.id,
+                      model,
+                      timeToFirstChunk: firstChunkTime - streamStartTime,
+                    });
+                  }
+                  activityController.resetTimeout();
+                  chunkCount++;
+                  logger.debug('STREAM_CHUNK', {
                     requestId,
                     serverId: server.id,
                     model,
-                    timeToFirstChunk: firstChunkTime - streamStartTime,
+                    chunkCount,
                   });
+                  if (requestId) {
+                    getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                  }
+                },
+                requestId,
+                onStallCallback,
+                stallThreshold,
+                stallCheckInterval,
+                () => {
+                  if (requestId) {
+                    getInFlightManager().removeStreamingRequest(requestId);
+                  }
                 }
+              );
+            } else {
+              // REC-36: Server only speaks Ollama NDJSON — translate to OpenAI SSE
+              logger.info('STREAM_MODE_TRANSLATE', {
+                requestId,
+                serverId: server.id,
+                model,
+              });
+              await streamOpenAIResponse(
+                response,
+                res,
+                responseId,
+                model,
+                true,
+                body.stream_options?.include_usage,
+                () => {
+                  if (!firstChunkTime) {
+                    firstChunkTime = Date.now();
+                    logger.info('STREAM_FIRST_CHUNK', {
+                      requestId,
+                      serverId: server.id,
+                      model,
+                      timeToFirstChunk: firstChunkTime - streamStartTime,
+                    });
+                  }
 
-                activityController.resetTimeout();
-                chunkCount++;
+                  activityController.resetTimeout();
+                  chunkCount++;
 
-                logger.debug('STREAM_CHUNK', {
-                  requestId,
-                  serverId: server.id,
-                  model,
-                  chunkCount,
-                });
+                  logger.debug('STREAM_CHUNK', {
+                    requestId,
+                    serverId: server.id,
+                    model,
+                    chunkCount,
+                  });
 
-                // Update InFlightManager with current chunk count for real-time tracking
-                if (requestId) {
-                  getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                  // Update InFlightManager with current chunk count for real-time tracking
+                  if (requestId) {
+                    getInFlightManager().updateChunkProgress(requestId, chunkCount);
+                  }
+                },
+                // streamingRequestId (for onStall)
+                requestId,
+                // Stall detection parameters
+                onStallCallback,
+                stallThreshold,
+                stallCheckInterval,
+                // Cleanup callback
+                () => {
+                  if (requestId) {
+                    getInFlightManager().removeStreamingRequest(requestId);
+                  }
                 }
-              },
-              // streamingRequestId (for onStall)
-              requestId,
-              // Stall detection parameters
-              onStallCallback,
-              stallThreshold,
-              stallCheckInterval,
-              // Cleanup callback
-              () => {
-                if (requestId) {
-                  getInFlightManager().removeStreamingRequest(requestId);
-                }
-              }
-            );
+              );
+            }
 
             logger.info('STREAM_COMPLETE', {
               requestId,
@@ -705,20 +999,18 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
           }
 
           try {
-            const reader = response.body?.getReader();
-            if (!reader) {
-              throw new Error('No response body to stream');
-            }
-            const decoder = new TextDecoder();
-            // stream raw NDJSON to client
-            // eslint-disable-next-line no-constant-condition
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                break;
+            const responseId = generateId('cmpl');
+            await streamOpenAIResponse(
+              response,
+              res,
+              responseId,
+              model,
+              false, // isChat = false for /v1/completions
+              body.stream_options?.include_usage,
+              () => {
+                activityController.resetTimeout();
               }
-              res.write(decoder.decode(value, { stream: true }));
-            }
+            );
 
             const includeDebug = req.query.debug === 'true';
             if (includeDebug) {
@@ -727,7 +1019,6 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
             }
-            res.end();
           } finally {
             activityController.clearTimeout();
           }

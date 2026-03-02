@@ -51,13 +51,29 @@ export type { TTFTOptions } from './metrics/ttft-tracker.js';
  * Try to parse and extract info from a streaming chunk
  * Ollama sends JSON lines with structure like: {"model":"...","response":"...","done":false}
  */
+export interface OllamaToolCall {
+  index?: number;
+  id?: string;
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
 export interface OllamaStreamChunk {
   done?: boolean;
   error?: string;
   response?: string;
-  message?: { content?: string };
+  message?: {
+    content?: string;
+    role?: string;
+    tool_calls?: OllamaToolCall[];
+  };
   eval_count?: number;
   prompt_eval_count?: number;
+  /** Set to true in the final chunk when truncated due to max_tokens */
+  truncated?: boolean;
 }
 
 function parseStreamChunk(chunk: Uint8Array): {

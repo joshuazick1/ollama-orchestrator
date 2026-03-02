@@ -1220,7 +1220,7 @@ export class AIOrchestrator {
         models.push({
           id: modelId,
           object: 'model',
-          created: Date.now(),
+          created: Math.floor(Date.now() / 1000), // Unix seconds (REC-39)
           owned_by: servers[0], // Use first server as owner
         });
       }
