@@ -4018,6 +4018,7 @@ export class AIOrchestrator {
 
     // Persist analytics engine data
     await getAnalyticsEngine().persist();
+    await getAnalyticsEngine().persistSummary();
 
     // Stop persistence timers
     getDecisionHistory().stop();
