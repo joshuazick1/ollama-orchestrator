@@ -112,6 +112,26 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// REC-8: Liveness probe – always 200 as long as the process is alive
+app.get('/health/live', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// REC-8: Readiness probe – 503 if no healthy servers are available
+app.get('/health/ready', (_req, res) => {
+  const servers = orchestrator.getServers();
+  const hasHealthy = servers.some(s => s.healthy);
+  if (hasHealthy) {
+    res.json({ status: 'ready', healthyServers: servers.filter(s => s.healthy).length });
+  } else {
+    res.status(503).json({
+      status: 'not_ready',
+      reason: 'No healthy servers available',
+      totalServers: servers.length,
+    });
+  }
+});
+
 // Error handler
 // REC-40: return OpenAI-compatible error format for /v1 routes
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -142,7 +162,8 @@ app.get('*', (req, res, next) => {
     req.path.startsWith('/api') ||
     req.path.startsWith('/v1') || // REC-41: exclude /v1 from SPA fallback
     req.path === '/metrics' ||
-    req.path === '/health'
+    req.path === '/health' ||
+    req.path.startsWith('/health/')
   ) {
     return next();
   }
