@@ -140,6 +140,11 @@ app.use((_req, res) => {
 
 // Start server
 const server = app.listen(PORT, () => {
+  // Add Express server timeouts to prevent resource leaks
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+  server.requestTimeout = 600000;
+
   logger.info(`Ollama Orchestrator listening on port ${PORT}`);
   logger.info(`API endpoints:`);
   logger.info(`  - Server management: POST   /api/orchestrator/servers/add`);

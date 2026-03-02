@@ -106,7 +106,7 @@ describe('ollamaError', () => {
 
       const result = await parseOllamaErrorGlobal(mockResponse);
 
-      expect(result).toBe('Server error');
+      expect(result).toBe('HTTP 500: Server error');
     });
 
     it('should parse text error when not JSON', async () => {

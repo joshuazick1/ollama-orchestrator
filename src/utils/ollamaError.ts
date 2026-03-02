@@ -18,8 +18,17 @@ export async function parseOllamaError(response: Response): Promise<string> {
 
     // Try to parse as JSON first
     try {
-      const json = safeJsonParse(text) as { error?: string; message?: string };
-      if (json?.error) {
+      const json = safeJsonParse(text) as {
+        error?: string | { message?: string; type?: string; code?: string };
+        message?: string;
+      };
+      // Handle nested OpenAI format: { error: { message, type, code } }
+      if (json?.error && typeof json.error === 'object' && 'message' in json.error) {
+        const err = json.error as { message?: string; type?: string; code?: string };
+        const extra = [err.type, err.code].filter(Boolean).join(', ');
+        return `HTTP ${response.status}: ${err.message}${extra ? ` (${extra})` : ''}`;
+      }
+      if (typeof json?.error === 'string' && json.error) {
         return `HTTP ${response.status}: ${json.error}`;
       }
       if (json?.message) {
@@ -49,8 +58,19 @@ export async function parseOllamaErrorGlobal(response: globalThis.Response): Pro
     const contentType = response.headers.get('content-type');
 
     if (contentType?.includes('application/json')) {
-      const data = (await response.json()) as { error?: string };
-      return data.error ?? `HTTP ${response.status}: ${response.statusText}`;
+      const data = (await response.json()) as {
+        error?: string | { message?: string; type?: string; code?: string };
+      };
+      // Handle nested OpenAI format: { error: { message, type, code } }
+      if (data?.error && typeof data.error === 'object' && 'message' in data.error) {
+        const err = data.error as { message?: string; type?: string; code?: string };
+        const extra = [err.type, err.code].filter(Boolean).join(', ');
+        return `HTTP ${response.status}: ${err.message}${extra ? ` (${extra})` : ''}`;
+      }
+      if (typeof data?.error === 'string') {
+        return `HTTP ${response.status}: ${data.error}`;
+      }
+      return `HTTP ${response.status}: ${response.statusText}`;
     }
 
     const text = await response.text();

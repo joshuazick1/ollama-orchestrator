@@ -2834,9 +2834,9 @@ describe('AIOrchestrator', () => {
       expect(errorType).toBe('transient');
     });
 
-    it('should classify HTTP 500 as retryable', () => {
+    it('should classify HTTP 500 as transient (retryable with short backoff)', () => {
       const errorType = classifyError('HTTP 500').type;
-      expect(errorType).toBe('retryable');
+      expect(errorType).toBe('transient');
     });
   });
 
