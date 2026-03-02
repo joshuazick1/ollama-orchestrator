@@ -70,24 +70,9 @@ describe('ConfigManager', () => {
       expect(config.host).toBe(DEFAULT_CONFIG.host); // Unchanged
     });
 
-    it('should update config section', () => {
-      manager.updateSection('queue', { maxSize: 500 });
-      const config = manager.getConfig();
-
-      expect(config.queue.maxSize).toBe(500);
-      expect(config.queue.timeout).toBe(DEFAULT_CONFIG.queue.timeout); // Unchanged
-    });
-
     it('should throw on invalid config update', () => {
       expect(() => {
         manager.updateConfig({ port: -1 });
-      }).toThrow(ConfigValidationError);
-    });
-
-    it('should throw on invalid section update', () => {
-      // Note: updateSection doesn't validate - use updateConfig for validation
-      expect(() => {
-        manager.updateConfig({ queue: { maxSize: -1 } as any });
       }).toThrow(ConfigValidationError);
     });
 
@@ -144,22 +129,6 @@ describe('ConfigManager', () => {
       expect(envManager.getConfig().logLevel).toBe('debug');
     });
 
-    it('should override feature toggles from environment', () => {
-      process.env.ORCHESTRATOR_ENABLE_QUEUE = 'false';
-      process.env.ORCHESTRATOR_ENABLE_STREAMING = 'false';
-      const envManager = new ConfigManager();
-
-      expect(envManager.getConfig().enableQueue).toBe(false);
-      expect(envManager.getConfig().enableStreaming).toBe(false);
-    });
-
-    it('should override queue settings from environment', () => {
-      process.env.ORCHESTRATOR_QUEUE_MAX_SIZE = '500';
-      const envManager = new ConfigManager();
-
-      expect(envManager.getConfig().queue.maxSize).toBe(500);
-    });
-
     it('should ignore invalid environment values', () => {
       process.env.ORCHESTRATOR_PORT = 'invalid';
       const envManager = new ConfigManager();
@@ -171,7 +140,7 @@ describe('ConfigManager', () => {
   describe('File Operations', () => {
     it('should save and load JSON config', async () => {
       const configPath = path.join(tempDir, 'config.json');
-      
+
       manager.updateConfig({ port: 8080, host: '127.0.0.1' });
       await manager.saveToFile(configPath);
 
@@ -185,7 +154,7 @@ describe('ConfigManager', () => {
 
     it('should save and load YAML config', async () => {
       const configPath = path.join(tempDir, 'config.yaml');
-      
+
       manager.updateConfig({ port: 8080, logLevel: 'debug' });
       await manager.saveToFile(configPath);
 
@@ -200,7 +169,9 @@ describe('ConfigManager', () => {
     it('should throw on unsupported file format', async () => {
       const configPath = path.join(tempDir, 'config.txt');
 
-      await expect(manager.saveToFile(configPath)).rejects.toThrow('Unsupported config file format');
+      await expect(manager.saveToFile(configPath)).rejects.toThrow(
+        'Unsupported config file format'
+      );
     });
 
     it('should throw on invalid JSON', async () => {
@@ -219,7 +190,7 @@ describe('ConfigManager', () => {
 
     it('should use default config path when saving', async () => {
       const configPath = path.join(tempDir, 'config.json');
-      
+
       // First save to a file
       manager.updateConfig({ port: 8080 });
       await manager.saveToFile(configPath);
@@ -239,7 +210,7 @@ describe('ConfigManager', () => {
   describe('Hot Reload', () => {
     it('should detect and reload config file changes', async () => {
       const configPath = path.join(tempDir, 'config.json');
-      
+
       manager.updateConfig({ port: 8080 });
       await manager.saveToFile(configPath);
 
@@ -282,20 +253,15 @@ describe('ConfigManager', () => {
     });
 
     it('should validate log level', () => {
-      expect(() => manager.updateConfig({ logLevel: 'invalid' as any })).toThrow(ConfigValidationError);
-    });
-
-    it('should validate queue max size', () => {
-      expect(() => manager.updateConfig({ queue: { maxSize: 0 } as any })).toThrow(ConfigValidationError);
-      expect(() => manager.updateConfig({ queue: { maxSize: -1 } as any })).toThrow(ConfigValidationError);
+      expect(() => manager.updateConfig({ logLevel: 'invalid' as any })).toThrow(
+        ConfigValidationError
+      );
     });
 
     it('should validate server configuration', async () => {
       const configPath = path.join(tempDir, 'config.json');
       const invalidConfig = {
-        servers: [
-          { id: '', url: 'http://localhost:11434', type: 'ollama' },
-        ],
+        servers: [{ id: '', url: 'http://localhost:11434', type: 'ollama' }],
       };
 
       await fs.writeFile(configPath, JSON.stringify(invalidConfig));
@@ -305,9 +271,7 @@ describe('ConfigManager', () => {
     it('should validate server URLs', async () => {
       const configPath = path.join(tempDir, 'config.json');
       const invalidConfig = {
-        servers: [
-          { id: 'server-1', url: 'not-a-valid-url', type: 'ollama' },
-        ],
+        servers: [{ id: 'server-1', url: 'not-a-valid-url', type: 'ollama' }],
       };
 
       await fs.writeFile(configPath, JSON.stringify(invalidConfig));
@@ -350,19 +314,10 @@ describe('ConfigManager', () => {
     it('should preserve nested defaults', () => {
       const config = manager.getConfig();
 
-      expect(config.queue.maxSize).toBe(DEFAULT_CONFIG.queue.maxSize);
       expect(config.loadBalancer.weights.latency).toBe(DEFAULT_CONFIG.loadBalancer.weights.latency);
-      expect(config.circuitBreaker.baseFailureThreshold).toBe(DEFAULT_CONFIG.circuitBreaker.baseFailureThreshold);
-    });
-
-    it('should merge nested partial updates', () => {
-      manager.updateConfig({
-        queue: { maxSize: 500 } as any,
-      });
-
-      const config = manager.getConfig();
-      expect(config.queue.maxSize).toBe(500);
-      expect(config.queue.timeout).toBe(DEFAULT_CONFIG.queue.timeout);
+      expect(config.circuitBreaker.baseFailureThreshold).toBe(
+        DEFAULT_CONFIG.circuitBreaker.baseFailureThreshold
+      );
     });
 
     it('should handle full section updates', () => {
@@ -372,7 +327,7 @@ describe('ConfigManager', () => {
         load: 0.15,
         capacity: 0.1,
       };
-      
+
       manager.updateSection('loadBalancer', {
         weights: newWeights,
       } as any);

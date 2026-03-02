@@ -129,7 +129,7 @@ async function streamOpenAIResponse(
   ) => Promise<{ success: boolean; error?: string } | void>,
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number,
-  onStreamEnd?: () => void
+  _onStreamEnd?: () => void
 ): Promise<void> {
   const startTime = Date.now();
   let totalTokens = 0;
@@ -179,7 +179,7 @@ async function streamOpenAIResponse(
         hasReceivedFirstChunk = true;
         lastChunkTime = now;
 
-        stallCheckInterval = setInterval(async () => {
+        stallCheckInterval = setInterval(() => {
           if (stallTriggered) {
             return;
           }
@@ -201,32 +201,35 @@ async function streamOpenAIResponse(
             }
 
             // Try to handle the stall - call the async handler
-            try {
-              // onStall returns a promise; call and await its result because OpenAI
-              // stall handler returns immediately with success:false. Awaiting here
-              // keeps behavior consistent with the rest of the codepath.
-              const res = await onStall(abortController, streamingRequestId);
+            onStall(abortController, streamingRequestId)
+              .then(res => {
+                // If handler says it handled the handoff successfully, we're done
+                if (res?.success) {
+                  logger.info('OpenAI stall handled successfully via handoff', {
+                    responseId,
+                  });
+                  return;
+                }
 
-              // If handler says it handled the handoff successfully, we're done
-              if (res?.success) {
-                logger.info('OpenAI stall handled successfully via handoff', {
+                // If we get here, handoff didn't work - abort the stream
+                try {
+                  void reader.cancel();
+                } catch (e) {
+                  // Ignore cancel errors
+                }
+              })
+              .catch(stallError => {
+                logger.error('OpenAI stall handler threw error', {
                   responseId,
+                  error: stallError instanceof Error ? stallError.message : String(stallError),
                 });
-                return;
-              }
-            } catch (stallError) {
-              logger.error('OpenAI stall handler threw error', {
-                responseId,
-                error: stallError instanceof Error ? stallError.message : String(stallError),
-              });
-            }
 
-            // If we get here, handoff didn't work - abort the stream
-            try {
-              reader.cancel();
-            } catch (e) {
-              // Ignore cancel errors
-            }
+                try {
+                  void reader.cancel();
+                } catch (e) {
+                  // Ignore cancel errors
+                }
+              });
           }
         }, effectiveStallCheckInterval);
       }
@@ -500,10 +503,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           const streamStartTime = Date.now();
           let firstChunkTime: number | undefined;
 
-          const onStallCallback = async (
+          const onStallCallback = (
             _abortController: AbortController,
             _streamingRequestId?: string
-          ) => {
+          ): Promise<{ success: boolean; error?: string }> => {
             logger.warn('STREAM_STALL_DETECTED', {
               requestId,
               serverId: server.id,
@@ -515,10 +518,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
             // OpenAI doesn't support continuation, so we just return false
             // The stream will end gracefully with what we have
-            return {
+            return Promise.resolve({
               success: false,
               error: 'OpenAI protocol does not support stream continuation',
-            };
+            });
           };
 
           try {
@@ -982,10 +985,10 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
           const streamStartTime = Date.now();
           let firstChunkTime: number | undefined;
 
-          const onStallCallback = async (
+          const onStallCallback = (
             _abortController: AbortController,
             _streamingRequestId?: string
-          ) => {
+          ): Promise<{ success: boolean; error?: string }> => {
             logger.warn('STREAM_STALL_DETECTED', {
               requestId,
               serverId: server.id,
@@ -997,10 +1000,10 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
 
             // OpenAI doesn't support continuation, so we just return false
             // The stream will end gracefully with what we have
-            return {
+            return Promise.resolve({
               success: false,
               error: 'OpenAI protocol does not support stream continuation',
-            };
+            });
           };
 
           try {
@@ -1131,7 +1134,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
 
   const orchestrator = getOrchestratorInstance();
   const useStreaming = stream ?? false;
-  const config = getConfigManager().getConfig();
+  const _config = getConfigManager().getConfig();
 
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown>>(

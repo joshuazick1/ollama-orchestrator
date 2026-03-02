@@ -403,7 +403,7 @@ export async function streamResponse(
           });
 
           // Start periodic stall checking in the background
-          stallCheckInterval = setInterval(async () => {
+          stallCheckInterval = setInterval(() => {
             if (stallTriggered) {
               return;
             }
@@ -426,47 +426,43 @@ export async function streamResponse(
               }
 
               // Try to handle the stall - call the async handler
-              try {
-                const result = await onStall(abortController, streamingRequestId);
+              onStall(abortController, streamingRequestId)
+                .then(result => {
+                  // If handler says it handled the handoff successfully, we're done
+                  // The handoff has already started streaming to clientResponse
+                  // Just return gracefully without canceling the reader
+                  if (result?.success) {
+                    logger.info(
+                      'Stall handled successfully via handoff, exiting stream gracefully',
+                      {
+                        streamingRequestId,
+                        handoffError: result.error,
+                      }
+                    );
+                    onStreamEnd?.();
+                    return;
+                  }
 
-                // If handler says it handled the handoff successfully, we're done
-                // The handoff has already started streaming to clientResponse
-                // Just return gracefully without canceling the reader
-                if (result?.success) {
-                  logger.info('Stall handled successfully via handoff, exiting stream gracefully', {
-                    streamingRequestId,
-                    handoffError: result.error,
-                  });
-                  onStreamEnd?.();
-                  return;
-                }
-              } catch (stallError) {
-                logger.error('Stall handler threw error', {
-                  streamingRequestId,
-                  error: stallError instanceof Error ? stallError.message : String(stallError),
-                });
-              }
-
-              // If we get here, handoff didn't work - abort the stream
-              try {
-                try {
+                  // If we get here, handoff didn't work - abort the stream
                   logger.warn('Handoff did not succeed, cancelling reader to abort stream', {
                     streamingRequestId,
                     chunkCount,
                   });
-                  reader?.cancel();
-                } catch (e) {
-                  logger.error('Error cancelling reader after failed handoff', {
+                  void reader?.cancel();
+                })
+                .catch((stallError: unknown) => {
+                  logger.error('Stall handler threw error', {
                     streamingRequestId,
-                    error: String(e),
+                    error: stallError instanceof Error ? stallError.message : String(stallError),
                   });
-                }
-              } catch (e) {
-                logger.error('Error cancelling reader after failed handoff', {
-                  streamingRequestId,
-                  error: String(e),
+
+                  // Handoff failed with error - abort the stream
+                  logger.warn('Handoff did not succeed, cancelling reader to abort stream', {
+                    streamingRequestId,
+                    chunkCount,
+                  });
+                  void reader?.cancel();
                 });
-              }
             }
           }, effectiveStallCheckInterval);
         }

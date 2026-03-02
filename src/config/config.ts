@@ -9,7 +9,6 @@ import path from 'path';
 import type { CircuitBreakerConfig } from '../circuit-breaker.js';
 import type { LoadBalancerConfig } from '../load-balancer.js';
 import type { ModelManagerConfig } from '../model-manager.js';
-import type { QueueConfig } from '../queue/index.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 
@@ -102,7 +101,6 @@ export interface OrchestratorConfig {
   enablePersistence: boolean;
 
   // Sub-configurations
-  queue: QueueConfig;
   loadBalancer: LoadBalancerConfig;
   circuitBreaker: CircuitBreakerConfig;
   security: SecurityConfig;
@@ -133,14 +131,6 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   enableMetrics: true,
   enableStreaming: true,
   enablePersistence: true,
-
-  queue: {
-    maxSize: 1000,
-    timeout: 300000, // 5 minutes
-    priorityBoostInterval: 30000, // 30 seconds
-    priorityBoostAmount: 5,
-    maxPriority: 100,
-  },
 
   loadBalancer: {
     weights: {
@@ -621,14 +611,6 @@ export class ConfigManager {
       this.config.enableStreaming = env.ORCHESTRATOR_ENABLE_STREAMING === 'true';
     }
 
-    // Queue settings
-    if (env.ORCHESTRATOR_QUEUE_MAX_SIZE) {
-      const maxSize = parseInt(env.ORCHESTRATOR_QUEUE_MAX_SIZE, 10);
-      if (!isNaN(maxSize)) {
-        this.config.queue.maxSize = maxSize;
-      }
-    }
-
     // Security settings
     if (env.ORCHESTRATOR_CORS_ORIGINS) {
       this.config.security.corsOrigins = env.ORCHESTRATOR_CORS_ORIGINS.split(',');
@@ -727,7 +709,6 @@ export class ConfigManager {
       enableMetrics: partial.enableMetrics ?? DEFAULT_CONFIG.enableMetrics,
       enableStreaming: partial.enableStreaming ?? DEFAULT_CONFIG.enableStreaming,
       enablePersistence: partial.enablePersistence ?? DEFAULT_CONFIG.enablePersistence,
-      queue: { ...DEFAULT_CONFIG.queue, ...partial.queue },
       loadBalancer: { ...DEFAULT_CONFIG.loadBalancer, ...partial.loadBalancer },
       circuitBreaker: { ...DEFAULT_CONFIG.circuitBreaker, ...partial.circuitBreaker },
       security: { ...DEFAULT_CONFIG.security, ...partial.security },
@@ -770,20 +751,6 @@ export class ConfigManager {
           path: 'logLevel',
           message: `Log level must be one of: ${validLevels.join(', ')}`,
           value: config.logLevel,
-        });
-      }
-    }
-
-    // Validate queue config
-    if (config.queue) {
-      if (
-        config.queue.maxSize !== undefined &&
-        (typeof config.queue.maxSize !== 'number' || config.queue.maxSize < 1)
-      ) {
-        errors.push({
-          path: 'queue.maxSize',
-          message: 'Queue maxSize must be a positive number',
-          value: config.queue.maxSize,
         });
       }
     }

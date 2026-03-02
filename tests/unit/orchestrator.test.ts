@@ -8,7 +8,7 @@ describe('AIOrchestrator', () => {
 
   beforeEach(() => {
     resetInFlightManager();
-    orchestrator = new AIOrchestrator(undefined, undefined, undefined, {
+    orchestrator = new AIOrchestrator(undefined, undefined, {
       enabled: false,
       intervalMs: 30000,
       timeoutMs: 5000,
@@ -582,7 +582,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should drain successfully when no requests are pending', async () => {
-      // Mock empty queue and no in-flight requests
+      // Mock no in-flight requests
       const getStatsSpy = vi.spyOn(orchestrator, 'getStats').mockReturnValue({
         totalServers: 0,
         healthyServers: 0,
@@ -590,14 +590,12 @@ describe('AIOrchestrator', () => {
         inFlightRequests: 0,
         circuitBreakers: {},
       });
-      const queueSizeSpy = vi.spyOn(orchestrator['requestQueue'], 'size').mockReturnValue(0);
 
       const result = await orchestrator.drain(1000);
 
       expect(result).toBe(true);
       expect(orchestrator['draining']).toBe(false);
       expect(getStatsSpy).toHaveBeenCalled();
-      expect(queueSizeSpy).toHaveBeenCalled();
     });
 
     it('should timeout when requests remain pending', async () => {
@@ -609,20 +607,18 @@ describe('AIOrchestrator', () => {
         inFlightRequests: 1,
         circuitBreakers: {},
       });
-      const queueSizeSpy = vi.spyOn(orchestrator['requestQueue'], 'size').mockReturnValue(1);
 
       const result = await orchestrator.drain(100); // Short timeout
 
       expect(result).toBe(false);
       expect(orchestrator['draining']).toBe(false);
       expect(getStatsSpy).toHaveBeenCalled();
-      expect(queueSizeSpy).toHaveBeenCalled();
     });
 
     it('should wait for requests to complete', async () => {
       let callCount = 0;
 
-      // Mock queue that becomes empty after a few checks
+      // Mock stats that become empty after a few checks
       const getStatsSpy = vi.spyOn(orchestrator, 'getStats').mockImplementation(() => {
         callCount++;
         return {
@@ -633,7 +629,6 @@ describe('AIOrchestrator', () => {
           circuitBreakers: {},
         };
       });
-      const queueSizeSpy = vi.spyOn(orchestrator['requestQueue'], 'size').mockReturnValue(0);
 
       const result = await orchestrator.drain(5000);
 
@@ -709,46 +704,6 @@ describe('AIOrchestrator', () => {
 
       expect(allMetrics).toBeDefined();
       expect(allMetrics instanceof Map).toBe(true);
-    });
-  });
-
-  describe('Queue Management', () => {
-    it('should get queue stats', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-
-      const queueStats = orchestrator.getQueueStats();
-
-      expect(queueStats).toBeDefined();
-      expect(typeof queueStats.currentSize).toBe('number');
-    });
-
-    it('should pause queue', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-
-      orchestrator.pauseQueue();
-
-      expect(orchestrator.isQueuePaused()).toBe(true);
-    });
-
-    it('should resume queue (lines 1044-1046)', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-
-      orchestrator.pauseQueue();
-      expect(orchestrator.isQueuePaused()).toBe(true);
-
-      orchestrator.resumeQueue();
-      expect(orchestrator.isQueuePaused()).toBe(false);
-    });
-
-    it('should check if queue is paused (lines 1050-1053)', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-
-      // Initially not paused
-      expect(orchestrator.isQueuePaused()).toBe(false);
-
-      // After pausing
-      orchestrator.pauseQueue();
-      expect(orchestrator.isQueuePaused()).toBe(true);
     });
   });
 
@@ -1399,14 +1354,6 @@ describe('AIOrchestrator', () => {
     });
   });
 
-  describe('getQueueItems', () => {
-    it('should get queue items', () => {
-      const items = orchestrator.getQueueItems();
-      expect(items).toBeDefined();
-      expect(Array.isArray(items)).toBe(true);
-    });
-  });
-
   describe('getCircuitBreakerStats', () => {
     beforeEach(() => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
@@ -1712,14 +1659,12 @@ describe('AIOrchestrator', () => {
       const stopSpy = vi.spyOn(orchestrator['healthCheckScheduler'], 'stop');
       const shutdownMetricsSpy = vi.spyOn(orchestrator['metricsAggregator'], 'shutdown');
       const shutdownBreakerSpy = vi.spyOn(orchestrator['circuitBreakerPersistence'], 'shutdown');
-      const queueShutdownSpy = vi.spyOn(orchestrator['requestQueue'], 'shutdown');
 
       await orchestrator.shutdown();
 
       expect(stopSpy).toHaveBeenCalled();
       expect(shutdownMetricsSpy).toHaveBeenCalled();
       expect(shutdownBreakerSpy).toHaveBeenCalled();
-      expect(queueShutdownSpy).toHaveBeenCalled();
     });
   });
 
@@ -2782,27 +2727,6 @@ describe('AIOrchestrator', () => {
 
       const count2 = orchestrator['banManager'].getFailureCount('server-1');
       expect(count2).toBeGreaterThan(count1);
-    });
-  });
-
-  describe('Queue operations', () => {
-    it('should pause and resume queue', () => {
-      orchestrator.pauseQueue();
-      expect(orchestrator.isQueuePaused()).toBe(true);
-
-      orchestrator.resumeQueue();
-      expect(orchestrator.isQueuePaused()).toBe(false);
-    });
-
-    it('should get queue stats', () => {
-      const stats = orchestrator.getQueueStats();
-      expect(stats).toBeDefined();
-      expect(typeof stats.currentSize).toBe('number');
-    });
-
-    it('should get queue items', () => {
-      const items = orchestrator.getQueueItems();
-      expect(Array.isArray(items)).toBe(true);
     });
   });
 

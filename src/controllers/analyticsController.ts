@@ -148,11 +148,7 @@ export function getCapacityAnalysis(req: Request, res: Response): void {
   analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
 
   try {
-    const queueStats = orchestrator.getQueueStats();
-    const capacity = analytics.getCapacityAnalysis(
-      queueStats.currentSize,
-      timeRange as AnalyticsTimeRange
-    );
+    const capacity = analytics.getCapacityAnalysis(0, timeRange as AnalyticsTimeRange);
 
     res.status(200).json({
       success: true,

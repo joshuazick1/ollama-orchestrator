@@ -15,7 +15,7 @@ describe('Orchestrator Failover and Concurrency Tests', () => {
     resetInFlightManager();
 
     // Initialize orchestrator with health checks disabled for testing
-    orchestrator = new AIOrchestrator(undefined, undefined, undefined, {
+    orchestrator = new AIOrchestrator(undefined, undefined, {
       enabled: false,
       intervalMs: 30000,
       timeoutMs: 5000,

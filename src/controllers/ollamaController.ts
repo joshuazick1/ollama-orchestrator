@@ -555,7 +555,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
   const orchestrator = getOrchestratorInstance();
   const useStreaming = isStreamingRequest(body);
-  const config = getConfigManager().getConfig();
+  const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
 
   try {
@@ -1169,7 +1169,7 @@ export async function handleStreamingGenerate(
   context?: number[],
   options?: Record<string, unknown>
 ): Promise<void> {
-  const config = getConfigManager().getConfig();
+  const _config = getConfigManager().getConfig();
   const orchestrator = getOrchestratorInstance();
 
   await handleStreamWithRetry(

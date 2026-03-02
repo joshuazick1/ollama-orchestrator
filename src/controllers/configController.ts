@@ -149,7 +149,6 @@ export function updateConfigSection(req: Request, res: Response): void {
     }
 
     const validSections: Array<keyof OrchestratorConfig> = [
-      'queue',
       'loadBalancer',
       'circuitBreaker',
       'security',

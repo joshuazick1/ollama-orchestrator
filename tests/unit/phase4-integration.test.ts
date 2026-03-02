@@ -21,7 +21,7 @@ describe('Phase 4 Integration', () => {
     resetAnalyticsEngine();
 
     // Create a fresh orchestrator for tests (not from singleton to avoid persistence)
-    orchestrator = new AIOrchestrator(undefined, undefined, undefined, {
+    orchestrator = new AIOrchestrator(undefined, undefined, {
       enabled: false,
       intervalMs: 30000,
       timeoutMs: 5000,
