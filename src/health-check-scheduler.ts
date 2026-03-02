@@ -205,20 +205,6 @@ export class HealthCheckScheduler {
 
         results.push(...batchResults);
 
-        // Run active tests for servers with successful health checks
-        // The orchestrator will look up which models have half-open circuit breakers
-        if (this.onRunActiveTests) {
-          for (const result of batchResults) {
-            if (result.success) {
-              const server = servers.find(s => s.id === result.serverId);
-              if (server) {
-                // Orchestrator handles looking up half-open models and their failure reasons
-                void this.onRunActiveTests(server);
-              }
-            }
-          }
-        }
-
         // Small delay between batches to avoid overwhelming the network
         if (i + this.config.maxConcurrentChecks < servers.length) {
           await new Promise(resolve => setTimeout(resolve, 100));
