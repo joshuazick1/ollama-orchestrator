@@ -11,6 +11,19 @@ import type { AIServer } from './orchestrator.types.js';
 import { logger } from './utils/logger.js';
 
 /**
+ * A single server attempt event during failover (REC-74)
+ */
+export interface FailoverAttempt {
+  timestamp: number;
+  model: string;
+  phase: 1 | 2 | 3;
+  serverId: string;
+  result: 'success' | 'failure' | 'skipped';
+  errorType?: string;
+  latencyMs?: number;
+}
+
+/**
  * A single decision event when the load balancer selects a server
  */
 export interface DecisionEvent {
@@ -75,6 +88,7 @@ export const DEFAULT_DECISION_HISTORY_CONFIG: DecisionHistoryConfig = {
  */
 export class DecisionHistory {
   private events: DecisionEvent[] = [];
+  private failoverAttempts: FailoverAttempt[] = [];
   private config: DecisionHistoryConfig;
   private persistenceTimer?: NodeJS.Timeout;
   private fileHandler?: JsonFileHandler;
@@ -137,6 +151,33 @@ export class DecisionHistory {
 
     // Also prune by age
     this.pruneOldEvents();
+  }
+
+  /**
+   * Record a single server attempt during failover (REC-74)
+   * Call for every server tried (success, failure, or skipped due to capacity)
+   */
+  recordFailoverAttempt(attempt: Omit<FailoverAttempt, 'timestamp'>): void {
+    this.failoverAttempts.push({
+      timestamp: Date.now(),
+      ...attempt,
+    });
+
+    // Prune old attempts if exceeded max
+    if (this.failoverAttempts.length > this.config.maxEvents) {
+      this.failoverAttempts = this.failoverAttempts.slice(-this.config.maxEvents);
+    }
+  }
+
+  /**
+   * Get recent failover attempts, optionally filtered by model
+   */
+  getRecentFailoverAttempts(limit = 100, model?: string): FailoverAttempt[] {
+    let attempts = [...this.failoverAttempts];
+    if (model) {
+      attempts = attempts.filter(a => a.model === model);
+    }
+    return attempts.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
   }
 
   /**
@@ -523,6 +564,7 @@ export class DecisionHistory {
    */
   clear(): void {
     this.events = [];
+    this.failoverAttempts = [];
   }
 }
 

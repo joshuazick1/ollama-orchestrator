@@ -339,4 +339,63 @@ describe('Debug info edge cases', () => {
     });
     expect(result?.serversTried).toBeUndefined();
   });
+
+  // REC-55: new RoutingContext fields
+  it('should include algorithm from context', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      algorithm: 'weighted',
+    };
+    const result = getDebugInfo(context);
+    expect(result?.algorithm).toBe('weighted');
+  });
+
+  it('should include protocol from context', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      protocol: 'ollama',
+    };
+    const result = getDebugInfo(context);
+    expect(result?.protocol).toBe('ollama');
+  });
+
+  it('should include excludedServers from context', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-2',
+      excludedServers: ['server-1'],
+    };
+    const result = getDebugInfo(context);
+    expect(result?.excludedServers).toEqual(['server-1']);
+  });
+
+  it('should include serverScores from context', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      serverScores: [{ serverId: 'server-1', totalScore: 0.9 }],
+    };
+    const result = getDebugInfo(context);
+    expect(result?.serverScores).toEqual([{ serverId: 'server-1', totalScore: 0.9 }]);
+  });
+
+  it('should include timeoutMs from context', () => {
+    const context: RoutingContext = {
+      selectedServerId: 'server-1',
+      timeoutMs: 5000,
+    };
+    const result = getDebugInfo(context);
+    expect(result?.timeoutMs).toBe(5000);
+  });
+});
+
+describe('addDebugHeaders removed (REC-58)', () => {
+  it('should NOT export addDebugHeaders from debug-headers module', async () => {
+    const mod = await import('../../src/utils/debug-headers.js');
+    expect((mod as Record<string, unknown>)['addDebugHeaders']).toBeUndefined();
+  });
+
+  it('should NOT export ExtendedRoutingContext from debug-headers module', async () => {
+    // ExtendedRoutingContext was a type — we verify no runtime export with that name
+    const mod = await import('../../src/utils/debug-headers.js');
+    expect((mod as Record<string, unknown>)['ExtendedRoutingContext']).toBeUndefined();
+  });
 });

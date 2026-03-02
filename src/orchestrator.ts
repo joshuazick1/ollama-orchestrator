@@ -50,7 +50,7 @@ import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
-/** Routing context for debug headers - tracks which server was selected and circuit breaker states */
+/** Routing context for debug output - tracks which server was selected and routing reasoning */
 export interface RoutingContext {
   selectedServerId?: string;
   serverCircuitState?: string;
@@ -62,6 +62,12 @@ export interface RoutingContext {
   totalCandidates?: number;
   serverLoad?: number;
   maxConcurrency?: number;
+  // REC-55: routing reasoning fields
+  algorithm?: string;
+  protocol?: string;
+  excludedServers?: string[];
+  serverScores?: Array<{ serverId: string; totalScore: number }>;
+  timeoutMs?: number;
 }
 
 export class AIOrchestrator {
@@ -1533,7 +1539,9 @@ export class AIOrchestrator {
     // Sort candidates using load balancer (historical metrics)
     let candidates: AIServer[] = [];
     const remainingServers = [...eligibleServers];
-    let firstSelectionRecorded = false;
+
+    // Record initial decision with full scoring (first selection = primary routing decision)
+    let firstDecisionRecorded = false;
 
     while (remainingServers.length > 0) {
       const selected = this.loadBalancer.select(
@@ -1552,8 +1560,8 @@ export class AIOrchestrator {
         break;
       }
 
-      // Record decision for the first selection (actual routing decision)
-      if (!firstSelectionRecorded) {
+      // Record decision for the first selection (actual routing decision with full scores)
+      if (!firstDecisionRecorded) {
         const scores = remainingServers.map(server => {
           const totalLoad = this.getTotalInFlight(server.id);
           const metrics = this.metricsAggregator.getMetricsWithFallback(server.id, model);
@@ -1577,7 +1585,7 @@ export class AIOrchestrator {
           scores,
           'failover_routing'
         );
-        firstSelectionRecorded = true;
+        firstDecisionRecorded = true;
       }
 
       candidates.push(selected);
@@ -1691,10 +1699,18 @@ export class AIOrchestrator {
         logger.info(`Skipping server ${server.id} for model ${model}: at max concurrency`, {
           maxConcurrency,
         });
+        // REC-74: Record skipped attempt
+        getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 1,
+          serverId: server.id,
+          result: 'skipped',
+        });
         continue;
       }
 
       // Try request WITHOUT same-server retries (failover immediately)
+      const attemptStart1 = Date.now();
       const result = await this.tryRequestOnServerNoRetry(
         server,
         model,
@@ -1704,8 +1720,17 @@ export class AIOrchestrator {
         undefined,
         true
       );
+      const attemptLatency1 = Date.now() - attemptStart1;
 
       if (result.success) {
+        // REC-74: Record successful attempt
+        getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 1,
+          serverId: server.id,
+          result: 'success',
+          latencyMs: attemptLatency1,
+        });
         if (routingContext) {
           routingContext.retryCount = retryCount;
           routingContext.serversTried = candidates.slice(0, retryCount + 1).map(s => s.id);
@@ -1722,6 +1747,17 @@ export class AIOrchestrator {
         );
         return result.value;
       }
+
+      // REC-74: Record failed attempt
+      const lastError = errors[errors.length - 1];
+      getDecisionHistory().recordFailoverAttempt({
+        model,
+        phase: 1,
+        serverId: server.id,
+        result: 'failure',
+        errorType: lastError?.type,
+        latencyMs: attemptLatency1,
+      });
 
       retryCount++;
       logger.info(`Server ${server.id} failed, failing over to next candidate`, { model });
@@ -1755,9 +1791,17 @@ export class AIOrchestrator {
       );
 
       if (!canIncrement) {
+        // REC-74: Record skipped attempt
+        getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 2,
+          serverId: server.id,
+          result: 'skipped',
+        });
         continue;
       }
 
+      const attemptStart2 = Date.now();
       const result = await this.tryRequestOnServerNoRetry(
         server,
         model,
@@ -1767,8 +1811,17 @@ export class AIOrchestrator {
         undefined,
         true
       );
+      const attemptLatency2 = Date.now() - attemptStart2;
 
       if (result.success) {
+        // REC-74: Record successful attempt
+        getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 2,
+          serverId: server.id,
+          result: 'success',
+          latencyMs: attemptLatency2,
+        });
         if (routingContext) {
           routingContext.retryCount = retryCount;
           routingContext.serversTried = candidates
@@ -1787,6 +1840,16 @@ export class AIOrchestrator {
         );
         return result.value;
       }
+      // REC-74: Record failed attempt
+      const lastError2 = errors[errors.length - 1];
+      getDecisionHistory().recordFailoverAttempt({
+        model,
+        phase: 2,
+        serverId: server.id,
+        result: 'failure',
+        errorType: lastError2?.type,
+        latencyMs: attemptLatency2,
+      });
       retryCount++;
     }
 
@@ -1804,6 +1867,7 @@ export class AIOrchestrator {
     const totalLoad = this.getTotalInFlight(initialServer.id);
 
     if (totalLoad < maxConcurrency) {
+      const attemptStart3 = Date.now();
       const result = await this.tryRequestOnServerWithRetries(
         initialServer,
         model,
@@ -1812,8 +1876,17 @@ export class AIOrchestrator {
         retryConfig,
         errors
       );
+      const attemptLatency3 = Date.now() - attemptStart3;
 
       if (result.success) {
+        // REC-74: Record successful Phase 3 attempt
+        getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 3,
+          serverId: initialServer.id,
+          result: 'success',
+          latencyMs: attemptLatency3,
+        });
         if (routingContext) {
           routingContext.retryCount = retryCount;
           routingContext.serversTried = [initialServer.id];
@@ -1827,6 +1900,17 @@ export class AIOrchestrator {
         );
         return result.value;
       }
+
+      // REC-74: Record failed Phase 3 attempt
+      const lastError3 = errors[errors.length - 1];
+      getDecisionHistory().recordFailoverAttempt({
+        model,
+        phase: 3,
+        serverId: initialServer.id,
+        result: 'failure',
+        errorType: lastError3?.type,
+        latencyMs: attemptLatency3,
+      });
     }
 
     // All candidates exhausted
@@ -1859,9 +1943,15 @@ export class AIOrchestrator {
       isStreaming?: boolean;
       bypassCircuitBreaker?: boolean;
       signal?: AbortSignal;
+      routingContext?: RoutingContext;
     } = {}
   ): Promise<T> {
-    const { isStreaming: _isStreaming = false, bypassCircuitBreaker = false, signal } = options;
+    const {
+      isStreaming: _isStreaming = false,
+      bypassCircuitBreaker = false,
+      signal,
+      routingContext,
+    } = options;
 
     // Check for abort before starting
     if (signal?.aborted) {
@@ -1919,6 +2009,13 @@ export class AIOrchestrator {
         this.recordSuccess(server.id, model, Date.now() - startTime);
       }
 
+      // Populate routing context if provided (REC-54)
+      if (routingContext) {
+        const serverLoad = this.getTotalInFlight(server.id);
+        const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
+        this.populateRoutingContext(routingContext, server.id, model, serverLoad, maxConcurrency);
+      }
+
       return result;
     } catch (error) {
       this.decrementInFlight(server.id, model, bypassCircuitBreaker);
@@ -1963,7 +2060,9 @@ export class AIOrchestrator {
       // than spawning another recovery test that will never land.
       const now = Date.now();
       const checkHalfOpenExpiry = (cb: import('./circuit-breaker.js').CircuitBreaker): boolean => {
-        if (cb.getState() !== 'half-open') return false;
+        if (cb.getState() !== 'half-open') {
+          return false;
+        }
         const stats = cb.getStats();
         const cfg = cb.getConfig();
         if (stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
