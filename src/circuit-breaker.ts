@@ -81,6 +81,15 @@ export interface CircuitBreakerConfig {
     durationThresholdMs: number; // How long a model breaker must be open to trigger server breaker (ms)
     checkIntervalMs: number; // How often to check for escalation conditions (ms)
   };
+
+  // Backoff delay configuration (optional — defaults used when absent)
+  backoff?: {
+    standardDelaysMs: number[]; // Per-attempt delays for transient errors
+    permanentDelaysMs: number[]; // Per-attempt delays for permanent errors
+    rateLimitBaseMs: number; // Base delay for rate-limit errors
+    rateLimitMultiplier: number; // Multiplier for rate-limit exponential backoff
+    rateLimitMaxMs: number; // Maximum rate-limit backoff delay
+  };
 }
 
 export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
@@ -134,6 +143,13 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
     ratioThreshold: 0.5, // 50%
     durationThresholdMs: 600000, // 10 minutes
     checkIntervalMs: 300000, // 5 minutes
+  },
+  backoff: {
+    standardDelaysMs: [30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000],
+    permanentDelaysMs: [300000, 600000, 1200000, 2400000, 3600000],
+    rateLimitBaseMs: 300000, // 5 minutes base
+    rateLimitMultiplier: 3,
+    rateLimitMaxMs: 3600000, // 60 minutes cap
   },
 };
 
@@ -795,25 +811,26 @@ export class CircuitBreaker {
 
   /**
    * Calculate backoff timeout based on error type
-   * Uses unified backoff from recovery-backoff.ts
+   * Uses unified backoff from recovery-backoff.ts, with configurable delays when set
    */
   private getBackoffForErrorType(errorType: ErrorType, retryAfterMs?: number): number {
     return calculateCircuitBreakerBackoff(
       errorType,
       undefined,
       this.consecutiveFailedRecoveries,
-      retryAfterMs
+      retryAfterMs,
+      this.config.backoff
     );
   }
 
   /**
    * Calculate adaptive backoff for rate limit errors
-   * Uses learned backoff if available, otherwise exponential from 5min base
+   * Uses learned backoff if available, otherwise exponential from configured base
    */
   private getRateLimitBackoff(): number {
-    const baseBackoff = 300000; // 5 minutes
-    const maxBackoff = 3600000; // 60 minutes
-    const multiplier = 3;
+    const baseBackoff = this.config.backoff?.rateLimitBaseMs ?? 300000; // 5 minutes
+    const maxBackoff = this.config.backoff?.rateLimitMaxMs ?? 3600000; // 60 minutes
+    const multiplier = this.config.backoff?.rateLimitMultiplier ?? 3;
 
     // If we have a learned backoff that worked before, use it
     if (this.learnedRateLimitBackoff && this.rateLimitConsecutiveFailures === 0) {

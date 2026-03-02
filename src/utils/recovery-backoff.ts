@@ -179,6 +179,17 @@ export function parseRetryAfterMs(header: string | undefined | null): number | u
 }
 
 /**
+ * Backoff delay configuration for circuit breaker open->half-open transitions
+ */
+export interface CircuitBreakerBackoffConfig {
+  standardDelaysMs: number[];
+  permanentDelaysMs: number[];
+  rateLimitBaseMs: number;
+  rateLimitMultiplier: number;
+  rateLimitMaxMs: number;
+}
+
+/**
  * Calculate backoff for circuit breaker open->half-open transition
  * Uses longer delays than active test backoff
  */
@@ -186,8 +197,13 @@ export function calculateCircuitBreakerBackoff(
   errorType: ErrorType,
   failureReason?: string,
   consecutiveFailures: number = 0,
-  retryAfterMs?: number
+  retryAfterMs?: number,
+  backoffConfig?: Partial<CircuitBreakerBackoffConfig>
 ): number {
+  const rateLimitBase = backoffConfig?.rateLimitBaseMs ?? 300000;
+  const rateLimitMultiplier = backoffConfig?.rateLimitMultiplier ?? 3;
+  const rateLimitMax = backoffConfig?.rateLimitMaxMs ?? 3600000;
+
   switch (errorType) {
     case 'permanent':
       return 24 * 60 * 60 * 1000; // 24 hours
@@ -200,8 +216,11 @@ export function calculateCircuitBreakerBackoff(
       if (retryAfterMs !== undefined) {
         return retryAfterMs;
       }
-      // Exponential backoff for rate limits: 5min, 15min, 45min, 60min
-      return Math.min(300000 * Math.pow(3, consecutiveFailures), 3600000);
+      // Exponential backoff for rate limits: base, base*mult, base*mult^2, ...
+      return Math.min(
+        rateLimitBase * Math.pow(rateLimitMultiplier, consecutiveFailures),
+        rateLimitMax
+      );
     case 'transient':
     default:
       // Default 2 minutes for network/transient errors
