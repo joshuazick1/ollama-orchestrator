@@ -10,7 +10,12 @@ import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import { TTFTTracker } from '../metrics/ttft-tracker.js';
 import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
 import type { AIServer } from '../orchestrator.types.js';
-import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../streaming.js';
+import {
+  streamResponse,
+  isStreamingRequest,
+  handleStreamWithRetry,
+  type OllamaDurations,
+} from '../streaming.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { addDebugHeaders, getDebugInfo } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
@@ -92,6 +97,7 @@ interface StreamingMetrics {
     maxChunkGapMs: number;
     avgChunkSizeBytes: number;
   };
+  _ollamaDurations?: OllamaDurations;
 }
 
 /**
@@ -210,6 +216,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 avgChunkSizeBytes?: number;
               }
             | undefined;
+          let capturedOllamaDurations: OllamaDurations | undefined;
           let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
           const streamingRequestId = context?.requestId;
@@ -367,7 +374,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                   timeToFirstToken: ttftTracker.getCurrentElapsed(),
                 });
               },
-              (duration, tokensGenerated, tokensPrompt, chunkData) => {
+              (duration, tokensGenerated, tokensPrompt, chunkData, ollamaDurations) => {
                 // Get TTFT metrics from tracker
                 ttftMetrics = ttftTracker.getMetrics();
 
@@ -386,6 +393,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 tokenMetrics = { tokensGenerated, tokensPrompt };
                 // Store chunk data for return value
                 streamingChunkData = chunkData;
+                // Store Ollama duration fields
+                capturedOllamaDurations = ollamaDurations;
               },
               chunkCount => {
                 // On each chunk, reset the activity timeout
@@ -448,6 +457,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               tokensPrompt: 0,
             },
             _chunkData: streamingChunkData,
+            _ollamaDurations: capturedOllamaDurations,
           } as StreamingMetrics;
         }
 
@@ -627,6 +637,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 avgChunkSizeBytes?: number;
               }
             | undefined;
+          let capturedOllamaDurations: OllamaDurations | undefined;
           let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
           const onStallCallback = async (
@@ -738,7 +749,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                   timeToFirstToken: ttftTracker.getCurrentElapsed(),
                 });
               },
-              (duration, tokensGenerated, tokensPrompt, _chunkData) => {
+              (duration, tokensGenerated, tokensPrompt, _chunkData, ollamaDurations) => {
                 // Get TTFT metrics from tracker
                 ttftMetrics = ttftTracker.getMetrics();
 
@@ -756,6 +767,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                   maxChunkGapMs: _chunkData?.maxChunkGapMs,
                 });
                 tokenMetrics = { tokensGenerated, tokensPrompt };
+                capturedOllamaDurations = ollamaDurations;
               },
               chunkCount => {
                 // On each chunk, reset the activity timeout
@@ -816,6 +828,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               tokensPrompt: 0,
             },
             _chunkData: streamingChunkData,
+            _ollamaDurations: capturedOllamaDurations,
           } as StreamingMetrics;
         }
 

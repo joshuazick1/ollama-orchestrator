@@ -134,12 +134,13 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
 
   loadBalancer: {
     weights: {
-      latency: 0.3,
-      successRate: 0.25,
+      latency: 0.2,
+      successRate: 0.2,
       load: 0.2,
-      capacity: 0.15,
-      circuitBreaker: 0.1,
+      capacity: 0.1,
+      circuitBreaker: 0.15,
       timeout: 0.05,
+      throughput: 0.1, // REC-28: token throughput tokens/sec
     },
     thresholds: {
       maxP95Latency: 5000,

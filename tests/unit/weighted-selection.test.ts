@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { LoadBalancer } from '../../src/load-balancer.js';
+import { LoadBalancer, calculateServerScore } from '../../src/load-balancer.js';
 import type { AIServer } from '../../src/orchestrator.types.js';
 
 describe('Weighted Selection Algorithms Tests', () => {
@@ -44,6 +44,7 @@ describe('Weighted Selection Algorithms Tests', () => {
           capacity: 0.1,
           circuitBreaker: 0.0,
           timeout: 0.0,
+          throughput: 0.0,
         },
       });
       expect(lb).toBeDefined();
@@ -333,6 +334,7 @@ describe('Weighted Selection Algorithms Tests', () => {
           capacity: 0.0,
           circuitBreaker: 0.0,
           timeout: 0.0,
+          throughput: 0.0,
         },
       });
       expect(loadBalancer.getAlgorithm()).toBeDefined();
@@ -401,6 +403,127 @@ describe('Weighted Selection Algorithms Tests', () => {
         () => undefined
       );
       expect(result?.id).toBe('ollama-1');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // REC-28: Token throughput incorporated into weighted scoring
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('REC-28: token throughput score in weighted algorithm', () => {
+    it('server with higher avgTokensPerSecond scores higher via throughputScore', () => {
+      const server: AIServer = {
+        id: 'srv',
+        url: 'http://localhost:11434',
+        type: 'ollama',
+        healthy: true,
+        lastResponseTime: 200,
+        models: ['llama3:latest'],
+        maxConcurrency: 4,
+      };
+
+      const baseMetrics = {
+        serverId: 'srv',
+        model: 'llama3:latest',
+        inFlight: 0,
+        queued: 0,
+        windows: {} as any,
+        percentiles: { p50: 200, p95: 300, p99: 400 },
+        successRate: 0.99,
+        throughput: 10,
+        avgTokensPerRequest: 50,
+        coldStartCount: 0,
+        lastUpdated: Date.now(),
+        recentLatencies: [],
+      };
+
+      const lowThroughputMetrics = { ...baseMetrics, avgTokensPerSecond: 5 }; // 5 t/s → score 10/100
+      const highThroughputMetrics = { ...baseMetrics, avgTokensPerSecond: 40 }; // 40 t/s → score 80/100
+
+      const lowScore = calculateServerScore(server, 'llama3:latest', 0, 0, lowThroughputMetrics);
+      const highScore = calculateServerScore(server, 'llama3:latest', 0, 0, highThroughputMetrics);
+
+      expect(highScore.totalScore).toBeGreaterThan(lowScore.totalScore);
+      expect(highScore.breakdown.throughputScore).toBeGreaterThan(
+        lowScore.breakdown.throughputScore
+      );
+    });
+
+    it('throughputScore is 0 when metrics has avgTokensPerSecond=0', () => {
+      const server: AIServer = {
+        id: 'srv',
+        url: 'http://localhost:11434',
+        type: 'ollama',
+        healthy: true,
+        lastResponseTime: 200,
+        models: ['llama3:latest'],
+        maxConcurrency: 4,
+      };
+
+      const metrics = {
+        serverId: 'srv',
+        model: 'llama3:latest',
+        inFlight: 0,
+        queued: 0,
+        windows: {} as any,
+        percentiles: { p50: 200, p95: 300, p99: 400 },
+        successRate: 0.99,
+        throughput: 10,
+        avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
+        lastUpdated: Date.now(),
+        recentLatencies: [],
+      };
+
+      const score = calculateServerScore(server, 'llama3:latest', 0, 0, metrics);
+      expect(score.breakdown.throughputScore).toBe(0);
+    });
+
+    it('throughputScore is capped at 100 when avgTokensPerSecond >= 50', () => {
+      const server: AIServer = {
+        id: 'srv',
+        url: 'http://localhost:11434',
+        type: 'ollama',
+        healthy: true,
+        lastResponseTime: 200,
+        models: ['llama3:latest'],
+        maxConcurrency: 4,
+      };
+
+      const metrics = {
+        serverId: 'srv',
+        model: 'llama3:latest',
+        inFlight: 0,
+        queued: 0,
+        windows: {} as any,
+        percentiles: { p50: 200, p95: 300, p99: 400 },
+        successRate: 0.99,
+        throughput: 10,
+        avgTokensPerRequest: 50,
+        avgTokensPerSecond: 100, // well above 50 t/s cap
+        coldStartCount: 0,
+        lastUpdated: Date.now(),
+        recentLatencies: [],
+      };
+
+      const score = calculateServerScore(server, 'llama3:latest', 0, 0, metrics);
+      expect(score.breakdown.throughputScore).toBe(100);
+    });
+
+    it('throughputScore is 0 when metrics is undefined', () => {
+      const server: AIServer = {
+        id: 'srv',
+        url: 'http://localhost:11434',
+        type: 'ollama',
+        healthy: true,
+        lastResponseTime: 200,
+        models: ['llama3:latest'],
+        maxConcurrency: 4,
+      };
+
+      const score = calculateServerScore(server, 'llama3:latest', 0, 0, undefined);
+      expect(score.breakdown.throughputScore).toBe(0);
     });
   });
 });
