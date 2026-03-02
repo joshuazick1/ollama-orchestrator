@@ -3,6 +3,7 @@
  * Ollama Orchestrator with Historical Metrics - Server management and request routing
  */
 
+import { ActiveTestScheduler } from './active-test-scheduler.js';
 import {
   getRecoveryFailureTracker,
   type RecoveryFailureRecord,
@@ -85,6 +86,7 @@ export class AIOrchestrator {
   private metricsAggregator: MetricsAggregator;
   private loadBalancer: LoadBalancer;
   private healthCheckScheduler: HealthCheckScheduler;
+  private activeTestScheduler: ActiveTestScheduler;
   private draining = false;
   private config: OrchestratorConfig;
   private tagsCache?: {
@@ -176,6 +178,12 @@ export class AIOrchestrator {
       () => this.servers,
       result => this.onHealthCheckResult(result),
       results => this.onAllHealthChecksComplete(results),
+      server => this.runActiveTestsForServer(server)
+    );
+
+    this.activeTestScheduler = new ActiveTestScheduler(
+      this.circuitBreakerRegistry,
+      () => this.servers,
       server => this.runActiveTestsForServer(server)
     );
 
@@ -3095,6 +3103,7 @@ export class AIOrchestrator {
 
       // Start health check scheduler
       this.healthCheckScheduler.start();
+      this.activeTestScheduler.start();
 
       logger.info(
         'Orchestrator initialized with persistence, circuit breakers, and recovery test coordinator'
@@ -3984,6 +3993,7 @@ export class AIOrchestrator {
 
     // Stop health check scheduler
     this.healthCheckScheduler.stop();
+    this.activeTestScheduler.stop();
 
     // Clear escalation check interval
     if (this.escalationIntervalId) {
