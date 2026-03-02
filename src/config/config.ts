@@ -87,6 +87,17 @@ export interface CooldownConfig {
   defaultMaxConcurrency: number; // Default max concurrency for servers
 }
 
+export interface RecoveryTestConfig {
+  /** Minimum ms between recovery tests on the same server */
+  serverCooldownMs: number;
+  /** Maximum ms to wait for in-flight requests to clear before testing */
+  maxWaitForInFlightMs: number;
+  /** Timeout for model-level inference recovery tests (ms) */
+  modelTestTimeoutMs: number;
+  /** Timeout for lightweight /api/tags recovery tests (ms) */
+  tagsTestTimeoutMs: number;
+}
+
 export interface OrchestratorConfig {
   // Server settings
   port: number;
@@ -111,6 +122,7 @@ export interface OrchestratorConfig {
   retry: RetryConfig;
   cooldown: CooldownConfig;
   modelManager: ModelManagerConfig;
+  recoveryTest: RecoveryTestConfig;
 
   // Ollama servers
   servers: ServerConfig[];
@@ -292,6 +304,13 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   cooldown: {
     failureCooldownMs: 120000, // 2 minutes
     defaultMaxConcurrency: 4,
+  },
+
+  recoveryTest: {
+    serverCooldownMs: 10000, // 10 seconds between tests on same server
+    maxWaitForInFlightMs: 5000, // Wait up to 5 seconds for in-flight to clear
+    modelTestTimeoutMs: 120000, // 120 seconds for model inference test
+    tagsTestTimeoutMs: 5000, // 5 seconds for /api/tags probe
   },
 
   modelManager: {
@@ -719,6 +738,7 @@ export class ConfigManager {
       tags: { ...DEFAULT_CONFIG.tags, ...partial.tags },
       retry: { ...DEFAULT_CONFIG.retry, ...partial.retry },
       cooldown: { ...DEFAULT_CONFIG.cooldown, ...partial.cooldown },
+      recoveryTest: { ...DEFAULT_CONFIG.recoveryTest, ...partial.recoveryTest },
       modelManager: { ...DEFAULT_CONFIG.modelManager, ...partial.modelManager },
       servers: partial.servers ?? DEFAULT_CONFIG.servers,
       persistencePath: partial.persistencePath ?? DEFAULT_CONFIG.persistencePath,

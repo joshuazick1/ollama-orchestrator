@@ -30,6 +30,8 @@ interface TestCoordinatorConfig {
   maxWaitForInFlightMs: number;
   // Timeout for model-level recovery tests (ms)
   modelTestTimeoutMs: number;
+  // Timeout for lightweight /api/tags recovery tests (ms)
+  tagsTestTimeoutMs: number;
   // Whether to check in-flight requests before testing
   checkInFlightRequests: boolean;
   // Maximum queue size per server
@@ -40,6 +42,7 @@ const DEFAULT_CONFIG: TestCoordinatorConfig = {
   serverCooldownMs: 10000, // 10 seconds between tests
   maxWaitForInFlightMs: 5000, // Wait up to 5 seconds for in-flight to clear
   modelTestTimeoutMs: 120000, // 120 seconds for model test (increased from 60s)
+  tagsTestTimeoutMs: 5000, // 5 seconds for /api/tags probe
   checkInFlightRequests: true,
   maxQueueSizePerServer: 10,
 };
@@ -439,7 +442,7 @@ export class RecoveryTestCoordinator {
 
       // Lightweight /api/tags test
       const response = await fetchWithTimeout(`${serverUrl}/api/tags`, {
-        timeout: 5000,
+        timeout: this.config.tagsTestTimeoutMs,
       });
 
       const duration = timer ? timer.elapsed() : Date.now() - startTime!;
@@ -1098,7 +1101,7 @@ export class RecoveryTestCoordinator {
       }
 
       const response = await fetchWithTimeout(`${serverUrl}/api/tags`, {
-        timeout: 5000,
+        timeout: this.config.tagsTestTimeoutMs,
         signal,
       });
 
@@ -1185,4 +1188,11 @@ export function getRecoveryTestCoordinator(): RecoveryTestCoordinator {
  */
 export function resetRecoveryTestCoordinator(): void {
   coordinator = undefined;
+}
+
+/**
+ * Set the global recovery test coordinator instance (useful for injecting config)
+ */
+export function setRecoveryTestCoordinator(instance: RecoveryTestCoordinator): void {
+  coordinator = instance;
 }

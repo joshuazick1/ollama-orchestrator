@@ -470,6 +470,7 @@ export class HealthCheckScheduler {
       /enotfound/i, // DNS issues
       /network/i,
       /temporary/i,
+      /neither.*responded/i, // Both probes returned null (connection failure)
     ];
 
     return retryablePatterns.some(pattern => pattern.test(errorMessage));
