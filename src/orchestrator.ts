@@ -1356,7 +1356,8 @@ export class AIOrchestrator {
       (serverId, model) => this.metricsAggregator.getMetrics(serverId, model),
       isStreaming,
       undefined,
-      (serverId, model) => this.getTimeout(serverId, model)
+      (serverId, model) => this.getTimeout(serverId, model),
+      serverId => this.getCircuitBreakerHealth(serverId)
     );
 
     // Record the decision for historical analysis
@@ -1518,7 +1519,8 @@ export class AIOrchestrator {
         (serverId, model) => this.metricsAggregator.getMetrics(serverId, model),
         isStreaming,
         undefined,
-        (serverId, model) => this.getTimeout(serverId, model)
+        (serverId, model) => this.getTimeout(serverId, model),
+        serverId => this.getCircuitBreakerHealth(serverId)
       );
 
       if (!selected) {
@@ -1776,11 +1778,9 @@ export class AIOrchestrator {
       this.decrementInFlight(server.id, model, bypassCircuitBreaker);
 
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorType = classifyError(errorMessage).type;
 
       // Record failure in circuit breaker (skip if bypassing)
       if (!bypassCircuitBreaker) {
-        modelCb.recordFailure(error instanceof Error ? error : new Error(errorMessage), errorType);
         this.recordFailure(server.id, errorMessage, model);
       }
 
@@ -2495,27 +2495,32 @@ export class AIOrchestrator {
     const classification = classifyError(typeof error === 'string' ? error : error.message);
 
     // Map enhanced classification to legacy error types for backward compatibility
+    // Preserve rateLimited type to ensure proper 5-minute exponential backoff
     let legacyErrorType: ErrorType;
-    switch (classification.category) {
-      case ErrorCategory.RESOURCE:
-        legacyErrorType = 'permanent'; // Resource issues are usually permanent
-        break;
-      case ErrorCategory.COMPATIBILITY:
-        legacyErrorType = 'non-retryable'; // Model compatibility issues
-        break;
-      case ErrorCategory.NETWORK:
-        legacyErrorType = 'transient'; // Network issues can be transient
-        break;
-      case ErrorCategory.AUTHENTICATION:
-        legacyErrorType = 'non-retryable'; // Auth issues don't retry
-        break;
-      case ErrorCategory.CONFIGURATION:
-        legacyErrorType = 'permanent'; // Config issues are permanent
-        break;
-      case ErrorCategory.UNKNOWN:
-      default:
-        legacyErrorType = 'retryable'; // Default to retryable for unknown
-        break;
+    if (classification.type === 'rateLimited') {
+      legacyErrorType = 'rateLimited';
+    } else {
+      switch (classification.category) {
+        case ErrorCategory.RESOURCE:
+          legacyErrorType = 'permanent';
+          break;
+        case ErrorCategory.COMPATIBILITY:
+          legacyErrorType = 'non-retryable';
+          break;
+        case ErrorCategory.NETWORK:
+          legacyErrorType = 'transient';
+          break;
+        case ErrorCategory.AUTHENTICATION:
+          legacyErrorType = 'non-retryable';
+          break;
+        case ErrorCategory.CONFIGURATION:
+          legacyErrorType = 'permanent';
+          break;
+        case ErrorCategory.UNKNOWN:
+        default:
+          legacyErrorType = 'retryable';
+          break;
+      }
     }
 
     const cb = this.getCircuitBreaker(serverId);
@@ -3301,6 +3306,7 @@ export class AIOrchestrator {
 
   /**
    * Check if server:model combo should be skipped due to circuit breaker
+   * Uses canAttempt() for read-only check without triggering state transitions
    */
   private shouldSkipServerModel(
     serverId: string,
@@ -3311,8 +3317,8 @@ export class AIOrchestrator {
     const serverCb = this.getCircuitBreaker(serverId);
     const modelCb = this.getModelCircuitBreaker(serverId, model);
 
-    // Skip if circuit is open (can't execute)
-    if (!serverCb.canExecute() || !modelCb.canExecute()) {
+    // Skip if circuit is open (can't attempt) - use canAttempt() for read-only check
+    if (!serverCb.canAttempt() || !modelCb.canAttempt()) {
       return true;
     }
 

@@ -310,6 +310,39 @@ export class CircuitBreaker {
   }
 
   /**
+   * Check if a request can be attempted WITHOUT triggering state transitions.
+   * This is a read-only check for candidate filtering - use canExecute() for
+   * actual execution attempts.
+   */
+  canAttempt(): boolean {
+    const now = Date.now();
+
+    switch (this.state) {
+      case 'closed':
+        return true;
+
+      case 'open':
+        if (now >= this.nextRetryAt) {
+          // Don't transition to half-open - just check if we CAN attempt
+          // The actual transition happens in canExecute() during execution
+          if (this.consecutiveFailedRecoveries >= 5 && this.successCount === 0) {
+            return false;
+          }
+          return true;
+        }
+        return false;
+
+      case 'half-open':
+        // In half-open state, canAttempt returns false because actual
+        // recovery testing should be handled separately
+        return false;
+
+      default:
+        return false;
+    }
+  }
+
+  /**
    * Record a successful execution
    */
   recordSuccess(): void {
