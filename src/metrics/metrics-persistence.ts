@@ -58,6 +58,9 @@ export class MetricsPersistence {
     try {
       // Clean old data based on retention policy
       const cleanedData = this.cleanOldData(data);
+      // Preserve the original timestamp supplied by the caller when saving.
+      // Some callers expect the saved file to retain the provided timestamp.
+      cleanedData.timestamp = data.timestamp;
 
       const success = this.fileHandler.write(cleanedData);
 
