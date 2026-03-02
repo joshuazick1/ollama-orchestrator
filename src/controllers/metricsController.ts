@@ -9,6 +9,7 @@ import type { MetricsAggregator } from '../metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../metrics/prometheus-exporter.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
+import { getInFlightManager } from '../utils/in-flight-manager.js';
 
 /**
  * Get comprehensive metrics for all server:model combinations
@@ -44,7 +45,7 @@ export function getServerModelMetrics(req: Request, res: Response): void {
   // Model may contain slashes and therefore might be captured as a wildcard segment
   // on the route (e.g. '/metrics/:serverId/*'). Prefer explicit param if present,
   // otherwise fall back to the wildcard capture at req.params[0]. Decode to be safe.
-  const rawModel = (req.params.model as string) || (req.params[0]) || '';
+  const rawModel = (req.params.model as string) || req.params[0] || '';
   const model = rawModel ? decodeURIComponent(rawModel) : '';
 
   try {
@@ -165,6 +166,53 @@ export function getBreakerRecoveryMetrics(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get breaker recovery metrics',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get in-flight requests grouped by server
+ * GET /api/orchestrator/in-flight
+ */
+export function getInFlight(req: Request, res: Response): void {
+  try {
+    const orchestrator = getOrchestratorInstance();
+    const inFlightManager = getInFlightManager();
+
+    const detailed = inFlightManager.getInFlightDetailed();
+    const streamingByServer = inFlightManager.getStreamingRequestsByServer();
+    const servers = orchestrator.getServers();
+
+    // Build a map of serverId -> server metadata for quick lookup
+    const serverMap = new Map(servers.map(s => [s.id, s]));
+
+    // Collect all active server IDs (from in-flight + streaming)
+    const activeServerIds = new Set<string>([
+      ...Object.keys(detailed),
+      ...Object.keys(streamingByServer),
+    ]);
+
+    let total = 0;
+    const inFlight = Array.from(activeServerIds).map(serverId => {
+      const serverInfo = serverMap.get(serverId);
+      const perServer = detailed[serverId] ?? { total: 0, byModel: {} };
+      const streaming = streamingByServer[serverId] ?? [];
+      total += perServer.total;
+      return {
+        serverId,
+        serverUrl: serverInfo?.url,
+        healthy: serverInfo?.healthy ?? false,
+        total: perServer.total,
+        byModel: perServer.byModel,
+        streamingRequests: streaming,
+      };
+    });
+
+    res.status(200).json({ total, inFlight });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get in-flight requests',
       details: error instanceof Error ? error.message : String(error),
     });
   }

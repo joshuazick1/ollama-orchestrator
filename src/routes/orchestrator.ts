@@ -23,6 +23,7 @@ import {
   getRequestTimeline,
   searchRequests,
   getServersWithHistory,
+  getSummarySnapshots,
 } from '../controllers/analyticsController.js';
 import { resetBreaker, getBreakerDetails } from '../controllers/circuitBreakerController.js';
 import {
@@ -40,6 +41,7 @@ import {
   getPrometheusMetrics,
   getRecoveryTestMetrics,
   getBreakerRecoveryMetrics,
+  getInFlight,
 } from '../controllers/metricsController.js';
 import {
   warmupModel,
@@ -151,6 +153,9 @@ monitoringRouter.get('/metrics/prometheus', getPrometheusMetrics);
 monitoringRouter.get('/metrics/:serverId/*', getServerModelMetrics);
 monitoringRouter.get('/metrics/:serverId/:model', getServerModelMetrics);
 
+// In-flight requests
+monitoringRouter.get('/in-flight', getInFlight);
+
 // Recovery Test Metrics
 monitoringRouter.get('/metrics/recovery-tests', getRecoveryTestMetrics);
 monitoringRouter.get('/metrics/recovery-tests/:breakerName', getBreakerRecoveryMetrics);
@@ -182,6 +187,7 @@ monitoringRouter.get('/analytics/metrics-impact', getMetricsImpact);
 
 // Request History
 monitoringRouter.get('/analytics/servers-with-history', getServersWithHistory);
+monitoringRouter.get('/analytics/summary-snapshots', getSummarySnapshots);
 monitoringRouter.get('/analytics/requests/:serverId', getServerRequestHistory);
 monitoringRouter.get('/analytics/request-stats/:serverId', getServerRequestStats);
 monitoringRouter.get('/analytics/request-timeline', getRequestTimeline);
