@@ -241,6 +241,13 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       durationThresholdMs: 600000, // 10 minutes
       checkIntervalMs: 300000, // 5 minutes
     },
+    backoff: {
+      standardDelaysMs: [30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000],
+      permanentDelaysMs: [300000, 600000, 1200000, 2400000, 3600000],
+      rateLimitBaseMs: 300000, // 5 minutes base
+      rateLimitMultiplier: 3,
+      rateLimitMaxMs: 3600000, // 60 minutes cap
+    },
   },
 
   security: {
