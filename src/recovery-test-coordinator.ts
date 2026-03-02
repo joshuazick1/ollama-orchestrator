@@ -80,6 +80,27 @@ export interface TestStats {
   averageDuration: number;
 }
 
+/**
+ * Detect whether a model name indicates an embedding-only model.
+ * This is a module-level utility used by both the coordinated and
+ * abort-aware test paths so the pattern list stays in one place.
+ */
+export function isEmbeddingModel(modelName: string): boolean {
+  const lower = modelName.toLowerCase();
+  return (
+    lower.includes('embed') ||
+    lower.includes('pygmalion') ||
+    lower.includes('nomic-embed') ||
+    lower.includes('text-embedding') ||
+    lower.includes('sentence') ||
+    lower.includes('bge-') ||
+    lower.includes('gte-') ||
+    lower.includes('e5-') ||
+    lower.includes('all-minilm') ||
+    lower.includes('all-mpnet')
+  );
+}
+
 export class RecoveryTestCoordinator {
   private serverStates = new Map<string, ServerTestState>();
   private config: TestCoordinatorConfig;
@@ -91,6 +112,8 @@ export class RecoveryTestCoordinator {
   private cancelledTests = new Set<string>();
   private testMetrics: TestMetrics[] = [];
   private readonly MAX_METRICS = 1000;
+  /** Set of server IDs currently under test in EITHER entry path (REC-13) */
+  private activeServers = new Set<string>();
 
   constructor(config: Partial<TestCoordinatorConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -324,6 +347,15 @@ export class RecoveryTestCoordinator {
       `RecoveryTestCoordinator: performCoordinatedRecoveryTest called for ${breakerName}, incrementInFlight set: ${!!this.incrementInFlight}`
     );
 
+    // REC-13: cross-path concurrency guard — reject immediately if this server is
+    // already being tested via either performCoordinatedRecoveryTest or runActiveTests.
+    if (this.activeServers.has(serverId)) {
+      logger.debug(
+        `RecoveryTestCoordinator: server ${serverId} already under test, skipping ${breakerName}`
+      );
+      return false;
+    }
+
     // Check server readiness
     const readiness = this.isServerReadyForTest(serverId);
     if (!readiness.ready) {
@@ -380,8 +412,11 @@ export class RecoveryTestCoordinator {
     const useTimer = featureFlags.get('useTimerUtility');
     const timer = useTimer ? new Timer() : null;
     const startTime = timer ? undefined : Date.now();
+    const metricsStartTime = Date.now();
 
     state.currentTestBreakerId = breakerName;
+    // REC-13: mark server as active so the runActiveTests path defers
+    this.activeServers.add(serverId);
 
     try {
       logger.debug(`Starting server-level recovery test for ${breakerName}`);
@@ -389,6 +424,16 @@ export class RecoveryTestCoordinator {
       const serverUrl = this.getServerUrl(serverId);
       if (!serverUrl) {
         logger.error(`Server URL not found for ${serverId}`);
+        this.recordTestMetrics({
+          breakerName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration: Date.now() - metricsStartTime,
+          success: false,
+          error: 'Server URL not found',
+          timeout: false,
+          cancelled: false,
+        });
         return false;
       }
 
@@ -406,12 +451,31 @@ export class RecoveryTestCoordinator {
           duration,
           serverId,
         });
+        this.recordTestMetrics({
+          breakerName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration,
+          success: true,
+          timeout: false,
+          cancelled: false,
+        });
         return true;
       } else {
         logger.warn(`Server-level recovery test failed for ${breakerName}`, {
           duration,
           status: response.status,
           serverId,
+        });
+        this.recordTestMetrics({
+          breakerName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration,
+          success: false,
+          error: `HTTP ${response.status}`,
+          timeout: false,
+          cancelled: false,
         });
         return false;
       }
@@ -420,12 +484,26 @@ export class RecoveryTestCoordinator {
       state.lastTestTime = Date.now();
       state.currentTestBreakerId = null;
 
+      const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(`Server-level recovery test error for ${breakerName}`, {
         duration,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
         serverId,
       });
+      this.recordTestMetrics({
+        breakerName,
+        startTime: metricsStartTime,
+        endTime: Date.now(),
+        duration,
+        success: false,
+        error: errorMsg,
+        timeout: false,
+        cancelled: false,
+      });
       return false;
+    } finally {
+      // REC-13: always release the lock
+      this.activeServers.delete(serverId);
     }
   }
 
@@ -443,8 +521,11 @@ export class RecoveryTestCoordinator {
     const useTimer = featureFlags.get('useTimerUtility');
     const timer = useTimer ? new Timer() : null;
     const startTime = timer ? undefined : Date.now();
+    const metricsStartTime = Date.now();
 
     state.currentTestBreakerId = breakerName;
+    // REC-13: mark server as active so the runActiveTests path defers
+    this.activeServers.add(serverId);
 
     // Increment in-flight count for recovery test
     if (this.incrementInFlight) {
@@ -453,21 +534,8 @@ export class RecoveryTestCoordinator {
     }
 
     try {
-      // First check model name patterns - these are definitive indicators
-      const modelNameLower = modelName.toLowerCase();
-      const isEmbeddingModelByName =
-        modelNameLower.includes('embed') ||
-        modelNameLower.includes('pygmalion') ||
-        modelNameLower.includes('nomic-embed') ||
-        modelNameLower.includes('text-embedding') ||
-        modelNameLower.includes('sentence') ||
-        modelNameLower.includes('bge-') ||
-        modelNameLower.includes('gte-') ||
-        modelNameLower.includes('e5-') ||
-        modelNameLower.includes('all-minilm') ||
-        modelNameLower.includes('all-mpnet');
-
-      if (isEmbeddingModelByName) {
+      // REC-16: use shared isEmbeddingModel() helper — first check name patterns
+      if (isEmbeddingModel(modelName)) {
         logger.info(
           `Model ${modelName} detected as embedding-only by name pattern, using embedding test`,
           {
@@ -503,6 +571,17 @@ export class RecoveryTestCoordinator {
       if (!serverUrl) {
         logger.error(`Server URL not found for ${serverId}`);
         state.currentTestBreakerId = null;
+        this.recordTestMetrics({
+          breakerName,
+          model: modelName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration: Date.now() - metricsStartTime,
+          success: false,
+          error: 'Server URL not found',
+          timeout: false,
+          cancelled: false,
+        });
         return false;
       }
 
@@ -534,12 +613,33 @@ export class RecoveryTestCoordinator {
             serverId,
             model: modelName,
           });
+          this.recordTestMetrics({
+            breakerName,
+            model: modelName,
+            startTime: metricsStartTime,
+            endTime: Date.now(),
+            duration,
+            success: true,
+            timeout: false,
+            cancelled: false,
+          });
           return true;
         } else {
           logger.warn(`Model-level recovery test returned invalid response for ${breakerName}`, {
             duration,
             serverId,
             model: modelName,
+          });
+          this.recordTestMetrics({
+            breakerName,
+            model: modelName,
+            startTime: metricsStartTime,
+            endTime: Date.now(),
+            duration,
+            success: false,
+            error: 'Invalid response (missing .response)',
+            timeout: false,
+            cancelled: false,
           });
           return false;
         }
@@ -575,6 +675,17 @@ export class RecoveryTestCoordinator {
           serverId,
           model: modelName,
         });
+        this.recordTestMetrics({
+          breakerName,
+          model: modelName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration,
+          success: false,
+          error: errorText,
+          timeout: false,
+          cancelled: false,
+        });
         return false;
       }
     } catch (error) {
@@ -582,11 +693,23 @@ export class RecoveryTestCoordinator {
       state.lastTestTime = Date.now();
       state.currentTestBreakerId = null;
 
+      const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error(`Model-level recovery test error for ${breakerName}`, {
         duration,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
         serverId,
         model: modelName,
+      });
+      this.recordTestMetrics({
+        breakerName,
+        model: modelName,
+        startTime: metricsStartTime,
+        endTime: Date.now(),
+        duration,
+        success: false,
+        error: errorMsg,
+        timeout: false,
+        cancelled: false,
       });
       return false;
     } finally {
@@ -595,6 +718,8 @@ export class RecoveryTestCoordinator {
         this.decrementInFlight(serverId, modelName);
         logger.debug(`Recovery test decrementInFlight for ${serverId}:${modelName}`);
       }
+      // REC-13: always release the lock
+      this.activeServers.delete(serverId);
     }
   }
 
@@ -615,9 +740,6 @@ export class RecoveryTestCoordinator {
       this.incrementInFlight(serverId, modelName);
       logger.debug(`Recovery test embedding incrementInFlight for ${serverId}:${modelName}`);
     }
-
-    // Add delay to make recovery test visible in frontend (5 seconds)
-    await new Promise(resolve => setTimeout(resolve, 5000));
 
     try {
       const serverUrl = this.getServerUrl(serverId);
@@ -806,6 +928,18 @@ export class RecoveryTestCoordinator {
     breakers: Array<{ breaker: CircuitBreaker; model?: string }>,
     options: ActiveTestOptions = {}
   ): Promise<ActiveTestResult[]> {
+    // REC-13: cross-path concurrency guard — if performCoordinatedRecoveryTest is
+    // already running for this server, skip the whole batch.
+    if (this.activeServers.has(serverId)) {
+      logger.debug(
+        `RecoveryTestCoordinator: server ${serverId} already under test via request path, skipping runActiveTests`
+      );
+      return [];
+    }
+
+    // Mark server as active for the duration of the batch
+    this.activeServers.add(serverId);
+
     const results: ActiveTestResult[] = [];
 
     // Limit concurrent tests per server
@@ -942,6 +1076,8 @@ export class RecoveryTestCoordinator {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
+    // REC-13: release the server lock now that the batch is complete
+    this.activeServers.delete(serverId);
     return results;
   }
 
@@ -994,22 +1130,11 @@ export class RecoveryTestCoordinator {
         return false;
       }
 
-      // Determine model type
-      const modelNameLower = modelName.toLowerCase();
-      const isEmbeddingModel =
-        modelNameLower.includes('embed') ||
-        modelNameLower.includes('pygmalion') ||
-        modelNameLower.includes('nomic-embed') ||
-        modelNameLower.includes('text-embedding') ||
-        modelNameLower.includes('sentence') ||
-        modelNameLower.includes('bge-') ||
-        modelNameLower.includes('gte-') ||
-        modelNameLower.includes('e5-') ||
-        modelNameLower.includes('all-minilm') ||
-        modelNameLower.includes('all-mpnet');
+      // REC-16: use shared isEmbeddingModel() helper
+      const embeddingModel = isEmbeddingModel(modelName);
 
-      const endpoint = isEmbeddingModel ? '/api/embeddings' : '/api/generate';
-      const body = isEmbeddingModel
+      const endpoint = embeddingModel ? '/api/embeddings' : '/api/generate';
+      const body = embeddingModel
         ? { model: modelName, prompt: 'test' }
         : {
             model: modelName,

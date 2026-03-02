@@ -256,4 +256,44 @@ describe('BanManager', () => {
       expect(manager.isBanned('server-1', 'llama3:latest')).toBe(false);
     });
   });
+
+  // REC-20: clearCooldown(serverId, '') on recovery success
+  describe('cooldown cleared on server recovery (REC-20)', () => {
+    it('clears all model cooldowns for a server when recovery succeeds', () => {
+      // Simulate multiple models entering cooldown due to prior failures
+      manager.markFailure('server-1', 'llama3:8b');
+      manager.markFailure('server-1', 'codellama:7b');
+      manager.markFailure('server-1', 'mistral:latest');
+
+      // Confirm they are all in cooldown
+      expect(manager.isInCooldown('server-1', 'llama3:8b')).toBe(true);
+      expect(manager.isInCooldown('server-1', 'codellama:7b')).toBe(true);
+      expect(manager.isInCooldown('server-1', 'mistral:latest')).toBe(true);
+
+      // Simulate the call made by Orchestrator.onHealthCheckResult on recovery (REC-20)
+      manager.clearCooldown('server-1', '');
+
+      // All cooldowns for this server must now be gone
+      expect(manager.isInCooldown('server-1', 'llama3:8b')).toBe(false);
+      expect(manager.isInCooldown('server-1', 'codellama:7b')).toBe(false);
+      expect(manager.isInCooldown('server-1', 'mistral:latest')).toBe(false);
+    });
+
+    it('does not affect cooldowns for other servers', () => {
+      manager.markFailure('server-1', 'llama3:8b');
+      manager.markFailure('server-2', 'llama3:8b');
+
+      // Clear only server-1
+      manager.clearCooldown('server-1', '');
+
+      expect(manager.isInCooldown('server-1', 'llama3:8b')).toBe(false);
+      // server-2 must still be in cooldown
+      expect(manager.isInCooldown('server-2', 'llama3:8b')).toBe(true);
+    });
+
+    it('is idempotent when server has no cooldowns', () => {
+      // Should not throw when there is nothing to clear
+      expect(() => manager.clearCooldown('server-never-seen', '')).not.toThrow();
+    });
+  });
 });
