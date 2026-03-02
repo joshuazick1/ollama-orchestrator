@@ -13,7 +13,7 @@ import type { AIServer } from '../orchestrator.types.js';
 import { type OllamaStreamChunk, type OllamaToolCall } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
-import { addDebugHeaders, getDebugInfo } from '../utils/debug-headers.js';
+import { getDebugInfo } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
@@ -520,7 +520,9 @@ async function passthroughSSEStream(
         lastChunkTime = now;
 
         stallCheckInterval = setInterval(() => {
-          if (stallTriggered) return;
+          if (stallTriggered) {
+            return;
+          }
           const timeSinceLastChunk = Date.now() - lastChunkTime;
           if (timeSinceLastChunk > effectiveStallThreshold) {
             logger.warn('SSE passthrough stall detected', {
@@ -536,7 +538,9 @@ async function passthroughSSEStream(
             }
             onStall(abortController, streamingRequestId)
               .then(res => {
-                if (res?.success) return;
+                if (res?.success) {
+                  return;
+                }
                 try {
                   void reader.cancel();
                 } catch {
@@ -877,7 +881,12 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
             const includeDebug = req.query.debug === 'true';
             if (includeDebug) {
-              const debugInfo = getDebugInfo(routingContext);
+              const streamDuration = Date.now() - streamStartTime;
+              const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
+              const debugInfo = getDebugInfo(routingContext, {
+                timeToFirstToken: ttft,
+                streamingDuration: streamDuration,
+              });
               if (debugInfo) {
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
@@ -919,9 +928,6 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       'openai',
       routingContext
     );
-
-    // Add debug headers if requested
-    addDebugHeaders(req, res, routingContext);
 
     // Send non-streaming response
     if (!stream && result && !result._streamed) {
@@ -1000,6 +1006,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
 
           try {
             const responseId = generateId('cmpl');
+            const completionStreamStart = Date.now();
             await streamOpenAIResponse(
               response,
               res,
@@ -1014,7 +1021,9 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
 
             const includeDebug = req.query.debug === 'true';
             if (includeDebug) {
-              const debugInfo = getDebugInfo(routingContext);
+              const debugInfo = getDebugInfo(routingContext, {
+                streamingDuration: Date.now() - completionStreamStart,
+              });
               if (debugInfo) {
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
@@ -1049,8 +1058,6 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
       'openai',
       routingContext
     );
-
-    addDebugHeaders(req, res, routingContext);
 
     if (!stream && result && !result._streamed) {
       const includeDebug = req.query.debug === 'true';
@@ -1093,6 +1100,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
   }
 
   const orchestrator = getOrchestratorInstance();
+  const routingContext: RoutingContext = {};
 
   try {
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
@@ -1116,9 +1124,18 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       },
       false,
       'embeddings',
-      'openai'
+      'openai',
+      routingContext
     );
 
+    // Send response with optional debug info (?debug=true)
+    const includeDebug = req.query.debug === 'true';
+    if (includeDebug) {
+      const debugInfo = getDebugInfo(routingContext);
+      if (debugInfo && typeof result === 'object' && result !== null) {
+        result.debug = debugInfo;
+      }
+    }
     res.json(result);
   } catch (error) {
     logger.error('OpenAI embeddings failed:', { error, model });

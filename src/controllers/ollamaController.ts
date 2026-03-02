@@ -17,7 +17,7 @@ import {
   type OllamaDurations,
 } from '../streaming.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
-import { addDebugHeaders, getDebugInfo } from '../utils/debug-headers.js';
+import { getDebugInfo } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
@@ -436,7 +436,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
             const includeDebug = req.query.debug === 'true';
             if (includeDebug && !res.writableEnded) {
-              const debugInfo = getDebugInfo(routingContext);
+              const streamDuration = Date.now() - streamStartTime;
+              const debugInfo = getDebugInfo(routingContext, {
+                timeToFirstToken: ttftMetrics?.ttft,
+                streamingDuration: streamDuration,
+                tokensGenerated: tokenMetrics?.tokensGenerated,
+                tokensPrompt: tokenMetrics?.tokensPrompt,
+              });
               if (debugInfo) {
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
@@ -485,12 +491,6 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       'ollama',
       routingContext
     );
-
-    // Add debug headers if requested (before streaming starts for streaming requests)
-    // Only add headers if response is still writable (not ended due to client disconnect)
-    if (!res.writableEnded) {
-      addDebugHeaders(req, res, routingContext);
-    }
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
@@ -807,7 +807,13 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
             const includeDebug = req.query.debug === 'true';
             if (includeDebug && !res.writableEnded) {
-              const debugInfo = getDebugInfo(routingContext);
+              const streamDuration = Date.now() - streamStartTime;
+              const debugInfo = getDebugInfo(routingContext, {
+                timeToFirstToken: ttftMetrics?.ttft,
+                streamingDuration: streamDuration,
+                tokensGenerated: tokenMetrics?.tokensGenerated,
+                tokensPrompt: tokenMetrics?.tokensPrompt,
+              });
               if (debugInfo) {
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
@@ -856,12 +862,6 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       'ollama',
       routingContext
     );
-
-    // Add debug headers if requested
-    // Only add headers if response is still writable (not ended due to client disconnect)
-    if (!res.writableEnded) {
-      addDebugHeaders(req, res, routingContext);
-    }
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
@@ -926,7 +926,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
   try {
     const result = await orchestrator.tryRequestWithFailover(
       model,
-      async (server, context) => {
+      async (server, _context) => {
         const timeout = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
@@ -948,9 +948,14 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
       routingContext
     );
 
-    // Add debug headers if requested
-    addDebugHeaders(req, res, routingContext);
-
+    // Send response with optional debug info (?debug=true)
+    const includeDebug = req.query.debug === 'true';
+    if (includeDebug) {
+      const debugInfo = getDebugInfo(routingContext);
+      if (debugInfo && typeof result === 'object' && result !== null) {
+        result.debug = debugInfo;
+      }
+    }
     res.json(result);
   } catch (error) {
     logger.error('Embeddings request failed:', { error, model });
@@ -1626,7 +1631,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
       serverId,
       model,
-      async (server, context) => {
+      async (server, _context) => {
         const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',

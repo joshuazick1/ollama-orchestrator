@@ -386,7 +386,8 @@ describe('OpenAI Controller', () => {
         expect.any(Function),
         false,
         'embeddings',
-        'openai'
+        'openai',
+        expect.any(Object)
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -979,7 +980,7 @@ describe('OpenAI Controller', () => {
       );
     });
 
-    it('should add debug headers when X-Include-Debug-Info header is true', async () => {
+    it('should NOT add debug headers when X-Include-Debug-Info header is true (REC-58: header mechanism removed)', async () => {
       mockReq.body = {
         model: 'llama3:latest',
         messages: [{ role: 'user', content: 'Hello' }],
@@ -1001,11 +1002,14 @@ describe('OpenAI Controller', () => {
 
       await handleChatCompletions(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('X-Selected-Server', 'server-1');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('X-Server-Circuit-State', 'closed');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('X-Model-Circuit-State', 'closed');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('X-Available-Servers', '3');
-      expect(mockRes.setHeader).toHaveBeenCalledWith('X-Retry-Count', '1');
+      // X-Include-Debug-Info header no longer triggers setHeader calls (addDebugHeaders removed)
+      expect(mockRes.setHeader).not.toHaveBeenCalledWith('X-Selected-Server', 'server-1');
+      expect(mockRes.setHeader).not.toHaveBeenCalledWith('X-Server-Circuit-State', 'closed');
+      expect(mockRes.setHeader).not.toHaveBeenCalledWith('X-Model-Circuit-State', 'closed');
+      expect(mockRes.setHeader).not.toHaveBeenCalledWith('X-Available-Servers', '3');
+      expect(mockRes.setHeader).not.toHaveBeenCalledWith('X-Retry-Count', '1');
+      // Response is still sent normally
+      expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
 
     it('should add debug info to JSON response when debug=true query param is set', async () => {

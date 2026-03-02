@@ -1,9 +1,7 @@
 /**
  * debug-headers.ts
- * Helper utilities for adding debug headers and JSON fields to responses
+ * Helper utilities for adding debug info fields to responses
  */
-
-import type { Request, Response } from 'express';
 
 import type { RoutingContext } from '../orchestrator-instance.js';
 
@@ -18,62 +16,18 @@ export interface DebugInfo {
   totalCandidates?: number;
   serverLoad?: number;
   maxConcurrency?: number;
+  // REC-55: routing reasoning fields
+  algorithm?: string;
+  protocol?: string;
+  excludedServers?: string[];
+  serverScores?: Array<{ serverId: string; totalScore: number }>;
+  timeoutMs?: number;
+  // streaming metrics
   timeToFirstToken?: number;
   streamingDuration?: number;
   tokensGenerated?: number;
   tokensPrompt?: number;
   lastError?: string;
-}
-
-export interface ExtendedRoutingContext {
-  selectedServerId?: string;
-  serverCircuitState?: string;
-  modelCircuitState?: string;
-  availableServerCount?: number;
-  routedToOpenCircuit?: boolean;
-  retryCount?: number;
-  serversTried?: string[];
-  totalCandidates?: number;
-  serverLoad?: number;
-  maxConcurrency?: number;
-}
-
-export function addDebugHeaders(req: Request, res: Response, context: RoutingContext): void {
-  if (req.headers['x-include-debug-info'] !== 'true') {
-    return;
-  }
-
-  if (context.selectedServerId) {
-    res.setHeader('X-Selected-Server', context.selectedServerId);
-  }
-  if (context.serverCircuitState) {
-    res.setHeader('X-Server-Circuit-State', context.serverCircuitState);
-  }
-  if (context.modelCircuitState) {
-    res.setHeader('X-Model-Circuit-State', context.modelCircuitState);
-  }
-  if (context.availableServerCount !== undefined) {
-    res.setHeader('X-Available-Servers', context.availableServerCount.toString());
-  }
-  if (context.routedToOpenCircuit) {
-    res.setHeader('X-Routed-To-Open-Circuit', 'true');
-  }
-  if (context.retryCount !== undefined && context.retryCount > 0) {
-    res.setHeader('X-Retry-Count', context.retryCount.toString());
-  }
-  // Enhanced debug headers
-  if (context.serversTried && context.serversTried.length > 0) {
-    res.setHeader('X-Servers-Tried', context.serversTried.join(','));
-  }
-  if (context.totalCandidates !== undefined) {
-    res.setHeader('X-Total-Candidates', context.totalCandidates.toString());
-  }
-  if (context.serverLoad !== undefined) {
-    res.setHeader('X-Server-Load', context.serverLoad.toString());
-  }
-  if (context.maxConcurrency !== undefined) {
-    res.setHeader('X-Max-Concurrency', context.maxConcurrency.toString());
-  }
 }
 
 export function getDebugInfo(
@@ -96,6 +50,11 @@ export function getDebugInfo(
     (context.serversTried && context.serversTried.length > 0) ||
     context.serverLoad !== undefined ||
     context.maxConcurrency !== undefined ||
+    context.algorithm ||
+    context.protocol ||
+    (context.excludedServers && context.excludedServers.length > 0) ||
+    (context.serverScores && context.serverScores.length > 0) ||
+    context.timeoutMs !== undefined ||
     options?.timeToFirstToken !== undefined ||
     options?.streamingDuration !== undefined ||
     options?.tokensGenerated !== undefined ||
@@ -137,6 +96,21 @@ export function getDebugInfo(
   }
   if (context.maxConcurrency !== undefined) {
     debugInfo.maxConcurrency = context.maxConcurrency;
+  }
+  if (context.algorithm) {
+    debugInfo.algorithm = context.algorithm;
+  }
+  if (context.protocol) {
+    debugInfo.protocol = context.protocol;
+  }
+  if (context.excludedServers && context.excludedServers.length > 0) {
+    debugInfo.excludedServers = context.excludedServers;
+  }
+  if (context.serverScores && context.serverScores.length > 0) {
+    debugInfo.serverScores = context.serverScores;
+  }
+  if (context.timeoutMs !== undefined) {
+    debugInfo.timeoutMs = context.timeoutMs;
   }
   if (options?.timeToFirstToken !== undefined) {
     debugInfo.timeToFirstToken = options.timeToFirstToken;
