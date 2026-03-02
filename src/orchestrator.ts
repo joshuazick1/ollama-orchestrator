@@ -1478,15 +1478,23 @@ export class AIOrchestrator {
    */
   async tryRequestWithFailover<T>(
     model: string,
-    fn: (server: AIServer) => Promise<T>,
+    fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean = false,
     endpoint: 'generate' | 'embeddings' = 'generate',
     requiredCapability?: 'ollama' | 'openai',
-    routingContext?: RoutingContext
+    routingContext?: RoutingContext,
+    signal?: AbortSignal
   ): Promise<T> {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
 
-    // Get candidate servers using load balancer with historical metrics
+    // Check for abort before starting
+    if (signal?.aborted) {
+      throw new Error('Request aborted');
+    }
+
+    // Resolve model name for matching (REC-48)
+    // Determine which model list to use based on required capability (REC-47)
+    const modelListKey = requiredCapability === 'openai' ? 'v1Models' : 'models';
     const eligibleServers = this.servers.filter(s => {
       // Check capability requirement
       if (requiredCapability === 'ollama' && s.supportsOllama === false) {
@@ -1496,9 +1504,17 @@ export class AIOrchestrator {
         return false;
       }
 
+      // Get the appropriate model list for this capability
+      const availableModels = (s as any)[modelListKey] ?? s.models;
+
+      // Resolve model name (try direct match, then :latest)
+      const resolvedModel = this.resolveModelName(model, availableModels);
+      if (!resolvedModel) {
+        return false;
+      }
+
       return (
         s.healthy &&
-        s.models.includes(model) &&
         !this.isInCooldown(s.id, model) &&
         !this.banManager.isBanned(s.id, model) &&
         !this.shouldSkipServerModel(s.id, model, endpoint)
@@ -1506,7 +1522,7 @@ export class AIOrchestrator {
     });
 
     // Sort candidates using load balancer (historical metrics)
-    const candidates: AIServer[] = [];
+    let candidates: AIServer[] = [];
     const remainingServers = [...eligibleServers];
     let firstSelectionRecorded = false;
 
@@ -1563,7 +1579,71 @@ export class AIOrchestrator {
     }
 
     if (candidates.length === 0) {
-      throw new Error(`No healthy servers available for model '${model}'`);
+      // REC-71: Differentiate "No servers" error conditions
+      let errorReason = 'No servers available';
+
+      // Check if no servers support the required capability
+      const capabilityServers = this.servers.filter(s => {
+        if (requiredCapability === 'ollama' && s.supportsOllama === false) {
+          return false;
+        }
+        if (requiredCapability === 'openai' && s.supportsV1 === false) {
+          return false;
+        }
+        return true;
+      });
+
+      if (capabilityServers.length === 0) {
+        errorReason = `No servers support required capability '${requiredCapability}'`;
+      } else {
+        // Check if no servers have the model
+        const modelServers = capabilityServers.filter(s => {
+          const availableModels = (s as any)[modelListKey] ?? s.models;
+          const resolvedModel = this.resolveModelName(model, availableModels);
+          return resolvedModel !== null;
+        });
+
+        if (modelServers.length === 0) {
+          errorReason = `Model '${model}' not found on any ${requiredCapability || 'configured'} server`;
+        } else {
+          // Check remaining conditions: healthy, not banned, not in cooldown, not circuit breaker blocked
+          const healthyServers = modelServers.filter(s => s.healthy);
+          if (healthyServers.length === 0) {
+            errorReason = 'All servers are unhealthy';
+          } else {
+            const availableServers = healthyServers.filter(
+              s =>
+                !this.banManager.isBanned(s.id, model) &&
+                !this.isInCooldown(s.id, model) &&
+                !this.shouldSkipServerModel(s.id, model, endpoint)
+            );
+            if (availableServers.length === 0) {
+              const bannedCount = healthyServers.filter(s =>
+                this.banManager.isBanned(s.id, model)
+              ).length;
+              const cooldownCount = healthyServers.filter(s =>
+                this.isInCooldown(s.id, model)
+              ).length;
+              const circuitCount = healthyServers.filter(s =>
+                this.shouldSkipServerModel(s.id, model, endpoint)
+              ).length;
+
+              if (bannedCount === healthyServers.length) {
+                errorReason = 'All servers are permanently banned for this model';
+              } else if (cooldownCount === healthyServers.length) {
+                errorReason = 'All servers are in cooldown for this model';
+              } else if (circuitCount === healthyServers.length) {
+                errorReason = 'All servers have open circuit breakers for this model';
+              } else {
+                errorReason =
+                  'All servers are unavailable (banned, in cooldown, or circuit breaker open)';
+              }
+            }
+          }
+        }
+      }
+
+      throw new Error(`${errorReason} for model '${model}'`);
     }
 
     const initialServer = candidates[0];
@@ -1587,19 +1667,34 @@ export class AIOrchestrator {
     // Phase 1: Try each candidate once (failover-first strategy)
     logger.info(`Phase 1: Trying ${candidates.length} candidate(s) once each`, { model });
     for (const server of candidates) {
+      // Check for abort before each attempt
+      if (signal?.aborted) {
+        throw new Error('Request aborted');
+      }
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-      const totalLoad = this.getTotalInFlight(server.id);
+      const canIncrement = this.inFlightManager.tryIncrementInFlight(
+        server.id,
+        model,
+        maxConcurrency
+      );
 
-      if (totalLoad >= maxConcurrency) {
+      if (!canIncrement) {
         logger.info(`Skipping server ${server.id} for model ${model}: at max concurrency`, {
-          totalLoad,
           maxConcurrency,
         });
         continue;
       }
 
       // Try request WITHOUT same-server retries (failover immediately)
-      const result = await this.tryRequestOnServerNoRetry(server, model, fn, isStreaming, errors);
+      const result = await this.tryRequestOnServerNoRetry(
+        server,
+        model,
+        fn,
+        isStreaming,
+        errors,
+        undefined,
+        true
+      );
 
       if (result.success) {
         if (routingContext) {
@@ -1624,16 +1719,45 @@ export class AIOrchestrator {
     }
 
     // Phase 2: Retry full cycle once more (all servers one more time)
+    // Check for abort before Phase 2
+    if (signal?.aborted) {
+      throw new Error('Request aborted');
+    }
+    // Re-filter candidates to account for servers that entered cooldown during Phase 1
+    candidates = candidates.filter(
+      s =>
+        s.healthy &&
+        !this.isInCooldown(s.id, model) &&
+        !this.banManager.isBanned(s.id, model) &&
+        !this.shouldSkipServerModel(s.id, model, endpoint)
+    );
+
     logger.info(`Phase 2: Retrying full cycle of ${candidates.length} candidate(s)`, { model });
     for (const server of candidates) {
+      // Check for abort before each attempt
+      if (signal?.aborted) {
+        throw new Error('Request aborted');
+      }
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
-      const totalLoad = this.getTotalInFlight(server.id);
+      const canIncrement = this.inFlightManager.tryIncrementInFlight(
+        server.id,
+        model,
+        maxConcurrency
+      );
 
-      if (totalLoad >= maxConcurrency) {
+      if (!canIncrement) {
         continue;
       }
 
-      const result = await this.tryRequestOnServerNoRetry(server, model, fn, isStreaming, errors);
+      const result = await this.tryRequestOnServerNoRetry(
+        server,
+        model,
+        fn,
+        isStreaming,
+        errors,
+        undefined,
+        true
+      );
 
       if (result.success) {
         if (routingContext) {
@@ -1658,6 +1782,10 @@ export class AIOrchestrator {
     }
 
     // Phase 3: All servers exhausted twice, now try same-server retries on initial server only
+    // Check for abort before Phase 3
+    if (signal?.aborted) {
+      throw new Error('Request aborted');
+    }
     logger.info(
       `Phase 3: All servers exhausted twice. Attempting same-server retries on initial server ${initialServer.id}`,
       { model }
@@ -1693,6 +1821,10 @@ export class AIOrchestrator {
     }
 
     // All candidates exhausted
+    if (routingContext) {
+      routingContext.retryCount = retryCount;
+      routingContext.serversTried = candidates.length > 0 ? candidates.map(s => s.id) : [];
+    }
     const errorMessage =
       errors.length > 0
         ? `All ${candidates.length} candidate(s) failed after 2 full cycles and same-server retries. ` +
@@ -1713,7 +1845,7 @@ export class AIOrchestrator {
   async requestToServer<T>(
     serverId: string,
     model: string,
-    fn: (server: AIServer) => Promise<T>,
+    fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     options: {
       isStreaming?: boolean;
       bypassCircuitBreaker?: boolean;
@@ -1761,8 +1893,13 @@ export class AIOrchestrator {
     const startTime = Date.now();
     this.incrementInFlight(server.id, model, bypassCircuitBreaker);
 
+    // Generate request context if streaming
+    const requestId = _isStreaming
+      ? `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      : undefined;
+
     try {
-      const result = await fn(server);
+      const result = await fn(server, requestId ? { requestId } : undefined);
 
       // Record success
       this.decrementInFlight(server.id, model, bypassCircuitBreaker);
@@ -1791,10 +1928,11 @@ export class AIOrchestrator {
   private async tryRequestOnServerNoRetry<T>(
     server: AIServer,
     model: string,
-    fn: (server: AIServer) => Promise<T>,
+    fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean,
     errors: Array<{ server: string; error: string; type?: ErrorType }>,
-    _timeoutMs?: number
+    _timeoutMs?: number,
+    alreadyIncremented: boolean = false
   ): Promise<{ success: true; value: T } | { success: false }> {
     // Check circuit breaker state BEFORE attempting request
     const serverCb = this.getCircuitBreaker(server.id);
@@ -1888,17 +2026,17 @@ export class AIOrchestrator {
     };
 
     try {
-      this.incrementInFlight(server.id, model);
+      if (!alreadyIncremented) {
+        this.incrementInFlight(server.id, model);
+      }
 
       // Track streaming requests for real-time progress monitoring
       if (isStreaming) {
         this.inFlightManager.addStreamingRequest(requestContext.id, server.id, model);
-        // Pass requestId to server object for streaming handlers to use
-        (server as AIServer & { _streamingRequestId?: string })._streamingRequestId =
-          requestContext.id;
+        // Pass requestId in context instead of mutating server
       }
 
-      const result = await fn(server);
+      const result = await fn(server, { requestId: requestContext.id });
       this.decrementInFlight(server.id, model);
 
       // Record successful request metrics
@@ -2026,7 +2164,7 @@ export class AIOrchestrator {
   private async tryRequestOnServerWithRetries<T>(
     server: AIServer,
     model: string,
-    fn: (server: AIServer) => Promise<T>,
+    fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean,
     retryConfig: RetryConfig,
     errors: Array<{ server: string; error: string; type?: ErrorType }>,
@@ -2065,14 +2203,7 @@ export class AIOrchestrator {
         // Track streaming requests for real-time progress monitoring
         if (isStreaming) {
           this.inFlightManager.addStreamingRequest(requestContext.id, server.id, model);
-          // Pass requestId to server object for streaming handlers to use
-          (server as AIServer & { _streamingRequestId?: string })._streamingRequestId =
-            requestContext.id;
-          logger.debug('orchestrator assigned _streamingRequestId to server', {
-            serverId: server.id,
-            streamingRequestId: requestContext.id,
-            model,
-          });
+          // Pass requestId in context instead of mutating server
         }
 
         if (retryCount > 0) {
@@ -2081,7 +2212,7 @@ export class AIOrchestrator {
           );
         }
 
-        const result = await fn(server);
+        const result = await fn(server, { requestId: requestContext.id });
         this.decrementInFlight(server.id, model);
 
         // Record successful request metrics

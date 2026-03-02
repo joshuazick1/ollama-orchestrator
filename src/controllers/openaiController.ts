@@ -452,13 +452,12 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
   try {
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
-      async (server: AIServer) => {
+      async (server: AIServer, context?: { requestId?: string }) => {
         const headers = getBackendHeaders(server);
 
         if (stream) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
-          const requestId = (server as AIServer & { _streamingRequestId?: string })
-            ._streamingRequestId;
+          const requestId = context?.requestId;
           const stallThreshold = _config.streaming.stallThresholdMs;
           const stallCheckInterval = _config.streaming.stallCheckIntervalMs;
 
@@ -941,7 +940,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
       serverId,
       model,
-      async server => {
+      async (server, context) => {
         const requestBody: Record<string, unknown> = {
           model,
           messages,
@@ -950,8 +949,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
 
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
-          const requestId = (server as AIServer & { _streamingRequestId?: string })
-            ._streamingRequestId;
+          const requestId = context?.requestId;
           const stallThreshold = config.streaming.stallThresholdMs;
           const stallCheckInterval = config.streaming.stallCheckIntervalMs;
 
@@ -1143,7 +1141,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
       serverId,
       model,
-      async server => {
+      async (server, _context) => {
         const requestBody: Record<string, unknown> = {
           model,
           ...rest,
@@ -1268,7 +1266,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
       serverId,
       model,
-      async server => {
+      async (server, _context) => {
         // Call OpenAI-compatible embeddings endpoint directly
         const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OPENAI.EMBEDDINGS}`, {

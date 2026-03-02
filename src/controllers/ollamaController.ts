@@ -150,13 +150,12 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
   try {
     const result = await orchestrator.tryRequestWithFailover(
       model,
-      async server => {
+      async (server, context) => {
         // Use dynamic timeout for streaming (same as non-streaming requests)
         // This timeout adapts based on historical response times
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
-          const requestId = (server as AIServer & { _streamingRequestId?: string })
-            ._streamingRequestId;
+          const requestId = context?.requestId;
 
           // Use dynamic timeout as stall threshold
           // Multiplier of 1.5x gives enough buffer for slow responses but detects true stalls
@@ -213,8 +212,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             | undefined;
           let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
-          const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
-            ._streamingRequestId;
+          const streamingRequestId = context?.requestId;
 
           logger.debug('STREAM_RESPONSE_PARAMS', {
             requestId: streamingRequestId,
@@ -561,12 +559,11 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   try {
     const result = await orchestrator.tryRequestWithFailover(
       model,
-      async server => {
+      async (server, context) => {
         // Use dynamic timeout for streaming (same as non-streaming requests)
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
-          const requestId = (server as AIServer & { _streamingRequestId?: string })
-            ._streamingRequestId;
+          const requestId = context?.requestId;
           // Use dynamic timeout as stall threshold
           // Multiplier of 1.5x gives enough buffer for slow responses but detects true stalls
           // Minimum 10 seconds, max 60 seconds to keep detection timely
@@ -916,7 +913,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
   try {
     const result = await orchestrator.tryRequestWithFailover(
       model,
-      async server => {
+      async (server, context) => {
         const timeout = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
@@ -1208,6 +1205,9 @@ export async function handleStreamingGenerate(
       let firstTokenReceived = false;
       const ttftTracker = new TTFTTracker({ serverId: server.id, model });
 
+      // Generate requestId for streaming tracking
+      const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
       try {
         await streamResponse(
           response,
@@ -1233,15 +1233,12 @@ export async function handleStreamingGenerate(
             logger.debug('GENERATE CHUNK CALLBACK FIRED', {
               chunkCount,
               serverId: server.id,
-              requestId: (server as AIServer & { _streamingRequestId?: string })
-                ._streamingRequestId,
+              requestId,
             });
             // On each chunk, reset the activity timeout
             activityController.resetTimeout();
 
             // Update InFlightManager with current chunk count for real-time tracking
-            const requestId = (server as AIServer & { _streamingRequestId?: string })
-              ._streamingRequestId;
             logger.info('GEN_CHUNK_RECEIVED', {
               requestId,
               chunkCount,
@@ -1255,7 +1252,7 @@ export async function handleStreamingGenerate(
           // Pass TTFT options
           { serverId: server.id, model },
           // Pass streaming request ID for InFlightManager tracking
-          (server as AIServer & { _streamingRequestId?: string })._streamingRequestId,
+          requestId,
           // Pass the TTFTTracker instance so streaming.ts uses the same tracker
           ttftTracker
         );
@@ -1309,7 +1306,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
       serverId,
       model,
-      async server => {
+      async (server, context) => {
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
@@ -1334,8 +1331,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             throw new Error('No response body');
           }
 
-          const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
-            ._streamingRequestId;
+          const streamingRequestId = context?.requestId;
 
           // Register streaming request with InFlightManager for tracking
           if (streamingRequestId) {
@@ -1462,7 +1458,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
       serverId,
       model,
-      async server => {
+      async (server, context) => {
         if (useStreaming) {
           const timeoutMs = orchestrator.getTimeout(server.id, model);
           const { response, activityController } = await fetchWithActivityTimeout(
@@ -1487,8 +1483,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             throw new Error('No response body');
           }
 
-          const streamingRequestId = (server as AIServer & { _streamingRequestId?: string })
-            ._streamingRequestId;
+          const streamingRequestId = context?.requestId;
 
           // Register streaming request with InFlightManager for tracking
           if (streamingRequestId) {
@@ -1618,7 +1613,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
       serverId,
       model,
-      async server => {
+      async (server, context) => {
         const timeoutMs = orchestrator.getTimeout(server.id, model);
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
