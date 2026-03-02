@@ -89,6 +89,7 @@ const DEFAULT_CONFIG = {
   flappingDetectionWindow: 600000 as number, // 10 minutes
   degradationDetectionWindow: 3600000 as number, // 1 hour
   persistenceEnabled: true as boolean,
+  maxAgeMs: (7 * 24 * 60 * 60 * 1000), // 7 days
 };
 
 export type RecoveryFailureTrackerConfig = Partial<typeof DEFAULT_CONFIG>;
@@ -299,7 +300,7 @@ export class RecoveryFailureTracker {
       error: error.substring(0, 100),
     });
 
-    this.pruneOldRecords(serverId);
+    this.pruneCountBasedRecords(serverId);
   }
 
   /**
@@ -644,9 +645,26 @@ export class RecoveryFailureTracker {
   }
 
   /**
-   * Prune old records for a server
+   * Prune records older than maxAgeMs (time-based pruning).
+   * Called automatically on load and can be called periodically.
    */
-  private pruneOldRecords(serverId: string): void {
+  pruneOldRecords(): void {
+    const cutoff = Date.now() - this.config.maxAgeMs;
+    const before = this.records.length;
+    this.records = this.records.filter(r => r.timestamp > cutoff);
+    const pruned = before - this.records.length;
+    if (pruned > 0) {
+      logger.info(
+        `Pruned ${pruned} stale recovery failure records older than ${this.config.maxAgeMs}ms`
+      );
+      this.markDirty();
+    }
+  }
+
+  /**
+   * Prune old records for a server (count-based pruning)
+   */
+  private pruneCountBasedRecords(serverId: string): void {
     const serverRecords = this.records.filter(r => r.serverId === serverId);
     if (serverRecords.length <= this.config.maxRecordsPerServer) {
       return;
@@ -729,6 +747,9 @@ export class RecoveryFailureTracker {
       if (data?.circuitBreakerTransitions) {
         this.circuitBreakerTransitions = data.circuitBreakerTransitions;
       }
+
+      // Prune stale records immediately after load
+      this.pruneOldRecords();
 
       logger.info(`Loaded ${this.records.length} recovery failure records from disk`);
     } catch (error) {
