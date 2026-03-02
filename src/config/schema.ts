@@ -15,7 +15,7 @@ export const serverConfigSchema = z.object({
     .max(100)
     .regex(/^[a-zA-Z0-9-_]+$/),
   url: z.string().url(),
-  type: z.enum(['ollama']).default('ollama'),
+  type: z.enum(['ollama', 'openai', 'auto']).default('auto'),
   maxConcurrency: z.number().int().min(1).max(1000).default(4),
   apiKey: z.string().optional(),
 });
