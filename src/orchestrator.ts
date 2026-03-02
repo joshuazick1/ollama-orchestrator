@@ -2821,6 +2821,16 @@ export class AIOrchestrator {
     // Classify the error for enhanced handling
     const classification = classifyError(typeof error === 'string' ? error : error.message);
 
+    // Escalate timeout for repeated timeout failures
+    if (model) {
+      const errorMsg = typeof error === 'string' ? error : error.message;
+      const isTimeout =
+        errorMsg.toLowerCase().includes('timeout') ||
+        errorMsg.toLowerCase().includes('timed out') ||
+        (error instanceof Error && error.name === 'AbortError');
+      this.timeoutManager.recordFailure(serverId, model, isTimeout ? 'timeout' : undefined);
+    }
+
     // Map enhanced classification to legacy error types for backward compatibility
     // Preserve rateLimited type to ensure proper 5-minute exponential backoff
     let legacyErrorType: ErrorType;
