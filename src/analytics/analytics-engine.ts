@@ -3,6 +3,9 @@
  * Analytics and reporting engine for historical metrics
  */
 
+import path from 'path';
+
+import { JsonFileHandler } from '../config/jsonFileHandler.js';
 import {
   getDecisionHistory,
   type DecisionEvent,
@@ -96,6 +99,21 @@ export interface TrendAnalysis {
 }
 
 /**
+ * Shape of the persisted analytics engine JSON file
+ */
+interface PersistedAnalyticsData {
+  timestamp: number;
+  requestHistory: RequestContext[];
+  errorHistory: Array<{
+    timestamp: number;
+    serverId: string;
+    model: string;
+    errorType: string;
+    message: string;
+  }>;
+}
+
+/**
  * Analytics engine for querying and aggregating historical metrics
  */
 export class AnalyticsEngine {
@@ -109,6 +127,20 @@ export class AnalyticsEngine {
     message: string;
   }> = [];
   private maxHistorySize = 10000;
+  private persistenceTimer?: NodeJS.Timeout;
+  private fileHandler: JsonFileHandler;
+  private readonly persistenceIntervalMs = 60000; // 60 seconds
+  private readonly retentionMs = 24 * 60 * 60 * 1000; // 24 hours
+
+  constructor() {
+    const filePath = path.join(process.cwd(), 'data', 'analytics-engine.json');
+    this.fileHandler = new JsonFileHandler(filePath, {
+      createBackups: true,
+      maxBackups: 3,
+    });
+    this.loadFromDisk();
+    this.startPersistence();
+  }
 
   /**
    * Update with current metrics snapshot
@@ -746,6 +778,91 @@ export class AnalyticsEngine {
     this.requestHistory = [];
     this.errorHistory = [];
     logger.info('Analytics engine reset');
+  }
+
+  // ==========================================
+  // Persistence Methods
+  // ==========================================
+
+  /**
+   * Start periodic persistence (every 60s)
+   */
+  private startPersistence(): void {
+    this.persistenceTimer = setInterval(() => {
+      void this.persist();
+    }, this.persistenceIntervalMs);
+  }
+
+  /**
+   * Persist analytics data to disk (public for explicit flush on shutdown)
+   */
+  persist(): Promise<void> {
+    this.pruneOldData();
+    try {
+      const data: PersistedAnalyticsData = {
+        timestamp: Date.now(),
+        requestHistory: this.requestHistory,
+        errorHistory: this.errorHistory,
+      };
+      const success = this.fileHandler.write(data);
+      if (!success) {
+        logger.error('Failed to persist analytics engine data');
+      } else {
+        logger.debug('Analytics engine data persisted', {
+          requestCount: this.requestHistory.length,
+          errorCount: this.errorHistory.length,
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to persist analytics engine data:', { error });
+    }
+    return Promise.resolve();
+  }
+
+  /**
+   * Load analytics data from disk (called in constructor)
+   */
+  private loadFromDisk(): void {
+    try {
+      const data = this.fileHandler.read<PersistedAnalyticsData>();
+      if (data) {
+        if (Array.isArray(data.requestHistory)) {
+          this.requestHistory = data.requestHistory;
+        }
+        if (Array.isArray(data.errorHistory)) {
+          this.errorHistory = data.errorHistory;
+        }
+        // Prune stale data on load (24h retention)
+        this.pruneOldData();
+        logger.info('Analytics engine data loaded from disk', {
+          requestCount: this.requestHistory.length,
+          errorCount: this.errorHistory.length,
+        });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        logger.error('Failed to load analytics engine data:', { error });
+      }
+    }
+  }
+
+  /**
+   * Prune data older than retentionMs (24h)
+   */
+  private pruneOldData(): void {
+    const cutoff = Date.now() - this.retentionMs;
+    this.requestHistory = this.requestHistory.filter(r => r.startTime >= cutoff);
+    this.errorHistory = this.errorHistory.filter(e => e.timestamp >= cutoff);
+  }
+
+  /**
+   * Stop periodic persistence timer
+   */
+  stop(): void {
+    if (this.persistenceTimer) {
+      clearInterval(this.persistenceTimer);
+      this.persistenceTimer = undefined;
+    }
   }
 
   // ==========================================

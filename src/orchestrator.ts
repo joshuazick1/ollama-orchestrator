@@ -7,6 +7,7 @@ import {
   getRecoveryFailureTracker,
   type RecoveryFailureRecord,
 } from './analytics/recovery-failure-tracker.js';
+import { getAnalyticsEngine } from './analytics-instance.js';
 import {
   CircuitBreakerPersistence,
   type CircuitBreakerData,
@@ -4015,9 +4016,13 @@ export class AIOrchestrator {
     await getDecisionHistory().persist();
     await getRequestHistory().persist();
 
+    // Persist analytics engine data
+    await getAnalyticsEngine().persist();
+
     // Stop persistence timers
     getDecisionHistory().stop();
     getRequestHistory().stop();
+    getAnalyticsEngine().stop();
 
     this.inFlightManager.clear();
     this.banManager.clearAllCooldowns();
