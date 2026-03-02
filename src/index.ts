@@ -113,12 +113,23 @@ app.get('/health', (_req, res) => {
 });
 
 // Error handler
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+// REC-40: return OpenAI-compatible error format for /v1 routes
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Unhandled error:', { error: err });
-  res.status(500).json({
-    error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-    details: err?.message ?? 'Unknown error',
-  });
+  if (req.path.startsWith('/v1')) {
+    res.status(500).json({
+      error: {
+        message: err?.message ?? ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        type: 'server_error',
+        code: 'internal_server_error',
+      },
+    });
+  } else {
+    res.status(500).json({
+      error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      details: err?.message ?? 'Unknown error',
+    });
+  }
 });
 
 // Serve static frontend files
@@ -127,7 +138,12 @@ app.use(express.static(frontendPath));
 
 // SPA Fallback for non-API routes
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api') || req.path === '/metrics' || req.path === '/health') {
+  if (
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/v1') || // REC-41: exclude /v1 from SPA fallback
+    req.path === '/metrics' ||
+    req.path === '/health'
+  ) {
     return next();
   }
   res.sendFile(path.join(frontendPath, 'index.html'));
