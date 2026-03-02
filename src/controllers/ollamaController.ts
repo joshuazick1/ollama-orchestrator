@@ -301,12 +301,15 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
             // Filter for healthy servers with the model, excluding current server
             // Also check that the circuit breaker is not open (allows requests)
+            // REC-49: additionally require protocol compatibility
+            const requestProtocol = progress.protocol;
             const newServer = allServers.find(
               s =>
                 s.id !== server.id &&
                 s.healthy &&
                 s.models.includes(model) &&
-                orchestrator.isCircuitAllowed(s.id)
+                orchestrator.isCircuitAllowed(s.id) &&
+                (requestProtocol === 'openai' ? s.supportsV1 !== false : s.supportsOllama !== false)
             );
 
             if (!newServer) {
@@ -316,12 +319,15 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                   requestId,
                   currentServer: server.id,
                   model,
+                  requestProtocol,
                   checkedServers: allServers
                     .filter(s => s.id !== server.id && s.models.includes(model))
                     .map(s => ({
                       id: s.id,
                       healthy: s.healthy,
                       circuitOpen: !orchestrator.isCircuitAllowed(s.id),
+                      supportsOllama: s.supportsOllama,
+                      supportsV1: s.supportsV1,
                     })),
                 }
               );
@@ -675,12 +681,17 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
             // Filter for healthy servers with the model, excluding current server
             // Also check that the circuit breaker is not open (allows requests)
+            // REC-49: additionally require protocol compatibility
+            const requestProtocol2 = progress.protocol;
             const newServer = allServers.find(
               s =>
                 s.id !== server.id &&
                 s.healthy &&
                 s.models.includes(model) &&
-                orchestrator.isCircuitAllowed(s.id)
+                orchestrator.isCircuitAllowed(s.id) &&
+                (requestProtocol2 === 'openai'
+                  ? s.supportsV1 !== false
+                  : s.supportsOllama !== false)
             );
 
             if (!newServer) {
@@ -690,12 +701,15 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                   requestId: effectiveRequestId,
                   currentServer: server.id,
                   model,
+                  requestProtocol: requestProtocol2,
                   checkedServers: allServers
                     .filter(s => s.id !== server.id && s.models.includes(model))
                     .map(s => ({
                       id: s.id,
                       healthy: s.healthy,
                       circuitOpen: !orchestrator.isCircuitAllowed(s.id),
+                      supportsOllama: s.supportsOllama,
+                      supportsV1: s.supportsV1,
                     })),
                 }
               );
