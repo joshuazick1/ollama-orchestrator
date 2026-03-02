@@ -72,6 +72,14 @@ export interface OllamaStreamChunk {
   };
   eval_count?: number;
   prompt_eval_count?: number;
+  /** Time spent on token generation (nanoseconds) */
+  eval_duration?: number;
+  /** Time spent evaluating the prompt (nanoseconds) */
+  prompt_eval_duration?: number;
+  /** Total end-to-end time including load (nanoseconds) */
+  total_duration?: number;
+  /** Time spent loading the model into memory (nanoseconds); > 0 indicates a cold start */
+  load_duration?: number;
   /** Set to true in the final chunk when truncated due to max_tokens */
   truncated?: boolean;
 }
@@ -160,6 +168,16 @@ function extractChunkContext(chunk: Uint8Array): { context?: number[] } {
   return {};
 }
 
+/**
+ * Ollama-specific duration fields from the final streaming chunk (all in nanoseconds)
+ */
+export interface OllamaDurations {
+  evalDuration?: number;
+  promptEvalDuration?: number;
+  totalDuration?: number;
+  loadDuration?: number;
+}
+
 export interface StallHandlerResult {
   success: boolean;
   error?: string;
@@ -176,7 +194,8 @@ export async function streamResponse(
     duration: number,
     tokensGenerated: number,
     tokensPrompt: number,
-    chunkData?: ChunkData
+    chunkData?: ChunkData,
+    ollamaDurations?: OllamaDurations
   ) => void,
   onChunk?: (chunkCount: number) => void,
   ttftOptions?: TTFTOptions,
@@ -558,6 +577,7 @@ export async function streamResponse(
     // Get the final chunk to extract token counts
     let tokensGenerated = Math.floor(tokenCount);
     let tokensPrompt = 0;
+    let ollamaDurations: OllamaDurations | undefined;
 
     if (doneChunkReceived && lastChunkPreview) {
       try {
@@ -567,6 +587,20 @@ export async function streamResponse(
         }
         if (lastChunk.prompt_eval_count !== undefined) {
           tokensPrompt = lastChunk.prompt_eval_count;
+        }
+        // Extract Ollama duration fields (nanoseconds) if present
+        if (
+          lastChunk.eval_duration !== undefined ||
+          lastChunk.prompt_eval_duration !== undefined ||
+          lastChunk.total_duration !== undefined ||
+          lastChunk.load_duration !== undefined
+        ) {
+          ollamaDurations = {
+            evalDuration: lastChunk.eval_duration,
+            promptEvalDuration: lastChunk.prompt_eval_duration,
+            totalDuration: lastChunk.total_duration,
+            loadDuration: lastChunk.load_duration,
+          };
         }
       } catch {
         // Keep the estimated values if parsing fails
@@ -586,7 +620,7 @@ export async function streamResponse(
       avgChunkSizeBytes: chunkCount > 0 ? Math.round(totalBytes / chunkCount) : 0,
     };
 
-    onComplete?.(duration, tokensGenerated, tokensPrompt, chunkData);
+    onComplete?.(duration, tokensGenerated, tokensPrompt, chunkData, ollamaDurations);
 
     logger.info('Stream completed', {
       chunkCount,

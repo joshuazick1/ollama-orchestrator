@@ -37,6 +37,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -71,6 +73,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -105,6 +109,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -135,6 +141,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -155,6 +163,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -184,6 +194,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -337,6 +349,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       });
@@ -350,6 +364,8 @@ describe('Load Balancer - Additional Tests', () => {
         successRate: 0.5,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       });
@@ -431,6 +447,7 @@ describe('Load Balancer - Additional Tests', () => {
           capacity: 0.05,
           circuitBreaker: 0.03,
           timeout: 0.02,
+          throughput: 0.0,
         },
       });
 

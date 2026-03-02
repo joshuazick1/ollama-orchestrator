@@ -32,6 +32,7 @@ describe('DecisionHistory', () => {
         capacityScore: 100,
         circuitBreakerScore: 100,
         timeoutScore: 100,
+        throughputScore: 0,
       },
     },
   ];
@@ -93,6 +94,7 @@ describe('DecisionHistory', () => {
             capacityScore: 100,
             circuitBreakerScore: 100,
             timeoutScore: 100,
+            throughputScore: 0,
           },
         },
       ];

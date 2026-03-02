@@ -149,6 +149,10 @@ export interface ServerModelMetrics {
   successRate: number;
   throughput: number; // requests per minute
   avgTokensPerRequest: number;
+  /** Average token generation throughput in tokens/sec (from eval_count/eval_duration) */
+  avgTokensPerSecond: number;
+  /** Number of cold-start requests observed (load_duration > threshold) */
+  coldStartCount: number;
 
   // Streaming-specific metrics
   streamingMetrics?: StreamingMetrics;
@@ -185,6 +189,14 @@ export interface RequestContext {
   totalBytes?: number;
   maxChunkGapMs?: number;
   avgChunkSizeBytes?: number;
+  // Ollama duration fields (nanoseconds, from final streaming chunk)
+  evalDuration?: number; // Time spent on token generation (ns)
+  promptEvalDuration?: number; // Time spent evaluating the prompt (ns)
+  totalDuration?: number; // Total end-to-end duration including load (ns)
+  loadDuration?: number; // Time spent loading model into memory (ns); > 0 = cold start
+  // Derived from Ollama fields
+  tokensPerSecond?: number; // eval_count / (eval_duration / 1e9)
+  isColdStart?: boolean; // true when load_duration > cold-start threshold
 }
 
 /**

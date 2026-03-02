@@ -29,6 +29,7 @@ export interface ServerScore {
     capacityScore: number;
     circuitBreakerScore: number;
     timeoutScore: number;
+    throughputScore: number;
   };
   metrics?: ServerModelMetrics;
 }
@@ -38,12 +39,13 @@ export interface ServerScore {
  */
 export interface LoadBalancerConfig {
   weights: {
-    latency: number; // Weight for P95 latency (default: 0.30)
-    successRate: number; // Weight for success rate (default: 0.25)
+    latency: number; // Weight for P95 latency (default: 0.20)
+    successRate: number; // Weight for success rate (default: 0.20)
     load: number; // Weight for current load (default: 0.20)
-    capacity: number; // Weight for available capacity (default: 0.15)
-    circuitBreaker: number; // Weight for circuit breaker health (default: 0.10)
+    capacity: number; // Weight for available capacity (default: 0.10)
+    circuitBreaker: number; // Weight for circuit breaker health (default: 0.15)
     timeout: number; // Weight for timeout penalty (default: 0.05)
+    throughput: number; // Weight for token throughput tokens/sec (default: 0.10)
   };
   thresholds: {
     maxP95Latency: number; // Max acceptable P95 in ms (default: 5000)
@@ -98,12 +100,13 @@ export interface LoadBalancerConfig {
  */
 export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
   weights: {
-    latency: 0.25,
+    latency: 0.2,
     successRate: 0.2,
     load: 0.2,
     capacity: 0.1,
-    circuitBreaker: 0.2, // Increased from 0.1 to 0.2 for more aggressive circuit avoidance
+    circuitBreaker: 0.15, // Reduced from 0.2 to make room for throughput weight
     timeout: 0.05,
+    throughput: 0.1, // REC-28: token throughput tokens/sec
   },
   thresholds: {
     maxP95Latency: 5000,
@@ -217,6 +220,10 @@ export function calculateServerScore(
   // Normalize: 30s = 100, 300s = 0 (5 min timeout = worst)
   const timeoutScore = timeoutMs ? Math.max(0, 100 - (timeoutMs / 300000) * 100) : 100;
 
+  // REC-28: Throughput score: higher tokens/sec is better
+  // Normalize: 0 t/s = 0, 50 t/s = 100 (capped)
+  const throughputScore = metrics ? Math.min(100, (metrics.avgTokensPerSecond / 50) * 100) : 0;
+
   // Calculate weighted total score
   const totalScore =
     latencyScore * config.weights.latency +
@@ -224,7 +231,8 @@ export function calculateServerScore(
     loadScore * config.weights.load +
     capacityScore * config.weights.capacity +
     circuitBreakerScore * config.weights.circuitBreaker +
-    timeoutScore * config.weights.timeout;
+    timeoutScore * config.weights.timeout +
+    throughputScore * config.weights.throughput;
 
   return {
     server,
@@ -236,6 +244,7 @@ export function calculateServerScore(
       capacityScore,
       circuitBreakerScore,
       timeoutScore,
+      throughputScore,
     },
     metrics,
   };
@@ -619,7 +628,7 @@ export class LoadBalancer {
       return { server, score, load, maxConcurrency };
     });
 
-    // Sort by score ascending (lower is better)
+    // Sort by score ascending (lower is better for least-connections)
     scored.sort((a, b) => a.score - b.score);
 
     logger.debug('Least-connections selection', {
@@ -878,8 +887,8 @@ export class LoadBalancer {
       };
     });
 
-    // Sort by score (ascending - lower is better)
-    scored.sort((a, b) => a.score - b.score);
+    // Sort by score descending (higher score = better server: higher TTFT/duration scores = lower latency)
+    scored.sort((a, b) => b.score - a.score);
 
     logger.debug('Streaming-optimized selection', {
       candidates: scored.map((s, i) => ({

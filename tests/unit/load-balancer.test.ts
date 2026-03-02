@@ -29,6 +29,8 @@ describe('Load Balancer', () => {
         successRate: 0.99,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -58,6 +60,8 @@ describe('Load Balancer', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -83,6 +87,8 @@ describe('Load Balancer', () => {
         successRate: 0.5, // Low success rate
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -108,6 +114,8 @@ describe('Load Balancer', () => {
         successRate: 1,
         throughput: 10,
         avgTokensPerRequest: 50,
+        avgTokensPerSecond: 0,
+        coldStartCount: 0,
         lastUpdated: Date.now(),
         recentLatencies: [],
       };
@@ -283,6 +291,8 @@ describe('Load Balancer', () => {
             successRate: 0.99,
             throughput: 20,
             avgTokensPerRequest: 50,
+            avgTokensPerSecond: 0,
+            coldStartCount: 0,
             lastUpdated: Date.now(),
             recentLatencies: [],
           },
@@ -299,6 +309,8 @@ describe('Load Balancer', () => {
             successRate: 0.8,
             throughput: 5,
             avgTokensPerRequest: 50,
+            avgTokensPerSecond: 0,
+            coldStartCount: 0,
             lastUpdated: Date.now(),
             recentLatencies: [],
           },
@@ -313,6 +325,111 @@ describe('Load Balancer', () => {
       // Good server should be selected
       const selected = lb.select(servers, 'llama3:latest', getLoad, getTotalLoad, getMetrics);
       expect(selected?.id).toBe('good-server');
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // REC-24: Streaming-optimized sort direction (higher score = better server, sort descending)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  describe('REC-24: streaming-optimized algorithm selects highest-score server first', () => {
+    const createServer = (id: string, lastResponseTime: number): AIServer => ({
+      id,
+      url: `http://localhost:1143${id.slice(-1)}`,
+      type: 'ollama',
+      healthy: true,
+      lastResponseTime,
+      models: ['llama3:latest'],
+      maxConcurrency: 4,
+    });
+
+    it('selects the server with better streaming metrics (lower TTFT/duration = higher quality score)', () => {
+      const lb = new LoadBalancer({ algorithm: 'streaming-optimized' } as any);
+      lb.setAlgorithm('streaming-optimized');
+
+      const servers = [
+        createServer('server-slow', 2000), // slow server — should be ranked lower
+        createServer('server-fast', 100), // fast server — should be ranked first
+      ];
+
+      const metricsMap = new Map<string, ServerModelMetrics>([
+        [
+          'server-fast:llama3:latest',
+          {
+            serverId: 'server-fast',
+            model: 'llama3:latest',
+            inFlight: 0,
+            queued: 0,
+            windows: {} as any,
+            percentiles: { p50: 80, p95: 120, p99: 150 },
+            successRate: 1.0,
+            throughput: 20,
+            avgTokensPerRequest: 50,
+            avgTokensPerSecond: 30,
+            coldStartCount: 0,
+            lastUpdated: Date.now(),
+            recentLatencies: [],
+            streamingMetrics: {
+              recentTTFTs: [50, 60, 55],
+              ttftPercentiles: { p50: 55, p95: 60, p99: 65 },
+              avgTTFT: 55,
+              recentStreamingDurations: [300, 320],
+              streamingDurationPercentiles: { p50: 310, p95: 320, p99: 330 },
+              avgStreamingDuration: 310,
+              recentChunkCounts: [10],
+              chunkCountPercentiles: { p50: 10, p95: 10, p99: 10 },
+              avgChunkCount: 10,
+              recentMaxChunkGaps: [50],
+              maxChunkGapPercentiles: { p50: 50, p95: 50, p99: 50 },
+              recentChunkSizes: [512],
+              chunkSizePercentiles: { p50: 512, p95: 512, p99: 512 },
+              avgChunkSizeBytes: 512,
+            },
+          },
+        ],
+        [
+          'server-slow:llama3:latest',
+          {
+            serverId: 'server-slow',
+            model: 'llama3:latest',
+            inFlight: 0,
+            queued: 0,
+            windows: {} as any,
+            percentiles: { p50: 1500, p95: 2000, p99: 2500 },
+            successRate: 0.9,
+            throughput: 5,
+            avgTokensPerRequest: 50,
+            avgTokensPerSecond: 5,
+            coldStartCount: 0,
+            lastUpdated: Date.now(),
+            recentLatencies: [],
+            streamingMetrics: {
+              recentTTFTs: [800, 900, 1000],
+              ttftPercentiles: { p50: 900, p95: 1000, p99: 1100 },
+              avgTTFT: 900,
+              recentStreamingDurations: [2000, 2200],
+              streamingDurationPercentiles: { p50: 2100, p95: 2200, p99: 2300 },
+              avgStreamingDuration: 2100,
+              recentChunkCounts: [5],
+              chunkCountPercentiles: { p50: 5, p95: 5, p99: 5 },
+              avgChunkCount: 5,
+              recentMaxChunkGaps: [500],
+              maxChunkGapPercentiles: { p50: 500, p95: 500, p99: 500 },
+              recentChunkSizes: [256],
+              chunkSizePercentiles: { p50: 256, p95: 256, p99: 256 },
+              avgChunkSizeBytes: 256,
+            },
+          },
+        ],
+      ]);
+
+      const getLoad = () => 0;
+      const getTotalLoad = () => 0;
+      const getMetrics = (serverId: string, model: string) =>
+        metricsMap.get(`${serverId}:${model}`);
+
+      const selected = lb.select(servers, 'llama3:latest', getLoad, getTotalLoad, getMetrics, true);
+      expect(selected?.id).toBe('server-fast');
     });
   });
 });

@@ -28,6 +28,12 @@ export const DEFAULT_METRICS_DECAY_CONFIG: MetricsDecayConfig = {
 };
 
 /**
+ * load_duration threshold (nanoseconds) above which a request is considered a cold start.
+ * 100 ms = 100_000_000 ns — any model load taking > 100 ms indicates a cold start.
+ */
+const COLD_START_THRESHOLD_NS = 100_000_000;
+
+/**
  * Aggregates metrics across multiple time windows
  */
 export class MetricsAggregator {
@@ -97,6 +103,34 @@ export class MetricsAggregator {
     const success = context.success;
     const tokensGenerated = context.tokensGenerated ?? 0;
     const tokensPrompt = context.tokensPrompt ?? 0;
+
+    // REC-26: Compute token throughput (tokens/sec) from Ollama duration fields
+    if (
+      context.tokensGenerated !== undefined &&
+      context.evalDuration !== undefined &&
+      context.evalDuration > 0
+    ) {
+      const tps = context.tokensGenerated / (context.evalDuration / 1e9);
+      context.tokensPerSecond = tps;
+      // Update running average with simple exponential moving average (alpha = 0.2)
+      if (metrics.avgTokensPerSecond === 0) {
+        metrics.avgTokensPerSecond = tps;
+      } else {
+        metrics.avgTokensPerSecond = metrics.avgTokensPerSecond * 0.8 + tps * 0.2;
+      }
+    }
+
+    // REC-27: Detect cold start via load_duration
+    if (context.loadDuration !== undefined && context.loadDuration > COLD_START_THRESHOLD_NS) {
+      context.isColdStart = true;
+      metrics.coldStartCount++;
+      logger.debug('Cold start detected', {
+        serverId: context.serverId,
+        model: context.model,
+        loadDurationMs: Math.round(context.loadDuration / 1e6),
+        coldStartCount: metrics.coldStartCount,
+      });
+    }
 
     // Update all time windows
     (Object.keys(this.windowSizes) as TimeWindow[]).forEach(window => {
@@ -786,6 +820,8 @@ export class MetricsAggregator {
       successRate: 1,
       throughput: 0,
       avgTokensPerRequest: 0,
+      avgTokensPerSecond: 0,
+      coldStartCount: 0,
       streamingMetrics: {
         recentTTFTs: [],
         ttftPercentiles: { p50: 0, p95: 0, p99: 0 },

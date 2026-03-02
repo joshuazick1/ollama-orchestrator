@@ -1360,9 +1360,9 @@ export class AIOrchestrator {
     const selected = this.loadBalancer.select(
       candidates,
       model,
+      (serverId, model) => this.getModelInFlight(serverId, model),
       serverId => this.getTotalInFlight(serverId),
-      serverId => this.getTotalInFlight(serverId),
-      (serverId, model) => this.metricsAggregator.getMetrics(serverId, model),
+      (serverId, model) => this.metricsAggregator.getMetricsWithFallback(serverId, model),
       isStreaming,
       undefined,
       (serverId, model) => this.getTimeout(serverId, model),
@@ -1373,7 +1373,7 @@ export class AIOrchestrator {
     if (selected) {
       const scores = candidates.map(server => {
         const totalLoad = this.getTotalInFlight(server.id);
-        const metrics = this.metricsAggregator.getMetrics(server.id, model);
+        const metrics = this.metricsAggregator.getMetricsWithFallback(server.id, model);
         const cbHealth = this.getCircuitBreakerHealth(server.id, model);
         return calculateServerScore(
           server,
@@ -1539,9 +1539,9 @@ export class AIOrchestrator {
       const selected = this.loadBalancer.select(
         remainingServers,
         model,
+        (serverId, model) => this.getModelInFlight(serverId, model),
         serverId => this.getTotalInFlight(serverId),
-        serverId => this.getTotalInFlight(serverId),
-        (serverId, model) => this.metricsAggregator.getMetrics(serverId, model),
+        (serverId, model) => this.metricsAggregator.getMetricsWithFallback(serverId, model),
         isStreaming,
         undefined,
         (serverId, model) => this.getTimeout(serverId, model),
@@ -1556,7 +1556,7 @@ export class AIOrchestrator {
       if (!firstSelectionRecorded) {
         const scores = remainingServers.map(server => {
           const totalLoad = this.getTotalInFlight(server.id);
-          const metrics = this.metricsAggregator.getMetrics(server.id, model);
+          const metrics = this.metricsAggregator.getMetricsWithFallback(server.id, model);
           const cbHealth = this.getCircuitBreakerHealth(server.id, model);
           return calculateServerScore(
             server,
@@ -2130,6 +2130,26 @@ export class AIOrchestrator {
         }
       }
 
+      // Extract Ollama duration fields from streaming responses (REC-25)
+      if (isStreaming && result && typeof result === 'object' && '_ollamaDurations' in result) {
+        const od = (
+          result as {
+            _ollamaDurations?: {
+              evalDuration?: number;
+              promptEvalDuration?: number;
+              totalDuration?: number;
+              loadDuration?: number;
+            };
+          }
+        )._ollamaDurations;
+        if (od) {
+          requestContext.evalDuration = od.evalDuration;
+          requestContext.promptEvalDuration = od.promptEvalDuration;
+          requestContext.totalDuration = od.totalDuration;
+          requestContext.loadDuration = od.loadDuration;
+        }
+      }
+
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
 
@@ -2314,6 +2334,26 @@ export class AIOrchestrator {
             if (typeof tokenMetrics.tokensPrompt === 'number') {
               requestContext.tokensPrompt = tokenMetrics.tokensPrompt;
             }
+          }
+        }
+
+        // Extract Ollama duration fields from streaming responses (REC-25)
+        if (isStreaming && result && typeof result === 'object' && '_ollamaDurations' in result) {
+          const od = (
+            result as {
+              _ollamaDurations?: {
+                evalDuration?: number;
+                promptEvalDuration?: number;
+                totalDuration?: number;
+                loadDuration?: number;
+              };
+            }
+          )._ollamaDurations;
+          if (od) {
+            requestContext.evalDuration = od.evalDuration;
+            requestContext.promptEvalDuration = od.promptEvalDuration;
+            requestContext.totalDuration = od.totalDuration;
+            requestContext.loadDuration = od.loadDuration;
           }
         }
 
@@ -2578,6 +2618,13 @@ export class AIOrchestrator {
    */
   getTotalInFlight(serverId: string): number {
     return this.inFlightManager.getTotalInFlight(serverId);
+  }
+
+  /**
+   * Get in-flight requests for a specific server+model combination (REC-23)
+   */
+  getModelInFlight(serverId: string, model: string): number {
+    return this.inFlightManager.getInFlight(serverId, model);
   }
 
   /**

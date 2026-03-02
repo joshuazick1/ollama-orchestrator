@@ -185,7 +185,8 @@ describe('streamResponse', () => {
         totalBytes: expect.any(Number),
         maxChunkGapMs: expect.any(Number),
         avgChunkSizeBytes: expect.any(Number),
-      })
+      }),
+      undefined // ollamaDurations — no done chunk with duration fields in this test
     );
   });
 
