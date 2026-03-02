@@ -153,7 +153,9 @@ export function calculateActiveTestTimeout(
  * Returns undefined when the header is absent or unparseable.
  */
 export function parseRetryAfterMs(header: string | undefined | null): number | undefined {
-  if (!header) return undefined;
+  if (!header) {
+    return undefined;
+  }
 
   const MAX_RETRY_AFTER_MS = 5 * 60 * 1000; // 5 minutes
 

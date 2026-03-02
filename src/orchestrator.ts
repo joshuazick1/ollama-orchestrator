@@ -36,7 +36,11 @@ import type {
   GlobalMetrics,
   MetricsExport,
 } from './orchestrator.types.js';
-import { getRecoveryTestCoordinator } from './recovery-test-coordinator.js';
+import {
+  getRecoveryTestCoordinator,
+  RecoveryTestCoordinator,
+  setRecoveryTestCoordinator,
+} from './recovery-test-coordinator.js';
 import { getRequestHistory } from './request-history.js';
 import { BanManager } from './utils/ban-manager.js';
 import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
@@ -3045,7 +3049,16 @@ export class AIOrchestrator {
         this.circuitBreakerRegistry.loadPersistedState(persistedBreakerData.breakers);
       }
 
-      // Initialize recovery test coordinator
+      // Initialize recovery test coordinator with configurable timeouts
+      const rtCfg = this.config.recoveryTest;
+      setRecoveryTestCoordinator(
+        new RecoveryTestCoordinator({
+          serverCooldownMs: rtCfg.serverCooldownMs,
+          maxWaitForInFlightMs: rtCfg.maxWaitForInFlightMs,
+          modelTestTimeoutMs: rtCfg.modelTestTimeoutMs,
+          tagsTestTimeoutMs: rtCfg.tagsTestTimeoutMs,
+        })
+      );
       const coordinator = getRecoveryTestCoordinator();
       coordinator.setServerUrlProvider((serverId: string) => {
         const server = this.servers.find(s => s.id === serverId);
