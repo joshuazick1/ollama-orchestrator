@@ -30,6 +30,7 @@ export interface ServerScore {
     circuitBreakerScore: number;
     timeoutScore: number;
     throughputScore: number;
+    vramScore: number;
   };
   metrics?: ServerModelMetrics;
 }
@@ -46,6 +47,7 @@ export interface LoadBalancerConfig {
     circuitBreaker: number; // Weight for circuit breaker health (default: 0.15)
     timeout: number; // Weight for timeout penalty (default: 0.05)
     throughput: number; // Weight for token throughput tokens/sec (default: 0.10)
+    vram: number; // Weight for VRAM availability (default: 0.05)
   };
   thresholds: {
     maxP95Latency: number; // Max acceptable P95 in ms (default: 5000)
@@ -103,10 +105,11 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     latency: 0.2,
     successRate: 0.2,
     load: 0.2,
-    capacity: 0.1,
+    capacity: 0.05, // Reduced from 0.1 to make room for VRAM weight (REC-29)
     circuitBreaker: 0.15, // Reduced from 0.2 to make room for throughput weight
     timeout: 0.05,
     throughput: 0.1, // REC-28: token throughput tokens/sec
+    vram: 0.05, // REC-29: VRAM availability bonus
   },
   thresholds: {
     maxP95Latency: 5000,
@@ -224,6 +227,36 @@ export function calculateServerScore(
   // Normalize: 0 t/s = 0, 50 t/s = 100 (capped)
   const throughputScore = metrics ? Math.min(100, (metrics.avgTokensPerSecond / 50) * 100) : 0;
 
+  // REC-29: VRAM score: prefer servers with enough free VRAM to hold the model
+  // Uses loadedModels sizeVram to estimate model size; falls back to neutral 50 if unknown.
+  // If model is already loaded (hot), score = 100. Otherwise compute free VRAM ratio.
+  let vramScore = 50; // Neutral when no hardware data available
+  const hw = server.hardware;
+  if (hw) {
+    const loadedModel = hw.loadedModels?.find(m => m.name === model);
+    if (loadedModel) {
+      // Model already in VRAM — best case
+      vramScore = 100;
+    } else if (hw.totalVram !== undefined && hw.totalVram > 0) {
+      // We have total VRAM info — estimate free VRAM
+      const freeVram = hw.totalVram - (hw.usedVram ?? 0);
+      // Estimate model size from any loaded model of similar name, or use usedVram as proxy
+      // Use average sizeVram of loaded models as a rough model size estimate
+      const loadedModels = hw.loadedModels ?? [];
+      const modelSizeEstimate =
+        loadedModels.length > 0
+          ? loadedModels.reduce((sum, m) => sum + m.sizeVram, 0) / loadedModels.length
+          : (hw.usedVram ?? 0);
+      if (modelSizeEstimate > 0) {
+        vramScore =
+          freeVram >= modelSizeEstimate ? 100 : Math.max(0, (freeVram / modelSizeEstimate) * 100);
+      } else {
+        // Can't estimate model size but we know there's free VRAM
+        vramScore = freeVram > 0 ? 75 : 25;
+      }
+    }
+  }
+
   // Calculate weighted total score
   const totalScore =
     latencyScore * config.weights.latency +
@@ -232,7 +265,8 @@ export function calculateServerScore(
     capacityScore * config.weights.capacity +
     circuitBreakerScore * config.weights.circuitBreaker +
     timeoutScore * config.weights.timeout +
-    throughputScore * config.weights.throughput;
+    throughputScore * config.weights.throughput +
+    vramScore * config.weights.vram;
 
   return {
     server,
@@ -245,6 +279,7 @@ export function calculateServerScore(
       circuitBreakerScore,
       timeoutScore,
       throughputScore,
+      vramScore,
     },
     metrics,
   };
