@@ -77,6 +77,39 @@ export class InFlightManager {
     return (this.inFlight.get(key) ?? 0) + (this.inFlightBypass.get(key) ?? 0);
   }
 
+  /**
+   * Atomically check and increment in-flight count if it wouldn't exceed maxConcurrency
+   * Returns true if increment was successful, false if it would exceed the limit
+   */
+  tryIncrementInFlight(
+    serverId: string,
+    model: string,
+    maxConcurrency: number,
+    bypass: boolean = false
+  ): boolean {
+    const key = `${serverId}:${model}`;
+    const current = this.getInFlight(serverId, model);
+
+    if (current >= maxConcurrency) {
+      return false;
+    }
+
+    // Now increment since we know we're under the limit
+    if (bypass) {
+      const currentBypass = this.inFlightBypass.get(key) ?? 0;
+      this.inFlightBypass.set(key, currentBypass + 1);
+    } else {
+      const currentRegular = this.inFlight.get(key) ?? 0;
+      this.inFlight.set(key, currentRegular + 1);
+    }
+
+    logger.debug(
+      `In-flight tryIncrement successful for ${key}, bypass: ${bypass}, total: ${this.getInFlight(serverId, model)}`
+    );
+
+    return true;
+  }
+
   getTotalInFlight(serverId: string): number {
     let total = 0;
 

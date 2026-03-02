@@ -37,8 +37,6 @@ export interface AIServer {
     loadedModels?: LoadedModel[];
     lastUpdated: Date;
   };
-  // Streaming request tracking - set temporarily during streaming requests
-  _streamingRequestId?: string;
 }
 
 export interface ServerModelBenchmark {
