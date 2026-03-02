@@ -299,17 +299,26 @@ export class HealthCheckScheduler {
 
     try {
       // Query /api/tags, /api/ps, and /v1/models in parallel
-      // Server is healthy if either /api/tags OR /v1/models responds
+      // Probe selection respects server.type: ollama=skip v1, openai=skip tags, auto=probe both
+      const probeOllama = server.type !== 'openai';
+      const probeV1 = server.type !== 'ollama';
+
       const [tagsResponse, psResponse, v1Response] = await Promise.all([
-        fetchWithAuth(`${server.url}/api/tags`, server.apiKey, {
-          timeout: this.config.timeoutMs,
-        }).catch(() => null),
-        fetchWithAuth(`${server.url}/api/ps`, server.apiKey, {
-          timeout: 5000, // Shorter timeout for ps - don't fail health check if ps is slow
-        }).catch(() => null), // Don't fail health check if ps endpoint fails
-        fetchWithAuth(`${server.url}/v1/models`, server.apiKey, {
-          timeout: 5000, // Shorter timeout for v1 - don't fail health check if not supported
-        }).catch(() => null), // Don't fail health check if v1 endpoint fails
+        probeOllama
+          ? fetchWithAuth(`${server.url}/api/tags`, server.apiKey, {
+              timeout: this.config.timeoutMs,
+            }).catch(() => null)
+          : Promise.resolve(null),
+        probeOllama
+          ? fetchWithAuth(`${server.url}/api/ps`, server.apiKey, {
+              timeout: 5000, // Shorter timeout for ps - don't fail health check if ps is slow
+            }).catch(() => null) // Don't fail health check if ps endpoint fails
+          : Promise.resolve(null),
+        probeV1
+          ? fetchWithAuth(`${server.url}/v1/models`, server.apiKey, {
+              timeout: 5000, // Shorter timeout for v1 - don't fail health check if not supported
+            }).catch(() => null) // Don't fail health check if v1 endpoint fails
+          : Promise.resolve(null),
       ]);
 
       const responseTime = timer ? timer.elapsed() : Date.now() - startTime!;

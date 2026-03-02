@@ -16,7 +16,7 @@ import { logger } from '../utils/logger.js';
 export interface ServerConfig {
   id: string;
   url: string;
-  type: 'ollama';
+  type: 'ollama' | 'openai' | 'auto';
   maxConcurrency?: number;
 }
 

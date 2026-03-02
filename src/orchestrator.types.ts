@@ -13,7 +13,7 @@ export interface LoadedModel {
 export interface AIServer {
   id: string;
   url: string;
-  type: 'ollama';
+  type: 'ollama' | 'openai' | 'auto';
   healthy: boolean;
   lastResponseTime: number;
   models: string[];
