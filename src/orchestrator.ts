@@ -414,6 +414,12 @@ export class AIOrchestrator {
         { source: 'health_check', circuitBreakerState: serverCb.getState() }
       );
 
+      // REC-6: detect flapping and adjust circuit breaker thresholds
+      const trackerStats = getRecoveryFailureTracker().getServerRecoveryStats(server.id);
+      if (trackerStats?.pattern === 'flapping') {
+        serverCb.handleFlappingDetected();
+      }
+
       logger.warn(`Health check failed for ${server.id}:`, {
         error: result.error,
       });

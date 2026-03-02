@@ -855,6 +855,24 @@ export class CircuitBreaker {
   }
 
   /**
+   * Handle flapping detection: double openTimeout (cap 1h) and increase
+   * recoverySuccessThreshold by 2 (cap 10).
+   * Called externally when the RecoveryFailureTracker detects a flapping pattern.
+   */
+  handleFlappingDetected(): void {
+    const prevTimeout = this.config.openTimeout;
+    const prevThreshold = this.config.recoverySuccessThreshold;
+
+    this.config.openTimeout = Math.min(this.config.openTimeout * 2, 3600000);
+    this.config.recoverySuccessThreshold = Math.min(this.config.recoverySuccessThreshold + 2, 10);
+
+    logger.warn(`Flapping detected for ${this.name}, adjusting thresholds`, {
+      openTimeout: { prev: prevTimeout, new: this.config.openTimeout },
+      recoverySuccessThreshold: { prev: prevThreshold, new: this.config.recoverySuccessThreshold },
+    });
+  }
+
+  /**
    * Perform recovery test for half-open state
    * Returns true if recovery test passed (circuit should close), false if failed
    *
