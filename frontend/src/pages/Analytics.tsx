@@ -1651,48 +1651,50 @@ export const Analytics = () => {
               {metricsData && Object.keys(metricsData.servers || {}).length > 0 ? (
                 <div className="space-y-3 max-h-80 overflow-y-auto">
                   {Object.entries(metricsData.servers)
-                    .map(([serverId, serverData]: [string, any]) =>
-                      Object.entries(serverData.models || {}).map(
-                        ([model, modelData]: [string, any]) => {
-                          const streaming = modelData.streamingMetrics;
-                          if (!streaming) return null;
-                          return (
-                            <div
-                              key={`${serverId}:${model}`}
-                              className="bg-gray-900 rounded-lg p-3"
-                            >
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-white text-sm font-medium truncate">
-                                  {serverId}:{model}
-                                </span>
-                                <span className="text-cyan-400 text-sm font-mono">
-                                  {streaming.recentTTFTs?.length || 0} streams
-                                </span>
+                    .map(([serverId, serverData]) =>
+                      Object.entries(serverData.models).map(([model, modelData]) => {
+                        const streaming = modelData.streamingMetrics as
+                          | {
+                              recentTTFTs?: number[];
+                              avgTTFT?: number;
+                              avgChunkCount?: number;
+                              maxChunkGapPercentiles?: { p50?: number; p95?: number; p99?: number };
+                            }
+                          | undefined;
+                        if (!streaming) return null;
+                        return (
+                          <div key={`${serverId}:${model}`} className="bg-gray-900 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-white text-sm font-medium truncate">
+                                {serverId}:{model}
+                              </span>
+                              <span className="text-cyan-400 text-sm font-mono">
+                                {streaming.recentTTFTs?.length || 0} streams
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div>
+                                <span className="text-gray-500">Avg TTFT</span>
+                                <div className="text-yellow-400 font-mono">
+                                  {Math.round(streaming.avgTTFT || 0)}ms
+                                </div>
                               </div>
-                              <div className="grid grid-cols-3 gap-2 text-xs">
-                                <div>
-                                  <span className="text-gray-500">Avg TTFT</span>
-                                  <div className="text-yellow-400 font-mono">
-                                    {Math.round(streaming.avgTTFT || 0)}ms
-                                  </div>
+                              <div>
+                                <span className="text-gray-500">Avg Chunks</span>
+                                <div className="text-teal-400 font-mono">
+                                  {(streaming.avgChunkCount || 0).toFixed(1)}
                                 </div>
-                                <div>
-                                  <span className="text-gray-500">Avg Chunks</span>
-                                  <div className="text-teal-400 font-mono">
-                                    {(streaming.avgChunkCount || 0).toFixed(1)}
-                                  </div>
-                                </div>
-                                <div>
-                                  <span className="text-gray-500">P95 Gap</span>
-                                  <div className="text-red-400 font-mono">
-                                    {streaming.maxChunkGapPercentiles?.p95 || 0}ms
-                                  </div>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">P95 Gap</span>
+                                <div className="text-red-400 font-mono">
+                                  {streaming.maxChunkGapPercentiles?.p95 || 0}ms
                                 </div>
                               </div>
                             </div>
-                          );
-                        }
-                      )
+                          </div>
+                        );
+                      })
                     )
                     .filter(Boolean)}
                 </div>

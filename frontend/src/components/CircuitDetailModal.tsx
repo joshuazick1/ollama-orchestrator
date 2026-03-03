@@ -31,6 +31,83 @@ interface CircuitDetailModalProps {
   model: string;
 }
 
+interface Percentiles {
+  p50?: number;
+  p95?: number;
+  p99?: number;
+  [key: string]: number | undefined;
+}
+
+interface CircuitMetricsData {
+  metrics?: {
+    realtime?: {
+      inFlight?: number;
+      queued?: number;
+    };
+    percentiles?: Percentiles;
+    derived?: {
+      successRate?: number;
+      throughput?: number;
+      avgTokensPerRequest?: number;
+    };
+    historical?: Record<
+      string,
+      {
+        streamingMetrics?: StreamingMetrics;
+      }
+    >;
+    streamingMetrics?: StreamingMetrics;
+  };
+  [key: string]: unknown;
+}
+
+interface StreamingMetrics {
+  avgTTFT?: number;
+  avgTotalDuration?: number;
+  avgStreamingDuration?: number;
+  totalTokens?: number;
+  avgChunkCount?: number;
+  avgChunkSizeBytes?: number;
+  maxChunkGapPercentiles?: Percentiles;
+  chunkCountPercentiles?: Percentiles;
+  ttftPercentiles?: Percentiles;
+  totalPercentiles?: Percentiles;
+  [key: string]: number | Percentiles | undefined;
+}
+
+interface RequestHistoryItem {
+  id: string;
+  endpoint?: string;
+  timestamp?: number;
+  startTime?: number;
+  duration?: number;
+  success: boolean;
+  tokensGenerated?: number;
+  error?: string;
+  chunkCount?: number;
+}
+
+interface DecisionHistoryItem {
+  id: string;
+  timestamp: number;
+  serverId: string;
+  model: string;
+  decision: string;
+  reason?: string;
+  latency?: number;
+  selected?: boolean;
+  algorithm?: string;
+  score?: number;
+}
+
+interface RequestHistoryResponse {
+  requests: RequestHistoryItem[];
+}
+
+interface DecisionHistoryResponse {
+  decisions: DecisionHistoryItem[];
+}
+
 type TabId = 'overview' | 'performance' | 'streaming' | 'history' | 'trends';
 
 export const CircuitDetailModal = ({
@@ -43,7 +120,10 @@ export const CircuitDetailModal = ({
 
   const { data: metricsData } = useQuery({
     queryKey: ['circuit-metrics', serverId, model],
-    queryFn: () => getServerModelMetrics(serverId, model),
+    queryFn: async () => {
+      const data = await getServerModelMetrics(serverId, model);
+      return data as unknown as CircuitMetricsData | undefined;
+    },
     enabled: isOpen,
     refetchInterval: 30000,
   });
@@ -175,7 +255,7 @@ const OverviewTab = ({
   metricsData,
   circuitBreaker,
 }: {
-  metricsData?: any;
+  metricsData?: CircuitMetricsData;
   circuitBreaker?: CircuitBreakerInfo;
 }) => {
   const percentiles = metricsData?.metrics?.percentiles;
@@ -197,7 +277,7 @@ const OverviewTab = ({
           value={derived?.successRate ? `${(derived.successRate * 100).toFixed(1)}%` : 'N/A'}
           subtext="Overall"
           icon={Shield}
-          color={derived?.successRate > 0.9 ? 'text-green-400' : 'text-yellow-400'}
+          color={(derived?.successRate ?? 0) > 0.9 ? 'text-green-400' : 'text-yellow-400'}
         />
         <StatCard
           title="Throughput"
@@ -283,7 +363,7 @@ const OverviewTab = ({
 };
 
 // Performance Tab Component
-const PerformanceTab = ({ metricsData }: { metricsData?: any }) => {
+const PerformanceTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) => {
   const percentiles = metricsData?.metrics?.percentiles;
   const derived = metricsData?.metrics?.derived;
 
@@ -337,7 +417,7 @@ const PerformanceTab = ({ metricsData }: { metricsData?: any }) => {
 };
 
 // Streaming Tab Component
-const StreamingTab = ({ metricsData }: { metricsData?: any }) => {
+const StreamingTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) => {
   const streaming =
     metricsData?.metrics?.historical?.['5m']?.streamingMetrics ||
     metricsData?.metrics?.streamingMetrics;
@@ -469,13 +549,19 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
 
   const { data: requestHistory, isLoading: historyLoading } = useQuery({
     queryKey: ['request-history', serverId, model, timeRange],
-    queryFn: () => getServerRequestHistory(serverId, { limit: 20 }),
+    queryFn: async () => {
+      const data = await getServerRequestHistory(serverId, { limit: 20 });
+      return data as unknown as RequestHistoryResponse | undefined;
+    },
     refetchInterval: 30000,
   });
 
   const { data: decisions, isLoading: decisionsLoading } = useQuery({
     queryKey: ['decisions', serverId, model, timeRange],
-    queryFn: () => getDecisionHistory({ serverId, model, limit: 20, hours: timeRange }),
+    queryFn: async () => {
+      const data = await getDecisionHistory({ serverId, model, limit: 20, hours: timeRange });
+      return data as unknown as DecisionHistoryResponse | undefined;
+    },
     refetchInterval: 30000,
   });
 
@@ -512,7 +598,7 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
           <div className="text-gray-500">Loading...</div>
         ) : requests.length > 0 ? (
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {requests.slice(0, 10).map((req: any, idx: number) => (
+            {requests.slice(0, 10).map((req: RequestHistoryItem, idx: number) => (
               <div
                 key={idx}
                 className="flex items-center justify-between p-2 bg-gray-800 rounded-lg"
@@ -552,7 +638,7 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
           <div className="text-gray-500">Loading...</div>
         ) : decisionList.length > 0 ? (
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {decisionList.slice(0, 10).map((decision: any, idx: number) => (
+            {decisionList.slice(0, 10).map((decision: DecisionHistoryItem, idx: number) => (
               <div
                 key={idx}
                 className="flex items-center justify-between p-2 bg-gray-800 rounded-lg"
@@ -606,7 +692,7 @@ const TrendsTab = ({ serverId, model }: { serverId: string; model: string }) => 
 
   // Calculate trends
   const totalDecisions = decisionList.length;
-  const selectedCount = decisionList.filter((d: any) => d.selected).length;
+  const selectedCount = decisionList.filter((d: DecisionHistoryItem) => d.selected).length;
   const selectionRate = totalDecisions > 0 ? (selectedCount / totalDecisions) * 100 : 0;
 
   // Calculate success rate from recent requests
