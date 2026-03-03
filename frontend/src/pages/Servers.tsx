@@ -48,6 +48,7 @@ export const Servers = () => {
     mutationFn: addServer,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['servers'] });
+      toastSuccess('Server added successfully');
       setIsAddModalOpen(false);
       setNewServerUrl('');
       setNewServerConcurrency('');
