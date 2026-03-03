@@ -652,3 +652,26 @@ export function getServersWithHistory(req: Request, res: Response): void {
     });
   }
 }
+
+/**
+ * Get persisted hourly summary snapshots for long-term trend charts (up to 30 days)
+ * GET /api/orchestrator/analytics/summary-snapshots
+ */
+export function getSummarySnapshots(req: Request, res: Response): void {
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const snapshots = analytics.getSummarySnapshots();
+
+    res.status(200).json({
+      success: true,
+      count: snapshots.length,
+      snapshots,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get summary snapshots',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}

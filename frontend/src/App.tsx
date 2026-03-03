@@ -6,11 +6,11 @@ import { Toaster } from './components/Toaster';
 import { Dashboard } from './pages/Dashboard';
 import { Servers } from './pages/Servers';
 import { Models } from './pages/Models';
-import { Queue } from './pages/Queue';
 import { Analytics } from './pages/Analytics';
 import { CircuitBreakers } from './pages/CircuitBreakers';
 import { Logs } from './pages/Logs';
 import Settings from './pages/Settings';
+import { InFlight } from './pages/InFlight';
 import { ApiError } from './api';
 
 // Create a client
@@ -42,11 +42,11 @@ function App() {
               <Route index element={<Dashboard />} />
               <Route path="servers" element={<Servers />} />
               <Route path="models" element={<Models />} />
-              <Route path="queue" element={<Queue />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="circuit-breakers" element={<CircuitBreakers />} />
               <Route path="logs" element={<Logs />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="in-flight" element={<InFlight />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

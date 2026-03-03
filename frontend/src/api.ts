@@ -103,6 +103,7 @@ export const getServers = async (): Promise<AIServer[]> => {
 export const addServer = async (server: {
   id: string;
   url: string;
+  type?: 'ollama' | 'openai' | 'auto';
   maxConcurrency?: number;
   apiKey?: string;
 }) => {
@@ -157,13 +158,6 @@ export const getStats = async () => {
   return apiCall(async () => {
     const response = await api.get('/stats');
     return response.data.stats;
-  });
-};
-
-export const getQueueStatus = async () => {
-  return apiCall(async () => {
-    const response = await api.get('/queue');
-    return response.data;
   });
 };
 
@@ -599,6 +593,31 @@ export const getServersWithHistory = async () => {
   });
 };
 
+export interface MetricsSummarySnapshot {
+  timestamp: number;
+  servers: {
+    [serverId: string]: {
+      [model: string]: {
+        avgLatency: number;
+        avgTokenThroughput: number;
+        requestCount: number;
+        errorRate: number;
+      };
+    };
+  };
+}
+
+export const getSummarySnapshots = async (): Promise<{
+  success: boolean;
+  count: number;
+  snapshots: MetricsSummarySnapshot[];
+}> => {
+  return apiCall(async () => {
+    const response = await api.get('/analytics/summary-snapshots');
+    return response.data;
+  });
+};
+
 // === Per-Server Model Management ===
 
 export const listServerModels = async (serverId: string) => {
@@ -636,29 +655,6 @@ export const copyModelToServer = async (
 export const getFleetModelStats = async () => {
   return apiCall(async () => {
     const response = await api.get('/models/fleet-stats');
-    return response.data;
-  });
-};
-
-// === Queue Control API ===
-
-export const pauseQueue = async () => {
-  return apiCall(async () => {
-    const response = await api.post('/queue/pause');
-    return response.data;
-  });
-};
-
-export const resumeQueue = async () => {
-  return apiCall(async () => {
-    const response = await api.post('/queue/resume');
-    return response.data;
-  });
-};
-
-export const drainQueue = async () => {
-  return apiCall(async () => {
-    const response = await api.post('/drain');
     return response.data;
   });
 };

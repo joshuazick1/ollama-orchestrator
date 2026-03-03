@@ -4,7 +4,7 @@ import {
   LayoutDashboard,
   Server,
   Database,
-  Layers,
+  Zap,
   BarChart2,
   Shield,
   Settings,
@@ -83,8 +83,8 @@ export const Layout = () => {
           <NavigationItem to="/models" icon={Database}>
             Models
           </NavigationItem>
-          <NavigationItem to="/queue" icon={Layers}>
-            Queue
+          <NavigationItem to="/in-flight" icon={Zap}>
+            In-Flight
           </NavigationItem>
           <NavigationItem to="/analytics" icon={BarChart2}>
             Analytics
@@ -154,8 +154,8 @@ export const Layout = () => {
           <NavigationItem to="/models" icon={Database} onClick={closeMobileMenu}>
             Models
           </NavigationItem>
-          <NavigationItem to="/queue" icon={Layers} onClick={closeMobileMenu}>
-            Queue
+          <NavigationItem to="/in-flight" icon={Zap} onClick={closeMobileMenu}>
+            In-Flight
           </NavigationItem>
           <NavigationItem to="/analytics" icon={BarChart2} onClick={closeMobileMenu}>
             Analytics

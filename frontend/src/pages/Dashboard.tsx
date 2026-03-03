@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { getHealth, getQueueStatus, getAnalyticsSummary, getMetrics } from '../api';
-import { Activity, Zap, Clock, AlertCircle, CheckCircle, XCircle, Radio } from 'lucide-react';
+import { getHealth, getAnalyticsSummary, getMetrics } from '../api';
+import { Activity, Zap, AlertCircle, CheckCircle, XCircle, Radio } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 
 export const Dashboard = () => {
@@ -12,11 +12,6 @@ export const Dashboard = () => {
     queryKey: ['health'],
     queryFn: getHealth,
     refetchInterval: 5000,
-  });
-  const { data: queue, isLoading: queueLoading } = useQuery({
-    queryKey: ['queue'],
-    queryFn: getQueueStatus,
-    refetchInterval: 2000,
   });
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
     queryKey: ['analytics-summary'],
@@ -36,10 +31,6 @@ export const Dashboard = () => {
   const openCircuitBreakers = Object.values(circuitBreakers).filter(
     (cb: unknown) => (cb as { state: string }).state === 'open'
   ).length;
-
-  // Handle both old and new queue API response formats
-  const queueLength = queue?.queue?.currentSize ?? queue?.currentSize ?? queue?.queueLength ?? 0;
-  const queueItems = queue?.queue?.items ?? queue?.items ?? [];
 
   // Show loading state if any critical data is loading
   if (healthLoading) {
@@ -135,11 +126,17 @@ export const Dashboard = () => {
           }
         />
         <StatCard
-          title="Request Queue"
-          value={queueLoading ? '...' : queueLength}
-          subtext={queueLoading ? 'Loading...' : 'Pending requests'}
-          icon={Clock}
-          color={queueLoading ? 'text-gray-400' : 'text-yellow-400'}
+          title="In-Flight Requests"
+          value={healthLoading ? '...' : inFlightRequests}
+          subtext={healthLoading ? 'Loading...' : 'Active requests'}
+          icon={Zap}
+          color={
+            healthLoading
+              ? 'text-gray-400'
+              : inFlightRequests > 100
+                ? 'text-yellow-400'
+                : 'text-blue-400'
+          }
         />
         <StatCard
           title="Total Requests"
@@ -249,31 +246,12 @@ export const Dashboard = () => {
         </div>
 
         <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
-          <h3 className="text-lg font-semibold text-white mb-4">Request Queue</h3>
-          {queueItems.length > 0 ? (
-            <div className="space-y-2">
-              {queueItems
-                .slice(0, 5)
-                .map(
-                  (item: { id: string; model: string; addedAt: string; enqueueTime?: string }) => (
-                    <div
-                      key={item.id}
-                      className="flex justify-between items-center p-3 bg-gray-900 rounded-lg text-sm"
-                    >
-                      <span className="text-gray-300 truncate max-w-[200px]">{item.model}</span>
-                      <span className="text-gray-500 text-xs">
-                        {item.enqueueTime ? new Date(item.enqueueTime).toLocaleTimeString() : 'N/A'}
-                      </span>
-                    </div>
-                  )
-                )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center h-40 text-gray-500">
-              <Clock className="w-8 h-8 mb-2 opacity-50" />
-              <p>Queue is empty</p>
-            </div>
-          )}
+          <h3 className="text-lg font-semibold text-white mb-4">Active Models</h3>
+          <div className="flex flex-col items-center justify-center h-40 text-gray-500">
+            <Activity className="w-8 h-8 mb-2 opacity-50" />
+            <p className="font-mono text-2xl text-white">{totalModels}</p>
+            <p className="text-sm mt-1">models available across all servers</p>
+          </div>
         </div>
       </div>
     </div>

@@ -26,27 +26,6 @@ export const validateConfig = (config: Record<string, unknown>): ValidationResul
     }
   }
 
-  const queue = config.queue as Record<string, unknown> | undefined;
-  if (queue?.maxSize) {
-    const maxSize = Number(queue.maxSize);
-    if (maxSize < 1) {
-      errors['queue.maxSize'] = 'Queue max size must be at least 1';
-    }
-    if (maxSize > 10000) {
-      warnings['queue.maxSize'] = 'Very large queue size may impact memory';
-    }
-  }
-
-  if (queue?.timeout) {
-    const timeout = Number(queue.timeout);
-    if (timeout < 1000) {
-      warnings['queue.timeout'] = 'Timeout less than 1 second may cause issues';
-    }
-    if (timeout > 600000) {
-      warnings['queue.timeout'] = 'Very long timeout may cause requests to hang';
-    }
-  }
-
   const loadBalancer = config.loadBalancer as Record<string, unknown> | undefined;
   if (loadBalancer?.weights) {
     const weights = loadBalancer.weights as Record<string, number>;
@@ -128,32 +107,6 @@ export const validateConfig = (config: Record<string, unknown>): ValidationResul
     errors,
     warnings,
   };
-};
-
-export const validateQueueConfig = (config: {
-  maxSize?: number;
-  timeout?: number;
-  priorityBoostInterval?: number;
-  priorityBoostAmount?: number;
-}) => {
-  const schema = z.object({
-    maxSize: z.number().min(1).max(10000).optional(),
-    timeout: z.number().min(1000).max(600000).optional(),
-    priorityBoostInterval: z.number().min(1000).optional(),
-    priorityBoostAmount: z.number().min(1).max(100).optional(),
-  });
-
-  const result = schema.safeParse(config);
-  if (!result.success) {
-    const errors: Record<string, string> = {};
-    result.error.issues.forEach((err: z.ZodIssue) => {
-      if (err.path[0]) {
-        errors[err.path[0] as string] = err.message;
-      }
-    });
-    return { success: false, errors };
-  }
-  return { success: true, errors: {} as Record<string, string> };
 };
 
 export const validateLoadBalancerConfig = (config: {
@@ -269,11 +222,6 @@ export const validateCircuitBreakerConfig = (config: {
 
 export const suggestConfigImprovements = (config: Record<string, unknown>): string[] => {
   const suggestions: string[] = [];
-
-  const queue = config.queue as { maxSize?: number } | undefined;
-  if (queue?.maxSize && Number(queue.maxSize) < 100) {
-    suggestions.push('Consider increasing queue maxSize for better handling of traffic spikes');
-  }
 
   const circuitBreaker = config.circuitBreaker as { adaptiveThresholds?: boolean } | undefined;
   if (circuitBreaker?.adaptiveThresholds === false) {

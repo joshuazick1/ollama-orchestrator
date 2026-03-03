@@ -7,6 +7,7 @@ import {
   drainServer,
   undrainServer,
   setServerMaintenance,
+  getMetrics,
 } from '../api';
 import { Modal } from '../components/Modal';
 import { ModelManagerModal } from '../components/ModelManagerModal';
@@ -27,6 +28,7 @@ export const Servers = () => {
   const [newServerUrl, setNewServerUrl] = useState('');
   const [newServerConcurrency, setNewServerConcurrency] = useState<number | ''>('');
   const [newServerApiKey, setNewServerApiKey] = useState('');
+  const [newServerType, setNewServerType] = useState<'ollama' | 'openai' | 'auto'>('ollama');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [expandedServerId, setExpandedServerId] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<{
@@ -36,6 +38,12 @@ export const Servers = () => {
   const [groupConfig, setGroupConfig] = useState<'none' | 'version' | 'healthy'>('none');
   const [modelManagerServer, setModelManagerServer] = useState<AIServer | null>(null);
 
+  const { data: metricsData } = useQuery({
+    queryKey: ['metrics'],
+    queryFn: getMetrics,
+    refetchInterval: 10000,
+  });
+
   const addMutation = useMutation({
     mutationFn: addServer,
     onSuccess: () => {
@@ -44,6 +52,7 @@ export const Servers = () => {
       setNewServerUrl('');
       setNewServerConcurrency('');
       setNewServerApiKey('');
+      setNewServerType('ollama');
       setValidationErrors({});
     },
   });
@@ -121,6 +130,7 @@ export const Servers = () => {
     addMutation.mutate({
       id,
       url: newServerUrl,
+      type: newServerType,
       maxConcurrency: newServerConcurrency === '' ? undefined : newServerConcurrency,
       apiKey: newServerApiKey || undefined,
     });
@@ -277,7 +287,24 @@ export const Servers = () => {
                             <span>{server.version || 'v?'}</span>
                           </div>
                           <div className="flex items-center space-x-2 mt-1">
-                            {server.supportsOllama !== false && (
+                            {server.type && (
+                              <span
+                                className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                  server.type === 'openai'
+                                    ? 'bg-green-500/20 text-green-400'
+                                    : server.type === 'auto'
+                                      ? 'bg-blue-500/20 text-blue-400'
+                                      : 'bg-purple-500/20 text-purple-400'
+                                }`}
+                              >
+                                {server.type === 'openai'
+                                  ? 'OpenAI'
+                                  : server.type === 'auto'
+                                    ? 'Auto'
+                                    : 'Ollama'}
+                              </span>
+                            )}
+                            {server.supportsOllama !== false && server.type !== 'openai' && (
                               <span className="px-2 py-0.5 rounded text-xs bg-purple-500/20 text-purple-400">
                                 Ollama
                               </span>
@@ -354,6 +381,107 @@ export const Servers = () => {
                               </span>
                             </div>
                           </div>
+
+                          {/* VRAM Usage */}
+                          {server.hardware &&
+                            server.hardware.totalVram != null &&
+                            server.hardware.totalVram > 0 && (
+                              <div className="p-3 bg-gray-900/50 rounded-lg">
+                                <div className="flex justify-between text-sm mb-2">
+                                  <span className="text-gray-400">VRAM Usage</span>
+                                  <span className="text-white font-mono">
+                                    {((server.hardware.usedVram ?? 0) / 1024).toFixed(1)} /{' '}
+                                    {(server.hardware.totalVram / 1024).toFixed(1)} GB
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-700/50 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-500 ${
+                                      (server.hardware.usedVram ?? 0) / server.hardware.totalVram >
+                                      0.9
+                                        ? 'bg-red-500'
+                                        : (server.hardware.usedVram ?? 0) /
+                                              server.hardware.totalVram >
+                                            0.7
+                                          ? 'bg-yellow-500'
+                                          : 'bg-blue-500'
+                                    }`}
+                                    style={{
+                                      width: `${Math.min(100, ((server.hardware.usedVram ?? 0) / server.hardware.totalVram) * 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                          {/* Model Metrics Aggregate */}
+                          {metricsData?.servers?.[server.id] &&
+                            (() => {
+                              const srvMetrics = metricsData.servers[server.id];
+                              const modelEntries = Object.entries(srvMetrics.models || {});
+                              const avgTps =
+                                modelEntries.length > 0
+                                  ? modelEntries.reduce(
+                                      (sum, [, m]) => sum + (m.avgTokensPerSecond ?? 0),
+                                      0
+                                    ) / modelEntries.length
+                                  : null;
+                              const totalColdStarts = modelEntries.reduce(
+                                (sum, [, m]) => sum + (m.coldStartCount ?? 0),
+                                0
+                              );
+                              const avgNetOverhead =
+                                modelEntries.filter(([, m]) => m.avgNetworkOverheadMs != null)
+                                  .length > 0
+                                  ? modelEntries
+                                      .filter(([, m]) => m.avgNetworkOverheadMs != null)
+                                      .reduce(
+                                        (sum, [, m]) => sum + (m.avgNetworkOverheadMs ?? 0),
+                                        0
+                                      ) /
+                                    modelEntries.filter(([, m]) => m.avgNetworkOverheadMs != null)
+                                      .length
+                                  : null;
+                              if (
+                                avgTps === null &&
+                                totalColdStarts === 0 &&
+                                avgNetOverhead === null
+                              )
+                                return null;
+                              return (
+                                <div>
+                                  <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-2">
+                                    Performance
+                                  </h4>
+                                  <div className="space-y-2">
+                                    {avgTps !== null && (
+                                      <div className="flex justify-between p-3 bg-gray-900/50 rounded-lg">
+                                        <span className="text-gray-400">Avg Token Speed</span>
+                                        <span className="text-white font-mono">
+                                          {avgTps.toFixed(1)} tok/s
+                                        </span>
+                                      </div>
+                                    )}
+                                    {totalColdStarts > 0 && (
+                                      <div className="flex justify-between p-3 bg-gray-900/50 rounded-lg">
+                                        <span className="text-gray-400">Cold Starts</span>
+                                        <span className="text-yellow-400 font-mono">
+                                          {totalColdStarts}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {avgNetOverhead !== null && (
+                                      <div className="flex justify-between p-3 bg-gray-900/50 rounded-lg">
+                                        <span className="text-gray-400">Network Overhead</span>
+                                        <span className="text-white font-mono">
+                                          {avgNetOverhead.toFixed(1)}ms
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
 
                           <div className="pt-4">
                             <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">
@@ -489,6 +617,21 @@ export const Servers = () => {
             )}
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Server Type</label>
+            <select
+              value={newServerType}
+              onChange={e => setNewServerType(e.target.value as 'ollama' | 'openai' | 'auto')}
+              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+            >
+              <option value="ollama">Ollama</option>
+              <option value="openai">OpenAI-compatible</option>
+              <option value="auto">Auto-detect</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Auto-detect probes both Ollama and OpenAI endpoints
+            </p>
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Max Concurrency (optional)
             </label>
@@ -514,7 +657,7 @@ export const Servers = () => {
               API Key (optional)
             </label>
             <input
-              type="text"
+              type="password"
               value={newServerApiKey}
               onChange={e => setNewServerApiKey(e.target.value)}
               placeholder="env:MY_API_KEY or sk-..."
