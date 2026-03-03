@@ -213,26 +213,6 @@ export const useRealTimeUpdates = (
   return { connectionStatus };
 };
 
-export const createEventEmitter = () => {
-  const listeners: Map<string, Set<(data: unknown) => void>> = new Map();
-
-  return {
-    on(event: string, callback: (data: unknown) => void) {
-      if (!listeners.has(event)) {
-        listeners.set(event, new Set());
-      }
-      listeners.get(event)!.add(callback);
-    },
-    off(event: string, callback: (data: unknown) => void) {
-      listeners.get(event)?.delete(callback);
-    },
-    emit(event: string, data: unknown) {
-      listeners.get(event)?.forEach(callback => callback(data));
-    },
-    clear() {
-      listeners.clear();
-    },
-  };
-};
+export { createEventEmitter } from '../utils/eventEmitter';
 
 export type { WebSocketMessage, UseWebSocketOptions, UseWebSocketReturn };
