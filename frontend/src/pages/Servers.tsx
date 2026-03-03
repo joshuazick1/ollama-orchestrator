@@ -17,6 +17,7 @@ import { encodeUrlParam } from '../utils/security';
 import { Plus, Trash2, Server as ServerIcon, Power, PowerOff, Wrench } from 'lucide-react';
 import type { AIServer } from '../types';
 import { toastSuccess, toastError } from '../utils/toast';
+import { SkeletonServerCard } from '../components/skeletons';
 
 export const Servers = () => {
   const queryClient = useQueryClient();
@@ -191,7 +192,23 @@ export const Servers = () => {
     );
   }, [sortedServers, groupConfig]);
 
-  if (isLoading) return <div className="text-white">Loading...</div>;
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold text-white">Servers</h2>
+            <p className="text-gray-400">Manage your AI inference nodes</p>
+          </div>
+        </div>
+        <div className="space-y-4">
+          {[1, 2, 3].map(i => (
+            <SkeletonServerCard key={i} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

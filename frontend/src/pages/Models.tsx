@@ -9,6 +9,7 @@ import {
   resetCircuitBreaker,
   getAllModelsStatus,
 } from '../api';
+import { SkeletonTable } from '../components/skeletons';
 import {
   Server,
   Box,
@@ -318,7 +319,17 @@ export const Models = () => {
   }, [modelsStatusData]);
 
   if (mapLoading || serversLoading || circuitLoading || inFlightLoading) {
-    return <div className="text-white">Loading...</div>;
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold text-white">Models</h2>
+            <p className="text-gray-400">View and manage models across your servers</p>
+          </div>
+        </div>
+        <SkeletonTable rows={8} columns={4} />
+      </div>
+    );
   }
 
   const rawModels = Object.keys(modelMap || {});
