@@ -1,38 +1,47 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 
 type HotkeyCallback = () => void;
 
-const useHotkeys = (keys: string, callback: HotkeyCallback) => {
+interface HotkeyOptions {
+  enabled?: boolean;
+}
+
+const useHotkeys = (keys: string, callback: HotkeyCallback, options: HotkeyOptions = {}) => {
+  const { enabled = true } = options;
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
+      if (!enabled) return;
+
       const keyCombinations = keys.split(',').map(k => k.trim().toLowerCase());
       const pressedKey = event.key.toLowerCase();
-      const isMeta = event.metaKey || event.ctrlKey;
 
       for (const combo of keyCombinations) {
         const parts = combo.split('+');
-        const requiredKey = parts[0];
-        const needsShift = parts.includes('shift');
-        const needsCtrl = parts.includes('ctrl') || parts.includes('control');
-        const needsMeta = parts.includes('cmd') || parts.includes('meta');
+        const requiredKey = parts[parts.length - 1];
+        const modifiers = new Set(parts.slice(0, -1));
 
-        const keyMatches =
-          pressedKey === requiredKey || (pressedKey === 'k' && requiredKey === 'cmd' && isMeta);
+        const keyMatches = pressedKey === requiredKey;
 
-        const modifierMatches =
-          (needsMeta && (event.metaKey || event.key === 'Meta')) ||
-          (needsCtrl && (event.ctrlKey || event.key === 'Control')) ||
-          (needsShift && (event.shiftKey || event.key === 'Shift')) ||
-          (!needsMeta && !needsCtrl && !needsShift);
+        const hasRequiredModifiers =
+          (modifiers.has('cmd') || modifiers.has('meta')) === event.metaKey &&
+          (modifiers.has('ctrl') || modifiers.has('control')) === event.ctrlKey &&
+          modifiers.has('shift') === event.shiftKey &&
+          modifiers.has('alt') === event.altKey;
 
-        if (keyMatches && modifierMatches) {
+        if (keyMatches && hasRequiredModifiers) {
           event.preventDefault();
-          callback();
+          callbackRef.current();
           return;
         }
       }
     },
-    [keys, callback]
+    [keys, enabled]
   );
 
   useEffect(() => {
