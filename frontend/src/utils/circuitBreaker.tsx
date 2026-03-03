@@ -3,7 +3,7 @@ import { Shield, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 
 export type CircuitBreakerState = 'OPEN' | 'CLOSED' | 'HALF-OPEN' | 'UNKNOWN';
 
-export const getCircuitBreakerStateColor = (state: string): string => {
+export const getCircuitBreakerStateColor = (state: CircuitBreakerState): string => {
   switch (state) {
     case 'OPEN':
       return 'text-red-400 bg-red-400/10 border-red-400/20';
@@ -16,7 +16,7 @@ export const getCircuitBreakerStateColor = (state: string): string => {
   }
 };
 
-export const getCircuitBreakerBadgeColor = (state: string): string => {
+export const getCircuitBreakerBadgeColor = (state: CircuitBreakerState): string => {
   switch (state) {
     case 'OPEN':
       return 'bg-red-500/20 text-red-400 border-red-500/50';
@@ -29,7 +29,7 @@ export const getCircuitBreakerBadgeColor = (state: string): string => {
   }
 };
 
-export const getCircuitBreakerStateIcon = (state: string): ReactNode => {
+export const getCircuitBreakerStateIcon = (state: CircuitBreakerState): ReactNode => {
   switch (state) {
     case 'OPEN':
       return <ShieldAlert className="w-6 h-6 text-red-500" />;
@@ -42,7 +42,7 @@ export const getCircuitBreakerStateIcon = (state: string): ReactNode => {
   }
 };
 
-export const getCircuitBreakerStateLabel = (state: string): string => {
+export const getCircuitBreakerStateLabel = (state: CircuitBreakerState): string => {
   switch (state) {
     case 'OPEN':
       return 'Open';
@@ -55,7 +55,7 @@ export const getCircuitBreakerStateLabel = (state: string): string => {
   }
 };
 
-export const getStatePriority = (state: string): number => {
+export const getStatePriority = (state: CircuitBreakerState): number => {
   switch (state) {
     case 'OPEN':
       return 0;
@@ -68,7 +68,7 @@ export const getStatePriority = (state: string): number => {
   }
 };
 
-export const sortByStatePriority = <T extends { state: string }>(items: T[]): T[] => {
+export const sortByStatePriority = <T extends { state: CircuitBreakerState }>(items: T[]): T[] => {
   return [...items].sort((a, b) => getStatePriority(a.state) - getStatePriority(b.state));
 };
 

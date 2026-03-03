@@ -1,0 +1,17 @@
+export const MS_PER_SECOND = 1000;
+export const MS_PER_MINUTE = 60 * MS_PER_SECOND;
+export const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+export const MS_PER_DAY = 24 * MS_PER_HOUR;
+
+export const DEFAULT_TOAST_DURATION = 4000;
+export const ERROR_TOAST_DURATION = 5000;
+
+export const DEFAULT_REFETCH_INTERVALS = {
+  HEALTH: 5000,
+  SERVERS: 5000,
+  METRICS: 30000,
+  CIRCUIT_BREAKERS: 5000,
+  IN_FLIGHT: 2000,
+  ANALYTICS: 30000,
+  LOGS: 10000,
+} as const;
