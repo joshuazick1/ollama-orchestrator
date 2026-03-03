@@ -6,6 +6,7 @@ interface WebSocketMessage {
   type: string;
   payload: unknown;
   timestamp: number;
+  [key: string]: unknown;
 }
 
 interface UseWebSocketOptions {
@@ -55,11 +56,21 @@ export const useWebSocket = ({
 
       ws.onmessage = event => {
         try {
-          const message: WebSocketMessage = JSON.parse(event.data);
+          const parsed = JSON.parse(event.data);
+          const message: WebSocketMessage = {
+            type: parsed.type ?? 'unknown',
+            payload: parsed.payload ?? parsed,
+            timestamp: parsed.timestamp ?? Date.now(),
+          };
           setLastMessage(message);
           onMessage?.(message);
-        } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
+        } catch {
+          const message: WebSocketMessage = {
+            type: 'unknown',
+            payload: event.data,
+            timestamp: Date.now(),
+          };
+          setLastMessage(message);
         }
       };
 
@@ -157,10 +168,20 @@ export const useRealTimeUpdates = (
 
         ws.onmessage = event => {
           try {
-            const data = JSON.parse(event.data);
-            onUpdate(data);
-          } catch (e) {
-            console.error('Failed to parse real-time update:', e);
+            const parsed = JSON.parse(event.data);
+            const message: WebSocketMessage = {
+              type: parsed.type ?? 'unknown',
+              payload: parsed.payload ?? parsed,
+              timestamp: parsed.timestamp ?? Date.now(),
+            };
+            onUpdate(message);
+          } catch {
+            const message: WebSocketMessage = {
+              type: 'unknown',
+              payload: event.data,
+              timestamp: Date.now(),
+            };
+            onUpdate(message);
           }
         };
 
