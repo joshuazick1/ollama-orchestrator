@@ -11,10 +11,10 @@ import {
   FileText,
   Settings,
   X,
-  ArrowRight,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { getServers, getModelMap } from '../api';
+import { SearchResultGroup } from './SearchResultGroup';
 
 interface SearchResult {
   id: string;
@@ -189,6 +189,14 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
     [allResults, selectedIndex, onClose]
   );
 
+  const handleSelectItem = useCallback(
+    (item: SearchResult) => {
+      item.action();
+      onClose();
+    },
+    [onClose]
+  );
+
   if (!isOpen) return null;
 
   const groupedResults = {
@@ -231,125 +239,27 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
             </div>
           ) : (
             <div className="p-2">
-              {groupedResults.navigation.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Pages
-                  </div>
-                  {groupedResults.navigation.map(item => {
-                    const globalIdx = allResults.indexOf(item);
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          item.action();
-                          onClose();
-                        }}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
-                          globalIdx === selectedIndex
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-gray-800'
-                        }`}
-                      >
-                        <item.icon className="w-5 h-5 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{item.title}</div>
-                          <div
-                            className={`text-sm truncate ${
-                              globalIdx === selectedIndex ? 'text-blue-200' : 'text-gray-500'
-                            }`}
-                          >
-                            {item.description}
-                          </div>
-                        </div>
-                        {globalIdx === selectedIndex && (
-                          <ArrowRight className="w-4 h-4 flex-shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {groupedResults.server.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Servers
-                  </div>
-                  {groupedResults.server.map(item => {
-                    const globalIdx = allResults.indexOf(item);
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          item.action();
-                          onClose();
-                        }}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
-                          globalIdx === selectedIndex
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-gray-800'
-                        }`}
-                      >
-                        <item.icon className="w-5 h-5 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{item.title}</div>
-                          <div
-                            className={`text-sm truncate ${
-                              globalIdx === selectedIndex ? 'text-blue-200' : 'text-gray-500'
-                            }`}
-                          >
-                            {item.description}
-                          </div>
-                        </div>
-                        {globalIdx === selectedIndex && (
-                          <ArrowRight className="w-4 h-4 flex-shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {groupedResults.model.length > 0 && (
-                <div>
-                  <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Models
-                  </div>
-                  {groupedResults.model.map(item => {
-                    const globalIdx = allResults.indexOf(item);
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          item.action();
-                          onClose();
-                        }}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
-                          globalIdx === selectedIndex
-                            ? 'bg-blue-600 text-white'
-                            : 'text-gray-300 hover:bg-gray-800'
-                        }`}
-                      >
-                        <item.icon className="w-5 h-5 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{item.title}</div>
-                          <div
-                            className={`text-sm truncate ${
-                              globalIdx === selectedIndex ? 'text-blue-200' : 'text-gray-500'
-                            }`}
-                          >
-                            {item.description}
-                          </div>
-                        </div>
-                        {globalIdx === selectedIndex && (
-                          <ArrowRight className="w-4 h-4 flex-shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              <SearchResultGroup
+                title="Pages"
+                items={groupedResults.navigation}
+                allResults={allResults}
+                selectedIndex={selectedIndex}
+                onSelect={handleSelectItem}
+              />
+              <SearchResultGroup
+                title="Servers"
+                items={groupedResults.server}
+                allResults={allResults}
+                selectedIndex={selectedIndex}
+                onSelect={handleSelectItem}
+              />
+              <SearchResultGroup
+                title="Models"
+                items={groupedResults.model}
+                allResults={allResults}
+                selectedIndex={selectedIndex}
+                onSelect={handleSelectItem}
+              />
             </div>
           )}
         </div>
