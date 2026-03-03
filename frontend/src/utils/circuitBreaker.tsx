@@ -3,69 +3,63 @@ import { Shield, ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 
 export type CircuitBreakerState = 'OPEN' | 'CLOSED' | 'HALF-OPEN' | 'UNKNOWN';
 
+interface CircuitBreakerConfig {
+  color: string;
+  badgeColor: string;
+  icon: ReactNode;
+  label: string;
+  priority: number;
+}
+
+const CIRCUIT_BREAKER_CONFIG: Record<CircuitBreakerState, CircuitBreakerConfig> = {
+  OPEN: {
+    color: 'text-red-400 bg-red-400/10 border-red-400/20',
+    badgeColor: 'bg-red-500/20 text-red-400 border-red-500/50',
+    icon: <ShieldAlert className="w-6 h-6 text-red-500" />,
+    label: 'Open',
+    priority: 0,
+  },
+  CLOSED: {
+    color: 'text-green-400 bg-green-400/10 border-green-400/20',
+    badgeColor: 'bg-green-500/20 text-green-400 border-green-500/50',
+    icon: <ShieldCheck className="w-6 h-6 text-green-500" />,
+    label: 'Closed',
+    priority: 2,
+  },
+  'HALF-OPEN': {
+    color: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20',
+    badgeColor: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50',
+    icon: <ShieldQuestion className="w-6 h-6 text-yellow-500" />,
+    label: 'Half-Open',
+    priority: 1,
+  },
+  UNKNOWN: {
+    color: 'text-gray-400 bg-gray-400/10 border-gray-400/20',
+    badgeColor: 'bg-gray-500/20 text-gray-400 border-gray-500/50',
+    icon: <Shield className="w-6 h-6 text-gray-500" />,
+    label: 'Unknown',
+    priority: 3,
+  },
+};
+
 export const getCircuitBreakerStateColor = (state: CircuitBreakerState): string => {
-  switch (state) {
-    case 'OPEN':
-      return 'text-red-400 bg-red-400/10 border-red-400/20';
-    case 'HALF-OPEN':
-      return 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20';
-    case 'CLOSED':
-      return 'text-green-400 bg-green-400/10 border-green-400/20';
-    default:
-      return 'text-gray-400 bg-gray-400/10 border-gray-400/20';
-  }
+  return CIRCUIT_BREAKER_CONFIG[state]?.color ?? CIRCUIT_BREAKER_CONFIG.UNKNOWN.color;
 };
 
 export const getCircuitBreakerBadgeColor = (state: CircuitBreakerState): string => {
-  switch (state) {
-    case 'OPEN':
-      return 'bg-red-500/20 text-red-400 border-red-500/50';
-    case 'HALF-OPEN':
-      return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50';
-    case 'CLOSED':
-      return 'bg-green-500/20 text-green-400 border-green-500/50';
-    default:
-      return 'bg-gray-500/20 text-gray-400 border-gray-500/50';
-  }
+  return CIRCUIT_BREAKER_CONFIG[state]?.badgeColor ?? CIRCUIT_BREAKER_CONFIG.UNKNOWN.badgeColor;
 };
 
 export const getCircuitBreakerStateIcon = (state: CircuitBreakerState): ReactNode => {
-  switch (state) {
-    case 'OPEN':
-      return <ShieldAlert className="w-6 h-6 text-red-500" />;
-    case 'CLOSED':
-      return <ShieldCheck className="w-6 h-6 text-green-500" />;
-    case 'HALF-OPEN':
-      return <ShieldQuestion className="w-6 h-6 text-yellow-500" />;
-    default:
-      return <Shield className="w-6 h-6 text-gray-500" />;
-  }
+  return CIRCUIT_BREAKER_CONFIG[state]?.icon ?? CIRCUIT_BREAKER_CONFIG.UNKNOWN.icon;
 };
 
 export const getCircuitBreakerStateLabel = (state: CircuitBreakerState): string => {
-  switch (state) {
-    case 'OPEN':
-      return 'Open';
-    case 'CLOSED':
-      return 'Closed';
-    case 'HALF-OPEN':
-      return 'Half-Open';
-    default:
-      return 'Unknown';
-  }
+  return CIRCUIT_BREAKER_CONFIG[state]?.label ?? CIRCUIT_BREAKER_CONFIG.UNKNOWN.label;
 };
 
 export const getStatePriority = (state: CircuitBreakerState): number => {
-  switch (state) {
-    case 'OPEN':
-      return 0;
-    case 'HALF-OPEN':
-      return 1;
-    case 'CLOSED':
-      return 2;
-    default:
-      return 3;
-  }
+  return CIRCUIT_BREAKER_CONFIG[state]?.priority ?? CIRCUIT_BREAKER_CONFIG.UNKNOWN.priority;
 };
 
 export const sortByStatePriority = <T extends { state: CircuitBreakerState }>(items: T[]): T[] => {
