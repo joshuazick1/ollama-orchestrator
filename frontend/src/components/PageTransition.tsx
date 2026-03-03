@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 
@@ -114,11 +114,14 @@ export const AnimatedNumber = ({
   className?: string;
 }) => {
   const [displayValue, setDisplayValue] = useState(0);
+  const prevValueRef = React.useRef(0);
 
   useEffect(() => {
-    let startTime: number;
-    const startValue = 0;
+    const startValue = prevValueRef.current;
     const endValue = value;
+    prevValueRef.current = value;
+
+    let startTime: number;
 
     const animate = (timestamp: number) => {
       if (!startTime) startTime = timestamp;

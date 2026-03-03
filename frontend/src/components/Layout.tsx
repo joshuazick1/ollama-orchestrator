@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Menu, X, Search, Sun, Moon } from 'lucide-react';
 import clsx from 'clsx';
 import { GlobalSearch } from './GlobalSearch';
+import { PageTransition } from './PageTransition';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useTheme } from '../hooks/useTheme';
 import { APP_VERSION } from '../constants/app';
@@ -40,6 +41,7 @@ export const Layout = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isSearchOpen, openSearch, closeSearch } = useGlobalSearch();
   const { theme, toggleTheme } = useTheme();
+  const location = useLocation();
 
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
 
@@ -156,7 +158,9 @@ export const Layout = () => {
       {/* Main Content */}
       <main className="flex-1 overflow-auto bg-gray-900 pt-16 md:pt-0">
         <div className="p-4 md:p-8 max-w-7xl mx-auto">
-          <Outlet />
+          <PageTransition key={location.pathname}>
+            <Outlet />
+          </PageTransition>
         </div>
       </main>
     </div>
