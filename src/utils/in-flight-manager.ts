@@ -18,7 +18,8 @@ export interface StreamingRequestProgress {
   isStalled: boolean;
   accumulatedText: string; // Accumulated text chunks for handoff
   lastContext?: number[]; // Ollama context array for continuation
-  originalPrompt?: string; // Original prompt for retry
+  originalPrompt?: string; // Original prompt for retry (generate endpoint)
+  originalMessages?: unknown[]; // Original messages array for retry (chat endpoint)
   protocol: 'ollama' | 'openai'; // Track protocol for handoff logic
   endpoint: 'generate' | 'chat'; // Track endpoint for handoff logic
   handoffCount: number; // Number of handoff attempts made
@@ -227,7 +228,9 @@ export class InFlightManager {
     serverId: string,
     model: string,
     protocol: 'ollama' | 'openai' = 'ollama',
-    endpoint: 'generate' | 'chat' = 'generate'
+    endpoint: 'generate' | 'chat' = 'generate',
+    originalPrompt?: string,
+    originalMessages?: unknown[]
   ): void {
     this.streamingRequests.set(requestId, {
       id: requestId,
@@ -238,6 +241,8 @@ export class InFlightManager {
       lastChunkTime: Date.now(),
       isStalled: false,
       accumulatedText: '',
+      originalPrompt,
+      originalMessages,
       protocol,
       endpoint,
       handoffCount: 0,

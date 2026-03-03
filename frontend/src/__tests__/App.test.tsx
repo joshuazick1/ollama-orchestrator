@@ -1,15 +1,32 @@
-import { render } from '@testing-library/react';
+import { screen, render } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../api', () => ({
+  getServers: vi.fn().mockResolvedValue([]),
+  getConfig: vi.fn().mockResolvedValue({}),
+  getModelMap: vi.fn().mockResolvedValue({}),
+  getHealth: vi.fn().mockResolvedValue({ status: 'ok' }),
+  getAnalyticsSummary: vi.fn().mockResolvedValue({}),
+  getMetrics: vi.fn().mockResolvedValue({}),
+  getFleetModelStats: vi.fn().mockResolvedValue([]),
+}));
+
 import App from '../App';
 
 describe('App', () => {
-  it('renders the app without crashing', () => {
+  it('renders without crashing', () => {
     render(<App />);
     expect(document.body).toBeInTheDocument();
   });
 
-  it('wraps the app with QueryClientProvider', () => {
+  it('renders navigation links', () => {
     render(<App />);
-    // QueryClientProvider doesn't add a specific element, but we can check the context exists
-    // This is a basic test - more comprehensive tests would check routing
+    expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Servers').length).toBeGreaterThan(0);
+  });
+
+  it('renders the Layout with sidebar', () => {
+    render(<App />);
+    expect(screen.getAllByText('Orchestrator').length).toBeGreaterThan(0);
   });
 });

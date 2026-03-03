@@ -28,6 +28,10 @@
     "test:chaos": "vitest run --config vitest.chaos.config.ts",
     "test:circuit-breaker": "tsx scripts/circuit-breaker-load-test.ts",
     "test:circuit-breaker:long": "tsx scripts/circuit-breaker-load-test.ts --duration 600 --concurrency 100",
+    "test:load": "tsx scripts/unified-load-test.ts",
+    "test:load:quick": "tsx scripts/unified-load-test.ts --duration 60 --pattern uniform",
+    "test:load:spike": "tsx scripts/unified-load-test.ts --duration 300 --pattern spike --debug",
+    "test:load:full": "tsx scripts/unified-load-test.ts --duration 600 --pattern mixed --include-embeddings --debug",
     "security:audit": "npm audit --audit-level=moderate",
     "prepare": "husky install || true"
   },

@@ -74,6 +74,8 @@ export interface RoutingContext {
   excludedServers?: string[];
   serverScores?: Array<{ serverId: string; totalScore: number }>;
   timeoutMs?: number;
+  /** Time spent in routing/failover before reaching a server (ms) */
+  queueWaitTime?: number;
 }
 
 export class AIOrchestrator {
@@ -1520,6 +1522,7 @@ export class AIOrchestrator {
     signal?: AbortSignal
   ): Promise<T> {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
+    const routingStartTime = Date.now();
 
     // Check for abort before starting
     if (signal?.aborted) {
@@ -1753,6 +1756,7 @@ export class AIOrchestrator {
         if (routingContext) {
           routingContext.retryCount = retryCount;
           routingContext.serversTried = candidates.slice(0, retryCount + 1).map(s => s.id);
+          routingContext.queueWaitTime = Date.now() - routingStartTime;
         }
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
@@ -1846,6 +1850,7 @@ export class AIOrchestrator {
           routingContext.serversTried = candidates
             .slice(0, candidates.length + retryCount + 1)
             .map(s => s.id);
+          routingContext.queueWaitTime = Date.now() - routingStartTime;
         }
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
@@ -1909,6 +1914,7 @@ export class AIOrchestrator {
         if (routingContext) {
           routingContext.retryCount = retryCount;
           routingContext.serversTried = [initialServer.id];
+          routingContext.queueWaitTime = Date.now() - routingStartTime;
         }
         this.populateRoutingContext(
           routingContext,
@@ -2032,6 +2038,7 @@ export class AIOrchestrator {
       if (routingContext) {
         const serverLoad = this.getTotalInFlight(server.id);
         const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
+        routingContext.queueWaitTime = 0; // Direct-to-server, no routing delay
         this.populateRoutingContext(routingContext, server.id, model, serverLoad, maxConcurrency);
       }
 

@@ -463,18 +463,28 @@ export async function streamResponse(
               // Try to handle the stall - call the async handler
               onStall(abortController, streamingRequestId)
                 .then(result => {
-                  // If handler says it handled the handoff successfully, we're done
-                  // The handoff has already started streaming to clientResponse
-                  // Just return gracefully without canceling the reader
+                  // If handler says it handled the handoff successfully, cancel the stalled
+                  // reader so the original stream loop exits cleanly and no further chunks
+                  // from the old upstream reach clientResponse (which would interleave with
+                  // the already-started handoff stream).
+                  // NOTE: do NOT call onStreamEnd() here — the finally block does it after
+                  // the loop exits from the cancelled read, preventing a double-call.
                   if (result?.success) {
                     logger.info(
-                      'Stall handled successfully via handoff, exiting stream gracefully',
+                      'Stall handled successfully via handoff, cancelling stalled reader',
                       {
                         streamingRequestId,
                         handoffError: result.error,
                       }
                     );
-                    onStreamEnd?.();
+                    try {
+                      void reader?.cancel();
+                    } catch (e) {
+                      logger.debug('Error cancelling stalled reader after handoff', {
+                        streamingRequestId,
+                        error: e instanceof Error ? e.message : String(e),
+                      });
+                    }
                     return;
                   }
 
