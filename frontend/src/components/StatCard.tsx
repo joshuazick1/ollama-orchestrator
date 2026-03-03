@@ -24,7 +24,7 @@ export const StatCard = ({
 }: StatCardProps) => {
   if (loading) {
     return (
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg animate-pulse">
+      <div className="bg-gray-800 rounded-xl p-6 border border-surface-border shadow-lg animate-pulse">
         <div className="flex justify-between items-start">
           <div>
             <div className="h-4 w-24 bg-gray-700 rounded mb-3" />
@@ -40,12 +40,12 @@ export const StatCard = ({
   }
 
   return (
-    <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg hover:border-gray-600 transition-colors">
+    <div className="bg-gray-800 rounded-xl p-6 border border-surface-border shadow-lg hover:border-gray-600 transition-colors">
       <div className="flex justify-between items-start">
         <div>
-          <p className="text-gray-400 text-sm font-medium">{title}</p>
+          <p className="text-text-muted text-sm font-medium">{title}</p>
           <h3 className="text-3xl font-bold mt-2 text-white">{value}</h3>
-          {subtext && <p className="text-gray-500 text-sm mt-1">{subtext}</p>}
+          {subtext && <p className="text-text-subtle text-sm mt-1">{subtext}</p>}
           {trend && (
             <div
               className={`text-sm mt-2 flex items-center gap-1 ${
@@ -53,7 +53,7 @@ export const StatCard = ({
                   ? 'text-green-400'
                   : trend.direction === 'down'
                     ? 'text-red-400'
-                    : 'text-gray-400'
+                    : 'text-text-muted'
               }`}
             >
               {trend.direction === 'up' && <span>↑</span>}

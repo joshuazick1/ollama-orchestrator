@@ -54,9 +54,9 @@ export const EmptyState = ({ type, title, message, action }: EmptyStateProps) =>
   if (type === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-4">
-        <Icon className="w-12 h-12 text-blue-500 animate-spin mb-4" />
+        <Icon className="w-12 h-12 text-primary animate-spin mb-4" />
         <h3 className="text-lg font-medium text-white mb-2">{title ?? config.title}</h3>
-        <p className="text-gray-400 text-center">{message ?? config.message}</p>
+        <p className="text-text-muted text-center">{message ?? config.message}</p>
       </div>
     );
   }
@@ -64,14 +64,14 @@ export const EmptyState = ({ type, title, message, action }: EmptyStateProps) =>
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4">
       <div className="p-4 rounded-full bg-gray-800 mb-4">
-        <Icon className="w-12 h-12 text-gray-500" />
+        <Icon className="w-12 h-12 text-text-subtle" />
       </div>
       <h3 className="text-lg font-medium text-white mb-2">{title ?? config.title}</h3>
-      <p className="text-gray-400 text-center max-w-md mb-6">{message ?? config.message}</p>
+      <p className="text-text-muted text-center max-w-md mb-6">{message ?? config.message}</p>
       {action && (
         <button
           onClick={action.onClick}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
         >
           {action.label}
         </button>

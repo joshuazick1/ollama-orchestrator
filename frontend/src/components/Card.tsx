@@ -20,11 +20,11 @@ const paddingMap: Record<CardPadding, string> = {
 };
 
 const variantStyles: Record<CardVariant, string> = {
-  default: 'bg-gray-800 border border-gray-700',
-  elevated: 'bg-gray-800 border border-gray-700 shadow-lg',
+  default: 'bg-gray-800 border border-surface-border',
+  elevated: 'bg-gray-800 border border-surface-border shadow-lg',
   bordered: 'bg-gray-800 border-2 border-gray-600',
   interactive:
-    'bg-gray-800 border border-gray-700 hover:border-gray-500 hover:shadow-lg transition-all cursor-pointer',
+    'bg-gray-800 border border-surface-border hover:border-gray-500 hover:shadow-lg transition-all cursor-pointer',
 };
 
 export const Card = ({
@@ -63,10 +63,10 @@ interface CardHeaderProps {
 export const CardHeader = ({ title, subtitle, action, icon, className }: CardHeaderProps) => (
   <div className={clsx('flex items-start justify-between mb-4', className)}>
     <div className="flex items-center gap-3">
-      {icon && <div className="text-gray-400">{icon}</div>}
+      {icon && <div className="text-text-muted">{icon}</div>}
       <div>
         <h3 className="text-lg font-semibold text-white">{title}</h3>
-        {subtitle && <p className="text-sm text-gray-400">{subtitle}</p>}
+        {subtitle && <p className="text-sm text-text-muted">{subtitle}</p>}
       </div>
     </div>
     {action && <div>{action}</div>}
@@ -88,7 +88,7 @@ interface CardFooterProps {
 }
 
 export const CardFooter = ({ children, className }: CardFooterProps) => (
-  <div className={clsx('mt-4 pt-4 border-t border-gray-700', className)}>{children}</div>
+  <div className={clsx('mt-4 pt-4 border-t border-surface-border', className)}>{children}</div>
 );
 
 export default Card;
