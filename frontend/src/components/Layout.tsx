@@ -1,22 +1,11 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  Server,
-  Database,
-  Zap,
-  BarChart2,
-  Shield,
-  Settings,
-  FileText,
-  Menu,
-  X,
-  Search,
-} from 'lucide-react';
+import { Menu, X, Search } from 'lucide-react';
 import clsx from 'clsx';
 import { GlobalSearch } from './GlobalSearch';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { APP_VERSION } from '../constants/app';
+import { NAV_ITEMS } from '../constants/navigation';
 
 const NavigationItem = ({
   to,
@@ -75,30 +64,11 @@ export const Layout = () => {
         </div>
 
         <nav className="flex-1 px-3 space-y-1">
-          <NavigationItem to="/" icon={LayoutDashboard}>
-            Dashboard
-          </NavigationItem>
-          <NavigationItem to="/servers" icon={Server}>
-            Servers
-          </NavigationItem>
-          <NavigationItem to="/models" icon={Database}>
-            Models
-          </NavigationItem>
-          <NavigationItem to="/in-flight" icon={Zap}>
-            In-Flight
-          </NavigationItem>
-          <NavigationItem to="/analytics" icon={BarChart2}>
-            Analytics
-          </NavigationItem>
-          <NavigationItem to="/circuit-breakers" icon={Shield}>
-            Circuit Breakers
-          </NavigationItem>
-          <NavigationItem to="/logs" icon={FileText}>
-            Logs
-          </NavigationItem>
-          <NavigationItem to="/settings" icon={Settings}>
-            Settings
-          </NavigationItem>
+          {NAV_ITEMS.map(item => (
+            <NavigationItem key={item.to} to={item.to} icon={item.icon}>
+              {item.label}
+            </NavigationItem>
+          ))}
         </nav>
 
         <div className="p-4 border-t border-gray-800 text-xs text-gray-500">{APP_VERSION}</div>
@@ -146,30 +116,11 @@ export const Layout = () => {
         </div>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          <NavigationItem to="/" icon={LayoutDashboard} onClick={closeMobileMenu}>
-            Dashboard
-          </NavigationItem>
-          <NavigationItem to="/servers" icon={Server} onClick={closeMobileMenu}>
-            Servers
-          </NavigationItem>
-          <NavigationItem to="/models" icon={Database} onClick={closeMobileMenu}>
-            Models
-          </NavigationItem>
-          <NavigationItem to="/in-flight" icon={Zap} onClick={closeMobileMenu}>
-            In-Flight
-          </NavigationItem>
-          <NavigationItem to="/analytics" icon={BarChart2} onClick={closeMobileMenu}>
-            Analytics
-          </NavigationItem>
-          <NavigationItem to="/circuit-breakers" icon={Shield} onClick={closeMobileMenu}>
-            Circuit Breakers
-          </NavigationItem>
-          <NavigationItem to="/logs" icon={FileText} onClick={closeMobileMenu}>
-            Logs
-          </NavigationItem>
-          <NavigationItem to="/settings" icon={Settings} onClick={closeMobileMenu}>
-            Settings
-          </NavigationItem>
+          {NAV_ITEMS.map(item => (
+            <NavigationItem key={item.to} to={item.to} icon={item.icon} onClick={closeMobileMenu}>
+              {item.label}
+            </NavigationItem>
+          ))}
         </nav>
 
         <div className="p-4 border-t border-gray-800 text-xs text-gray-500">{APP_VERSION}</div>
