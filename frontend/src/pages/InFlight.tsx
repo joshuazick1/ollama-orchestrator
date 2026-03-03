@@ -3,6 +3,7 @@ import { getInFlightByServer, type StreamingRequestProgress } from '../api';
 import { Zap, Radio, AlertTriangle } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { formatDuration } from '../utils/formatting';
+import { SkeletonStatCard } from '../components/skeletons';
 
 export const InFlight = () => {
   const { data: inFlightData, isLoading: inFlightLoading } = useQuery({
@@ -70,7 +71,11 @@ export const InFlight = () => {
       {/* In-Flight by Server */}
       <div className="space-y-6">
         {inFlightLoading ? (
-          <div className="p-8 text-center text-gray-400">Loading...</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => (
+              <SkeletonStatCard key={i} />
+            ))}
+          </div>
         ) : inFlight.length > 0 ? (
           inFlight.map(
             (server: {

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getLogs, clearLogs } from '../api';
 import { Trash2, RefreshCw } from 'lucide-react';
 import { toastSuccess, toastError } from '../utils/toast';
+import { SkeletonTable } from '../components/skeletons';
 
 export const Logs = () => {
   const queryClient = useQueryClient();
@@ -18,7 +19,19 @@ export const Logs = () => {
     },
   });
 
-  if (isLoading) return <div className="text-white">Loading...</div>;
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold text-white">System Logs</h2>
+            <p className="text-gray-400">View and manage application logs</p>
+          </div>
+        </div>
+        <SkeletonTable rows={10} columns={3} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
