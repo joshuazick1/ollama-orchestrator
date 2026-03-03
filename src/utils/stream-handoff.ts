@@ -8,6 +8,7 @@ import type { Response } from 'express';
 import { getConfigManager } from '../config/config.js';
 import type { AIServer } from '../orchestrator.types.js';
 import { streamResponse } from '../streaming.js';
+import { fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { logger } from '../utils/logger.js';
 
 import type { StreamingRequestProgress } from './in-flight-manager.js';
@@ -24,6 +25,10 @@ export interface HandoffRequest {
   newServer: AIServer;
   clientResponse: Response;
   originalRequestBody: Record<string, unknown>;
+  /** Stall threshold for the handoff stream (ms). Defaults to 60 s. */
+  stallThresholdMs?: number;
+  /** Stall check interval for the handoff stream (ms). Defaults to 3 s. */
+  stallCheckIntervalMs?: number;
 }
 
 const OLLAMA_GENERATE_ENDPOINT = '/api/generate';
@@ -31,9 +36,22 @@ const OLLAMA_CHAT_ENDPOINT = '/api/chat';
 const OPENAI_CHAT_ENDPOINT = '/v1/chat/completions';
 
 export async function performStreamHandoff(handoffRequest: HandoffRequest): Promise<HandoffResult> {
-  const { originalRequest, newServer, clientResponse, originalRequestBody } = handoffRequest;
+  const {
+    originalRequest,
+    newServer,
+    clientResponse,
+    originalRequestBody,
+    stallThresholdMs: handoffStallThreshold,
+    stallCheckIntervalMs: handoffStallCheckInterval,
+  } = handoffRequest;
   const config = getConfigManager().getConfig();
   const maxHandoffAttempts = config.streaming.maxHandoffAttempts;
+
+  // Default stall detection parameters for the handoff stream.
+  // Use provided values, or fall back to config defaults.
+  const effectiveStallThreshold = handoffStallThreshold ?? config.streaming.stallThresholdMs;
+  const effectiveStallCheckInterval =
+    handoffStallCheckInterval ?? config.streaming.stallCheckIntervalMs;
 
   logger.info('Attempting stream handoff', {
     requestId: originalRequest.id,
@@ -109,15 +127,24 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
     });
 
     let upstreamResponse: globalThis.Response;
+    let activityController: { resetTimeout: () => void; controller: AbortController };
     try {
-      upstreamResponse = await fetch(upstreamUrl, {
+      // F-8: Use fetchWithActivityTimeout so the handoff fetch cannot hang forever.
+      // Use the effective stall threshold as the connection/activity timeout for the
+      // initial connection; a separate activity controller handles mid-stream activity.
+      const fetchResult = await fetchWithActivityTimeout(upstreamUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(newServer.apiKey ? { Authorization: `Bearer ${newServer.apiKey}` } : {}),
         },
         body: JSON.stringify(continuationRequest),
+        connectionTimeout: effectiveStallThreshold,
+        activityTimeout: effectiveStallThreshold,
+        requestId: originalRequest.id,
       });
+      upstreamResponse = fetchResult.response;
+      activityController = fetchResult.activityController;
     } catch (fetchError) {
       const fetchErrorMessage =
         fetchError instanceof Error ? fetchError.message : String(fetchError);
@@ -160,6 +187,20 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
     let handoffChunkCount = 0;
     const handoffStartTime = Date.now();
 
+    // F-9: Pass stall detection to the handoff stream so a second stall on the
+    // new server is detected and handled (returns { success: false } to let the
+    // caller decide how to proceed) rather than hanging indefinitely.
+    const handoffOnStall = async (
+      _abortController: AbortController,
+      _streamingRequestId?: string
+    ): Promise<{ success: boolean; error?: string }> => {
+      logger.warn('Handoff stream stalled on new server', {
+        requestId: originalRequest.id,
+        newServer: newServer.id,
+      });
+      return { success: false, error: 'Handoff stream stalled on new server' };
+    };
+
     await streamResponse(
       upstreamResponse,
       clientResponse,
@@ -184,9 +225,14 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
       chunkCount => {
         handoffChunkCount = chunkCount;
       },
-      undefined,
-      undefined,
-      undefined
+      undefined, // ttftOptions
+      undefined, // streamingRequestId
+      undefined, // existingTtftTracker
+      handoffOnStall,
+      effectiveStallThreshold,
+      effectiveStallCheckInterval,
+      undefined, // onStreamEnd
+      activityController
     );
 
     return {
@@ -252,15 +298,20 @@ function buildOllamaGenerateContinuation(
   request: StreamingRequestProgress,
   originalBody: Record<string, unknown>
 ): Record<string, unknown> {
+  // Use the original prompt so the new server re-generates the full response
+  // rather than treating the partially-accumulated text as a new prompt.
+  // Fall back to accumulatedText only if originalPrompt was never stored.
+  const prompt = request.originalPrompt ?? request.accumulatedText;
+
   const continuation: Record<string, unknown> = {
     model: request.model,
-    prompt: request.accumulatedText,
+    prompt,
     stream: true,
   };
 
-  if (request.lastContext) {
-    continuation.context = request.lastContext;
-  }
+  // Do NOT forward request.lastContext: it was generated by the stalled server
+  // and is not meaningful to a different server.  The new server will build its
+  // own KV-cache from the prompt above.
 
   if (originalBody.options) {
     continuation.options = originalBody.options;

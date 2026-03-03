@@ -13,12 +13,13 @@ import type { AIServer } from '../orchestrator.types.js';
 import { type OllamaStreamChunk, type OllamaToolCall } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
-import { getDebugInfo } from '../utils/debug-headers.js';
+import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { performStreamHandoff } from '../utils/stream-handoff.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 /**
@@ -179,7 +180,6 @@ async function streamOpenAIResponse(
       // Start stall detection after first chunk
       if (!hasReceivedFirstChunk && onStall) {
         hasReceivedFirstChunk = true;
-        lastChunkTime = now;
 
         stallCheckInterval = setInterval(() => {
           if (stallTriggered) {
@@ -205,19 +205,19 @@ async function streamOpenAIResponse(
             // Try to handle the stall - call the async handler
             onStall(abortController, streamingRequestId)
               .then(res => {
-                // If handler says it handled the handoff successfully, we're done
+                // Cancel the stalled reader regardless of handoff success/failure so the
+                // original read loop exits cleanly.  On success the handoff stream is
+                // already writing to clientResponse; leaving this reader open risks
+                // interleaving old-server chunks with the continuation.
+                try {
+                  void reader.cancel();
+                } catch (_e) {
+                  // Ignore cancel errors
+                }
                 if (res?.success) {
                   logger.info('OpenAI stall handled successfully via handoff', {
                     responseId,
                   });
-                  return;
-                }
-
-                // If we get here, handoff didn't work - abort the stream
-                try {
-                  void reader.cancel();
-                } catch (e) {
-                  // Ignore cancel errors
                 }
               })
               .catch(stallError => {
@@ -228,7 +228,7 @@ async function streamOpenAIResponse(
 
                 try {
                   void reader.cancel();
-                } catch (e) {
+                } catch (_e) {
                   // Ignore cancel errors
                 }
               });
@@ -236,10 +236,7 @@ async function streamOpenAIResponse(
         }, effectiveStallCheckInterval);
       }
 
-      // Update last chunk time for stall detection
-      if (hasReceivedFirstChunk) {
-        lastChunkTime = now;
-      }
+      lastChunkTime = now;
 
       onChunk?.();
 
@@ -518,7 +515,6 @@ async function passthroughSSEStream(
       // Start stall detection after first chunk
       if (!hasReceivedFirstChunk && onStall) {
         hasReceivedFirstChunk = true;
-        lastChunkTime = now;
 
         stallCheckInterval = setInterval(() => {
           if (stallTriggered) {
@@ -539,13 +535,18 @@ async function passthroughSSEStream(
             }
             onStall(abortController, streamingRequestId)
               .then(res => {
-                if (res?.success) {
-                  return;
-                }
+                // Cancel the stalled reader on both success and failure so the read loop
+                // exits cleanly.  On success the handoff stream is already writing to
+                // clientResponse; leaving this reader open would interleave content.
                 try {
                   void reader.cancel();
                 } catch {
                   // Ignore cancel errors
+                }
+                if (res?.success) {
+                  logger.info('SSE passthrough stall handled successfully via handoff', {
+                    responseId,
+                  });
                 }
               })
               .catch(stallError => {
@@ -563,9 +564,7 @@ async function passthroughSSEStream(
         }, effectiveStallCheckInterval);
       }
 
-      if (hasReceivedFirstChunk) {
-        lastChunkTime = now;
-      }
+      lastChunkTime = now;
 
       onChunk?.();
 
@@ -707,8 +706,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
-          const stallThreshold = _config.streaming.stallThresholdMs;
-          const stallCheckInterval = _config.streaming.stallCheckIntervalMs;
+          // Use same dynamic stall threshold formula as the Ollama path:
+          // 1.5× the request timeout, clamped to [10s, 60s].
+          const stallThreshold = Math.min(Math.max(timeoutMs * 1.5, 10_000), 60_000);
+          const stallCheckInterval = Math.min(timeoutMs / 8, 3_000);
 
           logger.info('STREAM_REQUEST_START', {
             requestId,
@@ -751,25 +752,96 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           const streamStartTime = Date.now();
           let firstChunkTime: number | undefined;
 
-          const onStallCallback = (
-            _abortController: AbortController,
-            _streamingRequestId?: string
-          ): Promise<{ success: boolean; error?: string }> => {
-            logger.warn('STREAM_STALL_DETECTED', {
+          // Register with InFlightManager so the stall handler can retrieve progress
+          if (requestId) {
+            getInFlightManager().addStreamingRequest(
               requestId,
+              server.id,
+              model,
+              'openai',
+              'chat',
+              undefined, // no originalPrompt for chat endpoint
+              messages as unknown[]
+            );
+          }
+
+          // Stall detection tracking variables (set by onStallCallback closure)
+          let openaiChatStallDetected = false;
+          let openaiChatStallStartTime: number | undefined;
+          let openaiChatHandoffAttempted = false;
+          let openaiChatHandoffSuccess = false;
+
+          const onStallCallback = async (
+            _abortController: AbortController,
+            passedRequestId?: string
+          ): Promise<{ success: boolean; error?: string }> => {
+            // Track stall detection for debug output
+            openaiChatStallDetected = true;
+            openaiChatStallStartTime = Date.now();
+
+            logger.warn('STREAM_STALL_DETECTED', {
+              requestId: passedRequestId,
               serverId: server.id,
               model,
               endpoint: 'chat',
               protocol: 'openai',
-              message: 'Stall detected - OpenAI does not support continuation, failing gracefully',
+              message: 'Stall detected - attempting seamless handoff',
             });
 
-            // OpenAI doesn't support continuation, so we just return false
-            // The stream will end gracefully with what we have
-            return Promise.resolve({
-              success: false,
-              error: 'OpenAI protocol does not support stream continuation',
-            });
+            const progress = passedRequestId
+              ? getInFlightManager().getStreamingRequestProgress(passedRequestId)
+              : undefined;
+
+            if (!progress) {
+              logger.warn('No streaming progress found for OpenAI handoff', {
+                requestId: passedRequestId,
+              });
+              return { success: false, error: 'No progress tracked' };
+            }
+
+            // Find an eligible server for failover
+            const orchestratorInst = getOrchestratorInstance();
+            const allServers = orchestratorInst.getServers();
+            const newServer = allServers.find(
+              s =>
+                s.id !== server.id &&
+                s.healthy &&
+                s.models.includes(model) &&
+                orchestratorInst.isCircuitAllowed(s.id) &&
+                s.supportsV1 !== false
+            );
+
+            if (!newServer) {
+              logger.warn('No eligible OpenAI servers for handoff', {
+                requestId: passedRequestId,
+                currentServer: server.id,
+                model,
+              });
+              return { success: false, error: 'No alternative servers with closed circuit' };
+            }
+
+            openaiChatHandoffAttempted = true;
+
+            try {
+              const result = await performStreamHandoff({
+                originalRequest: progress,
+                newServer,
+                clientResponse: res,
+                originalRequestBody: body as unknown as Record<string, unknown>,
+                stallThresholdMs: stallThreshold,
+                stallCheckIntervalMs: stallCheckInterval,
+              });
+
+              openaiChatHandoffSuccess = result.success;
+              return { success: result.success, error: result.error };
+            } catch (handoffError) {
+              logger.error('OpenAI handoff failed with exception', {
+                requestId: passedRequestId,
+                error: handoffError instanceof Error ? handoffError.message : String(handoffError),
+              });
+              openaiChatHandoffSuccess = false;
+              return { success: false, error: 'Handoff exception' };
+            }
           };
 
           try {
@@ -883,15 +955,22 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               chunkCount,
             });
 
-            const includeDebug = req.query.debug === 'true';
+            const includeDebug = isDebugRequested(req);
             if (includeDebug) {
               const streamDuration = Date.now() - streamStartTime;
               const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
               const debugInfo = getDebugInfo(routingContext, {
+                requestId: requestId,
+                requestTimestamp: streamStartTime,
                 timeToFirstToken: ttft,
                 streamingDuration: streamDuration,
+                stallDetected: openaiChatStallDetected,
+                stallDurationMs: openaiChatStallStartTime
+                  ? Date.now() - openaiChatStallStartTime
+                  : undefined,
               });
               if (debugInfo) {
+                setDebugResponseHeaders(res, debugInfo);
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
             }
@@ -938,11 +1017,12 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
     // Send non-streaming response
     if (!stream && result && !result._streamed) {
-      const includeDebug = req.query.debug === 'true';
+      const includeDebug = isDebugRequested(req);
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
           result.debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
         }
       }
       res.json(result);
@@ -955,12 +1035,17 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     }
 
     if (!res.headersSent) {
+      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const debugPayload = isDebugRequested(req)
+        ? getDebugInfo(routingContext, { lastError: errorMessage })
+        : undefined;
       res.status(500).json({
         error: {
-          message: error instanceof Error ? error.message : 'Request failed',
+          message: errorMessage,
           type: 'server_error',
           code: 'internal_error',
         },
+        ...(debugPayload && { debug: debugPayload }),
       });
     }
   }
@@ -1029,12 +1114,13 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               }
             );
 
-            const includeDebug = req.query.debug === 'true';
+            const includeDebug = isDebugRequested(req);
             if (includeDebug) {
               const debugInfo = getDebugInfo(routingContext, {
                 streamingDuration: Date.now() - completionStreamStart,
               });
               if (debugInfo) {
+                setDebugResponseHeaders(res, debugInfo);
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
             }
@@ -1073,11 +1159,12 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     );
 
     if (!stream && result && !result._streamed) {
-      const includeDebug = req.query.debug === 'true';
+      const includeDebug = isDebugRequested(req);
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
           result.debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
         }
       }
       res.json(result);
@@ -1085,12 +1172,17 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   } catch (error) {
     logger.error('OpenAI completions failed:', { error, model });
     if (!res.headersSent) {
+      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const debugPayload = isDebugRequested(req)
+        ? getDebugInfo(routingContext, { lastError: errorMessage })
+        : undefined;
       res.status(500).json({
         error: {
-          message: error instanceof Error ? error.message : 'Request failed',
+          message: errorMessage,
           type: 'server_error',
           code: 'internal_error',
         },
+        ...(debugPayload && { debug: debugPayload }),
       });
     }
   }
@@ -1144,24 +1236,30 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       routingContext
     );
 
-    // Send response with optional debug info (?debug=true)
-    const includeDebug = req.query.debug === 'true';
+    // Send response with optional debug info (?debug=true or X-Include-Debug-Info: true)
+    const includeDebug = isDebugRequested(req);
     if (includeDebug) {
       const debugInfo = getDebugInfo(routingContext);
       if (debugInfo && typeof result === 'object' && result !== null) {
         result.debug = debugInfo;
+        setDebugResponseHeaders(res, debugInfo);
       }
     }
     res.json(result);
   } catch (error) {
     logger.error('OpenAI embeddings failed:', { error, model });
     if (!res.headersSent) {
+      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const debugPayload = isDebugRequested(req)
+        ? getDebugInfo(routingContext, { lastError: errorMessage })
+        : undefined;
       res.status(500).json({
         error: {
-          message: error instanceof Error ? error.message : 'Request failed',
+          message: errorMessage,
           type: 'server_error',
           code: 'internal_error',
         },
+        ...(debugPayload && { debug: debugPayload }),
       });
     }
   }
@@ -1259,6 +1357,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
   const orchestrator = getOrchestratorInstance();
   const useStreaming = stream ?? false;
   const config = getConfigManager().getConfig();
+  const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'openai' };
 
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
@@ -1312,10 +1411,18 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
           const streamStartTime = Date.now();
           let firstChunkTime: number | undefined;
 
+          // Stall detection tracking variables (set by onStallCallback closure)
+          let openaiCompStallDetected = false;
+          let openaiCompStallStartTime: number | undefined;
+
           const onStallCallback = (
             _abortController: AbortController,
             _streamingRequestId?: string
           ): Promise<{ success: boolean; error?: string }> => {
+            // Track stall detection for debug output
+            openaiCompStallDetected = true;
+            openaiCompStallStartTime = Date.now();
+
             logger.warn('STREAM_STALL_DETECTED', {
               requestId,
               serverId: server.id,
@@ -1390,6 +1497,28 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               duration: Date.now() - streamStartTime,
               chunkCount,
             });
+
+            const includeDebug = isDebugRequested(req);
+            if (includeDebug) {
+              const streamDuration = Date.now() - streamStartTime;
+              const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
+              const debugInfo = getDebugInfo(routingContext, {
+                requestId: requestId,
+                requestTimestamp: streamStartTime,
+                timeToFirstToken: ttft,
+                streamingDuration: streamDuration,
+                stallDetected: openaiCompStallDetected,
+                stallDurationMs: openaiCompStallStartTime
+                  ? Date.now() - openaiCompStallStartTime
+                  : undefined,
+              });
+              if (debugInfo) {
+                setDebugResponseHeaders(res, debugInfo);
+                if (!res.writableEnded) {
+                  res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+                }
+              }
+            }
           } finally {
             activityController.clearTimeout();
           }
@@ -1418,12 +1547,20 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
 
         return response.json() as Promise<Record<string, unknown>>;
       },
-      { isStreaming: useStreaming, bypassCircuitBreaker }
+      { isStreaming: useStreaming, bypassCircuitBreaker, routingContext }
     );
 
     if (result && typeof result === 'object' && '_streamed' in result) {
       // Streaming handled internally
     } else if (result) {
+      const includeDebug = isDebugRequested(req);
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
+        }
+      }
       res.json(result);
     }
   } catch (error) {
@@ -1432,7 +1569,13 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
       error: errorMessage,
       bypassCircuitBreaker,
     });
-    res.status(500).json({ error: { message: errorMessage, type: 'server_error' } });
+    const debugPayload = isDebugRequested(req)
+      ? getDebugInfo(routingContext, { lastError: errorMessage })
+      : undefined;
+    res.status(500).json({
+      error: { message: errorMessage, type: 'server_error' },
+      ...(debugPayload && { debug: debugPayload }),
+    });
   }
 }
 
@@ -1466,6 +1609,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
   const orchestrator = getOrchestratorInstance();
   const useStreaming = stream ?? false;
   const _config = getConfigManager().getConfig();
+  const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'openai' };
 
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
@@ -1516,6 +1660,17 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
               }
               res.write(decoder.decode(value, { stream: true }));
             }
+
+            // Emit debug info before ending the stream
+            const includeDebug = isDebugRequested(req);
+            if (includeDebug && !res.writableEnded) {
+              const debugInfo = getDebugInfo(routingContext);
+              if (debugInfo) {
+                setDebugResponseHeaders(res, debugInfo);
+                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+              }
+            }
+
             res.end();
           } finally {
             activityController.clearTimeout();
@@ -1545,12 +1700,20 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
 
         return response.json() as Promise<Record<string, unknown>>;
       },
-      { isStreaming: useStreaming, bypassCircuitBreaker }
+      { isStreaming: useStreaming, bypassCircuitBreaker, routingContext }
     );
 
     if (result && typeof result === 'object' && '_streamed' in result) {
       // Streaming handled internally
     } else if (result) {
+      const includeDebug = isDebugRequested(req);
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
+        }
+      }
       res.json(result);
     }
   } catch (error) {
@@ -1559,7 +1722,13 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
       error: errorMessage,
       bypassCircuitBreaker,
     });
-    res.status(500).json({ error: { message: errorMessage, type: 'server_error' } });
+    const debugPayload = isDebugRequested(req)
+      ? getDebugInfo(routingContext, { lastError: errorMessage })
+      : undefined;
+    res.status(500).json({
+      error: { message: errorMessage, type: 'server_error' },
+      ...(debugPayload && { debug: debugPayload }),
+    });
   }
 }
 
@@ -1597,6 +1766,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
   }
 
   const orchestrator = getOrchestratorInstance();
+  const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'openai' };
 
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
@@ -1622,16 +1792,32 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
 
         return response.json() as Promise<Record<string, unknown>>;
       },
-      { bypassCircuitBreaker }
+      { bypassCircuitBreaker, routingContext }
     );
 
-    res.json(result);
+    if (result) {
+      const includeDebug = isDebugRequested(req);
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
+        }
+      }
+      res.json(result);
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(`Embeddings to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,
     });
-    res.status(500).json({ error: { message: errorMessage, type: 'server_error' } });
+    const debugPayload = isDebugRequested(req)
+      ? getDebugInfo(routingContext, { lastError: errorMessage })
+      : undefined;
+    res.status(500).json({
+      error: { message: errorMessage, type: 'server_error' },
+      ...(debugPayload && { debug: debugPayload }),
+    });
   }
 }

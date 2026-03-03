@@ -17,7 +17,7 @@ import {
   type OllamaDurations,
 } from '../streaming.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
-import { getDebugInfo } from '../utils/debug-headers.js';
+import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
@@ -223,7 +223,27 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           let capturedOllamaDurations: OllamaDurations | undefined;
           let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
+          // Stall detection tracking variables (set by onStallCallback closure)
+          let stallDetected = false;
+          let stallStartTime: number | undefined;
+          let handoffAttempted = false;
+          let handoffSuccess = false;
+          let handoffTargetServer: string | undefined;
+
           const streamingRequestId = context?.requestId;
+
+          // Register streaming request with InFlightManager for stall detection and handoff.
+          // Must be called before streamResponse so that when onStallCallback fires and
+          // calls getStreamingRequestProgress() it finds a valid progress entry.
+          if (streamingRequestId) {
+            getInFlightManager().addStreamingRequest(
+              streamingRequestId,
+              server.id,
+              model,
+              'ollama',
+              'generate'
+            );
+          }
 
           logger.debug('STREAM_RESPONSE_PARAMS', {
             requestId: streamingRequestId,
@@ -239,6 +259,10 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             // Use only the authoritative streamingRequestId passed into the handler.
             // Do NOT fall back to the closure-captured streamingRequestId to avoid races.
             const requestId = passedRequestId;
+
+            // Track stall detection for debug output
+            stallDetected = true;
+            stallStartTime = Date.now();
 
             logger.error('OLLAMA_ON_STALL_CALLED', {
               requestId,
@@ -345,6 +369,10 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               accumulatedTextLength: progress.accumulatedText.length,
             });
 
+            // Track handoff attempt for debug output
+            handoffAttempted = true;
+            handoffTargetServer = newServer.id;
+
             // Perform the handoff - this will stream directly to clientResponse
             try {
               logger.debug('PERFORM_HANDOFF_INVOKE', { requestId, toServer: newServer.id });
@@ -356,12 +384,14 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               });
               logger.debug('PERFORM_HANDOFF_RESULT', { requestId, result });
 
+              handoffSuccess = result.success;
               return { success: result.success, error: result.error };
             } catch (handoffError) {
               logger.error('Handoff failed with exception', {
                 requestId,
                 error: handoffError instanceof Error ? handoffError.message : String(handoffError),
               });
+              handoffSuccess = false;
               return { success: false, error: 'Handoff failed' };
             }
           };
@@ -407,9 +437,6 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 capturedOllamaDurations = ollamaDurations;
               },
               chunkCount => {
-                // On each chunk, reset the activity timeout
-                activityController.resetTimeout();
-
                 logger.debug('STREAM_CHUNK', {
                   requestId: streamingRequestId,
                   serverId: server.id,
@@ -444,16 +471,32 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               activityController
             );
 
-            const includeDebug = req.query.debug === 'true';
+            const includeDebug = isDebugRequested(req);
             if (includeDebug && !res.writableEnded) {
               const streamDuration = Date.now() - streamStartTime;
               const debugInfo = getDebugInfo(routingContext, {
+                requestId: streamingRequestId,
+                requestTimestamp: streamStartTime,
                 timeToFirstToken: ttftMetrics?.ttft,
                 streamingDuration: streamDuration,
                 tokensGenerated: tokenMetrics?.tokensGenerated,
                 tokensPrompt: tokenMetrics?.tokensPrompt,
+                chunkData: streamingChunkData
+                  ? {
+                      chunkCount: streamingChunkData.chunkCount,
+                      totalBytes: streamingChunkData.totalBytes,
+                      maxChunkGapMs: streamingChunkData.maxChunkGapMs,
+                      avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+                    }
+                  : undefined,
+                stallDetected,
+                stallDurationMs: stallStartTime ? Date.now() - stallStartTime : undefined,
+                handoffAttempted,
+                handoffSuccess,
+                handoffTargetServer,
               });
               if (debugInfo) {
+                setDebugResponseHeaders(res, debugInfo);
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
             }
@@ -507,11 +550,12 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
-      const includeDebug = req.query.debug === 'true';
+      const includeDebug = isDebugRequested(req);
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo && typeof result === 'object' && result !== null) {
           (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
         }
       }
       res.json(result);
@@ -529,16 +573,23 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       const isNoServersError =
         errorMessage.includes('No') && errorMessage.includes('servers available');
 
+      // Include routing context in error responses when debug is requested
+      const debugPayload = isDebugRequested(req)
+        ? getDebugInfo(routingContext, { lastError: errorMessage })
+        : undefined;
+
       if (isNoServersError) {
         res.status(503).json({
           error: 'No available servers for model',
           model,
           message: errorMessage,
+          ...(debugPayload && { debug: debugPayload }),
         });
       } else {
         res.status(500).json({
           error: 'Generate request failed',
           details: errorMessage,
+          ...(debugPayload && { debug: debugPayload }),
         });
       }
     }
@@ -656,6 +707,13 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
           let capturedOllamaDurations: OllamaDurations | undefined;
           let ttftMetrics: ReturnType<typeof ttftTracker.getMetrics> | undefined;
 
+          // Stall detection tracking variables (set by onStallCallback closure)
+          let chatStallDetected = false;
+          let chatStallStartTime: number | undefined;
+          let chatHandoffAttempted = false;
+          let chatHandoffSuccess = false;
+          let chatHandoffTargetServer: string | undefined;
+
           const onStallCallback = async (
             _abortController: AbortController,
             passedRequestId?: string
@@ -663,6 +721,10 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             // Use only the authoritative streamingRequestId passed into the handler.
             // Do NOT fall back to the closure-captured requestId to avoid races.
             const effectiveRequestId = passedRequestId;
+
+            // Track stall detection for debug output
+            chatStallDetected = true;
+            chatStallStartTime = Date.now();
 
             logger.warn('STREAM_STALL_DETECTED', {
               requestId: effectiveRequestId,
@@ -733,6 +795,10 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               accumulatedTextLength: progress.accumulatedText.length,
             });
 
+            // Track handoff attempt for debug output
+            chatHandoffAttempted = true;
+            chatHandoffTargetServer = newServer.id;
+
             // Perform the handoff - this will stream directly to clientResponse
             try {
               logger.debug('PERFORM_HANDOFF_INVOKE', {
@@ -747,12 +813,14 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               });
               logger.debug('PERFORM_HANDOFF_RESULT', { requestId: effectiveRequestId, result });
 
+              chatHandoffSuccess = result.success;
               return { success: result.success, error: result.error };
             } catch (handoffError) {
               logger.error('Handoff failed with exception', {
                 requestId: effectiveRequestId,
                 error: handoffError instanceof Error ? handoffError.message : String(handoffError),
               });
+              chatHandoffSuccess = false;
               return { success: false, error: 'Handoff failed' };
             }
           };
@@ -794,9 +862,6 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 capturedOllamaDurations = ollamaDurations;
               },
               chunkCount => {
-                // On each chunk, reset the activity timeout
-                activityController.resetTimeout();
-
                 logger.debug('STREAM_CHUNK', {
                   requestId,
                   serverId: server.id,
@@ -826,19 +891,38 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 if (requestId) {
                   getInFlightManager().removeStreamingRequest(requestId);
                 }
-              }
+              },
+              // Pass activityController so streaming.ts can race reader.read() against the
+              // abort signal, enabling pre-first-chunk stall detection for /api/chat.
+              activityController
             );
 
-            const includeDebug = req.query.debug === 'true';
+            const includeDebug = isDebugRequested(req);
             if (includeDebug && !res.writableEnded) {
               const streamDuration = Date.now() - streamStartTime;
               const debugInfo = getDebugInfo(routingContext, {
+                requestId: requestId,
+                requestTimestamp: streamStartTime,
                 timeToFirstToken: ttftMetrics?.ttft,
                 streamingDuration: streamDuration,
                 tokensGenerated: tokenMetrics?.tokensGenerated,
                 tokensPrompt: tokenMetrics?.tokensPrompt,
+                chunkData: streamingChunkData
+                  ? {
+                      chunkCount: streamingChunkData.chunkCount,
+                      totalBytes: streamingChunkData.totalBytes,
+                      maxChunkGapMs: streamingChunkData.maxChunkGapMs,
+                      avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+                    }
+                  : undefined,
+                stallDetected: chatStallDetected,
+                stallDurationMs: chatStallStartTime ? Date.now() - chatStallStartTime : undefined,
+                handoffAttempted: chatHandoffAttempted,
+                handoffSuccess: chatHandoffSuccess,
+                handoffTargetServer: chatHandoffTargetServer,
               });
               if (debugInfo) {
+                setDebugResponseHeaders(res, debugInfo);
                 res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
             }
@@ -892,11 +976,12 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
     // Only send JSON response if not streaming
     if (!useStreaming) {
-      const includeDebug = req.query.debug === 'true';
+      const includeDebug = isDebugRequested(req);
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo && typeof result === 'object' && result !== null) {
           (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
         }
       }
       res.json(result);
@@ -914,16 +999,22 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       const isNoServersError =
         errorMessage.includes('No') && errorMessage.includes('servers available');
 
+      const debugPayload = isDebugRequested(req)
+        ? getDebugInfo(routingContext, { lastError: errorMessage })
+        : undefined;
+
       if (isNoServersError) {
         res.status(503).json({
           error: 'No available servers for model',
           model,
           message: errorMessage,
+          ...(debugPayload && { debug: debugPayload }),
         });
       } else {
         res.status(500).json({
           error: 'Chat request failed',
           details: errorMessage,
+          ...(debugPayload && { debug: debugPayload }),
         });
       }
     }
@@ -978,12 +1069,13 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
       routingContext
     );
 
-    // Send response with optional debug info (?debug=true)
-    const includeDebug = req.query.debug === 'true';
+    // Send response with optional debug info (?debug=true or X-Include-Debug-Info: true)
+    const includeDebug = isDebugRequested(req);
     if (includeDebug) {
       const debugInfo = getDebugInfo(routingContext);
       if (debugInfo && typeof result === 'object' && result !== null) {
         result.debug = debugInfo;
+        setDebugResponseHeaders(res, debugInfo);
       }
     }
     res.json(result);
@@ -994,16 +1086,22 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     const isNoServersError =
       errorMessage.includes('No') && errorMessage.includes('servers available');
 
+    const debugPayload = isDebugRequested(req)
+      ? getDebugInfo(routingContext, { lastError: errorMessage })
+      : undefined;
+
     if (isNoServersError) {
       res.status(503).json({
         error: 'No available servers for model',
         model,
         message: errorMessage,
+        ...(debugPayload && { debug: debugPayload }),
       });
     } else {
       res.status(500).json({
         error: 'Embeddings request failed',
         details: errorMessage,
+        ...(debugPayload && { debug: debugPayload }),
       });
     }
   }
@@ -1283,8 +1381,6 @@ export async function handleStreamingGenerate(
               serverId: server.id,
               requestId,
             });
-            // On each chunk, reset the activity timeout
-            activityController.resetTimeout();
 
             // Update InFlightManager with current chunk count for real-time tracking
             logger.info('GEN_CHUNK_RECEIVED', {
@@ -1349,6 +1445,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
 
   const orchestrator = getOrchestratorInstance();
   const useStreaming = isStreamingRequest(body);
+  const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'ollama' };
 
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
@@ -1413,8 +1510,6 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
               });
             },
             chunkCount => {
-              // On each chunk
-              activityController.resetTimeout();
               // Update InFlightManager with current chunk count
               if (streamingRequestId) {
                 getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount);
@@ -1435,6 +1530,19 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             },
             activityController
           );
+
+          // Emit debug info for streaming per-server requests
+          const includeDebug = isDebugRequested(req);
+          if (includeDebug && !res.writableEnded) {
+            const debugInfo = getDebugInfo(routingContext, {
+              requestId: streamingRequestId,
+            });
+            if (debugInfo) {
+              setDebugResponseHeaders(res, debugInfo);
+              res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+            }
+          }
+
           return null;
         } else {
           // No timeout for per-server requests - let active tests determine appropriate timeouts
@@ -1462,10 +1570,18 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
           return data;
         }
       },
-      { isStreaming: useStreaming, bypassCircuitBreaker }
+      { isStreaming: useStreaming, bypassCircuitBreaker, routingContext }
     );
 
     if (!useStreaming && result) {
+      const includeDebug = isDebugRequested(req);
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
+        }
+      }
       res.json(result);
     }
   } catch (error) {
@@ -1474,7 +1590,13 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
       error: errorMessage,
       bypassCircuitBreaker,
     });
-    res.status(500).json({ error: errorMessage });
+    const debugPayload = isDebugRequested(req)
+      ? getDebugInfo(routingContext, { lastError: errorMessage })
+      : undefined;
+    res.status(500).json({
+      error: errorMessage,
+      ...(debugPayload && { debug: debugPayload }),
+    });
   }
 }
 
@@ -1504,6 +1626,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
 
   const orchestrator = getOrchestratorInstance();
   const useStreaming = isStreamingRequest(body);
+  const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'ollama' };
 
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
@@ -1568,8 +1691,6 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
               });
             },
             chunkCount => {
-              // On each chunk
-              activityController.resetTimeout();
               // Update InFlightManager with current chunk count
               if (streamingRequestId) {
                 getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount);
@@ -1590,6 +1711,19 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             },
             activityController
           );
+
+          // Emit debug info for streaming per-server requests
+          const includeDebug = isDebugRequested(req);
+          if (includeDebug && !res.writableEnded) {
+            const debugInfo = getDebugInfo(routingContext, {
+              requestId: streamingRequestId,
+            });
+            if (debugInfo) {
+              setDebugResponseHeaders(res, debugInfo);
+              res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+            }
+          }
+
           return null;
         } else {
           // No timeout for per-server requests - let active tests determine appropriate timeouts
@@ -1617,10 +1751,18 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
           return data;
         }
       },
-      { isStreaming: useStreaming, bypassCircuitBreaker }
+      { isStreaming: useStreaming, bypassCircuitBreaker, routingContext }
     );
 
     if (!useStreaming && result) {
+      const includeDebug = isDebugRequested(req);
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
+        }
+      }
       res.json(result);
     }
   } catch (error) {
@@ -1629,7 +1771,13 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
       error: errorMessage,
       bypassCircuitBreaker,
     });
-    res.status(500).json({ error: errorMessage });
+    const debugPayload = isDebugRequested(req)
+      ? getDebugInfo(routingContext, { lastError: errorMessage })
+      : undefined;
+    res.status(500).json({
+      error: errorMessage,
+      ...(debugPayload && { debug: debugPayload }),
+    });
   }
 }
 
@@ -1662,6 +1810,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
   }
 
   const orchestrator = getOrchestratorInstance();
+  const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'ollama' };
 
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
@@ -1696,16 +1845,32 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
         const data: Record<string, unknown> = safeJsonParse(lines[0]);
         return data;
       },
-      { bypassCircuitBreaker }
+      { bypassCircuitBreaker, routingContext }
     );
 
-    res.json(result);
+    if (result) {
+      const includeDebug = isDebugRequested(req);
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          (result as Record<string, unknown>).debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
+        }
+      }
+      res.json(result);
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.error(`Embeddings to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,
     });
-    res.status(500).json({ error: errorMessage });
+    const debugPayload = isDebugRequested(req)
+      ? getDebugInfo(routingContext, { lastError: errorMessage })
+      : undefined;
+    res.status(500).json({
+      error: errorMessage,
+      ...(debugPayload && { debug: debugPayload }),
+    });
   }
 }
