@@ -66,6 +66,7 @@ export const RequestsTab = ({
               onPageChange(0);
             }}
             className="bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-white min-w-[200px]"
+            aria-label="Select a server to view request logs"
           >
             <option value="">Select a server...</option>
             {serversWithHistory?.serverIds?.map(serverId => (
@@ -114,7 +115,9 @@ export const RequestsTab = ({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-700 text-gray-400">
-                    <th className="w-8 py-3"></th>
+                    <th className="w-8 py-3">
+                      <span className="sr-only">Expand row</span>
+                    </th>
                     <th className="text-left py-3">Time</th>
                     <th className="text-left py-3">Model</th>
                     <th className="text-right py-3">Duration</th>
@@ -129,6 +132,15 @@ export const RequestsTab = ({
                         key={req.id}
                         className="border-b border-gray-800 hover:bg-gray-700/30 cursor-pointer transition-colors"
                         onClick={() => onToggleExpansion(req.id)}
+                        tabIndex={0}
+                        role="button"
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onToggleExpansion(req.id);
+                          }
+                        }}
+                        aria-expanded={expandedRequests[req.id]}
                       >
                         <td className="py-3 text-center">
                           {expandedRequests[req.id] ? (

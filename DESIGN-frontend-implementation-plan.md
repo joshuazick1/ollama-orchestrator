@@ -628,11 +628,11 @@
 
 ### 5.1 Label Form Controls
 
-**Files:** `frontend/src/pages/Analytics.tsx`
+**Files:** `frontend/src/pages/analytics/RequestsTab.tsx`
 
 **Steps:**
 
-1. Find unlabeled `<select>` elements (lines ~1239-1253)
+1. Find unlabeled `<select>` elements
 2. Add `aria-label` attributes:
    ```tsx
    <select aria-label="Filter by time range">
@@ -643,11 +643,11 @@
 
 ### 5.2 Keyboard-Accessible Table Rows
 
-**Files:** `frontend/src/pages/Analytics.tsx`
+**Files:** `frontend/src/pages/analytics/RequestsTab.tsx`
 
 **Steps:**
 
-1. Find interactive `<tr>` elements (lines ~1319-1348)
+1. Find interactive `<tr>` elements
 2. Add accessibility attributes:
    ```tsx
    <tr
@@ -667,11 +667,11 @@
 
 ### 5.3 Screen Reader Text for Empty Headers
 
-**Files:** `frontend/src/pages/Analytics.tsx`
+**Files:** `frontend/src/pages/analytics/RequestsTab.tsx`
 
 **Steps:**
 
-1. Find empty `<th>` (line ~1294)
+1. Find empty `<th>`
 2. Add sr-only text:
    ```tsx
    <th className="w-8 py-3">
