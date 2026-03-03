@@ -2111,6 +2111,7 @@ export class AIOrchestrator {
         const errorMsg = `Circuit breaker half-open timeout for ${server.id}:${model}`;
         logger.debug(errorMsg);
         errors.push({ server: server.id, error: errorMsg, type: 'transient' });
+        if (alreadyIncremented) this.decrementInFlight(server.id, model);
         return { success: false };
       }
 
@@ -2152,12 +2153,14 @@ export class AIOrchestrator {
           const errorMsg = `Circuit breaker recovery failed or deferred for ${server.id}:${model}`;
           logger.debug(errorMsg);
           errors.push({ server: server.id, error: errorMsg, type: 'transient' });
+          if (alreadyIncremented) this.decrementInFlight(server.id, model);
           return { success: false };
         }
       } catch (error) {
         logger.warn(`Recovery test error for ${server.id}:${model}`, { error });
         const errorMsg = `Circuit breaker recovery error for ${server.id}:${model}`;
         errors.push({ server: server.id, error: errorMsg, type: 'transient' });
+        if (alreadyIncremented) this.decrementInFlight(server.id, model);
         return { success: false };
       }
     }
@@ -2167,6 +2170,7 @@ export class AIOrchestrator {
       const errorMsg = `Circuit breaker ${circuitState} for ${server.id}:${model}`;
       logger.debug(errorMsg);
       errors.push({ server: server.id, error: errorMsg, type: 'transient' });
+      if (alreadyIncremented) this.decrementInFlight(server.id, model);
       return { success: false };
     }
 

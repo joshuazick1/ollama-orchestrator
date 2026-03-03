@@ -381,6 +381,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 newServer,
                 clientResponse: res,
                 originalRequestBody: body as Record<string, unknown>,
+                stallThresholdMs: stallThreshold,
+                stallCheckIntervalMs: stallCheckInterval,
               });
               logger.debug('PERFORM_HANDOFF_RESULT', { requestId, result });
 
@@ -669,7 +671,9 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             server.id,
             model,
             'ollama',
-            'chat'
+            'chat',
+            undefined, // no single prompt for chat
+            messages // original messages for handoff reconstruction
           );
 
           const { response, activityController } = await fetchWithActivityTimeout(
@@ -810,6 +814,8 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 newServer,
                 clientResponse: res,
                 originalRequestBody: body as Record<string, unknown>,
+                stallThresholdMs: stallThreshold,
+                stallCheckIntervalMs: stallCheckInterval,
               });
               logger.debug('PERFORM_HANDOFF_RESULT', { requestId: effectiveRequestId, result });
 
@@ -1488,7 +1494,8 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
               server.id,
               model,
               'ollama',
-              'generate'
+              'generate',
+              prompt // pass original prompt so handoff can use it verbatim
             );
           }
 
