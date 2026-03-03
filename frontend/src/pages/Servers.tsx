@@ -11,6 +11,7 @@ import {
 } from '../api';
 import { Modal } from '../components/Modal';
 import { ModelManagerModal } from '../components/ModelManagerModal';
+import { ConfirmationModal } from '../components/ConfirmationModal';
 import { validateForm, addServerSchema } from '../validations';
 import { encodeUrlParam } from '../utils/security';
 import { Plus, Trash2, Server as ServerIcon, Power, PowerOff, Wrench } from 'lucide-react';
@@ -37,6 +38,7 @@ export const Servers = () => {
   }>({ key: 'url', direction: 'asc' });
   const [groupConfig, setGroupConfig] = useState<'none' | 'version' | 'healthy'>('none');
   const [modelManagerServer, setModelManagerServer] = useState<AIServer | null>(null);
+  const [serverToDelete, setServerToDelete] = useState<AIServer | null>(null);
 
   const { data: metricsData } = useQuery({
     queryKey: ['metrics'],
@@ -343,7 +345,7 @@ export const Servers = () => {
                         <button
                           onClick={e => {
                             e.stopPropagation();
-                            removeMutation.mutate(server.id);
+                            setServerToDelete(server);
                           }}
                           className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                           title="Remove Server"
@@ -504,7 +506,7 @@ export const Servers = () => {
                                 <button
                                   onClick={e => {
                                     e.stopPropagation();
-                                    removeMutation.mutate(server.id);
+                                    setServerToDelete(server);
                                   }}
                                   className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 py-2 rounded-lg text-sm transition-colors border border-red-500/20 flex items-center justify-center space-x-2"
                                 >
@@ -694,6 +696,16 @@ export const Servers = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!serverToDelete}
+        onClose={() => setServerToDelete(null)}
+        onConfirm={() => serverToDelete && removeMutation.mutate(serverToDelete.id)}
+        title="Remove Server"
+        message={`Are you sure you want to remove ${serverToDelete?.url || 'this server'}? This action cannot be undone.`}
+        confirmLabel="Remove"
+      />
 
       {/* Model Manager Modal */}
       <ModelManagerModal
