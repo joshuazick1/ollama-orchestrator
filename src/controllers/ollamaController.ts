@@ -241,7 +241,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               server.id,
               model,
               'ollama',
-              'generate'
+              'generate',
+              prompt // pass original prompt so handoff can use it verbatim
             );
           }
 
@@ -1612,7 +1613,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
  */
 export async function handleChatToServer(req: Request, res: Response): Promise<void> {
   const body = req.body as ChatRequestBody;
-  const { model } = body;
+  const { model, messages } = body;
   const serverId = Array.isArray(req.params.serverId)
     ? req.params.serverId[0]
     : req.params.serverId;
@@ -1676,7 +1677,9 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
               server.id,
               model,
               'ollama',
-              'chat'
+              'chat',
+              undefined, // no single prompt for chat
+              messages // original messages for handoff reconstruction
             );
           }
 
