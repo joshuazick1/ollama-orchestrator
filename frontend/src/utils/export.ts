@@ -1,10 +1,11 @@
+import { sanitizeDisplayText } from './security';
+
 export const exportToCSV = <T extends Record<string, unknown>>(
   data: T[],
   filename: string,
   columns?: { key: keyof T; header: string }[]
 ): void => {
   if (data.length === 0) {
-    console.warn('No data to export');
     return;
   }
 
@@ -126,26 +127,6 @@ export const exportCircuitBreakersToCSV = (
   ]);
 };
 
-export const exportQueueDataToCSV = (
-  data: Array<{
-    id: string;
-    model: string;
-    endpoint: string;
-    priority: number;
-    enqueueTime: string;
-    waitTime: number;
-  }>
-): void => {
-  exportToCSV(data, `queue-data-${Date.now()}`, [
-    { key: 'id', header: 'Request ID' },
-    { key: 'model', header: 'Model' },
-    { key: 'endpoint', header: 'Endpoint' },
-    { key: 'priority', header: 'Priority' },
-    { key: 'enqueueTime', header: 'Enqueue Time' },
-    { key: 'waitTime', header: 'Wait Time (ms)' },
-  ]);
-};
-
 export const generateReportHTML = (
   title: string,
   sections: Array<{
@@ -155,12 +136,14 @@ export const generateReportHTML = (
   timeRange: string
 ): string => {
   const timestamp = new Date().toLocaleString();
+  const safeTitle = sanitizeDisplayText(title);
+  const safeTimeRange = sanitizeDisplayText(timeRange);
 
   return `
 <!DOCTYPE html>
 <html>
 <head>
-  <title>${title}</title>
+  <title>${safeTitle}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; background: #1f2937; color: #f3f4f6; }
     h1 { color: #f3f4f6; border-bottom: 1px solid #374151; padding-bottom: 16px; }
@@ -179,19 +162,19 @@ export const generateReportHTML = (
   </style>
 </head>
 <body>
-  <h1>${title}</h1>
-  <p class="timestamp">Generated: ${timestamp} | Time Range: ${timeRange}</p>
+  <h1>${safeTitle}</h1>
+  <p class="timestamp">Generated: ${timestamp} | Time Range: ${safeTimeRange}</p>
   
   ${sections
     .map(
       section => `
-    <h2>${section.title}</h2>
+    <h2>${sanitizeDisplayText(section.title)}</h2>
     <table>
       ${section.content
         .map(
           (row: Array<string | number>) => `
         <tr>
-          ${row.map((cell: string | number) => `<td>${cell}</td>`).join('')}
+          ${row.map((cell: string | number) => `<td>${sanitizeDisplayText(String(cell))}</td>`).join('')}
         </tr>
       `
         )
