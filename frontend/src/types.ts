@@ -229,7 +229,7 @@ export interface OrchestratorConfig {
 export interface AIServer {
   id: string;
   url: string;
-  type: 'ollama';
+  type: 'ollama' | 'openai' | 'auto';
   healthy: boolean;
   lastResponseTime: number;
   models: string[];
@@ -242,6 +242,16 @@ export interface AIServer {
   v1Models?: string[];
   // NEW: Optional API key (redacted in responses)
   apiKey?: string;
+  // Operational state
+  draining?: boolean;
+  maintenance?: boolean;
+  // Hardware capabilities
+  hardware?: {
+    totalVram?: number;
+    usedVram?: number;
+    loadedModels?: Array<{ name: string; sizeBytes?: number }>;
+    lastUpdated?: string;
+  };
 }
 
 export interface ServerModelBenchmark {
@@ -436,6 +446,9 @@ export interface ModelMetricsExport {
   successRate: number;
   throughput: number;
   avgTokensPerRequest: number;
+  avgTokensPerSecond?: number;
+  coldStartCount?: number;
+  avgNetworkOverheadMs?: number;
   streamingMetrics?: StreamingMetrics;
 }
 

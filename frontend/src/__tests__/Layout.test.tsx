@@ -21,7 +21,7 @@ describe('Layout', () => {
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
     expect(screen.getByText('Servers')).toBeInTheDocument();
     expect(screen.getByText('Models')).toBeInTheDocument();
-    expect(screen.getByText('Queue')).toBeInTheDocument();
+    expect(screen.getByText('In-Flight')).toBeInTheDocument();
     expect(screen.getByText('Analytics')).toBeInTheDocument();
     expect(screen.getByText('Logs')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();

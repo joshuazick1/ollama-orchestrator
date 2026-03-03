@@ -9,7 +9,6 @@ import {
   Shield,
   BarChart3,
   Zap,
-  Database,
   Activity,
   Check,
   AlertCircle,
@@ -268,7 +267,6 @@ export const Settings = () => {
   const tabs = [
     { id: 'general', label: 'General', icon: Settings2 },
     { id: 'features', label: 'Features', icon: Zap },
-    { id: 'queue', label: 'Queue', icon: Database },
     { id: 'loadbalancer', label: 'Load Balancer', icon: Activity },
     { id: 'circuitbreaker', label: 'Circuit Breaker', icon: Shield },
     { id: 'security', label: 'Security', icon: Shield },
@@ -424,57 +422,6 @@ export const Settings = () => {
               onChange={checked => updateField('enablePersistence', null, checked)}
               description="Save state to disk for recovery"
             />
-          </ConfigSection>
-        )}
-
-        {/* Queue Settings */}
-        {activeTab === 'queue' && (
-          <ConfigSection
-            title="Queue Configuration"
-            icon={Database}
-            description="Request queue settings"
-          >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <NumberInput
-                label="Max Queue Size"
-                value={currentConfig.queue?.maxSize ?? 1000}
-                onChange={value => updateField('queue', 'maxSize', value)}
-                min={1}
-                description="Maximum number of queued requests"
-              />
-              <NumberInput
-                label="Queue Timeout"
-                value={currentConfig.queue?.timeout ?? 300000}
-                onChange={value => updateField('queue', 'timeout', value)}
-                min={1000}
-                step={1000}
-                suffix="ms"
-                description="Maximum time a request can wait in queue"
-              />
-              <NumberInput
-                label="Priority Boost Interval"
-                value={currentConfig.queue?.priorityBoostInterval ?? 30000}
-                onChange={value => updateField('queue', 'priorityBoostInterval', value)}
-                min={1000}
-                step={1000}
-                suffix="ms"
-                description="How often to boost waiting request priority"
-              />
-              <NumberInput
-                label="Priority Boost Amount"
-                value={currentConfig.queue?.priorityBoostAmount ?? 5}
-                onChange={value => updateField('queue', 'priorityBoostAmount', value)}
-                min={1}
-                description="Priority increase per boost interval"
-              />
-              <NumberInput
-                label="Max Priority"
-                value={currentConfig.queue?.maxPriority ?? 100}
-                onChange={value => updateField('queue', 'maxPriority', value)}
-                min={1}
-                description="Maximum priority value for queued requests"
-              />
-            </div>
           </ConfigSection>
         )}
 

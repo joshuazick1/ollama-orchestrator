@@ -121,21 +121,6 @@ export const SkeletonChart = ({ height = 300 }: { height?: number }) => (
   </div>
 );
 
-export const SkeletonQueueItem = () => (
-  <div className="flex items-center justify-between p-4 border-b border-gray-700">
-    <div className="flex items-center gap-4">
-      <Skeleton className="h-4 w-24" />
-      <Skeleton className="h-5 w-32" />
-      <Skeleton className="h-5 w-20" />
-    </div>
-    <div className="flex items-center gap-4">
-      <Skeleton className="h-6 w-12 rounded-full" />
-      <Skeleton className="h-4 w-16" />
-      <Skeleton className="h-4 w-20" />
-    </div>
-  </div>
-);
-
 export const SkeletonCircuitBreaker = () => (
   <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
     <div className="flex items-center justify-between mb-4">
