@@ -553,9 +553,38 @@ export async function streamResponse(
       });
       const writeResult = clientResponse.write(value);
       if (!writeResult) {
-        // Buffer is full, wait for drain
+        // Buffer is full, wait for drain — but also unblock on abort or client disconnect
+        // so we never deadlock here when the client is gone.
         logger.debug('Client buffer full, waiting for drain', { chunkCount, totalBytes });
-        await new Promise<void>(resolve => clientResponse.once('drain', resolve));
+        await new Promise<void>(resolve => {
+          let settled = false;
+          const cleanup = () => {
+            if (settled) return;
+            settled = true;
+            clientResponse.removeListener('drain', onDrain);
+            clientResponse.removeListener('close', onClose);
+            clientResponse.removeListener('finish', onClose);
+            abortController.signal.removeEventListener('abort', onAbort);
+            activityController?.controller.signal.removeEventListener('abort', onAbort);
+          };
+          const onDrain = () => {
+            cleanup();
+            resolve();
+          };
+          const onClose = () => {
+            cleanup();
+            resolve();
+          };
+          const onAbort = () => {
+            cleanup();
+            resolve();
+          };
+          clientResponse.once('drain', onDrain);
+          clientResponse.once('close', onClose);
+          clientResponse.once('finish', onClose);
+          abortController.signal.addEventListener('abort', onAbort, { once: true });
+          activityController?.controller.signal.addEventListener('abort', onAbort, { once: true });
+        });
       }
 
       // Check if client disconnected
