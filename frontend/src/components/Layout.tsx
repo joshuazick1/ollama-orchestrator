@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { Menu, X, Search } from 'lucide-react';
+import { Menu, X, Search, Sun, Moon } from 'lucide-react';
 import clsx from 'clsx';
 import { GlobalSearch } from './GlobalSearch';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
+import { useTheme } from '../hooks/useTheme';
 import { APP_VERSION } from '../constants/app';
 import { NAV_ITEMS } from '../constants/navigation';
 
@@ -24,7 +25,9 @@ const NavigationItem = ({
     className={({ isActive }) =>
       clsx(
         'flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors',
-        isActive ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+        isActive
+          ? 'bg-blue-600 text-white'
+          : 'text-gray-400 hover:bg-gray-800 dark:hover:bg-gray-800 hover:text-white dark:text-gray-400'
       )
     }
   >
@@ -36,11 +39,28 @@ const NavigationItem = ({
 export const Layout = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isSearchOpen, openSearch, closeSearch } = useGlobalSearch();
+  const { theme, toggleTheme } = useTheme();
 
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
 
+  const ThemeToggle = ({ compact = false }: { compact?: boolean }) => (
+    <button
+      onClick={toggleTheme}
+      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      className={clsx(
+        'rounded-lg transition-colors text-gray-400 hover:text-white',
+        compact
+          ? 'p-2 hover:bg-gray-800'
+          : 'flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-800'
+      )}
+    >
+      {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+      {!compact && <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>}
+    </button>
+  );
+
   return (
-    <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
+    <div className="flex h-screen bg-gray-900 dark:bg-gray-900 light:bg-gray-50 text-white overflow-hidden">
       <GlobalSearch
         key={isSearchOpen ? 'open' : 'closed'}
         isOpen={isSearchOpen}
@@ -71,7 +91,10 @@ export const Layout = () => {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-800 text-xs text-gray-500">{APP_VERSION}</div>
+        <div className="p-4 border-t border-gray-800 flex items-center justify-between">
+          <span className="text-xs text-gray-500">{APP_VERSION}</span>
+          <ThemeToggle compact />
+        </div>
       </aside>
 
       {/* Mobile Header */}
@@ -87,6 +110,7 @@ export const Layout = () => {
           >
             <Search className="w-5 h-5" />
           </button>
+          <ThemeToggle compact />
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors"
@@ -123,7 +147,10 @@ export const Layout = () => {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-800 text-xs text-gray-500">{APP_VERSION}</div>
+        <div className="p-4 border-t border-gray-800 flex items-center justify-between">
+          <span className="text-xs text-gray-500">{APP_VERSION}</span>
+          <ThemeToggle compact />
+        </div>
       </aside>
 
       {/* Main Content */}
