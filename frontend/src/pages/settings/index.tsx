@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getConfig, updateConfig, saveConfig, reloadConfig, type OrchestratorConfig } from '../api';
-import { toastSuccess, toastError } from '../utils/toast';
+import {
+  getConfig,
+  updateConfig,
+  saveConfig,
+  reloadConfig,
+  type OrchestratorConfig,
+} from '../../api';
+import { toastSuccess, toastError } from '../../utils/toast';
 import {
   Save,
   RefreshCw,

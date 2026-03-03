@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  X,
   Activity,
   Zap,
   Radio,
@@ -23,6 +22,7 @@ import {
 } from '../api';
 import { StatCard } from '../components/StatCard';
 import { formatDuration, formatTimeAgo } from '../utils/formatting';
+import { Modal } from './Modal';
 
 interface CircuitDetailModalProps {
   isOpen: boolean;
@@ -150,33 +150,15 @@ export const CircuitDetailModal = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-gray-800 rounded-xl border border-gray-700 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-700">
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-3 h-3 rounded-full ${
-                circuitBreaker?.state === 'CLOSED'
-                  ? 'bg-green-400'
-                  : circuitBreaker?.state === 'HALF-OPEN'
-                    ? 'bg-yellow-400'
-                    : 'bg-red-400'
-              }`}
-            />
-            <div>
-              <h2 className="text-xl font-bold text-white">
-                {serverId} : {model}
-              </h2>
-              <p className="text-sm text-gray-400">Circuit Detail</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-700 rounded-lg transition-colors">
-            <X className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Circuit Detail - ${serverId} : ${model}`}
+      size="xl"
+      className="max-h-[90vh]"
+      closeOnOverlayClick={false}
+    >
+      <div className="flex flex-col h-full -mx-6 -mb-6">
         {/* Circuit State Banner */}
         {circuitBreaker && circuitBreaker.state !== 'CLOSED' && (
           <div
@@ -218,7 +200,7 @@ export const CircuitDetailModal = ({
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-700 px-4">
+        <div className="flex border-b border-gray-700 px-6">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -246,7 +228,7 @@ export const CircuitDetailModal = ({
           {activeTab === 'trends' && <TrendsTab serverId={serverId} model={model} />}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

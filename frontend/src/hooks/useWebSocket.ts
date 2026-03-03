@@ -146,69 +146,21 @@ export const useWebSocket = ({
 export const useRealTimeUpdates = (
   onUpdate: (data: Record<string, unknown>) => void,
   enabled = true
-) => {
-  const [connectionStatus, setConnectionStatus] = useState<WebSocketStatus>('disconnected');
+): { connectionStatus: WebSocketStatus } => {
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
 
-  useEffect(() => {
-    if (!enabled) return;
+  const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`;
 
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`;
+  const handleMessage = useCallback((message: WebSocketMessage) => {
+    onUpdateRef.current(message as unknown as Record<string, unknown>);
+  }, []);
 
-    let ws: WebSocket | null = null;
-    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    const connect = () => {
-      try {
-        setConnectionStatus('connecting');
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-          setConnectionStatus('connected');
-        };
-
-        ws.onmessage = event => {
-          try {
-            const parsed = JSON.parse(event.data);
-            const message: WebSocketMessage = {
-              type: parsed.type ?? 'unknown',
-              payload: parsed.payload ?? parsed,
-              timestamp: parsed.timestamp ?? Date.now(),
-            };
-            onUpdate(message);
-          } catch {
-            const message: WebSocketMessage = {
-              type: 'unknown',
-              payload: event.data,
-              timestamp: Date.now(),
-            };
-            onUpdate(message);
-          }
-        };
-
-        ws.onerror = () => {
-          setConnectionStatus('error');
-        };
-
-        ws.onclose = () => {
-          setConnectionStatus('disconnected');
-          reconnectTimeout = setTimeout(connect, 5000);
-        };
-      } catch (e) {
-        setConnectionStatus('error');
-      }
-    };
-
-    connect();
-
-    return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-      if (ws) {
-        ws.close();
-      }
-    };
-  }, [enabled, onUpdate]);
+  const { status: connectionStatus } = useWebSocket({
+    url: wsUrl,
+    enabled,
+    onMessage: handleMessage,
+  });
 
   return { connectionStatus };
 };

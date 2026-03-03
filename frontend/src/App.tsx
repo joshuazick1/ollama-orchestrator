@@ -6,10 +6,10 @@ import { Toaster } from './components/Toaster';
 import { Dashboard } from './pages/Dashboard';
 import { Servers } from './pages/Servers';
 import { Models } from './pages/Models';
-import { Analytics } from './pages/Analytics';
+import { Analytics } from './pages/analytics';
 import { CircuitBreakers } from './pages/CircuitBreakers';
 import { Logs } from './pages/Logs';
-import Settings from './pages/Settings';
+import Settings from './pages/settings';
 import { InFlight } from './pages/InFlight';
 import { ApiError } from './api';
 

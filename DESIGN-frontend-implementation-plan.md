@@ -521,22 +521,23 @@
 
 **Steps:**
 
-1. Read current `Modal.tsx` implementation
+1. Read current `Modal.tsx` implementation (which now includes `focus-trap-react`).
 2. Refactor `ModelManagerModal`:
-   - Remove duplicate overlay/scroll-lock/ESC logic
-   - Compose on top of `<Modal>`:
+   - Remove duplicate overlay/scroll-lock/ESC logic.
+   - Compose on top of `<Modal>` while maintaining existing focus trapping and internal scroll areas.
+   - Maintain the strict TypeScript interfaces implemented in Phase 2.
      ```tsx
      <Modal isOpen={isOpen} onClose={onClose} size="xl">
        <ModalHeader>...</ModalHeader>
        <ModalBody>...</ModalBody>
      </Modal>
      ```
-3. Repeat for `CircuitDetailModal`
-4. Verify all functionality (tabs, scroll, close) still works
+3. Repeat for `CircuitDetailModal`, ensuring `CircuitMetricsData` and `DecisionHistoryItem` types are preserved.
+4. Verify all functionality (tabs, scroll, close) still works without breaking `focus-trap-react`.
 
 **Commit:** `refactor: use reusable Modal component in all modals`
 
-### 4.4 Extract Navigation Items
+### 4.4 Extract Navigation Items (✅ Completed)
 
 **Files:** `frontend/src/components/Layout.tsx`
 
@@ -556,7 +557,7 @@
 
 **Commit:** `refactor: extract navigation items to constants`
 
-### 4.5 Move createEventEmitter to Utils
+### 4.5 Move createEventEmitter to Utils (✅ Completed)
 
 **Files:** `frontend/src/hooks/useWebSocket.ts`
 
@@ -574,15 +575,31 @@
 
 **Steps:**
 
-1. Rewrite `useRealTimeUpdates` to compose `useWebSocket`
-2. Use `useRef` to fix stale closure issue:
+1. Rewrite `useRealTimeUpdates` to compose `useWebSocket` rather than duplicating connection logic.
+2. Use `useRef` to fix stale closure risks and properly manage the `onUpdate` callback without causing infinite re-renders or missed events.
    ```typescript
    const onUpdateRef = useRef(onUpdate);
-   onUpdateRef.current = onUpdate;
-   // use onUpdateRef.current in effect
+   useEffect(() => {
+     onUpdateRef.current = onUpdate;
+   }, [onUpdate]);
+   // use onUpdateRef.current in WebSocket message handler
    ```
+3. Ensure no regression in type safety for WebSocket messages (implemented in Phase 2).
 
-**Commit:** `refactor: compose useRealTimeUpdates with useWebSocket`
+**Commit:** `refactor(hooks): compose useRealTimeUpdates with useWebSocket`
+
+### 4.7 Splitting Monolithic Page Files
+
+**Files:** `frontend/src/pages/Analytics.tsx`, `frontend/src/pages/Settings.tsx`
+
+**Steps:**
+
+1. Fully transition from single massive files (~1900 lines for Analytics, ~1400 lines for Settings) to directory-based modular structures.
+2. Analytics: extract OverviewTab, PerformanceTab, ModelsTab, ServersTab, ErrorsTab, CapacityTab, RequestsTab, TrendsTab.
+3. Settings: extract GeneralSection, LoadBalancerSection, CircuitBreakerSection, StreamingSection, SecuritySection, ModelManagerSection.
+4. Integrate React components securely and check all TypeScript configurations (`tsc -b`).
+
+**Commit:** `refactor(pages): split massive pages into modular directories`
 
 ### 4.7 Decide on WebSocket Integration
 

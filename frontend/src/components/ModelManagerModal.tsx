@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  X,
   Download,
   Trash2,
   Copy,
@@ -21,6 +20,7 @@ import {
 } from '../api';
 import type { AIServer } from '../types';
 import { formatBytes, formatDate } from '../utils/formatting';
+import { Modal } from './Modal';
 
 interface ModelManagerModalProps {
   isOpen: boolean;
@@ -105,7 +105,6 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
 
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNewModelName('');
       setSelectedSourceServer('');
       setActiveTab('installed');
@@ -123,14 +122,12 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
     if (!newModelName.trim()) return;
 
     if (selectedSourceServer) {
-      // Copy from another server
       copyMutation.mutate({
         targetServerId: server.id,
         model: newModelName.trim(),
         sourceServerId: selectedSourceServer,
       });
     } else {
-      // Pull from registry
       pullMutation.mutate({
         serverId: server.id,
         model: newModelName.trim(),
@@ -146,21 +143,16 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 backdrop-blur-sm">
-      <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b border-gray-700">
-          <div>
-            <h3 className="text-xl font-semibold text-white">Manage Models</h3>
-            <p className="text-sm text-gray-400 mt-1">{server.url}</p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Manage Models - ${server.url}`}
+      size="xl"
+      className="max-h-[90vh]"
+    >
+      <div className="flex flex-col h-full">
         {/* Tabs */}
-        <div className="flex border-b border-gray-700">
+        <div className="flex border-b border-gray-700 -mx-6 px-6 mb-6">
           <button
             onClick={() => setActiveTab('installed')}
             className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
@@ -186,7 +178,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[60vh]">
+        <div className="flex-1 overflow-y-auto -mx-6 px-6">
           {activeTab === 'installed' ? (
             <div>
               <div className="flex justify-between items-center mb-4">
@@ -386,6 +378,6 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
