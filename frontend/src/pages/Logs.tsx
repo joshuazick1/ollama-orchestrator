@@ -3,10 +3,16 @@ import { getLogs, clearLogs } from '../api';
 import { Trash2, RefreshCw } from 'lucide-react';
 import { toastSuccess, toastError } from '../utils/toast';
 import { SkeletonTable } from '../components/skeletons';
+import { ErrorState } from '../components/EmptyState';
 
 export const Logs = () => {
   const queryClient = useQueryClient();
-  const { data: logs, isLoading, refetch } = useQuery({ queryKey: ['logs'], queryFn: getLogs });
+  const {
+    data: logs,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({ queryKey: ['logs'], queryFn: getLogs });
 
   const clearMutation = useMutation({
     mutationFn: clearLogs,
@@ -29,6 +35,24 @@ export const Logs = () => {
           </div>
         </div>
         <SkeletonTable rows={10} columns={3} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold text-white">System Logs</h2>
+            <p className="text-gray-400">View and manage application logs</p>
+          </div>
+        </div>
+        <ErrorState
+          title="Failed to load logs"
+          message={error instanceof Error ? error.message : 'An error occurred while loading logs'}
+          action={{ label: 'Retry', onClick: () => refetch() }}
+        />
       </div>
     );
   }
