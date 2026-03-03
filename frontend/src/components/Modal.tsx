@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createFocusTrap } from 'focus-trap';
 import { X } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -43,18 +44,29 @@ export const Modal = ({
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    let focusTrap: ReturnType<typeof createFocusTrap> | null = null;
+
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
         onClose();
       }
     };
 
-    if (isOpen) {
+    if (isOpen && modalRef.current) {
+      focusTrap = createFocusTrap(modalRef.current, {
+        initialFocus: modalRef.current,
+        escapeDeactivates: true,
+        clickOutsideDeactivates: false,
+      });
+      focusTrap.activate();
       document.addEventListener('keydown', handleEscape);
       document.body.style.overflow = 'hidden';
     }
 
     return () => {
+      if (focusTrap) {
+        focusTrap.deactivate();
+      }
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
     };
