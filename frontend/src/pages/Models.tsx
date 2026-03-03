@@ -10,6 +10,7 @@ import {
   getAllModelsStatus,
 } from '../api';
 import { SkeletonTable } from '../components/skeletons';
+import { ErrorState } from '../components/EmptyState';
 import {
   Server,
   Box,
@@ -226,25 +227,41 @@ export const Models = () => {
     model: string;
   } | null>(null);
 
-  const { data: modelMap, isLoading: mapLoading } = useQuery({
+  const {
+    data: modelMap,
+    isLoading: mapLoading,
+    error: mapError,
+  } = useQuery({
     queryKey: ['modelMap'],
     queryFn: getModelMap,
     refetchInterval: 5000,
   });
 
-  const { data: servers, isLoading: serversLoading } = useQuery({
+  const {
+    data: servers,
+    isLoading: serversLoading,
+    error: serversError,
+  } = useQuery({
     queryKey: ['servers'],
     queryFn: getServers,
     refetchInterval: 5000,
   });
 
-  const { data: circuitBreakersData, isLoading: circuitLoading } = useQuery({
+  const {
+    data: circuitBreakersData,
+    isLoading: circuitLoading,
+    error: circuitError,
+  } = useQuery({
     queryKey: ['circuitBreakers'],
     queryFn: getCircuitBreakers,
     refetchInterval: 2000,
   });
 
-  const { data: inFlightData, isLoading: inFlightLoading } = useQuery({
+  const {
+    data: inFlightData,
+    isLoading: inFlightLoading,
+    error: inFlightError,
+  } = useQuery({
     queryKey: ['in-flight'],
     queryFn: getInFlightByServer,
     refetchInterval: 2000,
@@ -328,6 +345,29 @@ export const Models = () => {
           </div>
         </div>
         <SkeletonTable rows={8} columns={4} />
+      </div>
+    );
+  }
+
+  const loadError = mapError || serversError || circuitError || inFlightError;
+  if (loadError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-2xl font-bold text-white">Models</h2>
+            <p className="text-gray-400">View and manage models across your servers</p>
+          </div>
+        </div>
+        <ErrorState
+          title="Failed to load data"
+          message={
+            loadError instanceof Error
+              ? loadError.message
+              : 'An error occurred while loading models'
+          }
+          action={{ label: 'Retry', onClick: () => window.location.reload() }}
+        />
       </div>
     );
   }
