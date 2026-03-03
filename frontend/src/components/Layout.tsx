@@ -16,6 +16,7 @@ import {
 import clsx from 'clsx';
 import { GlobalSearch } from './GlobalSearch';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
+import { APP_VERSION } from '../constants/app';
 
 const NavigationItem = ({
   to,
@@ -100,7 +101,7 @@ export const Layout = () => {
           </NavigationItem>
         </nav>
 
-        <div className="p-4 border-t border-gray-800 text-xs text-gray-500">v1.0.0</div>
+        <div className="p-4 border-t border-gray-800 text-xs text-gray-500">{APP_VERSION}</div>
       </aside>
 
       {/* Mobile Header */}
@@ -171,7 +172,7 @@ export const Layout = () => {
           </NavigationItem>
         </nav>
 
-        <div className="p-4 border-t border-gray-800 text-xs text-gray-500">v1.0.0</div>
+        <div className="p-4 border-t border-gray-800 text-xs text-gray-500">{APP_VERSION}</div>
       </aside>
 
       {/* Main Content */}

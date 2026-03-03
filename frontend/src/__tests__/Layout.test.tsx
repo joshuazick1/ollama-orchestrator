@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { Layout } from '../components/Layout';
+import { APP_VERSION } from '../constants/app';
 
 describe('Layout', () => {
   it('renders the orchestrator title', () => {
@@ -33,6 +34,6 @@ describe('Layout', () => {
         <Layout />
       </MemoryRouter>
     );
-    expect(screen.getByText('v1.0.0')).toBeInTheDocument();
+    expect(screen.getByText(APP_VERSION)).toBeInTheDocument();
   });
 });
