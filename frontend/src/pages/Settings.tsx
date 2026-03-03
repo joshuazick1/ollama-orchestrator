@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getConfig, updateConfig, saveConfig, reloadConfig, type OrchestratorConfig } from '../api';
+import { toastSuccess, toastError } from '../utils/toast';
 import {
   Save,
   RefreshCw,
@@ -10,7 +11,6 @@ import {
   BarChart3,
   Zap,
   Activity,
-  Check,
   AlertCircle,
   Tag,
   Clock,
@@ -182,7 +182,6 @@ const TextInput = ({ label, value, onChange, description, placeholder, error }: 
 export const Settings = () => {
   const queryClient = useQueryClient();
   const [editedConfig, setEditedConfig] = useState<Partial<OrchestratorConfig> | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState('general');
 
   const { data: config, isLoading } = useQuery({
@@ -194,16 +193,20 @@ export const Settings = () => {
     mutationFn: updateConfig,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config'] });
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      toastSuccess('Configuration updated successfully');
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to update configuration');
     },
   });
 
   const saveToFileMutation = useMutation({
     mutationFn: saveConfig,
     onSuccess: () => {
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      toastSuccess('Configuration saved to file');
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to save configuration to file');
     },
   });
 
@@ -288,12 +291,6 @@ export const Settings = () => {
           <p className="text-gray-400 mt-1">Configure orchestrator behavior and features</p>
         </div>
         <div className="flex items-center space-x-3">
-          {saveSuccess && (
-            <span className="flex items-center text-green-400 text-sm">
-              <Check className="w-4 h-4 mr-1" />
-              Saved successfully
-            </span>
-          )}
           <button
             onClick={() => reloadMutation.mutate()}
             disabled={reloadMutation.isPending}
