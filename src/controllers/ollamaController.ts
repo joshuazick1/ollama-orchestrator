@@ -556,8 +556,14 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       const includeDebug = isDebugRequested(req);
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
-        if (debugInfo && typeof result === 'object' && result !== null) {
-          result.debug = debugInfo;
+        if (
+          debugInfo &&
+          typeof result === 'object' &&
+          result !== null &&
+          !('_streamingMetrics' in result)
+        ) {
+          const debugResult = result as { debug?: unknown };
+          debugResult.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
@@ -989,8 +995,14 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       const includeDebug = isDebugRequested(req);
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
-        if (debugInfo && typeof result === 'object' && result !== null) {
-          result.debug = debugInfo;
+        if (
+          debugInfo &&
+          typeof result === 'object' &&
+          result !== null &&
+          !('_streamingMetrics' in result)
+        ) {
+          const debugResult = result as { debug?: unknown };
+          debugResult.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
