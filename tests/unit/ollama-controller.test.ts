@@ -1007,7 +1007,7 @@ describe('Ollama Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: false }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: false })
       );
       expect(mockRes.json).toHaveBeenCalledWith({
         model: 'llama3:latest',
@@ -1075,7 +1075,7 @@ describe('Ollama Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: true }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: true })
       );
     });
 
@@ -1246,7 +1246,7 @@ describe('Ollama Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { bypassCircuitBreaker: false }
+        expect.objectContaining({ bypassCircuitBreaker: false })
       );
       expect(mockRes.json).toHaveBeenCalledWith({ embedding: [0.1, 0.2, 0.3] });
     });
@@ -1286,7 +1286,7 @@ describe('Ollama Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { bypassCircuitBreaker: true }
+        expect.objectContaining({ bypassCircuitBreaker: true })
       );
     });
 

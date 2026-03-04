@@ -121,6 +121,7 @@ vi.mock('../../src/utils/fetchWithTimeout.js', () => ({
 vi.mock('../../src/utils/debug-headers.js', () => ({
   addDebugHeaders: vi.fn(),
   getDebugInfo: vi.fn().mockReturnValue(null),
+  isDebugRequested: vi.fn().mockReturnValue(false),
 }));
 vi.mock('../../src/utils/api-keys.js', () => ({
   resolveApiKey: vi.fn().mockReturnValue(null),

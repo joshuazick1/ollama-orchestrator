@@ -35,6 +35,11 @@ vi.mock('../../src/utils/logger.js', () => ({
   },
 }));
 vi.mock('../../src/utils/ollamaError.js');
+vi.mock('../../src/utils/debug-headers.js', () => ({
+  getDebugInfo: vi.fn().mockReturnValue(null),
+  isDebugRequested: vi.fn().mockReturnValue(false),
+  setDebugResponseHeaders: vi.fn(),
+}));
 
 // Mock crypto for UUID generation
 Object.defineProperty(global, 'crypto', {
@@ -597,7 +602,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { bypassCircuitBreaker: false }
+        expect.objectContaining({ bypassCircuitBreaker: false })
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -624,7 +629,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { bypassCircuitBreaker: true }
+        expect.objectContaining({ bypassCircuitBreaker: true })
       );
     });
 
@@ -650,7 +655,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { bypassCircuitBreaker: true }
+        expect.objectContaining({ bypassCircuitBreaker: true })
       );
     });
 
@@ -753,7 +758,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { bypassCircuitBreaker: false }
+        expect.objectContaining({ bypassCircuitBreaker: false })
       );
     });
   });
@@ -1019,6 +1024,16 @@ describe('OpenAI Controller', () => {
       };
       mockReq.query = { debug: 'true' };
 
+      const { isDebugRequested, getDebugInfo } = await import('../../src/utils/debug-headers.js');
+      vi.mocked(isDebugRequested).mockReturnValueOnce(true);
+      vi.mocked(getDebugInfo).mockReturnValueOnce({
+        selectedServerId: 'server-1',
+        serverCircuitState: 'closed',
+        modelCircuitState: 'closed',
+        availableServerCount: 3,
+        retryCount: 1,
+      });
+
       const mockResult = { id: 'test', choices: [] };
 
       mockOrchestrator.tryRequestWithFailover.mockImplementation(
@@ -1086,6 +1101,12 @@ describe('OpenAI Controller', () => {
       };
       mockReq.query = { debug: 'true' };
 
+      const { isDebugRequested, getDebugInfo } = await import('../../src/utils/debug-headers.js');
+      vi.mocked(isDebugRequested).mockReturnValueOnce(true);
+      vi.mocked(getDebugInfo).mockReturnValueOnce({
+        selectedServerId: 'server-1',
+      });
+
       const mockResult = { id: 'test', choices: [] };
 
       mockOrchestrator.tryRequestWithFailover.mockImplementation(
@@ -1112,6 +1133,12 @@ describe('OpenAI Controller', () => {
         messages: [{ role: 'user', content: 'Hello' }],
       };
       mockReq.query = { debug: 'true' };
+
+      const { isDebugRequested, getDebugInfo } = await import('../../src/utils/debug-headers.js');
+      vi.mocked(isDebugRequested).mockReturnValueOnce(true);
+      vi.mocked(getDebugInfo).mockReturnValueOnce({
+        selectedServerId: 'server-1',
+      });
 
       const mockResult = { id: 'test', choices: [] };
 
@@ -1386,7 +1413,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: false }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: false })
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -1471,7 +1498,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: true }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: true })
       );
     });
 
@@ -1493,7 +1520,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: true }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: true })
       );
     });
 
@@ -1515,7 +1542,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: false }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: false })
       );
     });
 
@@ -1594,7 +1621,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: false }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: false })
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -1679,7 +1706,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: false, bypassCircuitBreaker: true }
+        expect.objectContaining({ isStreaming: false, bypassCircuitBreaker: true })
       );
     });
 
@@ -1861,7 +1888,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: true, bypassCircuitBreaker: false }
+        expect.objectContaining({ isStreaming: true, bypassCircuitBreaker: false })
       );
     });
 
@@ -1889,7 +1916,7 @@ describe('OpenAI Controller', () => {
         'server-1',
         'llama3:latest',
         expect.any(Function),
-        { isStreaming: true, bypassCircuitBreaker: false }
+        expect.objectContaining({ isStreaming: true, bypassCircuitBreaker: false })
       );
     });
   });
