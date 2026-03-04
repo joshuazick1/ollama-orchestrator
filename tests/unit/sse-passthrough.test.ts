@@ -82,6 +82,8 @@ function makeMockClientResponse(opts: { triggerBackpressureOnNthWrite?: number }
         drainListeners.push(fn);
       }
     },
+    removeListener: vi.fn(),
+    off: vi.fn(),
     end: vi.fn(),
     status: vi.fn().mockReturnThis(),
     json: vi.fn(),
@@ -111,6 +113,8 @@ vi.mock('../../src/utils/in-flight-manager.js', () => ({
     decrementInFlight: vi.fn(),
     updateChunkProgress: vi.fn(),
     removeStreamingRequest: vi.fn(),
+    addStreamingRequest: vi.fn(),
+    getStreamingRequestProgress: vi.fn().mockReturnValue(null),
     getTotalInFlight: vi.fn().mockReturnValue(0),
   }),
 }));
