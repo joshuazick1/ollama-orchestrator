@@ -56,6 +56,9 @@ describe('streamResponse', () => {
       headersSent: false,
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
+      once: vi.fn(),
+      removeListener: vi.fn(),
+      off: vi.fn(),
     };
   });
 
