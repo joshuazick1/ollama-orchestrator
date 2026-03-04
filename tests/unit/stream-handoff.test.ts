@@ -312,6 +312,9 @@ describe('Stream Handoff', () => {
     });
 
     it('should include context in continuation request when available', async () => {
+      // context is forwarded for ollama chat endpoint (not generate)
+      mockOriginalRequest.protocol = 'ollama';
+      mockOriginalRequest.endpoint = 'chat';
       mockOriginalRequest.lastContext = [1, 2, 3, 4, 5];
 
       const mockFetch = vi.fn().mockResolvedValue({
@@ -329,7 +332,10 @@ describe('Stream Handoff', () => {
         originalRequest: mockOriginalRequest,
         newServer: mockServer,
         clientResponse: mockClientResponse,
-        originalRequestBody: { model: 'llama3', prompt: 'test' },
+        originalRequestBody: {
+          model: 'llama3',
+          messages: [{ role: 'user', content: 'test' }],
+        },
       };
 
       await performStreamHandoff(handoffRequest);
