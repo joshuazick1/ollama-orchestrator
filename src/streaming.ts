@@ -559,7 +559,9 @@ export async function streamResponse(
         await new Promise<void>(resolve => {
           let settled = false;
           const cleanup = () => {
-            if (settled) return;
+            if (settled) {
+              return;
+            }
             settled = true;
             clientResponse.removeListener('drain', onDrain);
             clientResponse.removeListener('close', onClose);
