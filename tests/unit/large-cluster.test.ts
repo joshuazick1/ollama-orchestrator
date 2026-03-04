@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+
 import type { AIServer } from '../../src/orchestrator.types.js';
 import { InFlightManager } from '../../src/utils/in-flight-manager.js';
 
@@ -221,7 +222,7 @@ describe('Large Cluster Scalability Tests', () => {
 
       let serversWithRequests = 0;
       for (const count of requestsPerServer.values()) {
-        if (count > 0) serversWithRequests++;
+        if (count > 0) {serversWithRequests++;}
       }
 
       expect(serversWithRequests).toBe(numServers);
@@ -550,11 +551,11 @@ describe('Large Cluster Scalability Tests', () => {
         if (isOllama) {
           metrics.ollama.requests++;
           metrics.ollama.latency += 100 + Math.random() * 50;
-          if (Math.random() < 0.02) metrics.ollama.errors++;
+          if (Math.random() < 0.02) {metrics.ollama.errors++;}
         } else {
           metrics.openai.requests++;
           metrics.openai.latency += 80 + Math.random() * 40;
-          if (Math.random() < 0.02) metrics.openai.errors++;
+          if (Math.random() < 0.02) {metrics.openai.errors++;}
         }
       }
 
@@ -597,9 +598,9 @@ describe('Large Cluster Scalability Tests', () => {
       const distribution = { ollama: 0, openai: 0, dual: 0 };
 
       for (let i = 0; i < 1000; i++) {
-        if (i % 3 === 0) distribution.ollama++;
-        else if (i % 3 === 1) distribution.openai++;
-        else distribution.dual++;
+        if (i % 3 === 0) {distribution.ollama++;}
+        else if (i % 3 === 1) {distribution.openai++;}
+        else {distribution.dual++;}
       }
 
       // Should be roughly balanced

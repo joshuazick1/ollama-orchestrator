@@ -3,8 +3,8 @@
  * Tests for circuitBreakerController.ts
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { resetBreaker, getBreakerDetails } from '../../src/controllers/circuitBreakerController.js';
 import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';

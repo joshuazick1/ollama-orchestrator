@@ -3,9 +3,10 @@
  * Tests for OpenAI-compatible API controllers
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
+import { getConfigManager } from '../../src/config/config.js';
 import {
   handleChatCompletions,
   handleCompletions,
@@ -17,7 +18,6 @@ import {
   handleOpenAIEmbeddingsToServer,
 } from '../../src/controllers/openaiController.js';
 import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import { getConfigManager } from '../../src/config/config.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../../src/utils/fetchWithTimeout.js';
 import { logger } from '../../src/utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../../src/utils/ollamaError.js';

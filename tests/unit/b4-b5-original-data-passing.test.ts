@@ -12,8 +12,8 @@
  *   handleChatToServer should pass messages
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import {
   handleGenerate,

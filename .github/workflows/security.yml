@@ -23,10 +23,11 @@ jobs:
         run: npm ci
 
       - name: Run npm audit
-        run: npm audit --audit-level=moderate --json > audit-report.json || true
+        run: npm audit --audit-level=moderate --omit=dev --json > audit-report.json
 
       - name: Upload audit report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: audit-report
           path: audit-report.json

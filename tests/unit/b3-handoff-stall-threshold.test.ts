@@ -9,14 +9,14 @@
  * when invoking performStreamHandoff inside the onStallCallback.
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { handleGenerate, handleChat } from '../../src/controllers/ollamaController.js';
 import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import { streamResponse, isStreamingRequest } from '../../src/streaming.js';
-import { performStreamHandoff } from '../../src/utils/stream-handoff.js';
 import { getInFlightManager } from '../../src/utils/in-flight-manager.js';
+import { performStreamHandoff } from '../../src/utils/stream-handoff.js';
 
 // ---------- Mocks ----------
 

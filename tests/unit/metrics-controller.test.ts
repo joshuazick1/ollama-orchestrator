@@ -3,26 +3,23 @@
  * Tests for metricsController.ts
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock the orchestrator instance
 vi.mock('../../src/orchestrator-instance.js');
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-
 // Mock PrometheusExporter
 vi.mock('../../src/metrics/prometheus-exporter.js');
-import { PrometheusExporter } from '../../src/metrics/prometheus-exporter.js';
 
-const mockPrometheusExporter = vi.mocked(PrometheusExporter);
-
-// Import the controller functions after mocking
 import {
   getMetrics,
   getServerModelMetrics,
   getPrometheusMetrics,
 } from '../../src/controllers/metricsController.js';
+import { PrometheusExporter } from '../../src/metrics/prometheus-exporter.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 
+const mockPrometheusExporter = vi.mocked(PrometheusExporter);
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 
 describe('metricsController', () => {

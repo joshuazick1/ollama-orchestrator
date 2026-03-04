@@ -3,9 +3,10 @@
  * Tests for configuration management controllers
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+import { getConfigManager } from '../../src/config/config.js';
 import {
   getConfig,
   updateConfig,
@@ -14,7 +15,6 @@ import {
   saveConfig,
   getConfigSchema,
 } from '../../src/controllers/configController.js';
-import { getConfigManager } from '../../src/config/config.js';
 
 vi.mock('../../src/config/config.js');
 

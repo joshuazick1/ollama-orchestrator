@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import type { AIServer } from '../../src/orchestrator.types.js';
 
 // Mock logger

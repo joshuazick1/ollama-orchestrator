@@ -3,8 +3,8 @@
  * Tests for logsController.ts
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { getLogs, clearLogs } from '../../src/controllers/logsController.js';
 import { logger } from '../../src/utils/logger.js';

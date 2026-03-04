@@ -134,13 +134,13 @@ vi.mock('../../src/utils/circuit-breaker-helpers.js', () => ({
   shouldBypassCircuitBreaker: vi.fn().mockReturnValue(false),
 }));
 
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import { getConfigManager } from '../../src/config/config.js';
-import { fetchWithActivityTimeout } from '../../src/utils/fetchWithTimeout.js';
 import {
   handleChatCompletions,
   handleCompletions,
 } from '../../src/controllers/openaiController.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import { fetchWithActivityTimeout } from '../../src/utils/fetchWithTimeout.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetConfigManager = vi.mocked(getConfigManager);

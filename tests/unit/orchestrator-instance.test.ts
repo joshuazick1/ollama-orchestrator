@@ -4,13 +4,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+import { getConfigManager } from '../../src/config/config.js';
 import {
   getOrchestratorInstance,
   resetOrchestratorInstance,
   hasOrchestratorInstance,
 } from '../../src/orchestrator-instance.js';
 import { AIOrchestrator } from '../../src/orchestrator.js';
-import { getConfigManager } from '../../src/config/config.js';
 import { logger } from '../../src/utils/logger.js';
 
 vi.mock('../../src/config/config.js');

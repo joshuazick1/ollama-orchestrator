@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
 import { Timer, timed, timedAsync } from '../../src/utils/timer.js';
 
 describe('Timer', () => {

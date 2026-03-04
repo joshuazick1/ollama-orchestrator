@@ -1,4 +1,5 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
+
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 
 describe('Servers API Integration', () => {

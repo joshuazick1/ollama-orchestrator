@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
 import { AIOrchestrator } from '../../src/orchestrator.js';
 import { classifyError } from '../../src/utils/errorClassifier.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
@@ -467,7 +468,7 @@ describe('AIOrchestrator', () => {
 
       // Make server unhealthy
       const server = orchestrator.getServer('server-1');
-      if (server) server.healthy = false;
+      if (server) {server.healthy = false;}
 
       // Should return stale cached data
       const result = await orchestrator.getAggregatedTags();
@@ -865,7 +866,7 @@ describe('AIOrchestrator', () => {
       // Remove server-2 so only server-1 exists
       orchestrator.removeServer('server-2');
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = false;
+      if (s1) {s1.healthy = false;}
 
       const server = orchestrator.getBestServerForModel('llama2:latest');
       expect(server).toBeUndefined();
@@ -881,7 +882,7 @@ describe('AIOrchestrator', () => {
       // Remove server-2
       orchestrator.removeServer('server-2');
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.draining = true;
+      if (s1) {s1.draining = true;}
 
       const server = orchestrator.getBestServerForModel('llama2:latest');
       expect(server).toBeUndefined();
@@ -891,7 +892,7 @@ describe('AIOrchestrator', () => {
       // Remove server-2
       orchestrator.removeServer('server-2');
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.maintenance = true;
+      if (s1) {s1.maintenance = true;}
 
       const server = orchestrator.getBestServerForModel('llama2:latest');
       expect(server).toBeUndefined();
@@ -937,8 +938,8 @@ describe('AIOrchestrator', () => {
       }
 
       // Simulate 2 concurrent requests for model-a and 2 for model-b => total 4
-      for (let i = 0; i < 2; i++) orchestrator.incrementInFlight('server-1', 'model-a');
-      for (let i = 0; i < 2; i++) orchestrator.incrementInFlight('server-1', 'model-b');
+      for (let i = 0; i < 2; i++) {orchestrator.incrementInFlight('server-1', 'model-a');}
+      for (let i = 0; i < 2; i++) {orchestrator.incrementInFlight('server-1', 'model-b');}
 
       // Request for model-c should be rejected due to server-level capacity being full
       const server = orchestrator.getBestServerForModel('model-c');
@@ -956,7 +957,7 @@ describe('AIOrchestrator', () => {
       }
 
       // Simulate 3 concurrent requests for model-x => total 3 (< max 4)
-      for (let i = 0; i < 3; i++) orchestrator.incrementInFlight('server-1', 'model-x');
+      for (let i = 0; i < 3; i++) {orchestrator.incrementInFlight('server-1', 'model-x');}
 
       // Request for model-y should be allowed since total < max
       const server = orchestrator.getBestServerForModel('model-y');
@@ -1129,7 +1130,7 @@ describe('AIOrchestrator', () => {
 
     it('should throw when server not healthy', async () => {
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = false;
+      if (s1) {s1.healthy = false;}
 
       await expect(
         orchestrator.requestToServer('server-1', 'llama2', async () => ({ ok: true }))
@@ -1578,7 +1579,7 @@ describe('AIOrchestrator', () => {
       // Remove server-2 and set server-1 to not support ollama
       orchestrator.removeServer('server-2');
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.supportsOllama = false;
+      if (s1) {s1.supportsOllama = false;}
 
       await expect(
         orchestrator.tryRequestWithFailover('llama2', async () => ({}), false, 'generate', 'ollama')
@@ -1590,7 +1591,7 @@ describe('AIOrchestrator', () => {
       // Remove server-2 and set server-1 to not support v1
       orchestrator.removeServer('server-2');
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.supportsV1 = false;
+      if (s1) {s1.supportsV1 = false;}
 
       await expect(
         orchestrator.tryRequestWithFailover('llama2', async () => ({}), false, 'generate', 'openai')
@@ -1685,7 +1686,7 @@ describe('AIOrchestrator', () => {
 
     it('should mark server unhealthy when forcing open', () => {
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = true;
+      if (s1) {s1.healthy = true;}
 
       orchestrator['forceOpenServerBreaker']('server-1', 'Test reason');
 
@@ -1705,7 +1706,7 @@ describe('AIOrchestrator', () => {
 
     it('should not escalate when no models', () => {
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.models = [];
+      if (s1) {s1.models = [];}
 
       // Should not throw
       orchestrator['checkModelBreakerEscalation']('server-1');
@@ -2233,7 +2234,7 @@ describe('AIOrchestrator', () => {
     beforeEach(() => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = true;
+      if (s1) {s1.healthy = true;}
     });
 
     it('should put server in cooldown for non-retryable errors', () => {
@@ -2254,7 +2255,7 @@ describe('AIOrchestrator', () => {
     beforeEach(() => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = true;
+      if (s1) {s1.healthy = true;}
     });
 
     it('should put server in cooldown for transient errors', () => {
@@ -3179,7 +3180,7 @@ describe('AIOrchestrator', () => {
     beforeEach(() => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = true;
+      if (s1) {s1.healthy = true;}
     });
 
     it('should fetch tags successfully', async () => {
@@ -3486,7 +3487,7 @@ describe('AIOrchestrator', () => {
 
     it('should return cached data when healthy', async () => {
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = true;
+      if (s1) {s1.healthy = true;}
 
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -3518,7 +3519,7 @@ describe('AIOrchestrator', () => {
 
       // Make server unhealthy
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = false;
+      if (s1) {s1.healthy = false;}
 
       const result = await orchestrator.getAggregatedTags();
       expect(result.models.length).toBe(1);
@@ -3527,7 +3528,7 @@ describe('AIOrchestrator', () => {
     it('should return empty when no cache and no healthy servers', async () => {
       orchestrator['tagsCache'] = undefined;
       const s1 = orchestrator.getServer('server-1');
-      if (s1) s1.healthy = false;
+      if (s1) {s1.healthy = false;}
 
       const result = await orchestrator.getAggregatedTags();
       expect(result.models).toEqual([]);

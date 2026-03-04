@@ -3,8 +3,9 @@
  * Tests for rate limiting middleware
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Request, Response } from 'express';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 import {
   createRateLimiter,
   createMonitoringRateLimiter,

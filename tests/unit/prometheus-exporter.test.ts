@@ -4,8 +4,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PrometheusExporter } from '../../src/metrics/prometheus-exporter.js';
+
 import { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
+import { PrometheusExporter } from '../../src/metrics/prometheus-exporter.js';
 import type { ServerModelMetrics, TimeWindow } from '../../src/orchestrator.types.js';
 
 describe('PrometheusExporter', () => {

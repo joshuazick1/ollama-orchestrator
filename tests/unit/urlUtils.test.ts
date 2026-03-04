@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+
 import { normalizeServerUrl, areUrlsEquivalent } from '../../src/utils/urlUtils.js';
 
 describe('urlUtils', () => {

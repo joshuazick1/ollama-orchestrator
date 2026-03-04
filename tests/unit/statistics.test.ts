@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { Statistics } from '../../src/utils/statistics.js';
 
 describe('Statistics', () => {

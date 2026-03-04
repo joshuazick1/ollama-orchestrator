@@ -5,8 +5,10 @@
  * including timeouts, connection resets, and intermittent connectivity.
  */
 
-import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { Server } from 'http';
+
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+
 import {
   createDiverseMockServer,
   mockServerFactory,
@@ -374,7 +376,7 @@ async function createIntermittentServer(port: number): Promise<Server> {
         available = !available;
       }, 500);
 
-      (server as any).availabilityInterval = interval;
+      (server).availabilityInterval = interval;
       resolve(server);
     });
   });

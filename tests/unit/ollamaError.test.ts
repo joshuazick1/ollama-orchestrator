@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 import { parseOllamaError, parseOllamaErrorGlobal } from '../../src/utils/ollamaError.js';
 
 describe('ollamaError', () => {

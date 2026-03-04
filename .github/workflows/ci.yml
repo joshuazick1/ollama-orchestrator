@@ -7,86 +7,209 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [20.x, 22.x]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install frontend dependencies
-        run: npm ci --prefix frontend
-
-      - name: Run linter
-        run: npm run lint
-
-      - name: Run type check
-        run: npm run typecheck
-
-      - name: Run unit tests
-        run: npm run test:unit -- --coverage
-
-      - name: Build TypeScript
-        run: npm run build
-
-      - name: Run integration tests
-        run: npm run test:integration
-        if: github.event_name == 'pull_request'
-
-  security-audit:
+  # ──────────────────────────────────────────────
+  # Quality checks (lint, format, typecheck) — run in parallel
+  # ──────────────────────────────────────────────
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+      - run: npm ci
+      - name: Run backend linter (src + tests)
+        run: npm run lint
 
-      - name: Install dependencies
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Check Prettier formatting
+        run: npm run format:check
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Run typecheck (backend + frontend)
+        run: npm run typecheck:all
+
+  # ──────────────────────────────────────────────
+  # Frontend checks (lint + tests) — parallel with backend
+  # ──────────────────────────────────────────────
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
         run: npm ci
+        working-directory: frontend
+      - name: Run frontend linter
+        run: npm run lint
+        working-directory: frontend
+      - name: Run frontend tests
+        run: npx vitest run
+        working-directory: frontend
 
-      - name: Run security audit
-        run: npm audit --audit-level=moderate
-        continue-on-error: true
+  # ──────────────────────────────────────────────
+  # Unit tests — run after quality checks pass
+  # ──────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    needs: [lint, format, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run unit tests with coverage
+        run: npm run test:unit -- --coverage
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
 
+  # ──────────────────────────────────────────────
+  # Build — run after quality checks pass
+  # ──────────────────────────────────────────────
+  build:
+    name: Build
+    needs: [lint, format, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Build (backend + frontend)
+        run: npm run build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: dist/
+          retention-days: 7
+
+  # ──────────────────────────────────────────────
+  # Security audit — npm audit fails the build, Snyk stays soft
+  # ──────────────────────────────────────────────
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run npm security audit (production dependencies)
+        run: npm audit --audit-level=moderate --omit=dev
       - name: Run Snyk security scan
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
-  validate-commits:
-    runs-on: ubuntu-latest
+  # ──────────────────────────────────────────────
+  # Docker build — PR-only check
+  # ──────────────────────────────────────────────
+  docker:
+    name: Docker Build
     if: github.event_name == 'pull_request'
+    needs: [build]
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: ollama-orchestrator:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Test Docker image
+        run: |
+          docker run -d --name test-container -p 5100:5100 ollama-orchestrator:test
+          sleep 10
+          curl -f http://localhost:5100/health || exit 1
+          docker stop test-container
+          docker rm test-container
+
+  # ──────────────────────────────────────────────
+  # Integration tests — PR-only, Node version matrix
+  # ──────────────────────────────────────────────
+  integration-tests:
+    name: Integration Tests (Node ${{ matrix.node-version }})
+    if: github.event_name == 'pull_request'
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Run integration tests
+        run: npm run test:integration
+
+  # ──────────────────────────────────────────────
+  # Validate commits — PR-only
+  # ──────────────────────────────────────────────
+  validate-commits:
+    name: Validate Commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
+      - run: npm ci
       - name: Validate commit messages
         run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose

@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { ModelManager } from '../../src/model-manager.js';
 import type { AIServer } from '../../src/orchestrator.types.js';
 
@@ -201,7 +202,7 @@ describe('Complex Model Operations - Hundreds of Models', () => {
       for (const chunk of chunks) {
         try {
           const parsed = JSON.parse(chunk);
-          if (parsed.response !== undefined) validChunks++;
+          if (parsed.response !== undefined) {validChunks++;}
         } catch {}
       }
       expect(validChunks).toBe(101);
@@ -599,8 +600,8 @@ describe('Complex Model Operations - Hundreds of Models', () => {
 
       for (const chunk of mixedChunks) {
         const parsed = JSON.parse(chunk);
-        if (parsed.error) errorCount++;
-        else if (parsed.response !== undefined) successCount++;
+        if (parsed.error) {errorCount++;}
+        else if (parsed.response !== undefined) {successCount++;}
       }
 
       expect(successCount).toBe(3);

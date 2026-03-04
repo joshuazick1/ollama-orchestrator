@@ -3,8 +3,8 @@
  * Tests for Ollama API proxy controllers
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import {
   handleTags,

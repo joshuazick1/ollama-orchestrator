@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { TTFTTracker } from '../../src/metrics/ttft-tracker.js';
 
 describe('TTFTTracker', () => {

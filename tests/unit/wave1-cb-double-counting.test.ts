@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
 import { CircuitBreaker } from '../../src/circuit-breaker.js';
 import { BanManager } from '../../src/utils/ban-manager.js';
 import { classifyError } from '../../src/utils/errorClassifier.js';

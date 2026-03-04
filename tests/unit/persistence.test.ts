@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import { serversConfig, bansConfig } from '../../src/config/configManager.js';
 import {
   loadServersFromDisk,
   saveServersToDisk,
   loadBansFromDisk,
   saveBansToDisk,
 } from '../../src/orchestrator-persistence.js';
-import { serversConfig, bansConfig } from '../../src/config/configManager.js';
 import { logger } from '../../src/utils/logger.js';
 
 vi.mock('../../src/config/configManager.js');

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { RequestHistory } from '../../src/request-history';
+
 import type { RequestContext, AIServer } from '../../src/orchestrator.types';
+import { RequestHistory } from '../../src/request-history';
 
 describe('RequestHistory', () => {
   let history: RequestHistory;

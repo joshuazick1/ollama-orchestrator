@@ -3,8 +3,9 @@
  * Tests for authentication middleware
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
+import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+
 import {
   requireAuth,
   requireAdmin,

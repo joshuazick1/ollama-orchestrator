@@ -11,8 +11,8 @@
  * - Tests must verify failover between protocols
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // Mock dependencies
 vi.mock('../../src/orchestrator-instance.js');
@@ -26,8 +26,8 @@ vi.mock('../../src/utils/logger.js', () => ({
   },
 }));
 
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import { getConfigManager } from '../../src/config/config.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import type { AIServer } from '../../src/orchestrator.types.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
@@ -755,7 +755,7 @@ describe('Dual-Capability Server Tests', () => {
 
       // Simulate redaction
       const redactKey = (key?: string) => {
-        if (!key) return undefined;
+        if (!key) {return undefined;}
         return key.startsWith('env:') ? key : '***REDACTED***';
       };
 

@@ -105,9 +105,12 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
 
   useEffect(() => {
     if (isOpen) {
+      // Reset form state when modal opens — this is intentional initialization, not cascading state
+      /* eslint-disable react-hooks/set-state-in-effect */
       setNewModelName('');
       setSelectedSourceServer('');
       setActiveTab('installed');
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [isOpen]);
 

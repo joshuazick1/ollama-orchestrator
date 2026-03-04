@@ -3,17 +3,15 @@
  * Unit tests for analytics controller endpoints
  */
 
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 // Mock the orchestrator instance
 vi.mock('../../src/orchestrator-instance.js');
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-
 // Mock analytics instance
 vi.mock('../../src/analytics-instance.js');
-import { getAnalyticsEngine } from '../../src/analytics-instance.js';
 
+import { getAnalyticsEngine } from '../../src/analytics-instance.js';
 import {
   getTopModels,
   getServerPerformance,
@@ -22,6 +20,7 @@ import {
   getTrendAnalysis,
   getAnalyticsSummary,
 } from '../../src/controllers/analyticsController.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetAnalyticsEngine = vi.mocked(getAnalyticsEngine);

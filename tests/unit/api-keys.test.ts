@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+
 import { resolveApiKey } from '../../src/utils/api-keys.js';
 
 describe('resolveApiKey', () => {

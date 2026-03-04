@@ -37,6 +37,30 @@ const NavigationItem = ({
   </NavLink>
 );
 
+const ThemeToggle = ({
+  compact = false,
+  theme,
+  toggleTheme,
+}: {
+  compact?: boolean;
+  theme: string;
+  toggleTheme: () => void;
+}) => (
+  <button
+    onClick={toggleTheme}
+    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+    className={clsx(
+      'rounded-lg transition-colors text-gray-400 hover:text-white',
+      compact
+        ? 'p-2 hover:bg-gray-800'
+        : 'flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-800'
+    )}
+  >
+    {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+    {!compact && <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>}
+  </button>
+);
+
 export const Layout = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isSearchOpen, openSearch, closeSearch } = useGlobalSearch();
@@ -44,22 +68,6 @@ export const Layout = () => {
   const location = useLocation();
 
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
-
-  const ThemeToggle = ({ compact = false }: { compact?: boolean }) => (
-    <button
-      onClick={toggleTheme}
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className={clsx(
-        'rounded-lg transition-colors text-gray-400 hover:text-white',
-        compact
-          ? 'p-2 hover:bg-gray-800'
-          : 'flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-800'
-      )}
-    >
-      {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-      {!compact && <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>}
-    </button>
-  );
 
   return (
     <div className="flex h-screen bg-gray-900 dark:bg-gray-900 light:bg-gray-50 text-white overflow-hidden">
@@ -95,7 +103,7 @@ export const Layout = () => {
 
         <div className="p-4 border-t border-gray-800 flex items-center justify-between">
           <span className="text-xs text-gray-500">{APP_VERSION}</span>
-          <ThemeToggle compact />
+          <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
         </div>
       </aside>
 
@@ -112,7 +120,7 @@ export const Layout = () => {
           >
             <Search className="w-5 h-5" />
           </button>
-          <ThemeToggle compact />
+          <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors"
@@ -151,7 +159,7 @@ export const Layout = () => {
 
         <div className="p-4 border-t border-gray-800 flex items-center justify-between">
           <span className="text-xs text-gray-500">{APP_VERSION}</span>
-          <ThemeToggle compact />
+          <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
         </div>
       </aside>
 

@@ -5,15 +5,17 @@
  * multi-server coordination, and memory pressure scenarios.
  */
 
-import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { Server } from 'http';
+
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+
+import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../../src/circuit-breaker.js';
 import {
   createDiverseMockServer,
   mockServerFactory,
   cleanupMockServers,
 } from '../utils/mock-server-factory.js';
 import { delay } from '../utils/test-helpers.js';
-import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../../src/circuit-breaker.js';
 
 const BASE_PORT = 17100;
 let serverId = 0;
@@ -229,13 +231,13 @@ describe('Chaos: Multi-Server Coordination', () => {
       for (let i = 0; i < 4; i++) {
         try {
           const res = await fetch(`http://localhost:${port1}/api/tags`);
-          if (!res.ok) failures++;
+          if (!res.ok) {failures++;}
         } catch {
           failures++;
         }
         try {
           const res = await fetch(`http://localhost:${port2}/api/tags`);
-          if (!res.ok) failures++;
+          if (!res.ok) {failures++;}
         } catch {
           failures++;
         }

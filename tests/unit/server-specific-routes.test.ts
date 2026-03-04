@@ -10,8 +10,8 @@
  * - Tests must verify error handling for non-existent servers
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // Mock dependencies
 vi.mock('../../src/orchestrator-instance.js');
@@ -25,8 +25,8 @@ vi.mock('../../src/utils/logger.js', () => ({
   },
 }));
 
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import { getConfigManager } from '../../src/config/config.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import type { AIServer } from '../../src/orchestrator.types.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
@@ -633,7 +633,7 @@ describe('Server-Specific Routes Tests', () => {
 
         const handler = async (req: Request, res: Response) => {
           const svr = mockOrchestrator.getServer(req.params.serverId);
-          if (!svr) return res.status(404).json({ error: 'Not found' });
+          if (!svr) {return res.status(404).json({ error: 'Not found' });}
           await mockOrchestrator.requestToServer(svr, 'generate', req.body);
           return res.status(200).json({ success: true });
         };
