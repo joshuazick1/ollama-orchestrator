@@ -76,6 +76,16 @@ export interface RoutingContext {
   timeoutMs?: number;
   /** Time spent in routing/failover before reaching a server (ms) */
   queueWaitTime?: number;
+
+  // Failover diagnostics
+  /** The deepest failover phase reached (1, 2, or 3) */
+  failoverPhase?: number;
+  /** Number of failover attempts that resulted in trying a different server */
+  failoverCount?: number;
+  /** Per-server error reasons encountered during failover */
+  failoverErrors?: Array<{ serverId: string; error: string; errorType?: string }>;
+  /** Whether the final result came after at least one failover */
+  failoverOccurred?: boolean;
 }
 
 export class AIOrchestrator {
@@ -1702,6 +1712,10 @@ export class AIOrchestrator {
 
     const retryConfig = this.config.retry;
     let retryCount = 0;
+    let failoverPhase = 1;
+    const failoverErrors: Array<{ serverId: string; error: string; errorType?: string }> = [];
+    const allServersTried: string[] = [];
+    let concurrencySkipCount = 0; // Track how many candidates were skipped due to max concurrency
 
     // Phase 1: Try each candidate once (failover-first strategy)
     logger.info(`Phase 1: Trying ${candidates.length} candidate(s) once each`, { model });
@@ -1718,6 +1732,7 @@ export class AIOrchestrator {
       );
 
       if (!canIncrement) {
+        concurrencySkipCount++;
         logger.info(`Skipping server ${server.id} for model ${model}: at max concurrency`, {
           maxConcurrency,
         });
@@ -1755,8 +1770,14 @@ export class AIOrchestrator {
         });
         if (routingContext) {
           routingContext.retryCount = retryCount;
-          routingContext.serversTried = candidates.slice(0, retryCount + 1).map(s => s.id);
+          routingContext.serversTried = [...allServersTried, server.id];
           routingContext.queueWaitTime = Date.now() - routingStartTime;
+          routingContext.failoverPhase = 1;
+          routingContext.failoverCount = retryCount;
+          routingContext.failoverOccurred = retryCount > 0;
+          if (failoverErrors.length > 0) {
+            routingContext.failoverErrors = failoverErrors;
+          }
         }
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
@@ -1782,11 +1803,21 @@ export class AIOrchestrator {
         latencyMs: attemptLatency1,
       });
 
+      allServersTried.push(server.id);
+      if (lastError) {
+        failoverErrors.push({
+          serverId: server.id,
+          error: lastError.error,
+          errorType: lastError.type,
+        });
+      }
+
       retryCount++;
       logger.info(`Server ${server.id} failed, failing over to next candidate`, { model });
     }
 
     // Phase 2: Retry full cycle once more (all servers one more time)
+    failoverPhase = 2;
     // Check for abort before Phase 2
     if (signal?.aborted) {
       throw new Error('Request aborted');
@@ -1814,6 +1845,7 @@ export class AIOrchestrator {
       );
 
       if (!canIncrement) {
+        concurrencySkipCount++;
         // REC-74: Record skipped attempt
         getDecisionHistory().recordFailoverAttempt({
           model,
@@ -1847,10 +1879,14 @@ export class AIOrchestrator {
         });
         if (routingContext) {
           routingContext.retryCount = retryCount;
-          routingContext.serversTried = candidates
-            .slice(0, candidates.length + retryCount + 1)
-            .map(s => s.id);
+          routingContext.serversTried = [...allServersTried, server.id];
           routingContext.queueWaitTime = Date.now() - routingStartTime;
+          routingContext.failoverPhase = 2;
+          routingContext.failoverCount = retryCount;
+          routingContext.failoverOccurred = true;
+          if (failoverErrors.length > 0) {
+            routingContext.failoverErrors = failoverErrors;
+          }
         }
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
@@ -1874,10 +1910,19 @@ export class AIOrchestrator {
         errorType: lastError2?.type,
         latencyMs: attemptLatency2,
       });
+      allServersTried.push(server.id);
+      if (lastError2) {
+        failoverErrors.push({
+          serverId: server.id,
+          error: lastError2.error,
+          errorType: lastError2.type,
+        });
+      }
       retryCount++;
     }
 
     // Phase 3: All servers exhausted twice, now try same-server retries on initial server only
+    failoverPhase = 3;
     // Check for abort before Phase 3
     if (signal?.aborted) {
       throw new Error('Request aborted');
@@ -1913,8 +1958,14 @@ export class AIOrchestrator {
         });
         if (routingContext) {
           routingContext.retryCount = retryCount;
-          routingContext.serversTried = [initialServer.id];
+          routingContext.serversTried = [...allServersTried, initialServer.id];
           routingContext.queueWaitTime = Date.now() - routingStartTime;
+          routingContext.failoverPhase = 3;
+          routingContext.failoverCount = retryCount;
+          routingContext.failoverOccurred = true;
+          if (failoverErrors.length > 0) {
+            routingContext.failoverErrors = failoverErrors;
+          }
         }
         this.populateRoutingContext(
           routingContext,
@@ -1936,18 +1987,41 @@ export class AIOrchestrator {
         errorType: lastError3?.type,
         latencyMs: attemptLatency3,
       });
+      allServersTried.push(initialServer.id);
+      if (lastError3) {
+        failoverErrors.push({
+          serverId: initialServer.id,
+          error: lastError3.error,
+          errorType: lastError3.type,
+        });
+      }
     }
 
     // All candidates exhausted
     if (routingContext) {
       routingContext.retryCount = retryCount;
-      routingContext.serversTried = candidates.length > 0 ? candidates.map(s => s.id) : [];
+      routingContext.serversTried = allServersTried;
+      routingContext.failoverPhase = failoverPhase;
+      routingContext.failoverCount = retryCount;
+      routingContext.failoverOccurred = retryCount > 0;
+      if (failoverErrors.length > 0) {
+        routingContext.failoverErrors = failoverErrors;
+      }
     }
-    const errorMessage =
-      errors.length > 0
-        ? `All ${candidates.length} candidate(s) failed after 2 full cycles and same-server retries. ` +
-          `Errors: ${errors.map(e => `${e.server}: ${e.error.substring(0, 100)}`).join('; ')}`
-        : `No servers available for model '${model}'`;
+
+    // Distinguish concurrency saturation from other failures
+    let errorMessage: string;
+    if (errors.length > 0) {
+      errorMessage =
+        `All ${candidates.length} candidate(s) failed after 2 full cycles and same-server retries. ` +
+        `Errors: ${errors.map(e => `${e.server}: ${e.error.substring(0, 100)}`).join('; ')}`;
+    } else if (concurrencySkipCount > 0) {
+      errorMessage =
+        `All ${candidates.length} server(s) for model '${model}' are at max concurrency` +
+        ` (${concurrencySkipCount} concurrency-blocked across all phases)`;
+    } else {
+      errorMessage = `No servers available for model '${model}'`;
+    }
 
     throw new Error(errorMessage);
   }

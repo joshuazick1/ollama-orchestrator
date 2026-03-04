@@ -66,6 +66,7 @@ function parseArgs(): TestConfig {
     reportDir: 'reports',
     quiet: false,
     debug: false,
+    maxChunks: 10000, // 0 = no limit
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -106,6 +107,9 @@ function parseArgs(): TestConfig {
       case '--debug':
         config.debug = true;
         break;
+      case '--max-chunks':
+        config.maxChunks = parseInt(args[++i], 10);
+        break;
       case '--help':
         console.log(`
 Unified Load Test Script
@@ -124,7 +128,8 @@ Options:
   --time-series-interval <ms> Sample interval for time-series data (default: 5000)
   --report-dir <path>         Report output directory (default: reports)
   --quiet                     Minimal console output
-  --debug                     Enable debug info on requests (?debug=true)
+  --debug                     Also append ?debug=true query param (debug headers always sent)
+  --max-chunks <n>           Max chunks to wait for in streaming responses (default: unlimited)
   --help                      Show this help
 `);
         process.exit(0);
@@ -139,6 +144,14 @@ Options:
 type TestPattern = 'uniform' | 'spike' | 'targeted' | 'mixed';
 type TestPhase = 'warmup' | 'ramp-up' | 'peak' | 'ramp-down' | 'recovery' | 'uniform' | 'targeted';
 
+/**
+ * Error blame attribution:
+ * - orchestrator: The orchestrator itself caused the failure (circuit_blocked, no_servers)
+ * - upstream: An upstream Ollama server caused the failure (timeout, server_error, connection_error)
+ * - ambiguous: Cannot clearly attribute (rate_limited, unknown errors)
+ */
+type ErrorBlame = 'orchestrator' | 'upstream' | 'ambiguous';
+
 interface TestConfig {
   url: string;
   duration: number;
@@ -152,6 +165,7 @@ interface TestConfig {
   reportDir: string;
   quiet: boolean;
   debug: boolean;
+  maxChunks: number;
 }
 
 interface ServerInfo {
@@ -168,6 +182,8 @@ interface ModelInfo {
   name: string;
   servers: string[];
   isEmbedding: boolean;
+  /** Sum of maxConcurrency across all servers hosting this model */
+  totalCapacity: number;
 }
 
 interface RequestResult {
@@ -209,6 +225,15 @@ interface RequestResult {
   stallDetected?: boolean;
   handoffAttempted?: boolean;
   handoffSuccess?: boolean;
+
+  // Failover diagnostics
+  failoverPhase?: number;
+  failoverCount?: number;
+  failoverOccurred?: boolean;
+  failoverErrors?: Array<{ serverId: string; error: string; errorType?: string }>;
+
+  // Blame attribution: 'orchestrator' | 'upstream' | 'ambiguous'
+  blame?: ErrorBlame;
 }
 
 interface CircuitBreakerSnapshot {
@@ -258,23 +283,17 @@ interface TimeSeriesPoint {
   circuitBlockedRequests: number;
   timeoutRequests: number;
   serverErrorRequests: number;
+  concurrencySaturatedRequests: number;
+  noServersRequests: number;
 }
 
 interface InFlightResponse {
-  servers: Record<
-    string,
-    {
-      total: number;
-      models: Record<string, number>;
-      streamingRequests?: Array<{
-        id: string;
-        model: string;
-        chunkCount: number;
-        status: string;
-      }>;
-    }
-  >;
-  globalTotal: number;
+  total: number;
+  inFlight: Array<{
+    serverId: string;
+    model: string;
+    streaming?: boolean;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +366,21 @@ class UnifiedLoadTest {
   // Interval tracking
   private recentResults: RequestResult[] = []; // results since last time-series sample
   private perServerRequestCount = new Map<string, number>();
+  private previousCBStates = new Map<string, string>(); // for transition detection
+  private cbTransitions: Array<{
+    timestamp: number;
+    elapsedMs: number;
+    name: string;
+    from: string;
+    to: string;
+  }> = [];
+
+  // Per-model in-flight tracking to avoid saturating any single model
+  private perModelInFlight = new Map<string, number>();
+
+  // Per-model blocked capacity from open circuit breakers
+  // Updated during time-series collection (CB polling)
+  private perModelBlockedCapacity = new Map<string, number>();
 
   constructor(config: TestConfig) {
     this.config = config;
@@ -380,18 +414,26 @@ class UnifiedLoadTest {
       (raw as Record<string, string[]>);
     this.models = [];
 
+    // Build a lookup from server ID to maxConcurrency for capacity calculation
+    const serverCapacity = new Map<string, number>();
+    for (const s of this.servers) {
+      serverCapacity.set(s.id, s.maxConcurrency || 4);
+    }
+
     for (const [model, serverIds] of Object.entries(modelMap)) {
       const embedding = isEmbeddingModel(model);
       if (!this.config.includeEmbeddings && embedding) continue;
+      const totalCapacity = serverIds.reduce((sum, id) => sum + (serverCapacity.get(id) ?? 4), 0);
       this.models.push({
         name: model,
         servers: serverIds,
         isEmbedding: embedding,
+        totalCapacity,
       });
     }
 
-    // Sort by server count (more servers = more failover options = better test coverage)
-    this.models.sort((a, b) => b.servers.length - a.servers.length);
+    // Sort by total capacity (more capacity = can absorb more load = should get more requests)
+    this.models.sort((a, b) => b.totalCapacity - a.totalCapacity);
 
     // Select models: take top half by server count, rest random, up to maxModels
     const generationModels = this.models.filter(m => !m.isEmbedding);
@@ -422,10 +464,12 @@ class UnifiedLoadTest {
     }
 
     this.modelsToTest = this.models.filter(m => selected.has(m.name));
+    const totalTestCapacity = this.modelsToTest.reduce((sum, m) => sum + m.totalCapacity, 0);
     this.log(
       `Selected ${this.modelsToTest.length} models to test ` +
         `(${this.modelsToTest.filter(m => !m.isEmbedding).length} generation, ` +
-        `${this.modelsToTest.filter(m => m.isEmbedding).length} embedding)`
+        `${this.modelsToTest.filter(m => m.isEmbedding).length} embedding, ` +
+        `total capacity: ${totalTestCapacity} slots)`
     );
   }
 
@@ -439,8 +483,18 @@ class UnifiedLoadTest {
   // Request execution
   // -------------------------------------------------------------------------
   private selectModel(): ModelInfo {
-    // Weight selection toward models with more servers (more failover potential)
-    const weights = this.modelsToTest.map(m => m.servers.length);
+    // Weight selection by available capacity: totalCapacity minus current in-flight
+    // minus capacity blocked by open circuit breakers.
+    // This ensures models with more available servers/concurrency slots get proportionally
+    // more requests, while models near saturation or with tripped breakers are deprioritized.
+    const weights = this.modelsToTest.map(m => {
+      const inFlight = this.perModelInFlight.get(m.name) ?? 0;
+      const blocked = this.perModelBlockedCapacity.get(m.name) ?? 0;
+      const available = Math.max(0, m.totalCapacity - inFlight - blocked);
+      // Use a small floor (1) so completely saturated models still have a tiny chance,
+      // preventing starvation if in-flight tracking drifts slightly.
+      return Math.max(1, available);
+    });
     const totalWeight = weights.reduce((a, b) => a + b, 0);
     let r = Math.random() * totalWeight;
     for (let i = 0; i < this.modelsToTest.length; i++) {
@@ -486,6 +540,7 @@ class UnifiedLoadTest {
     } catch (error) {
       result.error = error instanceof Error ? error.message : String(error);
       result.errorType = this.classifyError(result.error, result.statusCode);
+      result.blame = this.attributeBlame(result.errorType, result);
     }
 
     result.duration = Date.now() - startTime;
@@ -498,7 +553,7 @@ class UnifiedLoadTest {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(this.config.debug && { 'X-Include-Debug-Info': 'true' }),
+        'X-Include-Debug-Info': 'true',
       },
       body: JSON.stringify({ model: model.name, prompt, stream: false }),
     });
@@ -540,7 +595,7 @@ class UnifiedLoadTest {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(this.config.debug && { 'X-Include-Debug-Info': 'true' }),
+        'X-Include-Debug-Info': 'true',
       },
       body: JSON.stringify({ model: model.name, prompt, stream: true }),
     });
@@ -608,6 +663,21 @@ class UnifiedLoadTest {
 
           chunkCount++;
 
+          // Cap streaming response at maxChunks if configured
+          if (this.config.maxChunks > 0 && chunkCount >= this.config.maxChunks) {
+            result.success = true;
+            result.chunksReceived = chunkCount;
+            result.totalBytes = totalBytes;
+            result.tokensGenerated = tokensGenerated;
+            result.tokensPrompt = tokensPrompt;
+            result.maxChunkGapMs = maxChunkGap;
+            result.avgChunkSizeBytes = chunkCount > 0 ? totalBytes / chunkCount : 0;
+            result.streamingDuration = firstChunkTime ? Date.now() - result.timestamp : undefined;
+            // Note: we intentionally do NOT call reader.releaseLock() here since we're
+            // just abandoning the stream. The reader will be garbage collected.
+            return;
+          }
+
           if (!firstChunkTime) {
             firstChunkTime = now;
             result.timeToFirstToken = now - result.timestamp;
@@ -660,7 +730,7 @@ class UnifiedLoadTest {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(this.config.debug && { 'X-Include-Debug-Info': 'true' }),
+        'X-Include-Debug-Info': 'true',
       },
       body: JSON.stringify({ model: model.name, prompt: input }),
     });
@@ -731,6 +801,15 @@ class UnifiedLoadTest {
     const stallDetected = headers.get('x-stall-detected');
     if (stallDetected === '1') result.stallDetected = true;
 
+    const failoverPhase = headers.get('x-failover-phase');
+    if (failoverPhase) result.failoverPhase = parseInt(failoverPhase, 10);
+
+    const failoverCount = headers.get('x-failover-count');
+    if (failoverCount) result.failoverCount = parseInt(failoverCount, 10);
+
+    const failoverOccurred = headers.get('x-failover-occurred');
+    if (failoverOccurred === '1') result.failoverOccurred = true;
+
     const queueWait = headers.get('x-queue-wait-ms');
     if (queueWait) {
       // Store in result even though it's not a direct field; we track it in debug
@@ -765,6 +844,15 @@ class UnifiedLoadTest {
     if (debug.handoffAttempted !== undefined)
       result.handoffAttempted = debug.handoffAttempted as boolean;
     if (debug.handoffSuccess !== undefined) result.handoffSuccess = debug.handoffSuccess as boolean;
+    if (debug.failoverPhase !== undefined) result.failoverPhase = debug.failoverPhase as number;
+    if (debug.failoverCount !== undefined) result.failoverCount = debug.failoverCount as number;
+    if (debug.failoverOccurred) result.failoverOccurred = debug.failoverOccurred as boolean;
+    if (debug.failoverErrors)
+      result.failoverErrors = debug.failoverErrors as Array<{
+        serverId: string;
+        error: string;
+        errorType?: string;
+      }>;
 
     // Chunk data from debug
     const chunkData = debug.chunkData as Record<string, unknown> | undefined;
@@ -780,6 +868,7 @@ class UnifiedLoadTest {
   }
 
   private classifyError(error: string, statusCode: number): string {
+    if (error.includes('at max concurrency')) return 'concurrency_saturated';
     if (statusCode === 503) return 'circuit_blocked';
     if (statusCode === 504) return 'gateway_timeout';
     if (statusCode === 429) return 'rate_limited';
@@ -789,6 +878,45 @@ class UnifiedLoadTest {
     if (error.includes('No') && error.includes('servers')) return 'no_servers';
     if (statusCode >= 500) return 'server_error';
     return 'other';
+  }
+
+  /**
+   * Attribute an error to the orchestrator, upstream server, or mark as ambiguous.
+   *
+   * Orchestrator faults: errors that indicate the orchestrator's own routing/circuit
+   * logic blocked the request before it could reach an upstream server.
+   *
+   * Upstream faults: errors from the upstream Ollama servers themselves (timeouts,
+   * connection errors, 5xx responses from the server).
+   *
+   * Ambiguous: rate limiting (could be either layer), unknown errors.
+   */
+  private attributeBlame(errorType: string, result: RequestResult): ErrorBlame {
+    switch (errorType) {
+      // Orchestrator refused to send the request
+      case 'circuit_blocked':
+      case 'no_servers':
+      case 'concurrency_saturated':
+        return 'orchestrator';
+
+      // Upstream server failed
+      case 'timeout':
+      case 'gateway_timeout':
+      case 'connection_error':
+      case 'server_error':
+        return 'upstream';
+
+      // Could be either side
+      case 'rate_limited':
+      case 'other':
+      default:
+        // If we have failoverErrors from debug, the orchestrator did try servers
+        // and they all failed — that's upstream
+        if (result.failoverErrors && result.failoverErrors.length > 0) {
+          return 'upstream';
+        }
+        return 'ambiguous';
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -803,9 +931,19 @@ class UnifiedLoadTest {
         : Object.values(data).filter(v => typeof v === 'object' && v !== null && 'state' in v);
       const snapshots: CircuitBreakerSnapshot[] = [];
       for (const cb of entries) {
+        // Normalize state to lowercase with consistent hyphenation
+        const rawState: string = (cb.state ?? 'unknown').toUpperCase();
+        const state =
+          rawState === 'OPEN'
+            ? 'open'
+            : rawState === 'CLOSED'
+              ? 'closed'
+              : rawState === 'HALF_OPEN' || rawState === 'HALF-OPEN'
+                ? 'half-open'
+                : rawState.toLowerCase();
         snapshots.push({
           name: cb.serverId ?? cb.name ?? 'unknown',
-          state: cb.state ?? 'unknown',
+          state,
           failureCount: cb.failureCount ?? 0,
           successCount: cb.successCount ?? 0,
           errorRate: cb.errorRate ?? 0,
@@ -876,6 +1014,46 @@ class UnifiedLoadTest {
     const halfOpenCount = cbStates.filter(cb => cb.state === 'half-open').length;
     const closedCount = cbStates.filter(cb => cb.state === 'closed').length;
 
+    // Detect circuit breaker state transitions
+    for (const cb of cbStates) {
+      const prevState = this.previousCBStates.get(cb.name);
+      if (prevState !== undefined && prevState !== cb.state) {
+        const transition = {
+          timestamp: now,
+          elapsedMs: now - this.testStartTime,
+          name: cb.name,
+          from: prevState,
+          to: cb.state,
+        };
+        this.cbTransitions.push(transition);
+        if (!this.config.quiet) {
+          this.log(`  [CB-TRANSITION] ${cb.name}: ${prevState} -> ${cb.state}`);
+        }
+      }
+      this.previousCBStates.set(cb.name, cb.state);
+    }
+
+    // Update per-model blocked capacity from open circuit breakers.
+    // CB names are in "serverId:model" format — extract the model and sum
+    // the blocked server's capacity to reduce effective available slots.
+    const serverCapacity = new Map<string, number>();
+    for (const s of this.servers) {
+      serverCapacity.set(s.id, s.maxConcurrency || 4);
+    }
+    const newBlockedCapacity = new Map<string, number>();
+    for (const cb of cbStates) {
+      if (cb.state === 'open') {
+        const colonIndex = cb.name.indexOf(':');
+        if (colonIndex > 0) {
+          const serverId = cb.name.substring(0, colonIndex);
+          const model = cb.name.substring(colonIndex + 1);
+          const cap = serverCapacity.get(serverId) ?? 4;
+          newBlockedCapacity.set(model, (newBlockedCapacity.get(model) ?? 0) + cap);
+        }
+      }
+    }
+    this.perModelBlockedCapacity = newBlockedCapacity;
+
     // Per-server half-open
     const perServerHalfOpen: Record<string, number> = {};
     for (const cb of cbStates) {
@@ -902,6 +1080,8 @@ class UnifiedLoadTest {
       r => r.errorType === 'timeout' || r.errorType === 'gateway_timeout'
     ).length;
     const serverErrors = recent.filter(r => r.errorType === 'server_error').length;
+    const concurrencySaturated = recent.filter(r => r.errorType === 'concurrency_saturated').length;
+    const noServers = recent.filter(r => r.errorType === 'no_servers').length;
 
     const point: TimeSeriesPoint = {
       timestamp: now,
@@ -926,6 +1106,8 @@ class UnifiedLoadTest {
       circuitBlockedRequests: circuitBlocked,
       timeoutRequests: timeouts,
       serverErrorRequests: serverErrors,
+      concurrencySaturatedRequests: concurrencySaturated,
+      noServersRequests: noServers,
     };
 
     this.timeSeriesData.push(point);
@@ -1050,15 +1232,26 @@ class UnifiedLoadTest {
 
     // Log notable events
     if (!this.config.quiet) {
-      if (result.statusCode === 503) {
+      if (!result.success && result.blame) {
+        const blameTag =
+          result.blame === 'orchestrator'
+            ? 'ORCH'
+            : result.blame === 'upstream'
+              ? 'UPSTREAM'
+              : 'AMBIG';
         this.log(
-          `  [CB-BLOCKED] ${result.model} -> ${result.serverId} (${result.error?.slice(0, 80)})`
+          `  [${result.errorType?.toUpperCase()}][${blameTag}] ${result.model} -> ${result.serverId} (${result.error?.slice(0, 80)})`
+        );
+      } else if (result.failoverOccurred && result.success) {
+        const triedList = result.serversTried?.join(',') ?? '?';
+        this.log(
+          `  [FAILOVER-OK] ${result.model} -> ${result.serverId} (phase=${result.failoverPhase}, tried=[${triedList}], retries=${result.retryCount})`
         );
       } else if (result.stallDetected) {
         this.log(
           `  [STALL] ${result.model} -> ${result.serverId}, handoff=${result.handoffSuccess}`
         );
-      } else if (result.retryCount && result.retryCount > 0) {
+      } else if (result.retryCount && result.retryCount > 0 && !result.failoverOccurred) {
         this.log(
           `  [RETRY] ${result.model} -> ${result.serverId}, retries=${result.retryCount}, tried=[${result.serversTried?.join(',')}]`
         );
@@ -1071,7 +1264,7 @@ class UnifiedLoadTest {
     this.log(`URL: ${this.config.url}`);
     this.log(`Duration: ${this.config.duration}s, Pattern: ${this.config.pattern}`);
     this.log(`Streaming ratio: ${this.config.streamingRatio}`);
-    this.log(`Debug mode: ${this.config.debug ? 'ON' : 'OFF'}`);
+    this.log(`Debug headers: always ON${this.config.debug ? ' (+?debug=true query param)' : ''}`);
     this.log('');
 
     // Discovery
@@ -1114,13 +1307,18 @@ class UnifiedLoadTest {
       const success = this.results.filter(r => r.success).length;
       const rate = total > 0 ? ((success / total) * 100).toFixed(1) : '0';
       const rps = (total / Math.max(elapsed, 1)).toFixed(1);
+      const failovers = this.results.filter(r => r.failoverOccurred).length;
+      const orchFaults = this.results.filter(r => r.blame === 'orchestrator').length;
+      const upFaults = this.results.filter(r => r.blame === 'upstream').length;
       this.log(
         `[${elapsed.toFixed(0)}s/${this.config.duration}s] ` +
           `Phase: ${this.currentPhase} | ` +
-          `Requests: ${total} (${rate}% success) | ` +
+          `Requests: ${total} (${rate}% ok) | ` +
           `RPS: ${rps} | ` +
           `Active: ${this.activeRequests} | ` +
-          `Servers: ${this.serversHit.size}/${this.servers.length}`
+          `Servers: ${this.serversHit.size}/${this.servers.length}` +
+          (failovers > 0 ? ` | Failovers: ${failovers}` : '') +
+          (orchFaults + upFaults > 0 ? ` | Blame: orch=${orchFaults} up=${upFaults}` : '')
       );
     }, 15000);
 
@@ -1148,6 +1346,7 @@ class UnifiedLoadTest {
         const stream = this.shouldStream(model);
 
         this.activeRequests++;
+        this.perModelInFlight.set(model.name, (this.perModelInFlight.get(model.name) ?? 0) + 1);
         try {
           const result = await this.executeRequest(model, stream);
           this.recordResult(result);
@@ -1155,6 +1354,8 @@ class UnifiedLoadTest {
           // Should not reach here; executeRequest handles errors internally
         } finally {
           this.activeRequests--;
+          const current = this.perModelInFlight.get(model.name) ?? 1;
+          this.perModelInFlight.set(model.name, Math.max(0, current - 1));
         }
       }
     };
@@ -1248,40 +1449,128 @@ class UnifiedLoadTest {
       errorBreakdown[type] = (errorBreakdown[type] ?? 0) + 1;
     }
 
+    // Blame attribution breakdown
+    const blameBreakdown: Record<string, number> = {
+      orchestrator: 0,
+      upstream: 0,
+      ambiguous: 0,
+    };
+    const blameDetails: Record<string, Record<string, number>> = {
+      orchestrator: {},
+      upstream: {},
+      ambiguous: {},
+    };
+    for (const r of failedResults) {
+      const blame = r.blame ?? 'ambiguous';
+      const type = r.errorType ?? 'unknown';
+      blameBreakdown[blame] = (blameBreakdown[blame] ?? 0) + 1;
+      blameDetails[blame][type] = (blameDetails[blame][type] ?? 0) + 1;
+    }
+
     // Per-model analysis
     const modelStats: Record<
       string,
       {
         requests: number;
         successes: number;
+        failures: number;
         avgDuration: number;
         streamingCount: number;
         avgTTFT: number;
+        totalCapacity: number;
+        serverCount: number;
+        concurrencySaturated: number;
+        noServers: number;
+        circuitBlocked: number;
+        timeouts: number;
+        serverErrors: number;
+        failoverCount: number;
+        failoverSuccesses: number;
       }
     > = {};
+    // Pre-populate with model capacity info so even models with 0 requests show up
+    for (const m of this.modelsToTest) {
+      modelStats[m.name] = {
+        requests: 0,
+        successes: 0,
+        failures: 0,
+        avgDuration: 0,
+        streamingCount: 0,
+        avgTTFT: 0,
+        totalCapacity: m.totalCapacity,
+        serverCount: m.servers.length,
+        concurrencySaturated: 0,
+        noServers: 0,
+        circuitBlocked: 0,
+        timeouts: 0,
+        serverErrors: 0,
+        failoverCount: 0,
+        failoverSuccesses: 0,
+      };
+    }
     for (const r of mainResults) {
       if (!modelStats[r.model]) {
+        // Model not in modelsToTest (shouldn't happen, but be safe)
         modelStats[r.model] = {
           requests: 0,
           successes: 0,
+          failures: 0,
           avgDuration: 0,
           streamingCount: 0,
           avgTTFT: 0,
+          totalCapacity: 0,
+          serverCount: 0,
+          concurrencySaturated: 0,
+          noServers: 0,
+          circuitBlocked: 0,
+          timeouts: 0,
+          serverErrors: 0,
+          failoverCount: 0,
+          failoverSuccesses: 0,
         };
       }
       const ms = modelStats[r.model];
       ms.requests++;
-      if (r.success) ms.successes++;
+      if (r.success) {
+        ms.successes++;
+      } else {
+        ms.failures++;
+        if (r.errorType === 'concurrency_saturated') ms.concurrencySaturated++;
+        if (r.errorType === 'no_servers') ms.noServers++;
+        if (r.errorType === 'circuit_blocked') ms.circuitBlocked++;
+        if (r.errorType === 'timeout' || r.errorType === 'gateway_timeout') ms.timeouts++;
+        if (r.errorType === 'server_error') ms.serverErrors++;
+      }
       ms.avgDuration += r.duration;
       if (r.isStreaming) {
         ms.streamingCount++;
         ms.avgTTFT += r.timeToFirstToken ?? 0;
+      }
+      if (r.failoverOccurred) {
+        ms.failoverCount++;
+        if (r.success) ms.failoverSuccesses++;
       }
     }
     for (const ms of Object.values(modelStats)) {
       ms.avgDuration = ms.requests > 0 ? ms.avgDuration / ms.requests : 0;
       ms.avgTTFT = ms.streamingCount > 0 ? ms.avgTTFT / ms.streamingCount : 0;
     }
+
+    // Models sorted by saturation issues (most problematic first)
+    const saturationView = Object.entries(modelStats)
+      .filter(([, s]) => s.concurrencySaturated > 0 || s.noServers > 0 || s.circuitBlocked > 0)
+      .map(([name, s]) => ({
+        model: name,
+        totalCapacity: s.totalCapacity,
+        serverCount: s.serverCount,
+        requests: s.requests,
+        failures: s.failures,
+        concurrencySaturated: s.concurrencySaturated,
+        noServers: s.noServers,
+        circuitBlocked: s.circuitBlocked,
+        saturationRate: s.requests > 0 ? (s.concurrencySaturated + s.noServers) / s.requests : 0,
+      }))
+      .sort((a, b) => b.saturationRate - a.saturationRate);
 
     // Server coverage & distribution
     const allServerIds = new Set(this.servers.map(s => s.id));
@@ -1305,6 +1594,34 @@ class UnifiedLoadTest {
       retriedResults.length > 0
         ? retriedResults.reduce((s, r) => s + (r.retryCount ?? 0), 0) / retriedResults.length
         : 0;
+
+    // Failover analysis
+    const failoverResults = mainResults.filter(r => r.failoverOccurred);
+    const failoverSuccessful = failoverResults.filter(r => r.success);
+    const failoverFailed = failoverResults.filter(r => !r.success);
+    const avgServersTriedPerFailover =
+      failoverResults.length > 0
+        ? failoverResults.reduce((s, r) => s + (r.serversTried?.length ?? 0), 0) /
+          failoverResults.length
+        : 0;
+    const maxServersTried = failoverResults.reduce(
+      (max, r) => Math.max(max, r.serversTried?.length ?? 0),
+      0
+    );
+    const failoverByPhase: Record<number, number> = {};
+    for (const r of failoverResults) {
+      if (r.failoverPhase !== undefined) {
+        failoverByPhase[r.failoverPhase] = (failoverByPhase[r.failoverPhase] ?? 0) + 1;
+      }
+    }
+
+    // Response body validation for successful failover requests
+    // If a request succeeded after failover, verify it has a clean response
+    // (no internal error details leaked). We check via the absence of errorType and presence of serverId.
+    const leakedInternals = failoverSuccessful.filter(
+      r => r.error !== undefined || r.serverId === 'unknown'
+    );
+    const seamlessFailovers = failoverSuccessful.length - leakedInternals.length;
 
     // Circuit breaker analysis
     const openCBs = finalCB.filter(cb => cb.state === 'open');
@@ -1362,6 +1679,10 @@ class UnifiedLoadTest {
       errors: {
         totalFailures: failedResults.length,
         breakdown: errorBreakdown,
+        blame: {
+          summary: blameBreakdown,
+          details: blameDetails,
+        },
       },
       circuitBreakers: {
         finalState: {
@@ -1376,6 +1697,7 @@ class UnifiedLoadTest {
           errorRate: cb.errorRate,
           consecutiveFailedRecoveries: cb.consecutiveFailedRecoveries,
         })),
+        transitions: this.cbTransitions,
       },
       serverCoverage: {
         totalServers: allServerIds.size,
@@ -1395,8 +1717,24 @@ class UnifiedLoadTest {
           mainResults.length > 0 ? (retriedResults.length / mainResults.length) * 100 : 0,
         avgRetryCount: Math.round(avgRetryCount * 100) / 100,
         algorithmUsage,
+        failover: {
+          totalFailoverRequests: failoverResults.length,
+          failoverSuccessful: failoverSuccessful.length,
+          failoverFailed: failoverFailed.length,
+          failoverSuccessRate:
+            failoverResults.length > 0 ? failoverSuccessful.length / failoverResults.length : 0,
+          avgServersTriedPerFailover: Math.round(avgServersTriedPerFailover * 100) / 100,
+          maxServersTried,
+          byPhase: failoverByPhase,
+          seamlessFailovers,
+          leakedInternals: leakedInternals.length,
+        },
       },
       modelStats,
+      saturation: {
+        modelsWithCapacityIssues: saturationView.length,
+        models: saturationView,
+      },
       finalInFlight: finalInFlight,
       errorAnalytics: finalErrors,
       timeSeries: this.timeSeriesData,
@@ -1471,11 +1809,35 @@ class UnifiedLoadTest {
         console.log(`    ${type}: ${count}`);
       }
     }
+    if (e.totalFailures > 0) {
+      console.log(`  Blame Attribution:`);
+      console.log(
+        `    Orchestrator:     ${e.blame.summary.orchestrator} (${e.totalFailures > 0 ? ((e.blame.summary.orchestrator / e.totalFailures) * 100).toFixed(0) : 0}%)`
+      );
+      console.log(
+        `    Upstream Server:  ${e.blame.summary.upstream} (${e.totalFailures > 0 ? ((e.blame.summary.upstream / e.totalFailures) * 100).toFixed(0) : 0}%)`
+      );
+      console.log(
+        `    Ambiguous:        ${e.blame.summary.ambiguous} (${e.totalFailures > 0 ? ((e.blame.summary.ambiguous / e.totalFailures) * 100).toFixed(0) : 0}%)`
+      );
+    }
 
     console.log(`\n--- Circuit Breakers ---`);
     console.log(`  Open:               ${cb.finalState.open}`);
     console.log(`  Half-Open:          ${cb.finalState.halfOpen}`);
     console.log(`  Closed:             ${cb.finalState.closed}`);
+    if (cb.transitions.length > 0) {
+      console.log(`  Transitions:        ${cb.transitions.length} total`);
+      // Show last 5 transitions
+      const recentTransitions = cb.transitions.slice(-5);
+      for (const t of recentTransitions) {
+        const elapsed = (t.elapsedMs / 1000).toFixed(0);
+        console.log(`    @${elapsed}s ${t.name}: ${t.from} -> ${t.to}`);
+      }
+      if (cb.transitions.length > 5) {
+        console.log(`    ... and ${cb.transitions.length - 5} more`);
+      }
+    }
     if (cb.openBreakers.length > 0) {
       console.log(`  Open Breakers:`);
       for (const ob of cb.openBreakers.slice(0, 10)) {
@@ -1498,6 +1860,29 @@ class UnifiedLoadTest {
     console.log(`\n--- Routing ---`);
     console.log(`  Retried Requests:   ${rt.retriedRequests} (${rt.retriedPercent.toFixed(1)}%)`);
     console.log(`  Avg Retry Count:    ${rt.avgRetryCount}`);
+    if (rt.failover.totalFailoverRequests > 0) {
+      console.log(`  Failover Requests:  ${rt.failover.totalFailoverRequests}`);
+      console.log(
+        `    Successful:       ${rt.failover.failoverSuccessful} (${(rt.failover.failoverSuccessRate * 100).toFixed(1)}%)`
+      );
+      console.log(`    Failed:           ${rt.failover.failoverFailed}`);
+      console.log(`    Avg Servers Tried:${rt.failover.avgServersTriedPerFailover}`);
+      console.log(`    Max Servers Tried:${rt.failover.maxServersTried}`);
+      console.log(
+        `    Seamless:         ${rt.failover.seamlessFailovers}/${rt.failover.failoverSuccessful} (no leaked internals)`
+      );
+      if (rt.failover.leakedInternals > 0) {
+        console.log(
+          `    LEAKED INTERNALS: ${rt.failover.leakedInternals} (failovers with leaked error data)`
+        );
+      }
+      if (Object.keys(rt.failover.byPhase).length > 0) {
+        console.log(`    By Phase:`);
+        for (const [phase, count] of Object.entries(rt.failover.byPhase)) {
+          console.log(`      Phase ${phase}: ${count}`);
+        }
+      }
+    }
     if (Object.keys(rt.algorithmUsage).length > 0) {
       console.log(`  Algorithm Usage:`);
       for (const [algo, count] of Object.entries(rt.algorithmUsage)) {
@@ -1512,10 +1897,31 @@ class UnifiedLoadTest {
     for (const [model, stats] of sorted) {
       const successRate =
         stats.requests > 0 ? ((stats.successes / stats.requests) * 100).toFixed(0) : '0';
+      const capacityInfo = stats.totalCapacity > 0 ? `, cap:${stats.totalCapacity}` : '';
+      const failoverInfo = stats.failoverCount > 0 ? `, ${stats.failoverCount} failovers` : '';
       console.log(
         `  ${model}: ${stats.requests} req, ${successRate}% success, ${Math.round(stats.avgDuration)}ms avg` +
-          (stats.streamingCount > 0 ? `, ${Math.round(stats.avgTTFT)}ms TTFT` : '')
+          (stats.streamingCount > 0 ? `, ${Math.round(stats.avgTTFT)}ms TTFT` : '') +
+          capacityInfo +
+          failoverInfo
       );
+    }
+
+    // Per-model saturation view
+    const sat = report.saturation;
+    if (sat && sat.modelsWithCapacityIssues > 0) {
+      console.log(
+        `\n--- Capacity Saturation (${sat.modelsWithCapacityIssues} models affected) ---`
+      );
+      for (const m of (sat.models as any[]).slice(0, 15)) {
+        const satPct = (m.saturationRate * 100).toFixed(0);
+        const parts = [`${m.requests} req`, `${satPct}% saturated`];
+        if (m.concurrencySaturated > 0) parts.push(`concurrency:${m.concurrencySaturated}`);
+        if (m.noServers > 0) parts.push(`no_servers:${m.noServers}`);
+        if (m.circuitBlocked > 0) parts.push(`cb_blocked:${m.circuitBlocked}`);
+        parts.push(`cap:${m.totalCapacity} (${m.serverCount} srv)`);
+        console.log(`  ${m.model}: ${parts.join(', ')}`);
+      }
     }
 
     console.log('\n' + '='.repeat(70));

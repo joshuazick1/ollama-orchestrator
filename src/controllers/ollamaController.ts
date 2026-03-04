@@ -575,15 +575,18 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isNoServersError =
         errorMessage.includes('No') && errorMessage.includes('servers available');
+      const isConcurrencySaturated = errorMessage.includes('at max concurrency');
 
       // Include routing context in error responses when debug is requested
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
-      if (isNoServersError) {
+      if (isNoServersError || isConcurrencySaturated) {
         res.status(503).json({
-          error: 'No available servers for model',
+          error: isConcurrencySaturated
+            ? 'All servers at max concurrency'
+            : 'No available servers for model',
           model,
           message: errorMessage,
           ...(debugPayload && { debug: debugPayload }),
@@ -1005,14 +1008,17 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isNoServersError =
         errorMessage.includes('No') && errorMessage.includes('servers available');
+      const isConcurrencySaturated = errorMessage.includes('at max concurrency');
 
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
-      if (isNoServersError) {
+      if (isNoServersError || isConcurrencySaturated) {
         res.status(503).json({
-          error: 'No available servers for model',
+          error: isConcurrencySaturated
+            ? 'All servers at max concurrency'
+            : 'No available servers for model',
           model,
           message: errorMessage,
           ...(debugPayload && { debug: debugPayload }),
@@ -1092,14 +1098,17 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     const errorMessage = error instanceof Error ? error.message : String(error);
     const isNoServersError =
       errorMessage.includes('No') && errorMessage.includes('servers available');
+    const isConcurrencySaturated = errorMessage.includes('at max concurrency');
 
     const debugPayload = isDebugRequested(req)
       ? getDebugInfo(routingContext, { lastError: errorMessage })
       : undefined;
 
-    if (isNoServersError) {
+    if (isNoServersError || isConcurrencySaturated) {
       res.status(503).json({
-        error: 'No available servers for model',
+        error: isConcurrencySaturated
+          ? 'All servers at max concurrency'
+          : 'No available servers for model',
         model,
         message: errorMessage,
         ...(debugPayload && { debug: debugPayload }),

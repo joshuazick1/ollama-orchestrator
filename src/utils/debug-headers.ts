@@ -60,6 +60,12 @@ export interface DebugInfo {
 
   // Error context
   lastError?: string;
+
+  // Failover diagnostics
+  failoverPhase?: number;
+  failoverCount?: number;
+  failoverErrors?: Array<{ serverId: string; error: string; errorType?: string }>;
+  failoverOccurred?: boolean;
 }
 
 export interface DebugInfoOptions {
@@ -149,6 +155,15 @@ export function setDebugResponseHeaders(
   if (debugInfo.stallDetected) {
     res.setHeader('X-Stall-Detected', '1');
   }
+  if (debugInfo.failoverPhase !== undefined) {
+    res.setHeader('X-Failover-Phase', debugInfo.failoverPhase);
+  }
+  if (debugInfo.failoverCount !== undefined && debugInfo.failoverCount > 0) {
+    res.setHeader('X-Failover-Count', debugInfo.failoverCount);
+  }
+  if (debugInfo.failoverOccurred) {
+    res.setHeader('X-Failover-Occurred', '1');
+  }
 }
 
 export function getDebugInfo(
@@ -171,6 +186,8 @@ export function getDebugInfo(
     (context.serverScores && context.serverScores.length > 0) ||
     context.timeoutMs !== undefined ||
     context.queueWaitTime !== undefined ||
+    context.failoverPhase !== undefined ||
+    context.failoverOccurred ||
     options?.requestId ||
     options?.timeToFirstToken !== undefined ||
     options?.streamingDuration !== undefined ||
@@ -240,6 +257,20 @@ export function getDebugInfo(
   }
   if (context.timeoutMs !== undefined) {
     debugInfo.timeoutMs = context.timeoutMs;
+  }
+
+  // Failover diagnostics
+  if (context.failoverPhase !== undefined) {
+    debugInfo.failoverPhase = context.failoverPhase;
+  }
+  if (context.failoverCount !== undefined && context.failoverCount > 0) {
+    debugInfo.failoverCount = context.failoverCount;
+  }
+  if (context.failoverErrors && context.failoverErrors.length > 0) {
+    debugInfo.failoverErrors = context.failoverErrors;
+  }
+  if (context.failoverOccurred) {
+    debugInfo.failoverOccurred = context.failoverOccurred;
   }
 
   // Streaming metrics
