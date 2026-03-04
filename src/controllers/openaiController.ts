@@ -768,8 +768,8 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           // Stall detection tracking variables (set by onStallCallback closure)
           let openaiChatStallDetected = false;
           let openaiChatStallStartTime: number | undefined;
-          let openaiChatHandoffAttempted = false;
-          let openaiChatHandoffSuccess = false;
+          let _openaiChatHandoffAttempted = false;
+          let _openaiChatHandoffSuccess = false;
 
           const onStallCallback = async (
             _abortController: AbortController,
@@ -820,7 +820,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               return { success: false, error: 'No alternative servers with closed circuit' };
             }
 
-            openaiChatHandoffAttempted = true;
+            _openaiChatHandoffAttempted = true;
 
             try {
               const result = await performStreamHandoff({
@@ -832,14 +832,14 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 stallCheckIntervalMs: stallCheckInterval,
               });
 
-              openaiChatHandoffSuccess = result.success;
+              _openaiChatHandoffSuccess = result.success;
               return { success: result.success, error: result.error };
             } catch (handoffError) {
               logger.error('OpenAI handoff failed with exception', {
                 requestId: passedRequestId,
                 error: handoffError instanceof Error ? handoffError.message : String(handoffError),
               });
-              openaiChatHandoffSuccess = false;
+              _openaiChatHandoffSuccess = false;
               return { success: false, error: 'Handoff exception' };
             }
           };
@@ -1569,7 +1569,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
@@ -1722,7 +1722,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
@@ -1812,7 +1812,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }

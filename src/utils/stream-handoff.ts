@@ -190,7 +190,7 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
     // F-9: Pass stall detection to the handoff stream so a second stall on the
     // new server is detected and handled (returns { success: false } to let the
     // caller decide how to proceed) rather than hanging indefinitely.
-    const handoffOnStall = async (
+    const handoffOnStall = (
       _abortController: AbortController,
       _streamingRequestId?: string
     ): Promise<{ success: boolean; error?: string }> => {
@@ -198,7 +198,7 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
         requestId: originalRequest.id,
         newServer: newServer.id,
       });
-      return { success: false, error: 'Handoff stream stalled on new server' };
+      return Promise.resolve({ success: false, error: 'Handoff stream stalled on new server' });
     };
 
     await streamResponse(

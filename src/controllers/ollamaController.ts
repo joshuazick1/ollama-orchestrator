@@ -557,7 +557,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo && typeof result === 'object' && result !== null) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
@@ -990,7 +990,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo && typeof result === 'object' && result !== null) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
@@ -1595,7 +1595,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
@@ -1778,7 +1778,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
@@ -1872,7 +1872,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
       if (includeDebug) {
         const debugInfo = getDebugInfo(routingContext);
         if (debugInfo) {
-          (result as Record<string, unknown>).debug = debugInfo;
+          result.debug = debugInfo;
           setDebugResponseHeaders(res, debugInfo);
         }
       }
