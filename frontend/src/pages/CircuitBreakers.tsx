@@ -22,11 +22,13 @@ import {
   Ban,
   Trash2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { formatTimeAgo, formatTimeUntil } from '../utils/formatting';
 import { getCircuitBreakerStateColor, getCircuitBreakerStateIcon } from '../utils/circuitBreaker';
 import { toastSuccess, toastError } from '../utils/toast';
 import { getBans, removeBan, clearAllBans, type BanEntry } from '../api';
+import { DataToolbar } from '../components/DataToolbar';
+import { useDataTable } from '../hooks/useDataTable';
 
 interface CircuitBreakerResponse {
   success: boolean;
@@ -343,6 +345,41 @@ export const CircuitBreakers = () => {
     refetchInterval: 5000,
   });
 
+  const { data: bansData, isLoading: bansLoading } = useQuery<BanEntry[]>({
+    queryKey: ['bans'],
+    queryFn: getBans,
+    refetchInterval: 10000,
+  });
+
+  // Circuit Breaker Data Table
+  const {
+    searchQuery: breakerSearch,
+    setSearchQuery: setBreakerSearch,
+    filters: breakerFilters,
+    handleFilter: handleBreakerFilter,
+    processedData: filteredBreakers,
+  } = useDataTable({
+    data: data?.circuitBreakers || [],
+    searchKeys: ['serverId'],
+    filterFn: (item, key, value) => {
+      if (key === 'state') return item.state === value;
+      return true;
+    },
+  });
+
+  const groupedServers = useMemo(() => groupBreakersByServer(filteredBreakers), [filteredBreakers]);
+
+  // Ban Data Table
+  const {
+    searchQuery: banSearch,
+    setSearchQuery: setBanSearch,
+    processedData: filteredBans,
+  } = useDataTable({
+    data: bansData || [],
+    searchKeys: ['serverId', 'model'],
+    initialSort: { key: 'bannedAt', direction: 'desc' },
+  });
+
   const resetMutation = useMutation({
     mutationFn: ({ serverId, model }: { serverId: string; model?: string }) =>
       resetCircuitBreaker(serverId, model),
@@ -377,13 +414,6 @@ export const CircuitBreakers = () => {
     onError: error => {
       toastError(error instanceof Error ? error.message : `Failed to close circuit breaker`);
     },
-  });
-
-  // Ban management
-  const { data: bansData, isLoading: bansLoading } = useQuery<BanEntry[]>({
-    queryKey: ['bans'],
-    queryFn: getBans,
-    refetchInterval: 10000,
   });
 
   const removeBanMutation = useMutation({
@@ -430,8 +460,6 @@ export const CircuitBreakers = () => {
   }
 
   const breakers = data?.circuitBreakers || [];
-  const groupedServers = groupBreakersByServer(breakers);
-
   const openCount = breakers.filter(b => b.state === 'OPEN').length;
   const halfOpenCount = breakers.filter(b => b.state === 'HALF-OPEN').length;
   const closedCount = breakers.filter(b => b.state === 'CLOSED').length;
@@ -477,15 +505,32 @@ export const CircuitBreakers = () => {
 
       {activeTab === 'breakers' ? (
         <>
-          <div className="flex justify-end">
+          <DataToolbar
+            searchQuery={breakerSearch}
+            onSearchChange={setBreakerSearch}
+            searchPlaceholder="Search breakers..."
+            filterOptions={[
+              {
+                key: 'state',
+                label: 'State',
+                options: [
+                  { label: 'Open', value: 'OPEN' },
+                  { label: 'Half-Open', value: 'HALF-OPEN' },
+                  { label: 'Closed', value: 'CLOSED' },
+                ],
+              },
+            ]}
+            filters={breakerFilters}
+            onFilterChange={handleBreakerFilter}
+          >
             <button
               onClick={() => refetch()}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh
             </button>
-          </div>
+          </DataToolbar>
 
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -676,8 +721,11 @@ export const CircuitBreakers = () => {
 
           {/* Info Section */}
           <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+            {/* ... info content ... */}
             <h3 className="text-lg font-semibold text-white mb-4">Circuit Breaker Behavior</h3>
+            {/* ... */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* ... (reused existing info content) ... */}
               <div>
                 <h4 className="text-white font-medium mb-2">When does a circuit open?</h4>
                 <p className="text-gray-400 text-sm">
@@ -716,31 +764,28 @@ export const CircuitBreakers = () => {
       ) : (
         /* Bans Tab */
         <div className="space-y-6">
-          {/* Header */}
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold text-white">Banned Server:Model Pairs</h3>
-              <p className="text-sm text-gray-400 mt-1">
-                These server:model combinations are currently banned from routing
-              </p>
-            </div>
+          <DataToolbar
+            searchQuery={banSearch}
+            onSearchChange={setBanSearch}
+            searchPlaceholder="Search bans..."
+          >
             {bansData && bansData.length > 0 && (
               <button
                 onClick={() => clearAllBansMutation.mutate()}
                 disabled={clearAllBansMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white rounded-lg transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
               >
                 <Trash2 className="w-4 h-4" />
                 Clear All Bans
               </button>
             )}
-          </div>
+          </DataToolbar>
 
           {bansLoading ? (
             <div className="flex items-center justify-center h-64">
               <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
             </div>
-          ) : bansData && bansData.length > 0 ? (
+          ) : filteredBans && filteredBans.length > 0 ? (
             <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
               <table className="w-full">
                 <thead className="bg-gray-900">
@@ -763,7 +808,7 @@ export const CircuitBreakers = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
-                  {bansData.map((ban, idx) => (
+                  {filteredBans.map((ban, idx) => (
                     <tr key={`${ban.serverId}-${ban.model}-${idx}`} className="hover:bg-gray-750">
                       <td className="px-6 py-4 text-sm text-white font-mono">{ban.serverId}</td>
                       <td className="px-6 py-4 text-sm text-white">{ban.model}</td>

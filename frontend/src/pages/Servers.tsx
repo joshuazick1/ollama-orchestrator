@@ -12,11 +12,14 @@ import {
 import { Modal } from '../components/Modal';
 import { ModelManagerModal } from '../components/ModelManagerModal';
 import { ConfirmationModal } from '../components/ConfirmationModal';
+import { DataToolbar } from '../components/DataToolbar';
+import { useDataTable } from '../hooks/useDataTable';
 import { validateForm, addServerSchema } from '../validations';
 import { encodeUrlParam } from '../utils/security';
 import { Plus, Trash2, Server as ServerIcon, Power, PowerOff, Wrench } from 'lucide-react';
 import type { AIServer } from '../types';
 import { toastSuccess, toastError } from '../utils/toast';
+import { compareVersions } from '../utils/formatting';
 import { SkeletonServerCard } from '../components/skeletons';
 
 export const Servers = () => {
@@ -33,11 +36,10 @@ export const Servers = () => {
   const [newServerType, setNewServerType] = useState<'ollama' | 'openai' | 'auto'>('ollama');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [expandedServerId, setExpandedServerId] = useState<string | null>(null);
-  const [sortConfig, setSortConfig] = useState<{
-    key: keyof AIServer | 'modelCount';
-    direction: 'asc' | 'desc';
-  }>({ key: 'url', direction: 'asc' });
+
+  // View options
   const [groupConfig, setGroupConfig] = useState<'none' | 'version' | 'healthy'>('none');
+
   const [modelManagerServer, setModelManagerServer] = useState<AIServer | null>(null);
   const [serverToDelete, setServerToDelete] = useState<AIServer | null>(null);
 
@@ -45,6 +47,43 @@ export const Servers = () => {
     queryKey: ['metrics'],
     queryFn: getMetrics,
     refetchInterval: 10000,
+  });
+
+  // Enrich data for sorting/filtering
+  const enrichedServers = useMemo(() => {
+    return (servers || []).map(server => ({
+      ...server,
+      modelCount: server.models.length,
+      status: server.healthy ? 'healthy' : 'unhealthy',
+      supportsOllama: server.supportsOllama !== false && server.type !== 'openai',
+      supportsOpenAI: server.supportsV1 || server.type === 'openai' || server.type === 'auto',
+    }));
+  }, [servers]);
+
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortConfig,
+    handleSort,
+    filters,
+    handleFilter,
+    processedData: filteredServers,
+  } = useDataTable({
+    data: enrichedServers,
+    initialSort: { key: 'url', direction: 'asc' },
+    searchKeys: ['url', 'version', 'type', 'id'],
+    filterFn: (item, key, value) => {
+      if (key === 'status') return item.status === value;
+      if (key === 'support') {
+        if (value === 'ollama') return item.supportsOllama;
+        if (value === 'openai') return !!item.supportsOpenAI;
+        return true;
+      }
+      return true;
+    },
+    sortFns: {
+      version: (a, b) => compareVersions(a.version || '', b.version || ''),
+    },
   });
 
   const addMutation = useMutation({
@@ -140,42 +179,10 @@ export const Servers = () => {
     });
   };
 
-  const handleSort = (key: keyof AIServer | 'modelCount') => {
-    setSortConfig(current => ({
-      key,
-      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
-    }));
-  };
-
-  const sortedServers = useMemo(() => {
-    return [...(servers || [])].sort((a: AIServer, b: AIServer) => {
-      const direction = sortConfig.direction === 'asc' ? 1 : -1;
-
-      if (sortConfig.key === 'modelCount') {
-        return (a.models.length - b.models.length) * direction;
-      }
-
-      // Handle specific fields
-      const aValue = a[sortConfig.key as keyof AIServer];
-      const bValue = b[sortConfig.key as keyof AIServer];
-
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return aValue.localeCompare(bValue) * direction;
-      }
-
-      if (typeof aValue === 'number' && typeof bValue === 'number') {
-        return (aValue - bValue) * direction;
-      }
-
-      // Boolean or others
-      return ((aValue ? 1 : 0) - (bValue ? 1 : 0)) * direction;
-    });
-  }, [servers, sortConfig]);
-
   const groupedServers = useMemo(() => {
-    if (groupConfig === 'none') return { 'All Servers': sortedServers };
+    if (groupConfig === 'none') return { 'All Servers': filteredServers };
 
-    return sortedServers.reduce(
+    return filteredServers.reduce(
       (acc, server) => {
         let key = 'Unknown';
         if (groupConfig === 'version') {
@@ -190,7 +197,7 @@ export const Servers = () => {
       },
       {} as Record<string, AIServer[]>
     );
-  }, [sortedServers, groupConfig]);
+  }, [filteredServers, groupConfig]);
 
   if (isLoading) {
     return (
@@ -212,58 +219,72 @@ export const Servers = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">Servers</h2>
-          <p className="text-gray-400">Manage your AI inference nodes</p>
-        </div>
-        <div className="flex flex-wrap gap-4">
-          {/* Grouping Control */}
-          <div className="flex items-center space-x-2 bg-gray-800 rounded-lg p-1 border border-gray-700">
-            <span className="text-gray-500 text-xs pl-2">Group:</span>
-            <select
-              value={groupConfig}
-              onChange={e => setGroupConfig(e.target.value as 'none' | 'version' | 'healthy')}
-              className="bg-transparent text-white text-sm outline-none px-2 py-1"
-            >
-              <option value="none">None</option>
-              <option value="version">Version</option>
-              <option value="healthy">Health</option>
-            </select>
-          </div>
-
-          {/* Sorting Control */}
-          <div className="flex items-center space-x-2 bg-gray-800 rounded-lg p-1 border border-gray-700">
-            <span className="text-gray-500 text-xs pl-2">Sort:</span>
-            <select
-              value={sortConfig.key}
-              onChange={e => handleSort(e.target.value as keyof AIServer | 'modelCount')}
-              className="bg-transparent text-white text-sm outline-none px-2 py-1"
-            >
-              <option value="url">URL</option>
-              <option value="healthy">Health</option>
-              <option value="lastResponseTime">Response Time</option>
-              <option value="modelCount">Model Count</option>
-              <option value="version">Version</option>
-            </select>
-            <button
-              onClick={() =>
-                setSortConfig(c => ({ ...c, direction: c.direction === 'asc' ? 'desc' : 'asc' }))
-              }
-              className="text-gray-400 hover:text-white px-2"
-            >
-              {sortConfig.direction === 'asc' ? '↑' : '↓'}
-            </button>
-          </div>
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Add Server</span>
-          </button>
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold text-white">Servers</h2>
+        <p className="text-gray-400">Manage your AI inference nodes</p>
       </div>
+
+      <DataToolbar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        sortConfig={sortConfig}
+        onSortChange={handleSort}
+        sortOptions={[
+          { key: 'url', label: 'URL' },
+          { key: 'healthy', label: 'Health' },
+          { key: 'lastResponseTime', label: 'Response Time' },
+          { key: 'modelCount', label: 'Model Count' },
+          { key: 'version', label: 'Version' },
+        ]}
+        filterOptions={[
+          {
+            key: 'status',
+            label: 'Status',
+            options: [
+              { label: 'Healthy', value: 'healthy' },
+              { label: 'Unhealthy', value: 'unhealthy' },
+            ],
+          },
+          {
+            key: 'support',
+            label: 'Support',
+            options: [
+              { label: 'Ollama', value: 'ollama' },
+              { label: 'OpenAI', value: 'openai' },
+            ],
+          },
+        ]}
+        filters={filters}
+        onFilterChange={handleFilter}
+      >
+        {/* Grouping Control */}
+        <div className="flex items-center space-x-2 bg-gray-950 rounded-lg px-3 py-1.5 border border-gray-800">
+          <span className="text-gray-500 text-xs font-medium">Group:</span>
+          <select
+            value={groupConfig}
+            onChange={e => setGroupConfig(e.target.value as 'none' | 'version' | 'healthy')}
+            className="bg-transparent text-gray-300 text-sm outline-none cursor-pointer hover:text-white transition-colors"
+          >
+            <option value="none" className="bg-gray-900">
+              None
+            </option>
+            <option value="version" className="bg-gray-900">
+              Version
+            </option>
+            <option value="healthy" className="bg-gray-900">
+              Health
+            </option>
+          </select>
+        </div>
+
+        <button
+          onClick={() => setIsAddModalOpen(true)}
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Server</span>
+        </button>
+      </DataToolbar>
 
       <div className="space-y-8">
         {Object.entries(groupedServers).map(([group, groupServers]) => (
