@@ -3,8 +3,9 @@
  * Tests for stall detection and chunk accumulation in streaming.ts
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { streamResponse } from '../../src/streaming.js';
 
 vi.mock('../../src/utils/logger.js', () => ({

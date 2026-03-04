@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+
 import { TokenMetricsExtractor } from '../../src/utils/token-metrics-extractor.js';
 
 describe('TokenMetricsExtractor', () => {

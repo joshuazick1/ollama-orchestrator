@@ -11,8 +11,10 @@
  * loop always exits cleanly.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
+
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { streamResponse } from '../../src/streaming.js';
 
 // Mock the logger

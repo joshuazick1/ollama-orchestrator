@@ -4,8 +4,10 @@
  * Tests system resilience when servers fail, become unavailable, or degrade.
  */
 
-import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { Server } from 'http';
+
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+
 import {
   createDiverseMockServer,
   mockServerFactory,

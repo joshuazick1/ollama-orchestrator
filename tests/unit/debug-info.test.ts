@@ -3,11 +3,11 @@
  * Tests for debug info in JSON responses
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { getDebugInfo } from '../../src/utils/debug-headers.js';
 import type { RoutingContext } from '../../src/orchestrator-instance.js';
+import { getDebugInfo } from '../../src/utils/debug-headers.js';
 
 describe('getDebugInfo', () => {
   it('should return undefined when context is empty', () => {

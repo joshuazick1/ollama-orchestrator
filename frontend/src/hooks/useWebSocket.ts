@@ -92,7 +92,7 @@ export const useWebSocket = ({
       };
 
       wsRef.current = ws;
-    } catch (e) {
+    } catch {
       setStatus('error');
       onStatusChange?.('error');
     }
@@ -148,7 +148,9 @@ export const useRealTimeUpdates = (
   enabled = true
 ): { connectionStatus: WebSocketStatus } => {
   const onUpdateRef = useRef(onUpdate);
-  onUpdateRef.current = onUpdate;
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
 
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`;
 

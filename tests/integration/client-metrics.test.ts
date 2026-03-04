@@ -1,6 +1,8 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
-import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
+
 import { api as axiosClient } from '../../frontend/src/api.js';
+
+import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 
 describe('Frontend client metrics integration', () => {
   let baseUrl: string;

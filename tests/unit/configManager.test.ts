@@ -3,18 +3,20 @@
  * Tests for configuration management with persistence
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import path from 'path';
 import os from 'os';
+import path from 'path';
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
 import {
   createConfigManager,
   serversConfig,
   bansConfig,
   validateServers,
 } from '../../src/config/configManager.js';
-import { logger } from '../../src/utils/logger.js';
 import { JsonFileHandler } from '../../src/config/jsonFileHandler.js';
+import { logger } from '../../src/utils/logger.js';
 
 vi.mock('../../src/utils/logger.js');
 

@@ -6,11 +6,12 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+
+import { CircuitBreaker } from '../../src/circuit-breaker.js';
 import {
   RecoveryTestCoordinator,
   resetRecoveryTestCoordinator,
 } from '../../src/recovery-test-coordinator.js';
-import { CircuitBreaker } from '../../src/circuit-breaker.js';
 
 // Minimal fake circuit breaker used in tests
 function makeBreaker(name: string, state: 'open' | 'half-open' | 'closed' = 'half-open') {

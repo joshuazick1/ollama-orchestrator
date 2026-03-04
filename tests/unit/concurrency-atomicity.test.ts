@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+
 import { InFlightManager, resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
 describe('Wave 3 REC-64: Atomic tryIncrementInFlight', () => {

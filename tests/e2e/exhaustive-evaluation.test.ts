@@ -1,6 +1,7 @@
-import { test, expect, APIRequestContext } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+
+import { test, expect, APIRequestContext } from '@playwright/test';
 
 // Test configuration
 const TEST_CONFIG = {
@@ -64,8 +65,8 @@ function loadServerConfigs(): ServerConfig[] {
 test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
   let apiContext: APIRequestContext;
   let serverConfigs: ServerConfig[];
-  let testResults: TestResult[] = [];
-  let serverTestResults: ServerTestResult[] = [];
+  const testResults: TestResult[] = [];
+  const serverTestResults: ServerTestResult[] = [];
 
   test.beforeAll(async ({ playwright }) => {
     console.log('\n🚀 Starting Exhaustive E2E Evaluation...\n');
@@ -624,8 +625,8 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
                 },
               })
               .then(r => {
-                if (r.ok()) completed++;
-                else failed++;
+                if (r.ok()) {completed++;}
+                else {failed++;}
                 return r;
               })
               .catch(() => {
@@ -1059,7 +1060,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
         .filter(r => !r.passed)
         .forEach(r => {
           console.log(`   • ${r.testName}`);
-          if (r.error) console.log(`     Error: ${r.error}`);
+          if (r.error) {console.log(`     Error: ${r.error}`);}
         });
     }
 

@@ -3,16 +3,13 @@
  * Unit tests for model controller endpoints
  */
 
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 // Mock the model manager instance
 vi.mock('../../src/model-manager-instance.js');
-import { getModelManager } from '../../src/model-manager-instance.js';
-
 // Mock the orchestrator instance
 vi.mock('../../src/orchestrator-instance.js');
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 
 import {
   warmupModel,
@@ -22,6 +19,8 @@ import {
   unloadModel,
   getIdleModels,
 } from '../../src/controllers/modelController.js';
+import { getModelManager } from '../../src/model-manager-instance.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 
 const mockGetModelManager = vi.mocked(getModelManager);
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);

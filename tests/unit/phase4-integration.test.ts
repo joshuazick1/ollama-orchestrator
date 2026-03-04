@@ -4,11 +4,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { AIOrchestrator } from '../../src/orchestrator.js';
-import { ModelManager } from '../../src/model-manager.js';
+
 import { AnalyticsEngine } from '../../src/analytics/analytics-engine.js';
-import { resetModelManager, getModelManager } from '../../src/model-manager-instance.js';
 import { resetAnalyticsEngine, getAnalyticsEngine } from '../../src/analytics-instance.js';
+import { resetModelManager, getModelManager } from '../../src/model-manager-instance.js';
+import { ModelManager } from '../../src/model-manager.js';
+import { AIOrchestrator } from '../../src/orchestrator.js';
 
 describe('Phase 4 Integration', () => {
   let orchestrator: AIOrchestrator;

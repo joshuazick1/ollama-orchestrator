@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { ModelManager } from '../../src/model-manager.js';
 import type { AIServer } from '../../src/orchestrator.types.js';
 

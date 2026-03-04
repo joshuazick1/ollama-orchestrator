@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { BanManager } from '../../src/utils/ban-manager.js';
 
 vi.mock('../config/config.js', () => ({

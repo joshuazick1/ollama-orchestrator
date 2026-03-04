@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { AIOrchestrator } from '../../src/orchestrator.js';
+
 import { CircuitBreakerRegistry } from '../../src/circuit-breaker.js';
 import { ConfigManager } from '../../src/config/config.js';
+import { AIOrchestrator } from '../../src/orchestrator.js';
 
 // Integration tests to verify all Phase 2 components work together
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+
 import { InFlightManager, getInFlightManager } from '../../src/utils/in-flight-manager';
 
 describe('InFlightManager', () => {

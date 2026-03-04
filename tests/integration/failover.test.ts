@@ -13,8 +13,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import type { AIServer } from '../../src/orchestrator.types.js';
+
 import { CircuitBreaker, CircuitBreakerRegistry } from '../../src/circuit-breaker.js';
+import type { AIServer } from '../../src/orchestrator.types.js';
 import { InFlightManager } from '../../src/utils/in-flight-manager.js';
 
 // Mock logger
@@ -317,7 +318,7 @@ describe('Failover Integration Tests', () => {
         }
       }
 
-      if (!done) throw lastErr;
+      if (!done) {throw lastErr;}
 
       expect(attempts).toBe(3); // Initial + 2 retries
     });

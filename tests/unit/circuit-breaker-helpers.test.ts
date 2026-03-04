@@ -3,8 +3,9 @@
  * Tests for circuit breaker helper utilities
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request } from 'express';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import {
   shouldBypassCircuitBreaker,
   extractCircuitBreakerOptions,

@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import {
   streamResponse,
   parseSSEData,
@@ -66,7 +67,7 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(['data: test\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(mockUpstreamResponse as any, mockResponse as Response);
+    await streamResponse(mockUpstreamResponse, mockResponse as Response);
 
     expect(mockResponse.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
     expect(mockResponse.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-cache');
@@ -78,7 +79,7 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(data.map(d => `data: ${d}\n\n`));
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(mockUpstreamResponse as any, mockResponse as Response);
+    await streamResponse(mockUpstreamResponse, mockResponse as Response);
 
     expect(writtenChunks.length).toBe(3);
     // Chunks are Uint8Arrays, convert to string for comparison
@@ -91,7 +92,7 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(['data: first\n\n', 'data: second\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(mockUpstreamResponse as any, mockResponse as Response, onFirstToken);
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, onFirstToken);
 
     expect(onFirstToken).toHaveBeenCalledTimes(1);
   });
@@ -102,7 +103,7 @@ describe('streamResponse', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       undefined,
@@ -129,7 +130,7 @@ describe('streamResponse', () => {
 
     // Call with all parameters up to activityController
     await streamResponse(
-      mockUpstreamResponse as any, // upstreamResponse
+      mockUpstreamResponse, // upstreamResponse
       mockResponse as Response, // clientResponse
       undefined, // onFirstToken
       undefined, // onComplete
@@ -154,7 +155,7 @@ describe('streamResponse', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete
@@ -172,7 +173,7 @@ describe('streamResponse', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete
@@ -220,7 +221,7 @@ describe('streamResponse', () => {
       },
     });
 
-    await streamResponse(mockUpstreamResponse as any, responseProxy as Response);
+    await streamResponse(mockUpstreamResponse, responseProxy as Response);
 
     expect(responseEnded).toBe(true);
   });
@@ -259,7 +260,7 @@ describe('streamResponse', () => {
   });
 
   it('should wait for drain when buffer is full', async () => {
-    let drainCalled = false;
+    const drainCalled = false;
     let writeCount = 0;
 
     const mockBody = createMockBody(['data: test1\n\n', 'data: test2\n\n']);
@@ -280,7 +281,7 @@ describe('streamResponse', () => {
       return mockResponse as Response;
     });
 
-    await streamResponse(mockUpstreamResponse as any, mockResponse as Response);
+    await streamResponse(mockUpstreamResponse, mockResponse as Response);
 
     expect(mockResponse.once).toHaveBeenCalledWith('drain', expect.any(Function));
     expect(writeCount).toBe(2);
@@ -293,7 +294,7 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(['data: test\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    const promise = streamResponse(mockUpstreamResponse as any, mockResponse as Response);
+    const promise = streamResponse(mockUpstreamResponse, mockResponse as Response);
 
     await vi.advanceTimersByTimeAsync(LOG_INTERVAL + 1);
 
@@ -312,7 +313,7 @@ describe('streamResponse', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete
@@ -331,7 +332,7 @@ describe('streamResponse', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete
@@ -540,7 +541,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       undefined,
@@ -556,7 +557,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete
@@ -573,7 +574,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete,
@@ -594,7 +595,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       onFirstToken,
       undefined,
@@ -610,7 +611,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       undefined,
@@ -634,7 +635,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete,
@@ -651,7 +652,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete
@@ -670,7 +671,7 @@ describe('streamResponse TTFT integration', () => {
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
     await streamResponse(
-      mockUpstreamResponse as any,
+      mockUpstreamResponse,
       mockResponse as Response,
       undefined,
       onComplete
@@ -695,7 +696,7 @@ describe('streamResponse TTFT integration', () => {
       const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
       await streamResponse(
-        mockUpstreamResponse as any,
+        mockUpstreamResponse,
         mockResponse as Response,
         undefined,
         undefined,
@@ -747,7 +748,7 @@ describe('streamResponse TTFT integration', () => {
       const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
       await streamResponse(
-        mockUpstreamResponse as any,
+        mockUpstreamResponse,
         mockResponse as Response,
         undefined,
         undefined,
@@ -781,7 +782,7 @@ describe('streamResponse TTFT integration', () => {
       const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
       await streamResponse(
-        mockUpstreamResponse as any,
+        mockUpstreamResponse,
         mockResponse as Response,
         undefined,
         undefined,
@@ -808,7 +809,7 @@ describe('streamResponse TTFT integration', () => {
 
       await expect(
         streamResponse(
-          mockUpstreamResponse as any,
+          mockUpstreamResponse,
           mockResponse as Response,
           undefined,
           undefined,

@@ -4,9 +4,10 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { performStreamHandoff, type HandoffRequest } from '../../src/utils/stream-handoff.js';
-import type { StreamingRequestProgress } from '../../src/utils/in-flight-manager.js';
+
 import type { AIServer } from '../../src/orchestrator.types.js';
+import type { StreamingRequestProgress } from '../../src/utils/in-flight-manager.js';
+import { performStreamHandoff, type HandoffRequest } from '../../src/utils/stream-handoff.js';
 
 // Mock dependencies
 vi.mock('../../src/config/config.js', () => ({

@@ -3,17 +3,14 @@
  * Tests for recoveryFailureController.ts
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('../../src/orchestrator-instance.js');
 vi.mock('../../src/analytics/recovery-failure-tracker.js');
 vi.mock('../../src/recovery-test-coordinator.js');
 
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import { getRecoveryFailureTracker } from '../../src/analytics/recovery-failure-tracker.js';
-import { getRecoveryTestCoordinator } from '../../src/recovery-test-coordinator.js';
-
 import {
   getRecoveryFailuresSummary,
   getServerRecoveryStats,
@@ -27,6 +24,8 @@ import {
   resetServerCircuitBreaker,
   getServerCircuitBreaker,
 } from '../../src/controllers/recoveryFailureController.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import { getRecoveryTestCoordinator } from '../../src/recovery-test-coordinator.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetRecoveryFailureTracker = vi.mocked(getRecoveryFailureTracker);

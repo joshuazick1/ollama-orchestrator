@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { featureFlags, DEFAULT_FEATURE_FLAGS } from '../../src/config/feature-flags';
 
 describe('FeatureFlags', () => {

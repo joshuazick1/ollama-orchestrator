@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 import {
   sleep,
   withTimeout,
@@ -71,7 +72,7 @@ describe('async-helpers', () => {
       let attempts = 0;
       const fn = async () => {
         attempts++;
-        if (attempts < 3) throw new Error('fail');
+        if (attempts < 3) {throw new Error('fail');}
         return 'success';
       };
 

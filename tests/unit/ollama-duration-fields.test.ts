@@ -4,11 +4,12 @@
  * and REC-27 (cold start detection via load_duration)
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Response } from 'express';
-import { streamResponse, type OllamaDurations } from '../../src/streaming.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
 import type { RequestContext } from '../../src/orchestrator.types.js';
+import { streamResponse, type OllamaDurations } from '../../src/streaming.js';
 
 // Mock the logger
 vi.mock('../../src/utils/logger.js', () => ({

@@ -10,8 +10,8 @@
  * - Tests must verify model management restrictions
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // Mock dependencies
 vi.mock('../../src/orchestrator-instance.js');
@@ -25,8 +25,8 @@ vi.mock('../../src/utils/logger.js', () => ({
   },
 }));
 
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import { getConfigManager } from '../../src/config/config.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 import type { AIServer } from '../../src/orchestrator.types.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
@@ -247,7 +247,7 @@ describe('OpenAI Server Support Comprehensive Tests', () => {
         return key;
       };
 
-      const resolved = resolveApiKey(server.apiKey!);
+      const resolved = resolveApiKey(server.apiKey);
       expect(resolved).toBe('actual-secret-value');
 
       delete process.env.TEST_KEY;
@@ -260,8 +260,8 @@ describe('OpenAI Server Support Comprehensive Tests', () => {
       };
 
       const redactKey = (key?: string) => {
-        if (!key) return undefined;
-        if (key.startsWith('env:')) return key;
+        if (!key) {return undefined;}
+        if (key.startsWith('env:')) {return key;}
         return '***REDACTED***';
       };
 
@@ -274,7 +274,7 @@ describe('OpenAI Server Support Comprehensive Tests', () => {
 
       // Should only show "env:SECRET_KEY" not the actual value
       const shouldLog = (key: string) => {
-        if (key.startsWith('env:')) return key;
+        if (key.startsWith('env:')) {return key;}
         return '***REDACTED***';
       };
 

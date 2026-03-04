@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
 import { DecisionHistory } from '../../src/decision-history';
 import type { FailoverAttempt } from '../../src/decision-history';
-import type { AIServer } from '../../src/orchestrator.types';
 import type { ServerScore } from '../../src/load-balancer';
+import type { AIServer } from '../../src/orchestrator.types';
 
 describe('DecisionHistory', () => {
   let history: DecisionHistory;

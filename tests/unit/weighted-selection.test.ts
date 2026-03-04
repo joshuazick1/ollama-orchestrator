@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { LoadBalancer, calculateServerScore } from '../../src/load-balancer.js';
 import type { AIServer } from '../../src/orchestrator.types.js';
 

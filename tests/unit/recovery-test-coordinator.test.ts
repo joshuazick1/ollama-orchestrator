@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+
 import { RecoveryTestCoordinator, isEmbeddingModel } from '../../src/recovery-test-coordinator';
 
 describe('RecoveryTestCoordinator', () => {

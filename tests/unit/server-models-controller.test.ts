@@ -3,16 +3,13 @@
  * Tests for serverModelsController.ts
  */
 
-import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 
 vi.mock('../../src/orchestrator-instance.js');
 vi.mock('../../src/utils/fetchWithTimeout.js', () => ({
   fetchWithTimeout: vi.fn(),
 }));
-
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import { fetchWithTimeout } from '../../src/utils/fetchWithTimeout.js';
 
 import {
   listServerModels,
@@ -21,6 +18,9 @@ import {
   copyModelToServer,
   getFleetModelStats,
 } from '../../src/controllers/serverModelsController.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import { fetchWithTimeout } from '../../src/utils/fetchWithTimeout.js';
+
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockFetchWithTimeout = fetchWithTimeout as Mock;

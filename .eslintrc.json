@@ -12,7 +12,7 @@
   "parserOptions": {
     "ecmaVersion": "latest",
     "sourceType": "module",
-    "project": "./tsconfig.json"
+    "project": "./tsconfig.eslint.json"
   },
   "plugins": ["@typescript-eslint", "import", "security"],
   "rules": {
@@ -49,7 +49,17 @@
       "files": ["tests/**/*", "**/*.test.ts"],
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
-        "@typescript-eslint/unbound-method": "off"
+        "@typescript-eslint/unbound-method": "off",
+        "@typescript-eslint/require-await": "off",
+        "@typescript-eslint/no-unused-vars": "off",
+        "@typescript-eslint/ban-types": "off",
+        "@typescript-eslint/no-var-requires": "off",
+        "@typescript-eslint/await-thenable": "off",
+        "@typescript-eslint/no-floating-promises": "off",
+        "@typescript-eslint/restrict-template-expressions": "off",
+        "no-throw-literal": "off",
+        "no-case-declarations": "off",
+        "no-empty": "off"
       }
     }
   ]

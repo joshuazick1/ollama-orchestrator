@@ -5,8 +5,10 @@
  * including queue management, backpressure, and performance degradation.
  */
 
-import { describe, it, expect, afterAll, afterEach } from 'vitest';
 import { Server } from 'http';
+
+import { describe, it, expect, afterAll, afterEach } from 'vitest';
+
 import {
   createDiverseMockServer,
   mockServerFactory,

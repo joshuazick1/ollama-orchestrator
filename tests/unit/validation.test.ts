@@ -3,9 +3,10 @@
  * Tests for validation middleware
  */
 
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
+import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { z } from 'zod';
+
 import {
   validateRequest,
   ValidationError,

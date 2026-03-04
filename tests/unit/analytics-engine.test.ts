@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
+
 import {
   AnalyticsEngine,
   type TopModelData,

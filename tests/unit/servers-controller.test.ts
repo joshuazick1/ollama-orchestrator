@@ -3,8 +3,10 @@
  * Tests for server management controllers
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../../src/orchestrator-instance.js');
 
 import {
   addServer,
@@ -16,12 +18,6 @@ import {
   getHealth,
   healthCheck,
   getStats,
-} from '../../src/controllers/serversController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-
-vi.mock('../../src/orchestrator-instance.js');
-
-import {
   getCircuitBreakers,
   getBans,
   removeBan,
@@ -34,6 +30,7 @@ import {
   forceCloseBreaker,
   forceHalfOpenBreaker,
 } from '../../src/controllers/serversController.js';
+import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
 
 describe('Servers Controller', () => {
   let mockOrchestrator: any;

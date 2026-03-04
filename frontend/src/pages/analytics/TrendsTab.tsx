@@ -32,7 +32,7 @@ interface TrendsTabProps {
 }
 
 export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
-  const snapshots = summarySnapshotsData?.snapshots ?? [];
+  const snapshots = useMemo(() => summarySnapshotsData?.snapshots ?? [], [summarySnapshotsData]);
 
   const trendPoints = useMemo(() => {
     return snapshots
