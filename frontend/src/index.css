@@ -44,6 +44,42 @@
   }
 }
 
+/* Ensure native select dropdowns and their options use the theme text color
+   so options are readable in both dark and light themes. Some browsers
+   render the native option popup with a light background while the
+   <select> element's text color is forced to white by utility classes,
+   causing white-on-white text. Use theme variables to keep option text
+   readable regardless of theme. */
+select {
+  /* Keep the select control matching theme surface but slightly refined */
+  color: var(--color-text-base);
+  background-color: var(--color-surface-raised);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+}
+
+/* Options: use a more muted text color for less visual contrast, and
+   highlight the selected option to read clearly. Note: browsers vary in
+   how much they honor option styling, but these rules improve appearance
+   in most modern browsers. */
+select option {
+  color: var(--color-text-subtle);
+  background-color: var(--color-surface-raised);
+}
+
+/* Selected option inside the native popup */
+select option:checked {
+  color: var(--color-text-base);
+  background-color: var(--color-surface-raised);
+}
+
+/* Focus/hover states for the control */
+select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08); /* subtle blue ring */
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;

@@ -1036,14 +1036,18 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const isCapacityError =
+        (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
+        errorMessage.includes('at max concurrency') ||
+        errorMessage.includes('circuit breaker');
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
-      res.status(500).json({
+      res.status(isCapacityError ? 503 : 500).json({
         error: {
           message: errorMessage,
-          type: 'server_error',
-          code: 'internal_error',
+          type: isCapacityError ? 'capacity_error' : 'server_error',
+          code: isCapacityError ? 'service_unavailable' : 'internal_error',
         },
         ...(debugPayload && { debug: debugPayload }),
       });
@@ -1173,14 +1177,18 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     logger.error('OpenAI completions failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const isCapacityError =
+        (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
+        errorMessage.includes('at max concurrency') ||
+        errorMessage.includes('circuit breaker');
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
-      res.status(500).json({
+      res.status(isCapacityError ? 503 : 500).json({
         error: {
           message: errorMessage,
-          type: 'server_error',
-          code: 'internal_error',
+          type: isCapacityError ? 'capacity_error' : 'server_error',
+          code: isCapacityError ? 'service_unavailable' : 'internal_error',
         },
         ...(debugPayload && { debug: debugPayload }),
       });
@@ -1250,14 +1258,18 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
     logger.error('OpenAI embeddings failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const isCapacityError =
+        (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
+        errorMessage.includes('at max concurrency') ||
+        errorMessage.includes('circuit breaker');
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
-      res.status(500).json({
+      res.status(isCapacityError ? 503 : 500).json({
         error: {
           message: errorMessage,
-          type: 'server_error',
-          code: 'internal_error',
+          type: isCapacityError ? 'capacity_error' : 'server_error',
+          code: isCapacityError ? 'service_unavailable' : 'internal_error',
         },
         ...(debugPayload && { debug: debugPayload }),
       });
