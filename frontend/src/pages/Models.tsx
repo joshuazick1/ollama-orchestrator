@@ -11,33 +11,14 @@ import {
 } from '../api';
 import { SkeletonTable } from '../components/skeletons';
 import { ErrorState } from '../components/EmptyState';
-import {
-  Server,
-  Box,
-  Layers,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  Zap,
-  Lock,
-  RefreshCw,
-  Activity,
-  Loader2,
-  Flame,
-} from 'lucide-react';
+import { DataToolbar } from '../components/DataToolbar';
+import { useDataTable } from '../hooks/useDataTable';
+import { Server, Box, Layers, Zap, Lock, RefreshCw, Activity, Loader2, Flame } from 'lucide-react';
 import type { AIServer } from '../types';
 import { useState, useMemo } from 'react';
 import type { CircuitBreakerInfo } from '../api';
 import { toastSuccess, toastError } from '../utils/toast';
 import { CircuitDetailModal } from '../components/CircuitDetailModal';
-
-type SortKey = 'name' | 'replicas';
-type SortDirection = 'asc' | 'desc';
-
-interface SortConfig {
-  key: SortKey;
-  direction: SortDirection;
-}
 
 interface InFlightServer {
   serverId: string;
@@ -64,15 +45,6 @@ interface ModelStatus {
   failedOn: number;
   servers: Record<string, ModelServerStatus>;
 }
-
-const SortIcon = ({ columnKey, sortConfig }: { columnKey: SortKey; sortConfig: SortConfig }) => {
-  if (sortConfig.key !== columnKey) return <ArrowUpDown className="w-4 h-4 text-gray-600" />;
-  return sortConfig.direction === 'asc' ? (
-    <ArrowUp className="w-4 h-4 text-blue-400" />
-  ) : (
-    <ArrowDown className="w-4 h-4 text-blue-400" />
-  );
-};
 
 const ServerBadge = ({
   server,
@@ -218,10 +190,6 @@ const Legend = () => (
 
 export const Models = () => {
   const queryClient = useQueryClient();
-  const [sortConfig, setSortConfig] = useState<SortConfig>({
-    key: 'name',
-    direction: 'asc',
-  });
   const [selectedCircuit, setSelectedCircuit] = useState<{
     serverId: string;
     model: string;
@@ -277,6 +245,26 @@ export const Models = () => {
     queryKey: ['all-models-status'],
     queryFn: getAllModelsStatus,
     refetchInterval: 5000,
+  });
+
+  // Enrich data for sorting/filtering
+  const enrichedModels = useMemo(() => {
+    return Object.keys(modelMap || {}).map(model => ({
+      name: model,
+      replicas: (modelMap[model] || []).length,
+    }));
+  }, [modelMap]);
+
+  const {
+    searchQuery,
+    setSearchQuery,
+    sortConfig,
+    handleSort,
+    processedData: filteredModels,
+  } = useDataTable({
+    data: enrichedModels,
+    initialSort: { key: 'name', direction: 'asc' },
+    searchKeys: ['name'],
   });
 
   const warmupMutation = useMutation({
@@ -372,58 +360,43 @@ export const Models = () => {
     );
   }
 
-  const rawModels = Object.keys(modelMap || {});
-
-  const handleSort = (key: SortKey) => {
-    setSortConfig(current => ({
-      key,
-      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
-    }));
-  };
-
-  const getSortedModels = () => {
-    return [...rawModels].sort((a, b) => {
-      if (sortConfig.key === 'name') {
-        return sortConfig.direction === 'asc' ? a.localeCompare(b) : b.localeCompare(a);
-      } else {
-        const countA = (modelMap?.[a] || []).length;
-        const countB = (modelMap?.[b] || []).length;
-        return sortConfig.direction === 'asc' ? countA - countB : countB - countA;
-      }
-    });
-  };
-
-  const models = getSortedModels();
-
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">Models</h2>
-          <p className="text-gray-400">Available models and their distribution</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              const recommended = recommendations?.recommendations?.[0];
-              if (recommended) {
-                warmupMutation.mutate({ model: recommended.model });
-              } else {
-                toastError('No models available for warmup');
-              }
-            }}
-            disabled={warmupMutation.isPending || !recommendations?.recommendations?.length}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
-          >
-            <Flame className="w-4 h-4" />
-            <span>Warmup Recommended</span>
-          </button>
-          <div className="flex items-center space-x-2 text-sm text-gray-400">
-            <Activity className="w-4 h-4" />
-            <span>Live updates</span>
-          </div>
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold text-white">Models</h2>
+        <p className="text-gray-400">Available models and their distribution</p>
       </div>
+
+      <DataToolbar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        sortConfig={sortConfig}
+        onSortChange={handleSort}
+        sortOptions={[
+          { key: 'name', label: 'Model Name' },
+          { key: 'replicas', label: 'Replicas' },
+        ]}
+      >
+        <button
+          onClick={() => {
+            const recommended = recommendations?.recommendations?.[0];
+            if (recommended) {
+              warmupMutation.mutate({ model: recommended.model });
+            } else {
+              toastError('No models available for warmup');
+            }
+          }}
+          disabled={warmupMutation.isPending || !recommendations?.recommendations?.length}
+          className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
+        >
+          <Flame className="w-4 h-4" />
+          <span>Warmup Recommended</span>
+        </button>
+        <div className="hidden md:flex items-center space-x-2 text-sm text-gray-400 ml-2">
+          <Activity className="w-4 h-4" />
+          <span>Live updates</span>
+        </div>
+      </DataToolbar>
 
       <Legend />
 
@@ -438,7 +411,6 @@ export const Models = () => {
                 >
                   <div className="flex items-center space-x-2">
                     <span>Model Name</span>
-                    <SortIcon columnKey="name" sortConfig={sortConfig} />
                   </div>
                 </th>
                 <th
@@ -447,14 +419,14 @@ export const Models = () => {
                 >
                   <div className="flex items-center space-x-2">
                     <span>Replicas</span>
-                    <SortIcon columnKey="replicas" sortConfig={sortConfig} />
                   </div>
                 </th>
                 <th className="px-6 py-4">Servers</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">
-              {models.map(model => {
+              {filteredModels.map(item => {
+                const model = item.name;
                 const serverIds = modelMap[model] || [];
                 const modelServers =
                   servers?.filter((s: AIServer) => serverIds.includes(s.id)) || [];
@@ -497,11 +469,11 @@ export const Models = () => {
                   </tr>
                 );
               })}
-              {models.length === 0 && (
+              {filteredModels.length === 0 && (
                 <tr>
                   <td colSpan={3} className="px-6 py-12 text-center text-gray-500">
                     <Layers className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                    <p>No models detected across connected servers.</p>
+                    <p>No models found matching your search.</p>
                   </td>
                 </tr>
               )}
