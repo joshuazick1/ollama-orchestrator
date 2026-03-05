@@ -25,6 +25,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5100',
         changeOrigin: true,
+        timeout: 0, // Disable timeout for long-running requests (SSE)
+        proxyTimeout: 0, // Disable proxy timeout
       },
     },
     headers: {

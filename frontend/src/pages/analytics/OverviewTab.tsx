@@ -86,8 +86,20 @@ export const OverviewTab = ({
               <span className="text-3xl font-bold text-white tracking-tight">
                 {((1 - (summary?.global?.errorRate || 0)) * 100).toFixed(1)}%
               </span>
-              <span className="text-xs text-green-400 font-medium bg-green-400/10 px-2 py-0.5 rounded-full">
-                Healthy
+              <span
+                className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  (summary?.global?.errorRate || 0) > 0.1
+                    ? 'text-red-400 bg-red-400/10'
+                    : (summary?.global?.errorRate || 0) > 0.05
+                      ? 'text-yellow-400 bg-yellow-400/10'
+                      : 'text-green-400 bg-green-400/10'
+                }`}
+              >
+                {(summary?.global?.errorRate || 0) > 0.1
+                  ? 'Degraded'
+                  : (summary?.global?.errorRate || 0) > 0.05
+                    ? 'Warning'
+                    : 'Healthy'}
               </span>
             </div>
           </div>

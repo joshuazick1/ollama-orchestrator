@@ -143,7 +143,7 @@ export const Dashboard = () => {
           value={
             analyticsLoading ? '...' : analytics?.global?.totalRequests?.toLocaleString() || '0'
           }
-          subtext={analyticsLoading ? 'Loading...' : 'Last 24 hours'}
+          subtext={analyticsLoading ? 'Loading...' : 'Last 1 hour'}
           icon={Activity}
           color={analyticsLoading ? 'text-gray-400' : 'text-blue-400'}
         />

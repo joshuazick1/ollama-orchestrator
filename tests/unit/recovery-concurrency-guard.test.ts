@@ -48,6 +48,22 @@ describe('RecoveryTestCoordinator – cross-path concurrency guard (REC-13)', ()
     // Provide a fake server URL so network calls don't actually happen
     coordinator.setServerUrlProvider(serverId => `http://fake-${serverId}:11434`);
     coordinator.setInFlightProvider(() => 0);
+    // Stub global fetch so tests don't perform real network I/O. Return a
+    // minimal Response-like object that the coordinator's fetch helpers can
+    // consume. Tests only need the call to resolve (success or handled
+    // failure), so a simple JSON payload is sufficient.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true }),
+            text: async () => JSON.stringify({ ok: true }),
+          }) as unknown as Response
+      )
+    );
   });
 
   afterEach(() => {

@@ -3,6 +3,12 @@
  * Unified metrics recording system
  * Ensures all metrics stores receive consistent data
  * Provides error isolation - one recorder failing doesn't break others
+ *
+ * @deprecated This module is currently dead code — nothing in the orchestrator
+ * imports or uses it. Metrics recording is handled directly in orchestrator.ts
+ * via MetricsAggregator and RequestHistory. The feature flag
+ * `useUnifiedRecorder` is set but never checked in the request path.
+ * TODO: Either wire this into the orchestrator or remove it entirely.
  */
 
 import { featureFlags } from '../config/feature-flags.js';

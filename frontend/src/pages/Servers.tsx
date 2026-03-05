@@ -16,11 +16,20 @@ import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
 import { validateForm, addServerSchema } from '../validations';
 import { encodeUrlParam } from '../utils/security';
-import { Plus, Trash2, Server as ServerIcon, Power, PowerOff, Wrench } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  Server as ServerIcon,
+  Power,
+  PowerOff,
+  Wrench,
+  Download,
+} from 'lucide-react';
 import type { AIServer } from '../types';
 import { toastSuccess, toastError } from '../utils/toast';
 import { compareVersions } from '../utils/formatting';
 import { SkeletonServerCard } from '../components/skeletons';
+import { useModelPulls } from '../hooks/useModelPulls';
 
 export const Servers = () => {
   const queryClient = useQueryClient();
@@ -29,6 +38,7 @@ export const Servers = () => {
     queryFn: getServers,
     refetchInterval: 5000,
   });
+  const { isServerPulling, getServerPulls } = useModelPulls();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newServerUrl, setNewServerUrl] = useState('');
   const [newServerConcurrency, setNewServerConcurrency] = useState<number | ''>('');
@@ -379,6 +389,20 @@ export const Servers = () => {
                         >
                           {server.healthy ? 'Healthy' : 'Unhealthy'}
                         </div>
+
+                        {isServerPulling(server.id) && (
+                          <div className="px-3 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 flex items-center space-x-1">
+                            <Download className="w-3 h-3 animate-bounce" />
+                            <span>
+                              Pulling (
+                              {
+                                getServerPulls(server.id).filter(op => op.status === 'downloading')
+                                  .length
+                              }
+                              )
+                            </span>
+                          </div>
+                        )}
 
                         <button
                           onClick={e => {

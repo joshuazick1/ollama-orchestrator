@@ -74,7 +74,10 @@ export interface MetricDataPoint {
 export interface MetricsWindow {
   startTime: number;
   endTime: number;
+  /** Total server-level attempts (includes retries/failovers) */
   count: number;
+  /** Unique user-facing requests (excludes retries/failovers) */
+  userRequests: number;
   latencySum: number;
   latencySquaredSum: number;
   minLatency: number;
@@ -176,6 +179,10 @@ export interface RequestContext {
   model: string;
   endpoint: 'generate' | 'chat' | 'embeddings';
   streaming: boolean;
+  /** Parent request ID linking retries/failovers to the original user request */
+  parentRequestId?: string;
+  /** Whether this is a retry attempt (not the first try for this user request) */
+  isRetry?: boolean;
   firstTokenTime?: number;
   endTime?: number;
   duration?: number;
@@ -205,7 +212,10 @@ export interface RequestContext {
  * Global metrics summary
  */
 export interface GlobalMetrics {
+  /** Total server-level attempts (includes retries/failovers) */
   totalRequests: number;
+  /** Total unique user-facing requests (excludes retries/failovers) */
+  totalUserRequests: number;
   totalErrors: number;
   totalTokens: number;
   requestsPerSecond: number;

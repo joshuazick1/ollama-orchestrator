@@ -627,6 +627,159 @@ export const listServerModels = async (serverId: string) => {
   });
 };
 
+/** SSE progress event from a model pull/copy operation */
+export interface PullProgressEvent {
+  type: 'progress' | 'complete' | 'error';
+  status?: string;
+  digest?: string;
+  total?: number;
+  completed?: number;
+  serverId?: string;
+  model?: string;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Start a streaming model pull via SSE.
+ * Returns an AbortController so the caller can cancel, and calls onProgress for each event.
+ */
+export function streamPullModelToServer(
+  serverId: string,
+  model: string,
+  onProgress: (event: PullProgressEvent) => void,
+  onError: (error: Error) => void
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const response = await fetch(`/api/orchestrator/servers/${serverId}/models/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        // Non-SSE error response (validation errors, server not found, etc.)
+        const data = await response.json().catch(() => ({}));
+        onError(
+          new Error((data as { error?: string }).error || `Pull failed: ${response.statusText}`)
+        );
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onError(new Error('No response body'));
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events (format: "data: {...}\n\n")
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+
+        for (const event of events) {
+          const dataLine = event.trim();
+          if (!dataLine.startsWith('data: ')) continue;
+          const json = dataLine.slice(6);
+          try {
+            const parsed = JSON.parse(json) as PullProgressEvent;
+            onProgress(parsed);
+          } catch {
+            // Skip malformed events
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return; // Intentional cancellation
+      onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  })();
+
+  return controller;
+}
+
+/**
+ * Start a streaming model copy via SSE.
+ * Returns an AbortController so the caller can cancel.
+ */
+export function streamCopyModelToServer(
+  serverId: string,
+  model: string,
+  sourceServerId: string | undefined,
+  onProgress: (event: PullProgressEvent) => void,
+  onError: (error: Error) => void
+): AbortController {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const response = await fetch(`/api/orchestrator/servers/${serverId}/models/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, sourceServerId }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        onError(
+          new Error((data as { error?: string }).error || `Copy failed: ${response.statusText}`)
+        );
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        onError(new Error('No response body'));
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+
+        for (const event of events) {
+          const dataLine = event.trim();
+          if (!dataLine.startsWith('data: ')) continue;
+          const json = dataLine.slice(6);
+          try {
+            const parsed = JSON.parse(json) as PullProgressEvent;
+            onProgress(parsed);
+          } catch {
+            // Skip malformed events
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  })();
+
+  return controller;
+}
+
+/** @deprecated Use streamPullModelToServer instead for progress tracking */
 export const pullModelToServer = async (serverId: string, model: string) => {
   return apiCall(async () => {
     const response = await api.post(`/servers/${serverId}/models/pull`, { model });
@@ -641,6 +794,7 @@ export const deleteModelFromServer = async (serverId: string, model: string) => 
   });
 };
 
+/** @deprecated Use streamCopyModelToServer instead for progress tracking */
 export const copyModelToServer = async (
   serverId: string,
   model: string,

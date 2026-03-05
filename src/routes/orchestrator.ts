@@ -24,6 +24,9 @@ import {
   searchRequests,
   getServersWithHistory,
   getSummarySnapshots,
+  getHourlyRollups,
+  getDailyRollups,
+  browseRequests,
 } from '../controllers/analyticsController.js';
 import { resetBreaker, getBreakerDetails } from '../controllers/circuitBreakerController.js';
 import {
@@ -188,10 +191,16 @@ monitoringRouter.get('/analytics/metrics-impact', getMetricsImpact);
 // Request History
 monitoringRouter.get('/analytics/servers-with-history', getServersWithHistory);
 monitoringRouter.get('/analytics/summary-snapshots', getSummarySnapshots);
+// Note: /requests/search must be registered before /requests/:serverId to avoid route conflict
+monitoringRouter.get('/analytics/requests/search', searchRequests);
 monitoringRouter.get('/analytics/requests/:serverId', getServerRequestHistory);
 monitoringRouter.get('/analytics/request-stats/:serverId', getServerRequestStats);
 monitoringRouter.get('/analytics/request-timeline', getRequestTimeline);
-monitoringRouter.get('/analytics/requests/search', searchRequests);
+
+// Phase 2: SQLite rollup and request browser endpoints
+monitoringRouter.get('/analytics/rollups/hourly', getHourlyRollups);
+monitoringRouter.get('/analytics/rollups/daily', getDailyRollups);
+monitoringRouter.get('/analytics/requests/browse', browseRequests);
 
 // === Admin Routes (more restrictive rate limiting) ===
 

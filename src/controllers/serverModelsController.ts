@@ -105,8 +105,138 @@ export async function listServerModels(req: Request, res: Response): Promise<voi
 }
 
 /**
- * Pull a model to a specific server
+ * Stream SSE progress events from an Ollama pull response to the client.
+ * Ollama streams NDJSON lines with { status, digest, total, completed } fields.
+ * We re-emit these as SSE events to the frontend.
+ */
+async function streamPullProgress(
+  ollamaResponse: globalThis.Response,
+  res: Response,
+  serverId: string,
+  model: string,
+  label: string
+): Promise<void> {
+  const orchestrator = getOrchestratorInstance();
+  const server = orchestrator.getServers().find(s => s.id === serverId);
+
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  const body = ollamaResponse.body;
+  if (!body) {
+    const errorEvent = safeJsonStringify({ type: 'error', error: 'No response body from Ollama' });
+    res.write(`data: ${errorEvent}\n\n`);
+    res.end();
+    return;
+  }
+
+  const reader = (body as unknown as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let lastStatus: OllamaPullResponse | null = null;
+
+  // Send a keep-alive comment every 15 seconds to prevent proxy timeouts
+  const keepAliveInterval = setInterval(() => {
+    res.write(': keepalive\n\n');
+  }, 15000);
+
+  try {
+    /* eslint-disable no-constant-condition */
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {break;}
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Ollama streams NDJSON — one JSON object per line
+      const lines = buffer.split('\n');
+      // Keep the last (possibly incomplete) line in the buffer
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          continue;
+        }
+
+        try {
+          const progress = JSON.parse(trimmed) as OllamaPullResponse;
+          lastStatus = progress;
+
+          const event = safeJsonStringify({
+            type: 'progress',
+            status: progress.status,
+            digest: progress.digest,
+            total: progress.total,
+            completed: progress.completed,
+          });
+          res.write(`data: ${event}\n\n`);
+        } catch {
+          // Skip malformed JSON lines
+          logger.debug(`${label}: Skipping malformed NDJSON line`, { line: trimmed });
+        }
+      }
+    }
+    /* eslint-enable no-constant-condition */
+
+    // Process any remaining data in the buffer
+    if (buffer.trim()) {
+      try {
+        const progress = JSON.parse(buffer.trim()) as OllamaPullResponse;
+        lastStatus = progress;
+        const event = safeJsonStringify({
+          type: 'progress',
+          status: progress.status,
+          digest: progress.digest,
+          total: progress.total,
+          completed: progress.completed,
+        });
+        res.write(`data: ${event}\n\n`);
+      } catch {
+        // Ignore trailing malformed data
+      }
+    }
+
+    // Refresh server models after successful pull
+    if (server) {
+      await orchestrator.updateServerStatus(server);
+    }
+
+    logger.info(`Successfully completed ${label}: ${model} on server ${serverId}`);
+
+    const completeEvent = safeJsonStringify({
+      type: 'complete',
+      serverId,
+      model,
+      message: `Model '${model}' ${label} completed successfully`,
+      lastStatus,
+    });
+    res.write(`data: ${completeEvent}\n\n`);
+  } catch (error) {
+    logger.error(`${label} stream error for ${model} on server ${serverId}:`, { error });
+    const errorEvent = safeJsonStringify({
+      type: 'error',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.write(`data: ${errorEvent}\n\n`);
+  } finally {
+    clearInterval(keepAliveInterval);
+    res.end();
+  }
+}
+
+/**
+ * Pull a model to a specific server (with streaming progress)
  * POST /api/orchestrator/servers/:id/models/pull
+ *
+ * Streams SSE events with pull progress. Each event is a JSON object:
+ *   { type: 'progress', status, digest, total, completed }
+ *   { type: 'complete', serverId, model, message }
+ *   { type: 'error', error }
  */
 export async function pullModelToServer(req: Request, res: Response): Promise<void> {
   const id = req.params.id as string;
@@ -141,38 +271,44 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
   logger.info(`Starting model pull: ${model} to server ${id} (${server.url})`);
 
   try {
-    const response = await fetchWithTimeout(`${server.url}/api/pull`, {
+    // Use activity-based timeout: 30s to connect, 120s between chunks
+    // (Ollama streams progress updates regularly during download)
+    const controller = new AbortController();
+    const connectionTimeout = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(`${server.url}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: safeJsonStringify({ name: model, stream: false }),
-      timeout: 300000, // 5 minute timeout for model pull
+      body: safeJsonStringify({ name: model, stream: true }),
+      signal: controller.signal,
     });
+
+    clearTimeout(connectionTimeout);
 
     if (!response.ok) {
       const errorData = ((await parseResponse(response)) as OllamaErrorResponse) || {};
       throw new Error(errorData.error ?? `Pull failed: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as OllamaPullResponse;
-
-    // Refresh server models after successful pull
-    await orchestrator.updateServerStatus(server);
-
-    logger.info(`Successfully pulled model ${model} to server ${id}`);
-
-    res.status(200).json({
-      success: true,
-      serverId: id,
-      model,
-      message: `Model '${model}' pulled successfully`,
-      details: data,
-    });
+    await streamPullProgress(response, res, id, model, 'pull');
   } catch (error) {
     logger.error(`Failed to pull model ${model} to server ${id}:`, { error });
-    res.status(500).json({
-      error: 'Failed to pull model',
-      details: error instanceof Error ? error.message : String(error),
-    });
+
+    // If headers haven't been sent yet, return JSON error
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to pull model',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    } else {
+      // Headers already sent (SSE), send error as SSE event
+      const errorEvent = safeJsonStringify({
+        type: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.write(`data: ${errorEvent}\n\n`);
+      res.end();
+    }
   }
 }
 
@@ -312,33 +448,41 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
   logger.info(`Copying model ${model} to server ${targetServerId} (using pull)`);
 
   try {
-    const response = await fetchWithTimeout(`${targetServer.url}/api/pull`, {
+    // Use activity-based timeout: 30s to connect, 120s between chunks
+    const controller = new AbortController();
+    const connectionTimeout = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(`${targetServer.url}/api/pull`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: safeJsonStringify({ name: model, stream: false }),
-      timeout: 300000, // 5 minute timeout for model pull/copy
+      body: safeJsonStringify({ name: model, stream: true }),
+      signal: controller.signal,
     });
+
+    clearTimeout(connectionTimeout);
 
     if (!response.ok) {
       const errorData = ((await parseResponse(response)) as OllamaErrorResponse) || {};
       throw new Error(errorData.error ?? `Copy failed: ${response.statusText}`);
     }
 
-    // Refresh server models
-    await orchestrator.updateServerStatus(targetServer);
-
-    res.status(200).json({
-      success: true,
-      serverId: targetServerId,
-      model,
-      message: `Model '${model}' copied successfully`,
-    });
+    await streamPullProgress(response, res, targetServerId, model, 'copy');
   } catch (error) {
     logger.error(`Failed to copy model ${model} to server ${targetServerId}:`, { error });
-    res.status(500).json({
-      error: 'Failed to copy model',
-      details: error instanceof Error ? error.message : String(error),
-    });
+
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to copy model',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    } else {
+      const errorEvent = safeJsonStringify({
+        type: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.write(`data: ${errorEvent}\n\n`);
+      res.end();
+    }
   }
 }
 

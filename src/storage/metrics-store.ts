@@ -2,8 +2,11 @@
  * metrics-store.ts
  * SQLite-backed long-term metrics storage.
  *
- * Phase 1: Dual-write mode — accepts writes from the orchestrator and persists
- * them to SQLite alongside existing JSON files. Reads are not yet migrated.
+ * Phase 2: Read migration active — analytics reads for time windows > 24h
+ * (i.e., '7d' and '30d') are now served from SQLite rollup tables
+ * (hourly_rollups / daily_rollups / requests) in analytics-engine.ts,
+ * request-history.ts, and decision-history.ts. JSON files continue as a
+ * fallback for the hot 24h window. Writes remain dual-write (SQLite + JSON).
  *
  * Architecture:
  * - Write buffer: requests/decisions/failovers are queued in memory and
@@ -21,6 +24,7 @@ import Database from 'better-sqlite3';
 
 import type { RequestContext } from '../orchestrator.types.js';
 import { logger } from '../utils/logger.js';
+
 import { applySchema } from './schema.js';
 import type {
   DecisionCandidateRow,
@@ -28,7 +32,7 @@ import type {
   DecisionQuery,
   DecisionRow,
   DailyRollupRow,
-  FailoverAttemptRow,
+  FailoverAttemptRow as _FailoverAttemptRow,
   HourlyRollupRow,
   MetricsStoreConfig,
   RequestQuery,
@@ -110,33 +114,45 @@ function truncateToHour(ts: number): number {
  * Combines logic from analytics-engine.ts and request-history.ts classifiers.
  */
 function classifyError(error: Error | string | undefined): UnifiedErrorType {
-  if (!error) return 'unknown';
+  if (!error) {
+    return 'unknown';
+  }
   const msg = (typeof error === 'string' ? error : error.message).toLowerCase();
 
-  if (msg.includes('timeout')) return 'timeout';
-  if (msg.includes('oom') || msg.includes('out of memory') || msg.includes('cuda out of memory'))
+  if (msg.includes('timeout')) {
+    return 'timeout';
+  }
+  if (msg.includes('oom') || msg.includes('out of memory') || msg.includes('cuda out of memory')) {
     return 'oom';
+  }
   if (
     msg.includes('connection') ||
     msg.includes('refused') ||
     msg.includes('econnrefused') ||
     msg.includes('enotfound')
-  )
+  ) {
     return 'connection';
-  if ((msg.includes('model') && msg.includes('not found')) || msg.includes('no such model'))
+  }
+  if ((msg.includes('model') && msg.includes('not found')) || msg.includes('no such model')) {
     return 'model_not_found';
-  if (msg.includes('circuit breaker')) return 'circuit_breaker';
-  if (msg.includes('capacity') || msg.includes('queue full') || msg.includes('too many'))
+  }
+  if (msg.includes('circuit breaker')) {
+    return 'circuit_breaker';
+  }
+  if (msg.includes('capacity') || msg.includes('queue full') || msg.includes('too many')) {
     return 'capacity';
-  if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests'))
+  }
+  if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')) {
     return 'rate_limited';
+  }
   if (
     msg.includes('internal server') ||
     msg.includes('500') ||
     msg.includes('502') ||
     msg.includes('503')
-  )
+  ) {
     return 'server_error';
+  }
 
   return 'unknown';
 }
@@ -146,7 +162,9 @@ function classifyError(error: Error | string | undefined): UnifiedErrorType {
  * Returns null if the array is empty.
  */
 function percentile(sorted: number[], p: number): number | null {
-  if (sorted.length === 0) return null;
+  if (sorted.length === 0) {
+    return null;
+  }
   const idx = Math.ceil((p / 100) * sorted.length) - 1;
   return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
 }
@@ -429,7 +447,9 @@ export class MetricsStore {
     const decision = this.db.prepare('SELECT * FROM decisions WHERE id = ?').get(id) as
       | DecisionRow
       | undefined;
-    if (!decision) return null;
+    if (!decision) {
+      return null;
+    }
 
     const candidates = this.db
       .prepare('SELECT * FROM decision_candidates WHERE decision_id = ?')
@@ -741,7 +761,9 @@ export class MetricsStore {
   }
 
   private maybeRunRollups(): void {
-    if (this.pendingRollupHours.size === 0) return;
+    if (this.pendingRollupHours.size === 0) {
+      return;
+    }
 
     const inFlight = this.config.getInFlightCount();
     const now = Date.now();
@@ -1030,8 +1052,7 @@ export class MetricsStore {
       const currentHour = truncateToHour(Date.now());
       if (currentHour > lastScheduledHour) {
         this.scheduleHourlyRollup(lastScheduledHour);
-        // Also compute yesterday's daily rollup at midnight UTC
-        const currentDate = utcDateStr(Date.now());
+        // Also compute yesterday's daily rollup at ~1 AM UTC when data is complete
         const prevDate = utcDateStr(Date.now() - 86_400_000);
         if (utcHourOfDay(Date.now()) === 1) {
           // ~1 AM UTC — yesterday's data is complete

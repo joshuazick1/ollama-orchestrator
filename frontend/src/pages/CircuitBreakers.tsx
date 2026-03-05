@@ -16,8 +16,6 @@ import {
   ChevronDown,
   ChevronRight,
   Server,
-  Play,
-  Pause,
   RotateCcw,
   Ban,
   Trash2,
@@ -151,18 +149,18 @@ const CircuitBreakerCard = ({
             <button
               onClick={onOpen}
               disabled={isPending || breaker.state === 'OPEN'}
-              title="Force Open"
+              title="Force Open (block requests)"
               className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              <Play className="w-4 h-4" />
+              <ShieldAlert className="w-4 h-4" />
             </button>
             <button
               onClick={onClose}
               disabled={isPending || breaker.state === 'CLOSED'}
-              title="Force Close"
+              title="Force Close (allow requests)"
               className="p-1.5 text-gray-400 hover:text-green-400 hover:bg-green-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              <Pause className="w-4 h-4" />
+              <ShieldCheck className="w-4 h-4" />
             </button>
             <button
               onClick={onReset}

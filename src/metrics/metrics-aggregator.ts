@@ -147,14 +147,17 @@ export class MetricsAggregator {
     }
 
     // Update all time windows
-    (Object.keys(this.windowSizes) as TimeWindow[]).forEach(window => {
+    const isRetry = context.isRetry ?? false;
+    (Object.keys(this.windowSizes) as TimeWindow[]).forEach(windowName => {
       this.updateWindow(
-        metrics.windows[window],
+        metrics.windows[windowName],
         duration,
         success,
         tokensGenerated,
         tokensPrompt,
-        now
+        now,
+        this.windowSizes[windowName],
+        isRetry
       );
     });
 
@@ -653,6 +656,7 @@ export class MetricsAggregator {
    */
   getGlobalMetrics(): GlobalMetrics {
     let totalRequests = 0;
+    let totalUserRequests = 0;
     let totalErrors = 0;
     let totalTokens = 0;
     let latencySum = 0;
@@ -661,6 +665,7 @@ export class MetricsAggregator {
     for (const metrics of this.metrics.values()) {
       const window = metrics.windows['5m'];
       totalRequests += window.count;
+      totalUserRequests += window.userRequests;
       totalErrors += window.errors;
       totalTokens += window.tokensGenerated;
       latencySum += window.latencySum;
@@ -673,6 +678,7 @@ export class MetricsAggregator {
 
     return {
       totalRequests,
+      totalUserRequests,
       totalErrors,
       totalTokens,
       requestsPerSecond,
@@ -866,6 +872,7 @@ export class MetricsAggregator {
       startTime: now,
       endTime: now,
       count: 0,
+      userRequests: 0,
       latencySum: 0,
       latencySquaredSum: 0,
       minLatency: Infinity,
@@ -885,16 +892,18 @@ export class MetricsAggregator {
     success: boolean,
     tokensGenerated: number,
     tokensPrompt: number,
-    now: number
+    now: number,
+    windowSizeMs: number,
+    isRetry: boolean = false
   ): void {
     // Roll window if needed
     if (now > window.endTime) {
       // Check if we should reset or slide
-      const maxWindowSize = this.getWindowSizeFromEndTime(window.endTime);
-      if (now - window.startTime > maxWindowSize) {
+      if (now - window.startTime > windowSizeMs) {
         // Reset window
-        window.startTime = now - maxWindowSize;
+        window.startTime = now - windowSizeMs;
         window.count = 0;
+        window.userRequests = 0;
         window.latencySum = 0;
         window.latencySquaredSum = 0;
         window.minLatency = Infinity;
@@ -907,6 +916,9 @@ export class MetricsAggregator {
 
     window.endTime = now;
     window.count++;
+    if (!isRetry) {
+      window.userRequests++;
+    }
     window.latencySum += duration;
     window.latencySquaredSum += duration * duration;
     window.minLatency = Math.min(window.minLatency, duration);
@@ -918,15 +930,6 @@ export class MetricsAggregator {
 
     window.tokensGenerated += tokensGenerated;
     window.tokensPrompt += tokensPrompt;
-  }
-
-  /**
-   * Get window size from end time
-   */
-  private getWindowSizeFromEndTime(_endTime: number): number {
-    // Determine which window this belongs to based on typical usage
-    // This is a simplification - in practice, each window tracks independently
-    return this.windowSizes['1h'];
   }
 
   /**
