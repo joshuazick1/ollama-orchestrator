@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import type { AnalyticsTimeRange } from '../analytics/analytics-engine.js';
 import { getAnalyticsEngine } from '../analytics-instance.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getMetricsStore } from '../storage/metrics-store.js';
 
 /**
  * Get top models by usage
@@ -671,6 +672,114 @@ export function getSummarySnapshots(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get summary snapshots',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get raw hourly rollup rows from SQLite
+ * GET /api/orchestrator/analytics/rollups/hourly
+ * Query params: serverId, model, startTime (epoch ms), endTime (epoch ms)
+ */
+export function getHourlyRollups(req: Request, res: Response): void {
+  const { serverId, model, startTime, endTime } = req.query;
+
+  try {
+    const store = getMetricsStore();
+    const rows = store.getHourlyRollups({
+      serverId: serverId as string | undefined,
+      model: model as string | undefined,
+      startTime: startTime ? parseInt(startTime as string, 10) : undefined,
+      endTime: endTime ? parseInt(endTime as string, 10) : undefined,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      rollups: rows,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get hourly rollups',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get raw daily rollup rows from SQLite
+ * GET /api/orchestrator/analytics/rollups/daily
+ * Query params: serverId, model, startTime (epoch ms), endTime (epoch ms)
+ */
+export function getDailyRollups(req: Request, res: Response): void {
+  const { serverId, model, startTime, endTime } = req.query;
+
+  try {
+    const store = getMetricsStore();
+    const rows = store.getDailyRollups({
+      serverId: serverId as string | undefined,
+      model: model as string | undefined,
+      startTime: startTime ? parseInt(startTime as string, 10) : undefined,
+      endTime: endTime ? parseInt(endTime as string, 10) : undefined,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      rollups: rows,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get daily rollups',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Paginated SQLite request browser
+ * GET /api/orchestrator/analytics/requests/browse
+ * Query params: serverId, model, endpoint, success (bool), startTime (epoch ms),
+ *   endTime (epoch ms), isRetry (bool), limit (default 100), offset (default 0)
+ */
+export function browseRequests(req: Request, res: Response): void {
+  const {
+    serverId,
+    model,
+    endpoint,
+    success,
+    startTime,
+    endTime,
+    isRetry,
+    limit = '100',
+    offset = '0',
+  } = req.query;
+
+  try {
+    const store = getMetricsStore();
+    const rows = store.getRequests({
+      serverId: serverId as string | undefined,
+      model: model as string | undefined,
+      endpoint: endpoint as string | undefined,
+      success: success !== undefined ? success === 'true' : undefined,
+      startTime: startTime ? parseInt(startTime as string, 10) : undefined,
+      endTime: endTime ? parseInt(endTime as string, 10) : undefined,
+      isRetry: isRetry !== undefined ? isRetry === 'true' : undefined,
+      limit: parseInt(limit as string, 10) || 100,
+      offset: parseInt(offset as string, 10) || 0,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      limit: parseInt(limit as string, 10) || 100,
+      offset: parseInt(offset as string, 10) || 0,
+      requests: rows,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to browse requests',
       details: error instanceof Error ? error.message : String(error),
     });
   }

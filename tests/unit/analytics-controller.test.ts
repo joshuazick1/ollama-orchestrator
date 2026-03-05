@@ -10,6 +10,15 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 vi.mock('../../src/orchestrator-instance.js');
 // Mock analytics instance
 vi.mock('../../src/analytics-instance.js');
+// Mock metrics store for rollups/browse endpoints
+vi.mock('../../src/storage/metrics-store.js', () => {
+  const mockStore = {
+    getHourlyRollups: vi.fn(),
+    getDailyRollups: vi.fn(),
+    getRequests: vi.fn(),
+  };
+  return { getMetricsStore: () => mockStore, _mockStore: mockStore };
+});
 
 import { getAnalyticsEngine } from '../../src/analytics-instance.js';
 import {
@@ -19,11 +28,16 @@ import {
   getCapacityAnalysis,
   getTrendAnalysis,
   getAnalyticsSummary,
+  getHourlyRollups,
+  getDailyRollups,
+  browseRequests,
 } from '../../src/controllers/analyticsController.js';
 import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import * as metricsStoreMod from '../../src/storage/metrics-store.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetAnalyticsEngine = vi.mocked(getAnalyticsEngine);
+const mockStore = (metricsStoreMod as unknown as { _mockStore: any })._mockStore;
 
 describe('Analytics Controller', () => {
   let mockAnalytics: any;
@@ -181,6 +195,61 @@ describe('Analytics Controller', () => {
         error: 'Failed to get top models',
         details: 'String error',
       });
+    });
+  });
+
+  describe('rollups and browse endpoints (Phase 2)', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.mocked(mockStore.getHourlyRollups).mockReset();
+      vi.mocked(mockStore.getDailyRollups).mockReset();
+      vi.mocked(mockStore.getRequests).mockReset();
+    });
+
+    it('getHourlyRollups returns rows from store', () => {
+      const hourly = [{ server_id: 's1', model: 'm1', hour_start: Date.now(), total_requests: 10 }];
+      vi.mocked(mockStore.getHourlyRollups).mockReturnValue(hourly as any);
+
+      const req: any = { query: {} };
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+
+      // call handler
+      getHourlyRollups(req, { status: status as any, json } as any);
+
+      expect(mockStore.getHourlyRollups).toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(200);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ rollups: hourly }));
+    });
+
+    it('getDailyRollups returns rows from store', () => {
+      const daily = [{ server_id: 's2', model: 'm2', date_str: '2026-03-01', total_requests: 100 }];
+      vi.mocked(mockStore.getDailyRollups).mockReturnValue(daily as any);
+
+      const req: any = { query: {} };
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+
+      getDailyRollups(req, { status: status as any, json } as any);
+
+      expect(mockStore.getDailyRollups).toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(200);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ rollups: daily }));
+    });
+
+    it('browseRequests returns rows from store', () => {
+      const rows = [{ id: 'r1', server_id: 's1', model: 'm1', timestamp: Date.now(), success: 1 }];
+      vi.mocked(mockStore.getRequests).mockReturnValue(rows as any);
+
+      const req: any = { query: { limit: '10', offset: '0' } };
+      const json = vi.fn();
+      const status = vi.fn().mockReturnValue({ json });
+
+      browseRequests(req, { status: status as any, json } as any);
+
+      expect(mockStore.getRequests).toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(200);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ requests: rows }));
     });
   });
 

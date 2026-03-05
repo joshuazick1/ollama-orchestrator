@@ -3,7 +3,7 @@
  * Unit tests for AnalyticsEngine
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import {
   AnalyticsEngine,
@@ -13,6 +13,25 @@ import {
   type CapacityData,
 } from '../../src/analytics/analytics-engine.js';
 import type { ServerModelMetrics, RequestContext } from '../../src/orchestrator.types.js';
+import * as metricsStoreMod from '../../src/storage/metrics-store.js';
+import type { UnifiedErrorType, RequestRow } from '../../src/storage/types.js';
+
+// ============================================================
+// Mock for SQLite store — used by Phase 2 long-range tests
+// ============================================================
+vi.mock('../../src/storage/metrics-store.js', () => {
+  const mockStore = {
+    getHourlyRollups: vi.fn(),
+    getDailyRollups: vi.fn(),
+    getRequests: vi.fn(),
+    getDecisions: vi.fn(),
+  };
+  return { getMetricsStore: () => mockStore, _mockStore: mockStore };
+});
+// Access the underlying mock object
+const mockStore = (
+  metricsStoreMod as unknown as { _mockStore: ReturnType<typeof metricsStoreMod.getMetricsStore> }
+)._mockStore;
 
 describe('AnalyticsEngine', () => {
   let analytics: AnalyticsEngine;
@@ -38,6 +57,7 @@ describe('AnalyticsEngine', () => {
           startTime: now - 60000,
           endTime: now,
           count: 10,
+          userRequests: 10,
           latencySum: 5000,
           latencySquaredSum: 2500000,
           minLatency: 100,
@@ -50,6 +70,7 @@ describe('AnalyticsEngine', () => {
           startTime: now - 300000,
           endTime: now,
           count: 50,
+          userRequests: 50,
           latencySum: 25000,
           latencySquaredSum: 12500000,
           minLatency: 100,
@@ -62,6 +83,7 @@ describe('AnalyticsEngine', () => {
           startTime: now - 900000,
           endTime: now,
           count: 150,
+          userRequests: 150,
           latencySum: 75000,
           latencySquaredSum: 37500000,
           minLatency: 100,
@@ -74,6 +96,7 @@ describe('AnalyticsEngine', () => {
           startTime: now - 3600000,
           endTime: now,
           count: 600,
+          userRequests: 600,
           latencySum: 300000,
           latencySquaredSum: 150000000,
           minLatency: 100,
@@ -86,6 +109,7 @@ describe('AnalyticsEngine', () => {
           startTime: now - 86400000,
           endTime: now,
           count: 10000,
+          userRequests: 10000,
           latencySum: 5000000,
           latencySquaredSum: 2500000000,
           minLatency: 100,
@@ -99,6 +123,8 @@ describe('AnalyticsEngine', () => {
       successRate: 0.98,
       throughput: 120,
       avgTokensPerRequest: 100,
+      avgTokensPerSecond: 10,
+      coldStartCount: 0,
       lastUpdated: now,
       recentLatencies: [500, 600, 400, 550, 450],
       ...overrides,
@@ -503,6 +529,355 @@ describe('AnalyticsEngine', () => {
 
       expect(summary.totalRequests).toBe(0);
       expect(summary.uniqueModels).toBe(0);
+    });
+  });
+
+  // ============================================================
+  // Phase 2: SQLite-backed long-range (7d / 30d) tests
+  // ============================================================
+
+  describe('Phase 2 – long-range reads from SQLite', () => {
+    function makeHourlyRow(
+      overrides: Partial<{
+        server_id: string;
+        model: string;
+        total_requests: number;
+        latency_sum: number;
+        failures: number;
+        latency_p95: number;
+        latency_p99: number;
+        avg_tokens_per_second: number;
+      }> = {}
+    ) {
+      return {
+        server_id: 'server-1',
+        model: 'llama3:latest',
+        hour_start: Date.now() - 3600000,
+        total_requests: 100,
+        user_requests: 100,
+        successes: 95,
+        failures: 5,
+        cold_starts: 0,
+        latency_sum: 50000,
+        latency_sq_sum: 0,
+        latency_min: 100,
+        latency_max: 2000,
+        latency_p50: 450,
+        latency_p95: 900,
+        latency_p99: 1800,
+        ttft_count: 0,
+        ttft_sum: 0,
+        ttft_p50: null,
+        ttft_p95: null,
+        tokens_generated: 5000,
+        tokens_prompt: 2000,
+        avg_tokens_per_second: 20,
+        errors_timeout: 2,
+        errors_oom: 1,
+        errors_connection: 2,
+        errors_other: 0,
+        hour_of_day: 12,
+        day_of_week: 1,
+        ...overrides,
+      };
+    }
+
+    function makeRequestRow(
+      overrides: Partial<{
+        id: string;
+        timestamp: number;
+        server_id: string;
+        model: string;
+        success: number;
+        duration_ms: number;
+        error_type: UnifiedErrorType | null;
+      }> = {}
+    ): RequestRow {
+      return {
+        id: `req-${Math.random()}`,
+        parent_request_id: null,
+        is_retry: 0,
+        timestamp: Date.now() - 86400000 * 3,
+        server_id: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: 0,
+        success: 0,
+        duration_ms: 3000,
+        error_type: 'timeout' as UnifiedErrorType,
+        error_message: 'request timed out',
+        tokens_prompt: null,
+        tokens_generated: null,
+        tokens_per_second: null,
+        ttft_ms: null,
+        streaming_duration_ms: null,
+        chunk_count: null,
+        total_bytes: null,
+        max_chunk_gap_ms: null,
+        avg_chunk_size: null,
+        eval_duration: null,
+        prompt_eval_duration: null,
+        total_duration: null,
+        load_duration: null,
+        is_cold_start: 0,
+        queue_wait_ms: null,
+        hour_of_day: 10,
+        day_of_week: 2,
+        date_str: '2026-03-02',
+        ...overrides,
+      } as unknown as RequestRow;
+    }
+
+    beforeEach(() => {
+      vi.mocked(mockStore.getHourlyRollups).mockReset();
+      vi.mocked(mockStore.getDailyRollups).mockReset();
+      vi.mocked(mockStore.getRequests).mockReset();
+      // Default: empty results
+      vi.mocked(mockStore.getHourlyRollups).mockReturnValue([]);
+      vi.mocked(mockStore.getDailyRollups).mockReturnValue([]);
+      vi.mocked(mockStore.getRequests).mockReturnValue([]);
+    });
+
+    describe('getTopModels – 7d routes through hourly rollups', () => {
+      it('returns data from hourly rollups for 7d', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([
+          makeHourlyRow({
+            server_id: 'server-1',
+            model: 'llama3:latest',
+            total_requests: 200,
+            latency_sum: 100000,
+            failures: 10,
+          }),
+          makeHourlyRow({
+            server_id: 'server-2',
+            model: 'mistral:latest',
+            total_requests: 50,
+            latency_sum: 20000,
+            failures: 2,
+          }),
+        ]);
+
+        const result = analytics.getTopModels(10, '7d');
+
+        expect(mockStore.getHourlyRollups).toHaveBeenCalled();
+        expect(result).toHaveLength(2);
+        expect(result[0].model).toBe('llama3:latest');
+        expect(result[0].requests).toBe(200);
+        expect(result[1].model).toBe('mistral:latest');
+      });
+
+      it('calculates percentage correctly from rollup totals', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([
+          makeHourlyRow({ model: 'model-a', total_requests: 75 }),
+          makeHourlyRow({ model: 'model-b', total_requests: 25 }),
+        ]);
+
+        const result = analytics.getTopModels(10, '7d');
+
+        expect(result.find(r => r.model === 'model-a')!.percentage).toBeCloseTo(75);
+        expect(result.find(r => r.model === 'model-b')!.percentage).toBeCloseTo(25);
+      });
+
+      it('respects the limit parameter', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([
+          makeHourlyRow({ model: 'model-a', total_requests: 100 }),
+          makeHourlyRow({ model: 'model-b', total_requests: 80 }),
+          makeHourlyRow({ model: 'model-c', total_requests: 60 }),
+        ]);
+
+        const result = analytics.getTopModels(2, '7d');
+        expect(result).toHaveLength(2);
+      });
+
+      it('returns empty array when SQLite has no data for 7d', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([]);
+        const result = analytics.getTopModels(10, '7d');
+        expect(result).toHaveLength(0);
+      });
+    });
+
+    describe('getTopModels – 30d routes through daily rollups', () => {
+      it('uses daily rollups for 30d (not hourly)', () => {
+        vi.mocked(mockStore.getDailyRollups).mockReturnValue([
+          makeHourlyRow({ model: 'llama3:latest', total_requests: 5000 }) as any,
+        ]);
+
+        analytics.getTopModels(10, '30d');
+
+        expect(mockStore.getDailyRollups).toHaveBeenCalled();
+        expect(mockStore.getHourlyRollups).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('getServerPerformance – 7d routes through hourly rollups', () => {
+      it('returns server data from hourly rollups for 7d', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([
+          makeHourlyRow({
+            server_id: 'server-1',
+            total_requests: 300,
+            latency_sum: 150000,
+            failures: 15,
+          }),
+        ]);
+
+        const result = analytics.getServerPerformance('7d');
+
+        expect(mockStore.getHourlyRollups).toHaveBeenCalled();
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('server-1');
+        expect(result[0].requests).toBe(300);
+      });
+
+      it('aggregates multiple hourly rows for the same server', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([
+          makeHourlyRow({
+            server_id: 'server-1',
+            total_requests: 100,
+            latency_sum: 50000,
+            failures: 5,
+          }),
+          makeHourlyRow({
+            server_id: 'server-1',
+            total_requests: 200,
+            latency_sum: 100000,
+            failures: 10,
+          }),
+        ]);
+
+        const result = analytics.getServerPerformance('7d');
+
+        expect(result).toHaveLength(1);
+        expect(result[0].requests).toBe(300);
+      });
+
+      it('uses daily rollups for 30d', () => {
+        vi.mocked(mockStore.getDailyRollups).mockReturnValue([
+          makeHourlyRow({ server_id: 'server-1', total_requests: 2000 }) as any,
+        ]);
+
+        analytics.getServerPerformance('30d');
+
+        expect(mockStore.getDailyRollups).toHaveBeenCalled();
+        expect(mockStore.getHourlyRollups).not.toHaveBeenCalled();
+      });
+
+      it('returns empty array when SQLite has no data for 7d', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([]);
+        const result = analytics.getServerPerformance('7d');
+        expect(result).toHaveLength(0);
+      });
+
+      it('sorts by score descending', () => {
+        vi.mocked(mockStore.getHourlyRollups).mockReturnValue([
+          makeHourlyRow({
+            server_id: 'server-bad',
+            total_requests: 100,
+            latency_sum: 10000000,
+            failures: 80,
+          }),
+          makeHourlyRow({
+            server_id: 'server-good',
+            total_requests: 100,
+            latency_sum: 5000,
+            failures: 0,
+          }),
+        ]);
+
+        const result = analytics.getServerPerformance('7d');
+
+        expect(result[0].id).toBe('server-good');
+        expect(result[1].id).toBe('server-bad');
+      });
+    });
+
+    describe('getErrorAnalysis – 7d routes through requests table', () => {
+      it('returns error counts from SQLite failed requests for 7d', () => {
+        vi.mocked(mockStore.getRequests).mockReturnValue([
+          makeRequestRow({ server_id: 'server-1', error_type: 'timeout' }),
+          makeRequestRow({ server_id: 'server-1', error_type: 'timeout' }),
+          makeRequestRow({ server_id: 'server-2', error_type: 'oom' }),
+        ]);
+
+        const result = analytics.getErrorAnalysis('7d');
+
+        expect(mockStore.getRequests).toHaveBeenCalledWith(
+          expect.objectContaining({ success: false })
+        );
+        expect(result.totalErrors).toBe(3);
+        expect(result.byType['timeout']).toBe(2);
+        expect(result.byType['oom']).toBe(1);
+        expect(result.byServer['server-1']).toBe(2);
+        expect(result.byServer['server-2']).toBe(1);
+      });
+
+      it('computes trend from first/second half', () => {
+        const now = Date.now();
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+        const mid = now - sevenDaysMs / 2;
+        // 2 errors in first half, 8 in second → ratio > 1.5 → increasing
+        const rows = [
+          makeRequestRow({ timestamp: mid - 1000 }),
+          makeRequestRow({ timestamp: mid - 2000 }),
+          makeRequestRow({ timestamp: mid + 1000 }),
+          makeRequestRow({ timestamp: mid + 2000 }),
+          makeRequestRow({ timestamp: mid + 3000 }),
+          makeRequestRow({ timestamp: mid + 4000 }),
+          makeRequestRow({ timestamp: mid + 5000 }),
+          makeRequestRow({ timestamp: mid + 6000 }),
+          makeRequestRow({ timestamp: mid + 7000 }),
+          makeRequestRow({ timestamp: mid + 8000 }),
+        ];
+        vi.mocked(mockStore.getRequests).mockReturnValue(rows);
+
+        const result = analytics.getErrorAnalysis('7d');
+        expect(result.trend).toBe('increasing');
+      });
+
+      it('returns stable trend when fewer than 10 errors', () => {
+        vi.mocked(mockStore.getRequests).mockReturnValue([makeRequestRow(), makeRequestRow()]);
+        const result = analytics.getErrorAnalysis('7d');
+        expect(result.trend).toBe('stable');
+      });
+
+      it('returns empty analysis when SQLite has no data for 7d', () => {
+        vi.mocked(mockStore.getRequests).mockReturnValue([]);
+        const result = analytics.getErrorAnalysis('7d');
+        expect(result.totalErrors).toBe(0);
+        expect(result.trend).toBe('stable');
+        expect(result.recentErrors).toHaveLength(0);
+      });
+
+      it('caps recentErrors at 50', () => {
+        const rows = Array.from({ length: 100 }, (_, i) =>
+          makeRequestRow({ id: `req-${i}`, timestamp: Date.now() - i * 1000 })
+        );
+        vi.mocked(mockStore.getRequests).mockReturnValue(rows);
+
+        const result = analytics.getErrorAnalysis('7d');
+        expect(result.recentErrors.length).toBeLessThanOrEqual(50);
+      });
+    });
+
+    describe('in-memory paths still used for <= 24h ranges', () => {
+      it('getTopModels with 1h does NOT call getHourlyRollups', () => {
+        analytics.getTopModels(10, '1h');
+        expect(mockStore.getHourlyRollups).not.toHaveBeenCalled();
+      });
+
+      it('getTopModels with 24h does NOT call getHourlyRollups', () => {
+        analytics.getTopModels(10, '24h');
+        expect(mockStore.getHourlyRollups).not.toHaveBeenCalled();
+      });
+
+      it('getServerPerformance with 1h does NOT call getHourlyRollups', () => {
+        analytics.getServerPerformance('1h');
+        expect(mockStore.getHourlyRollups).not.toHaveBeenCalled();
+      });
+
+      it('getErrorAnalysis with 24h does NOT call getRequests for failed rows', () => {
+        analytics.getErrorAnalysis('24h');
+        expect(mockStore.getRequests).not.toHaveBeenCalled();
+      });
     });
   });
 });

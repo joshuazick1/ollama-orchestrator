@@ -42,15 +42,16 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
         let totalRequests = 0;
         let latencySum = 0;
         let latencyCount = 0;
-        let errorRateSum = 0;
-        let modelCount = 0;
+        let weightedErrorSum = 0;
+        let errorWeightTotal = 0;
         for (const srv of Object.values(snap.servers)) {
           for (const m of Object.values(srv)) {
             totalRequests += m.requestCount;
             latencySum += m.avgLatency * m.requestCount;
             latencyCount += m.requestCount;
-            errorRateSum += m.errorRate;
-            modelCount++;
+            // Weight error rate by request count to avoid low-volume models skewing results
+            weightedErrorSum += m.errorRate * m.requestCount;
+            errorWeightTotal += m.requestCount;
           }
         }
         return {
@@ -61,7 +62,7 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
           }),
           requests: totalRequests,
           avgLatency: latencyCount > 0 ? latencySum / latencyCount : 0,
-          errorRate: modelCount > 0 ? (errorRateSum / modelCount) * 100 : 0,
+          errorRate: errorWeightTotal > 0 ? (weightedErrorSum / errorWeightTotal) * 100 : 0,
         };
       });
   }, [snapshots]);

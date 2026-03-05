@@ -19,8 +19,9 @@ export function addServer(req: Request, res: Response): void {
     url?: string;
     maxConcurrency?: number;
     apiKey?: string;
+    type?: 'ollama' | 'openai' | 'auto';
   };
-  const { id, url, maxConcurrency, apiKey } = body;
+  const { id, url, maxConcurrency, apiKey, type } = body;
 
   if (!id || !url) {
     res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_URL_REQUIRED });
@@ -54,7 +55,7 @@ export function addServer(req: Request, res: Response): void {
   orchestrator.addServer({
     id,
     url,
-    type: 'ollama',
+    type: type ?? 'auto',
     maxConcurrency,
     apiKey,
   });

@@ -18,6 +18,7 @@ import type {
   RequestContext,
 } from '../orchestrator.types.js';
 import { getRequestHistory, type RequestRecord, type RequestStats } from '../request-history.js';
+import { getMetricsStore } from '../storage/metrics-store.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
 
@@ -283,6 +284,11 @@ export class AnalyticsEngine {
     timeRange: AnalyticsTimeRange = '24h',
     customRange?: TimeRange
   ): TopModelData[] {
+    // For ranges > 24h, query SQLite rollups which have actual historical data
+    if (this.isLongRange(timeRange)) {
+      return this.getTopModelsFromRollups(limit, timeRange);
+    }
+
     const range = this.parseTimeRange(timeRange, customRange);
     const modelStats: Map<string, { requests: number; latencySum: number; errors: number }> =
       new Map();
@@ -353,8 +359,14 @@ export class AnalyticsEngine {
     windows: Record<TimeWindow, MetricsWindow>,
     range: AnalyticsTimeRange
   ): MetricsWindow {
-    // Map time ranges to appropriate windows
+    // Map time ranges to the most granular window that fits.
+    // Available windows: 1m, 5m, 15m, 1h.
+    // Shorter time ranges benefit from shorter windows for higher resolution;
+    // longer time ranges use the 1h window since that's the longest we have.
     const windowMap: Record<AnalyticsTimeRange, TimeWindow> = {
+      // For a 1-hour query we should use the 1h window (tests expect the 1h
+      // bucket to be used when callers request '1h'). Longer ranges use the
+      // 1h window as well since that's the largest in-memory window available.
       '1h': '1h',
       '6h': '1h',
       '24h': '1h',
@@ -373,6 +385,11 @@ export class AnalyticsEngine {
     timeRange: AnalyticsTimeRange = '1h',
     _customRange?: TimeRange
   ): ServerPerformanceData[] {
+    // For ranges > 24h, query SQLite rollups which have actual historical data
+    if (this.isLongRange(timeRange)) {
+      return this.getServerPerformanceFromRollups(timeRange);
+    }
+
     const serverStats: Map<
       string,
       {
@@ -462,6 +479,11 @@ export class AnalyticsEngine {
     timeRange: AnalyticsTimeRange = '24h',
     customRange?: TimeRange
   ): ErrorAnalysisData {
+    // For ranges > 24h, query SQLite which retains data beyond the 24h in-memory window
+    if (this.isLongRange(timeRange)) {
+      return this.getErrorAnalysisFromSQLite(timeRange);
+    }
+
     const range = this.parseTimeRange(timeRange, customRange);
 
     // Filter errors by time range
@@ -724,15 +746,18 @@ export class AnalyticsEngine {
     const n = dataPoints.length;
     let sumX = 0,
       sumY = 0,
-      sumXY = 0;
+      sumXY = 0,
+      sumX2 = 0;
 
     for (let i = 0; i < n; i++) {
       sumX += i;
       sumY += dataPoints[i];
       sumXY += i * dataPoints[i];
+      sumX2 += i * i;
     }
 
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX * sumX - sumX * sumX);
+    const denominator = n * sumX2 - sumX * sumX;
+    const slope = denominator !== 0 ? (n * sumXY - sumX * sumY) / denominator : 0;
     const avgValue = sumY / n;
     const relativeSlope = avgValue > 0 ? slope / avgValue : 0;
 
@@ -776,26 +801,16 @@ export class AnalyticsEngine {
       serverIds.add(serverId);
       modelIds.add(model);
 
-      // Aggregate across all time windows for comprehensive stats
-      // This ensures we capture all requests, not just the last hour
-      const windows = metrics.windows;
-      totalRequests +=
-        windows['1m'].count + windows['5m'].count + windows['15m'].count + windows['1h'].count;
-      totalErrors +=
-        windows['1m'].errors + windows['5m'].errors + windows['15m'].errors + windows['1h'].errors;
+      // Use the 1h window as the single source of truth for summary stats.
+      // Windows are nested (1m ⊂ 5m ⊂ 15m ⊂ 1h), so summing them would over-count.
+      const window = metrics.windows['1h'];
+      totalRequests += window.count;
+      totalErrors += window.errors;
 
       // For latency, weight by request count
-      const windowLatencySum =
-        windows['1m'].latencySum +
-        windows['5m'].latencySum +
-        windows['15m'].latencySum +
-        windows['1h'].latencySum;
-      const windowCount =
-        windows['1m'].count + windows['5m'].count + windows['15m'].count + windows['1h'].count;
-
-      if (windowCount > 0) {
-        totalLatency += windowLatencySum;
-        latencyCount += windowCount;
+      if (window.count > 0) {
+        totalLatency += window.latencySum;
+        latencyCount += window.count;
       }
     }
 
@@ -805,7 +820,7 @@ export class AnalyticsEngine {
       avgLatency: latencyCount > 0 ? Math.round(totalLatency / latencyCount) : 0,
       uniqueModels: modelIds.size,
       uniqueServers: serverIds.size,
-      timeRange: '24h',
+      timeRange: '1h',
     };
   }
 
@@ -817,6 +832,281 @@ export class AnalyticsEngine {
     this.requestHistory = [];
     this.errorHistory = [];
     logger.info('Analytics engine reset');
+  }
+
+  // ==========================================
+  // Phase 2: SQLite-backed helpers for 7d/30d
+  // ==========================================
+
+  /**
+   * Whether this time range should be served from SQLite rollups
+   * (i.e. > 24h window).
+   */
+  private isLongRange(timeRange: AnalyticsTimeRange): boolean {
+    return timeRange === '7d' || timeRange === '30d';
+  }
+
+  /**
+   * Get server performance data from hourly/daily rollups.
+   * Used for timeRange '7d' and '30d'.
+   */
+  private getServerPerformanceFromRollups(timeRange: AnalyticsTimeRange): ServerPerformanceData[] {
+    const range = this.parseTimeRange(timeRange);
+    let store: ReturnType<typeof getMetricsStore>;
+    try {
+      store = getMetricsStore();
+    } catch {
+      return [];
+    }
+
+    // For 7d use hourly rollups; for 30d use daily rollups (fewer rows)
+    const useDaily = timeRange === '30d';
+
+    const serverStats = new Map<
+      string,
+      {
+        requests: number;
+        latencySum: number;
+        p95Latencies: number[];
+        p99Latencies: number[];
+        errors: number;
+        tpsSum: number;
+        tpsCount: number;
+      }
+    >();
+
+    if (useDaily) {
+      const rows = store.getDailyRollups({ startTime: range.start, endTime: range.end });
+      for (const row of rows) {
+        const sid = row.server_id;
+        if (!serverStats.has(sid)) {
+          serverStats.set(sid, {
+            requests: 0,
+            latencySum: 0,
+            p95Latencies: [],
+            p99Latencies: [],
+            errors: 0,
+            tpsSum: 0,
+            tpsCount: 0,
+          });
+        }
+        const s = serverStats.get(sid)!;
+        s.requests += row.total_requests;
+        s.latencySum += row.latency_sum;
+        s.errors += row.failures;
+        if (row.latency_p95 != null) {
+          s.p95Latencies.push(row.latency_p95);
+        }
+        if (row.latency_p99 != null) {
+          s.p99Latencies.push(row.latency_p99);
+        }
+        if (row.avg_tokens_per_second != null) {
+          s.tpsSum += row.avg_tokens_per_second * row.total_requests;
+          s.tpsCount += row.total_requests;
+        }
+      }
+    } else {
+      const rows = store.getHourlyRollups({ startTime: range.start, endTime: range.end });
+      for (const row of rows) {
+        const sid = row.server_id;
+        if (!serverStats.has(sid)) {
+          serverStats.set(sid, {
+            requests: 0,
+            latencySum: 0,
+            p95Latencies: [],
+            p99Latencies: [],
+            errors: 0,
+            tpsSum: 0,
+            tpsCount: 0,
+          });
+        }
+        const s = serverStats.get(sid)!;
+        s.requests += row.total_requests;
+        s.latencySum += row.latency_sum;
+        s.errors += row.failures;
+        if (row.latency_p95 != null) {
+          s.p95Latencies.push(row.latency_p95);
+        }
+        if (row.latency_p99 != null) {
+          s.p99Latencies.push(row.latency_p99);
+        }
+        if (row.avg_tokens_per_second != null) {
+          s.tpsSum += row.avg_tokens_per_second * row.total_requests;
+          s.tpsCount += row.total_requests;
+        }
+      }
+    }
+
+    const results: ServerPerformanceData[] = [];
+    for (const [serverId, s] of serverStats.entries()) {
+      const avgLatency = s.requests > 0 ? s.latencySum / s.requests : 0;
+      const sortedP95 = [...s.p95Latencies].sort((a, b) => a - b);
+      const sortedP99 = [...s.p99Latencies].sort((a, b) => a - b);
+      const p95Latency = this.calculatePercentile(sortedP95, 0.95);
+      const p99Latency = this.calculatePercentile(sortedP99, 0.99);
+      const errorRate = s.requests > 0 ? s.errors / s.requests : 0;
+      const throughput = s.tpsCount > 0 ? s.tpsSum / s.tpsCount : 0;
+      const utilization = Math.min(1, s.requests / (throughput * 60 + 1));
+      const latencyScore = Math.max(0, 100 - avgLatency / 50);
+      const successScore = (1 - errorRate) * 100;
+      const score = latencyScore * 0.5 + successScore * 0.5;
+
+      results.push({
+        id: serverId,
+        requests: s.requests,
+        avgLatency: Math.round(avgLatency),
+        p95Latency: Math.round(p95Latency),
+        p99Latency: Math.round(p99Latency),
+        errorRate: Math.round(errorRate * 1000) / 1000,
+        throughput: Math.round(throughput * 100) / 100,
+        utilization: Math.round(utilization * 100) / 100,
+        score: Math.round(score),
+      });
+    }
+
+    return results.sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Get top models data from hourly/daily rollups.
+   * Used for timeRange '7d' and '30d'.
+   */
+  private getTopModelsFromRollups(limit: number, timeRange: AnalyticsTimeRange): TopModelData[] {
+    const range = this.parseTimeRange(timeRange);
+    let store: ReturnType<typeof getMetricsStore>;
+    try {
+      store = getMetricsStore();
+    } catch {
+      return [];
+    }
+
+    const useDaily = timeRange === '30d';
+    const modelStats = new Map<string, { requests: number; latencySum: number; errors: number }>();
+
+    if (useDaily) {
+      const rows = store.getDailyRollups({ startTime: range.start, endTime: range.end });
+      for (const row of rows) {
+        if (!modelStats.has(row.model)) {
+          modelStats.set(row.model, { requests: 0, latencySum: 0, errors: 0 });
+        }
+        const s = modelStats.get(row.model)!;
+        s.requests += row.total_requests;
+        s.latencySum += row.latency_sum;
+        s.errors += row.failures;
+      }
+    } else {
+      const rows = store.getHourlyRollups({ startTime: range.start, endTime: range.end });
+      for (const row of rows) {
+        if (!modelStats.has(row.model)) {
+          modelStats.set(row.model, { requests: 0, latencySum: 0, errors: 0 });
+        }
+        const s = modelStats.get(row.model)!;
+        s.requests += row.total_requests;
+        s.latencySum += row.latency_sum;
+        s.errors += row.failures;
+      }
+    }
+
+    let totalRequests = 0;
+    for (const s of modelStats.values()) {
+      totalRequests += s.requests;
+    }
+
+    const results: TopModelData[] = [];
+    for (const [model, s] of modelStats.entries()) {
+      results.push({
+        model,
+        requests: s.requests,
+        percentage: totalRequests > 0 ? (s.requests / totalRequests) * 100 : 0,
+        avgLatency: s.requests > 0 ? s.latencySum / s.requests : 0,
+        errorRate: s.requests > 0 ? s.errors / s.requests : 0,
+      });
+    }
+
+    return results.sort((a, b) => b.requests - a.requests).slice(0, limit);
+  }
+
+  /**
+   * Get error analysis data from the requests table in SQLite.
+   * Used for timeRange '7d' and '30d'.
+   */
+  private getErrorAnalysisFromSQLite(timeRange: AnalyticsTimeRange): ErrorAnalysisData {
+    const range = this.parseTimeRange(timeRange);
+    let store: ReturnType<typeof getMetricsStore>;
+    try {
+      store = getMetricsStore();
+    } catch {
+      return {
+        totalErrors: 0,
+        byType: {},
+        byServer: {},
+        byModel: {},
+        trend: 'stable',
+        recentErrors: [],
+      };
+    }
+
+    // Fetch failed requests within the time window (cap at 5000 to bound memory)
+    const failedRows = store.getRequests({
+      success: false,
+      startTime: range.start,
+      endTime: range.end,
+      limit: 5000,
+    });
+
+    const byType: Record<string, number> = {};
+    const byServer: Record<string, number> = {};
+    const byModel: Record<string, number> = {};
+
+    for (const row of failedRows) {
+      const et = row.error_type ?? 'unknown';
+      byType[et] = (byType[et] ?? 0) + 1;
+      byServer[row.server_id] = (byServer[row.server_id] ?? 0) + 1;
+      byModel[row.model] = (byModel[row.model] ?? 0) + 1;
+    }
+
+    // Trend: compare first-half vs second-half error counts
+    const mid = (range.start + range.end) / 2;
+    let firstHalf = 0;
+    let secondHalf = 0;
+    for (const row of failedRows) {
+      if (row.timestamp < mid) {
+        firstHalf++;
+      } else {
+        secondHalf++;
+      }
+    }
+
+    let trend: 'increasing' | 'decreasing' | 'stable' = 'stable';
+    if (failedRows.length >= 10) {
+      const ratio = secondHalf / (firstHalf || 1);
+      if (ratio > 1.5) {
+        trend = 'increasing';
+      } else if (ratio < 0.5) {
+        trend = 'decreasing';
+      }
+    }
+
+    // Most recent 50 errors
+    const recentErrors = [...failedRows]
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 50)
+      .map(row => ({
+        timestamp: row.timestamp,
+        serverId: row.server_id,
+        model: row.model,
+        errorType: row.error_type ?? 'unknown',
+        message: row.error_message ?? '',
+      }));
+
+    return {
+      totalErrors: failedRows.length,
+      byType,
+      byServer,
+      byModel,
+      trend,
+      recentErrors,
+    };
   }
 
   // ==========================================

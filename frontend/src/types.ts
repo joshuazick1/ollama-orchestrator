@@ -289,7 +289,10 @@ export interface MetricDataPoint {
 export interface MetricsWindow {
   startTime: number;
   endTime: number;
+  /** Total server-level attempts (includes retries/failovers) */
   count: number;
+  /** Unique user-facing requests (excludes retries/failovers) */
+  userRequests: number;
   latencySum: number;
   latencySquaredSum: number;
   minLatency: number;
@@ -402,7 +405,10 @@ export interface RequestContext {
  * Global metrics summary
  */
 export interface GlobalMetrics {
+  /** Total server-level attempts (includes retries/failovers) */
   totalRequests: number;
+  /** Total unique user-facing requests (excludes retries/failovers) */
+  totalUserRequests?: number;
   totalErrors: number;
   totalTokens: number;
   requestsPerSecond: number;

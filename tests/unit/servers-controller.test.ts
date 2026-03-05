@@ -78,8 +78,9 @@ describe('Servers Controller', () => {
       expect(mockOrchestrator.addServer).toHaveBeenCalledWith({
         id: 'server-1',
         url: 'http://localhost:11434',
-        type: 'ollama',
+        type: 'auto',
         maxConcurrency: undefined,
+        apiKey: undefined,
       });
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
@@ -99,8 +100,9 @@ describe('Servers Controller', () => {
       expect(mockOrchestrator.addServer).toHaveBeenCalledWith({
         id: 'server-1',
         url: 'http://localhost:11434',
-        type: 'ollama',
+        type: 'auto',
         maxConcurrency: 8,
+        apiKey: undefined,
       });
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,

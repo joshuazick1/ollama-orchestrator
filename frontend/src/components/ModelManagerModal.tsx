@@ -9,18 +9,13 @@ import {
   HardDrive,
   TrendingUp,
   Clock,
+  X,
 } from 'lucide-react';
-import {
-  listServerModels,
-  pullModelToServer,
-  deleteModelFromServer,
-  copyModelToServer,
-  getServers,
-  getFleetModelStats,
-} from '../api';
+import { listServerModels, deleteModelFromServer, getServers, getFleetModelStats } from '../api';
 import type { AIServer } from '../types';
 import { formatBytes, formatDate } from '../utils/formatting';
 import { Modal } from './Modal';
+import { useModelPulls, type PullOperation } from '../hooks/useModelPulls';
 
 interface ModelManagerModalProps {
   isOpen: boolean;
@@ -35,20 +30,132 @@ interface ServerModel {
   digest?: string;
 }
 
+/** Format a short digest for display (first 12 chars) */
+function shortDigest(digest?: string): string {
+  if (!digest) return '';
+  // Remove "sha256:" prefix if present
+  const hash = digest.startsWith('sha256:') ? digest.slice(7) : digest;
+  return hash.slice(0, 12);
+}
+
+/** Progress bar component for a pull operation */
+function PullProgress({
+  operation,
+  onCancel,
+  onDismiss,
+}: {
+  operation: PullOperation;
+  onCancel: () => void;
+  onDismiss: () => void;
+}) {
+  const isActive = operation.status === 'downloading';
+  const isComplete = operation.status === 'complete';
+  const isError = operation.status === 'error';
+
+  const elapsed = ((operation.finishedAt || Date.now()) - operation.startedAt) / 1000;
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = Math.floor(elapsed % 60);
+  const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+  return (
+    <div
+      className={`p-3 rounded-lg border ${
+        isComplete
+          ? 'bg-green-500/10 border-green-500/20'
+          : isError
+            ? 'bg-red-500/10 border-red-500/20'
+            : 'bg-blue-500/10 border-blue-500/20'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center space-x-2 min-w-0 flex-1">
+          <span className="text-sm font-medium text-white truncate">{operation.model}</span>
+          <span className="text-xs text-gray-400">
+            ({operation.type === 'copy' ? 'copy' : 'pull'})
+          </span>
+        </div>
+        <div className="flex items-center space-x-2 ml-2">
+          <span className="text-xs text-gray-400">{timeStr}</span>
+          {isActive ? (
+            <button
+              onClick={onCancel}
+              className="p-1 text-gray-400 hover:text-red-400 transition-colors"
+              title="Cancel pull"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={onDismiss}
+              className="p-1 text-gray-400 hover:text-white transition-colors"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      {isActive && (
+        <div className="w-full bg-gray-700 rounded-full h-2 mb-1.5 overflow-hidden relative">
+          {operation.percentage === 0 ? (
+            <div className="absolute inset-0 w-full h-full bg-blue-900/30 overflow-hidden rounded-full">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500/50 to-transparent w-full h-full animate-shimmer-x" />
+            </div>
+          ) : (
+            <div
+              className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${Math.max(operation.percentage, 1)}%` }}
+            />
+          )}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <span
+          className={`text-xs truncate ${
+            isComplete ? 'text-green-400' : isError ? 'text-red-400' : 'text-gray-400'
+          }`}
+        >
+          {isError ? operation.error || 'Failed' : operation.statusText}
+          {operation.digest && isActive ? ` (${shortDigest(operation.digest)})` : ''}
+        </span>
+        {isActive && operation.total && operation.total > 0 && (
+          <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">
+            {formatBytes(operation.completed)} / {formatBytes(operation.total)}
+            {operation.percentage > 0 && ` (${operation.percentage}%)`}
+          </span>
+        )}
+        {isComplete && <span className="text-xs text-green-400 ml-2 whitespace-nowrap">Done</span>}
+      </div>
+    </div>
+  );
+}
+
 export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModalProps) => {
   const queryClient = useQueryClient();
   const [newModelName, setNewModelName] = useState('');
   const [selectedSourceServer, setSelectedSourceServer] = useState('');
   const [activeTab, setActiveTab] = useState<'installed' | 'pull'>('installed');
 
+  const { startPull, cancelPull, dismissPull, getServerPulls } = useModelPulls();
+
+  const serverPulls = server ? getServerPulls(server.id) : [];
+  const activePulls = serverPulls.filter(op => op.status === 'downloading');
+  const finishedPulls = serverPulls.filter(op => op.status !== 'downloading');
+
   const {
     data: serverModels,
     isLoading: isLoadingModels,
+    isFetching: isFetchingModels,
     refetch,
   } = useQuery({
     queryKey: ['server-models', server?.id],
     queryFn: () => (server ? listServerModels(server.id) : null),
     enabled: !!server?.id && isOpen,
+    // Refetch more frequently when pulls are active to show newly pulled models
+    refetchInterval: activePulls.length > 0 ? 5000 : false,
   });
 
   const { data: allServers } = useQuery({
@@ -63,17 +170,6 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
     enabled: isOpen,
   });
 
-  const pullMutation = useMutation({
-    mutationFn: ({ serverId, model }: { serverId: string; model: string }) =>
-      pullModelToServer(serverId, model),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['server-models', server?.id] });
-      queryClient.invalidateQueries({ queryKey: ['servers'] });
-      setNewModelName('');
-      refetch();
-    },
-  });
-
   const deleteMutation = useMutation({
     mutationFn: ({ serverId, model }: { serverId: string; model: string }) =>
       deleteModelFromServer(serverId, model),
@@ -84,24 +180,14 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
     },
   });
 
-  const copyMutation = useMutation({
-    mutationFn: ({
-      targetServerId,
-      model,
-      sourceServerId,
-    }: {
-      targetServerId: string;
-      model: string;
-      sourceServerId?: string;
-    }) => copyModelToServer(targetServerId, model, sourceServerId),
-    onSuccess: () => {
+  // When a pull completes, invalidate queries to refresh model lists
+  useEffect(() => {
+    const completedCount = finishedPulls.filter(op => op.status === 'complete').length;
+    if (completedCount > 0) {
       queryClient.invalidateQueries({ queryKey: ['server-models', server?.id] });
       queryClient.invalidateQueries({ queryKey: ['servers'] });
-      setNewModelName('');
-      setSelectedSourceServer('');
-      refetch();
-    },
-  });
+    }
+  }, [finishedPulls.length, queryClient, server?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (isOpen) {
@@ -124,18 +210,10 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
     e.preventDefault();
     if (!newModelName.trim()) return;
 
-    if (selectedSourceServer) {
-      copyMutation.mutate({
-        targetServerId: server.id,
-        model: newModelName.trim(),
-        sourceServerId: selectedSourceServer,
-      });
-    } else {
-      pullMutation.mutate({
-        serverId: server.id,
-        model: newModelName.trim(),
-      });
-    }
+    startPull(server.id, server.url, newModelName.trim(), selectedSourceServer || undefined);
+    setNewModelName('');
+    // Switch to installed tab to show progress if on pull tab
+    // Actually, keep them on the pull tab so they can see progress and queue more
   };
 
   const handleDelete = (modelName: string) => {
@@ -169,7 +247,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
           </button>
           <button
             onClick={() => setActiveTab('pull')}
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${
               activeTab === 'pull'
                 ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/5'
                 : 'text-gray-400 hover:text-white'
@@ -177,6 +255,11 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
           >
             <Download className="w-4 h-4 inline mr-2" />
             Pull / Copy Model
+            {activePulls.length > 0 && (
+              <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-blue-500 rounded-full animate-pulse">
+                {activePulls.length}
+              </span>
+            )}
           </button>
         </div>
 
@@ -190,10 +273,12 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                 </h4>
                 <button
                   onClick={() => refetch()}
-                  disabled={isLoadingModels}
+                  disabled={isLoadingModels || isFetchingModels}
                   className="text-sm text-blue-400 hover:text-blue-300 flex items-center space-x-1 disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingModels ? 'animate-spin' : ''}`} />
+                  <RefreshCw
+                    className={`w-4 h-4 ${isLoadingModels || isFetchingModels ? 'animate-spin' : ''}`}
+                  />
                   <span>Refresh</span>
                 </button>
               </div>
@@ -237,6 +322,25 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
             </div>
           ) : (
             <div>
+              {/* Active pull operations */}
+              {serverPulls.length > 0 && (
+                <div className="mb-6 space-y-2">
+                  <h4 className="text-sm font-medium text-gray-400 mb-2">
+                    {activePulls.length > 0
+                      ? `Active Downloads (${activePulls.length})`
+                      : 'Recent Operations'}
+                  </h4>
+                  {serverPulls.map(op => (
+                    <PullProgress
+                      key={op.id}
+                      operation={op}
+                      onCancel={() => cancelPull(op.serverId, op.model)}
+                      onDismiss={() => dismissPull(op.serverId, op.model)}
+                    />
+                  ))}
+                </div>
+              )}
+
               <form onSubmit={handlePull} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">Model Name</label>
@@ -249,7 +353,8 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Enter the full model name including tag (e.g., llama3.2:latest)
+                    Enter the full model name including tag (e.g., llama3.2:latest). You can start
+                    multiple pulls simultaneously.
                   </p>
                 </div>
 
@@ -281,17 +386,10 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                 <div className="pt-4">
                   <button
                     type="submit"
-                    disabled={
-                      !newModelName.trim() || pullMutation.isPending || copyMutation.isPending
-                    }
+                    disabled={!newModelName.trim()}
                     className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
                   >
-                    {pullMutation.isPending || copyMutation.isPending ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Pulling...</span>
-                      </>
-                    ) : selectedSourceServer ? (
+                    {selectedSourceServer ? (
                       <>
                         <Copy className="w-4 h-4" />
                         <span>Copy Model</span>
@@ -304,21 +402,6 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                     )}
                   </button>
                 </div>
-
-                {(pullMutation.isSuccess || copyMutation.isSuccess) && (
-                  <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg text-green-400 text-sm">
-                    Model operation completed successfully!
-                  </div>
-                )}
-
-                {(pullMutation.isError || copyMutation.isError) && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-                    Error:{' '}
-                    {(pullMutation.error as Error)?.message ||
-                      (copyMutation.error as Error)?.message ||
-                      'Failed to pull model'}
-                  </div>
-                )}
               </form>
 
               {/* Popular in Fleet - filter out already installed models */}

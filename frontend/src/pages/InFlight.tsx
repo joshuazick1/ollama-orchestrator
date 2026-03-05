@@ -117,9 +117,9 @@ export const InFlight = () => {
           />
         ) : (
           <StatCard
-            title="Active Streams"
-            value={streamingCount}
-            subtext="Currently streaming"
+            title="Non-Streaming"
+            value={nonStreamingCount}
+            subtext="Standard requests"
             icon={Zap}
             color="text-teal-400"
           />
@@ -249,13 +249,13 @@ export const InFlight = () => {
                             </div>
                             {hasBypass && (
                               <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">
-                                {counts.bypass} test
+                                {counts.bypass} recovery
                               </span>
                             )}
                           </div>
                           <div className="text-xs text-gray-500">
                             {hasBypass
-                              ? `${counts.regular} req / ${counts.bypass} test`
+                              ? `${counts.regular} regular / ${counts.bypass} recovery test`
                               : 'requests'}
                           </div>
                         </div>

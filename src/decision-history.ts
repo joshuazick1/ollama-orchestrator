@@ -9,6 +9,7 @@ import { JsonFileHandler } from './config/jsonFileHandler.js';
 import type { ServerScore } from './load-balancer.js';
 import type { AIServer } from './orchestrator.types.js';
 import { getMetricsStore } from './storage/metrics-store.js';
+import type { DecisionRow } from './storage/types.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -209,7 +210,8 @@ export class DecisionHistory {
   }
 
   /**
-   * Get recent decision events
+   * Get recent decision events.
+   * When the requested `limit` exceeds in-memory count, supplements from SQLite.
    */
   getRecentEvents(limit = 100, model?: string, serverId?: string): DecisionEvent[] {
     let events = [...this.events];
@@ -224,7 +226,19 @@ export class DecisionHistory {
       );
     }
 
-    // Sort by timestamp descending (most recent first) and return the most recent N
+    // If limit exceeds in-memory results, supplement with SQLite (up to 7d)
+    if (events.length < limit) {
+      const sqliteEvents = this.fetchEventsFromSQLite({
+        hours: 168, // 7d
+        model,
+        serverId,
+        limit: limit + 1000,
+      });
+      if (sqliteEvents.length > 0) {
+        events = this.mergeEvents(events, sqliteEvents);
+      }
+    }
+
     return events.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
   }
 
@@ -284,7 +298,8 @@ export class DecisionHistory {
   }
 
   /**
-   * Get selection statistics for all servers
+   * Get selection statistics for all servers.
+   * For hours > 24, supplements in-memory data with SQLite.
    */
   getSelectionStats(hours = 24): Array<{
     serverId: string;
@@ -293,6 +308,17 @@ export class DecisionHistory {
     avgScore: number;
   }> {
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
+    let sourceEvents = this.events.filter(e => e.timestamp >= cutoff);
+
+    if (this.isLongWindow(hours)) {
+      const sqliteEvents = this.fetchEventsFromSQLite({ hours, limit: 50000 });
+      if (sqliteEvents.length > 0) {
+        sourceEvents = this.mergeEvents(sourceEvents, sqliteEvents).filter(
+          e => e.timestamp >= cutoff
+        );
+      }
+    }
+
     const stats: Map<
       string,
       {
@@ -303,11 +329,7 @@ export class DecisionHistory {
       }
     > = new Map();
 
-    for (const event of this.events) {
-      if (event.timestamp < cutoff) {
-        continue;
-      }
-
+    for (const event of sourceEvents) {
       // Count selection
       if (!stats.has(event.selectedServerId)) {
         stats.set(event.selectedServerId, {
@@ -379,7 +401,8 @@ export class DecisionHistory {
   }
 
   /**
-   * Get score distribution over time
+   * Get score distribution over time.
+   * For hours > 24, supplements in-memory data with SQLite.
    */
   getScoreTimeline(
     hours = 24,
@@ -393,14 +416,22 @@ export class DecisionHistory {
   }> {
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
     const intervalMs = intervalMinutes * 60 * 1000;
+
+    let sourceEvents = this.events.filter(e => e.timestamp >= cutoff);
+
+    if (this.isLongWindow(hours)) {
+      const sqliteEvents = this.fetchEventsFromSQLite({ hours, limit: 50000 });
+      if (sqliteEvents.length > 0) {
+        sourceEvents = this.mergeEvents(sourceEvents, sqliteEvents).filter(
+          e => e.timestamp >= cutoff
+        );
+      }
+    }
+
     const buckets = new Map<number, number[]>();
 
     // Group scores into time buckets
-    for (const event of this.events) {
-      if (event.timestamp < cutoff) {
-        continue;
-      }
-
+    for (const event of sourceEvents) {
       const bucketTime = Math.floor(event.timestamp / intervalMs) * intervalMs;
       if (!buckets.has(bucketTime)) {
         buckets.set(bucketTime, []);
@@ -508,6 +539,100 @@ export class DecisionHistory {
   private pruneOldEvents(): void {
     const cutoff = Date.now() - this.config.retentionHours * 60 * 60 * 1000;
     this.events = this.events.filter(e => e.timestamp >= cutoff);
+  }
+
+  // ==========================================
+  // Phase 2: SQLite helpers for extended reads
+  // ==========================================
+
+  /**
+   * Whether this hour window exceeds the 24h in-memory retention.
+   */
+  private isLongWindow(hours: number): boolean {
+    return hours > 24;
+  }
+
+  /**
+   * Convert a DecisionRow (without candidates) to a lightweight DecisionEvent.
+   * Candidate scores are stored in the selected-server columns only; other
+   * candidates are not available via this code path.
+   */
+  private rowToEvent(row: DecisionRow): DecisionEvent {
+    return {
+      timestamp: row.timestamp,
+      model: row.model,
+      selectedServerId: row.selected_server,
+      algorithm: row.algorithm,
+      selectionReason: row.selection_reason ?? 'unknown',
+      candidates: [
+        {
+          serverId: row.selected_server,
+          totalScore: row.total_score ?? 0,
+          breakdown: {
+            latencyScore: row.latency_score ?? 0,
+            successRateScore: row.success_rate_score ?? 0,
+            loadScore: row.load_score ?? 0,
+            capacityScore: row.capacity_score ?? 0,
+          },
+          metrics:
+            row.p95_latency != null &&
+            row.success_rate != null &&
+            row.in_flight != null &&
+            row.throughput != null
+              ? {
+                  p95Latency: row.p95_latency,
+                  successRate: row.success_rate,
+                  inFlight: row.in_flight,
+                  throughput: row.throughput,
+                }
+              : undefined,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Fetch decisions from SQLite for windows > 24h.
+   * Returns events merged + deduped with in-memory data.
+   * Dedup key: timestamp+selectedServerId+model (decisions have no stable id exposed).
+   */
+  private fetchEventsFromSQLite(opts: {
+    hours: number;
+    model?: string;
+    serverId?: string;
+    limit?: number;
+  }): DecisionEvent[] {
+    try {
+      const store = getMetricsStore();
+      const cutoff = Date.now() - opts.hours * 60 * 60 * 1000;
+      const rows = store.getDecisions({
+        model: opts.model,
+        serverId: opts.serverId,
+        startTime: cutoff,
+        limit: opts.limit ?? 10000,
+      });
+      return rows.map(r => this.rowToEvent(r));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Merge in-memory DecisionEvents with SQLite-sourced events, deduplicating
+   * by timestamp+server+model combination.
+   */
+  private mergeEvents(inMemory: DecisionEvent[], fromSQLite: DecisionEvent[]): DecisionEvent[] {
+    const key = (e: DecisionEvent) => `${e.timestamp}:${e.selectedServerId}:${e.model}`;
+    const seen = new Set<string>(inMemory.map(key));
+    const merged = [...inMemory];
+    for (const e of fromSQLite) {
+      const k = key(e);
+      if (!seen.has(k)) {
+        seen.add(k);
+        merged.push(e);
+      }
+    }
+    return merged.sort((a, b) => b.timestamp - a.timestamp);
   }
 
   /**

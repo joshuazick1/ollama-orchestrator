@@ -7,6 +7,8 @@ import path from 'path';
 
 import { JsonFileHandler } from './config/jsonFileHandler.js';
 import type { RequestContext } from './orchestrator.types.js';
+import { getMetricsStore } from './storage/metrics-store.js';
+import type { RequestRow } from './storage/types.js';
 import { logger } from './utils/logger.js';
 import { Statistics } from './utils/statistics.js';
 
@@ -162,34 +164,59 @@ export class RequestHistory {
 
   /**
    * Get request history for a specific server
+   * For hours > 24, merges in-memory data with SQLite rows.
    */
   getServerHistory(serverId: string, limit = 100, offset = 0): RequestRecord[] {
+    if (offset === 0) {
+      // Check if caller wants more than 24h by comparing the oldest in-memory record.
+      // We always supplement with SQLite when there might be older data there.
+      const inMemory = this.requests.get(serverId) ?? [];
+      const sqliteRows = this.fetchFromSQLite({ serverId, limit: limit + offset + 1000 });
+      if (sqliteRows.length > 0) {
+        const merged = this.mergeAndDedup(inMemory, sqliteRows);
+        return merged.slice(offset, offset + limit);
+      }
+    }
     const serverRequests = this.requests.get(serverId) ?? [];
     return serverRequests.slice(-(offset + limit), -offset || undefined).reverse();
   }
 
   /**
    * Get all requests across all servers
+   * Merges in-memory data with SQLite rows when available.
    */
   getAllRequests(limit = 100, offset = 0): RequestRecord[] {
-    const allRequests: RequestRecord[] = [];
+    const sqliteRows = this.fetchFromSQLite({ limit: limit + offset + 5000 });
+    const allInMemory: RequestRecord[] = [];
     for (const requests of this.requests.values()) {
-      allRequests.push(...requests);
+      allInMemory.push(...requests);
     }
-
-    // Sort by timestamp descending
+    if (sqliteRows.length > 0) {
+      const merged = this.mergeAndDedup(allInMemory, sqliteRows);
+      return merged.slice(offset, offset + limit);
+    }
+    // Fallback: in-memory only
+    const allRequests: RequestRecord[] = [...allInMemory];
     allRequests.sort((a, b) => b.timestamp - a.timestamp);
-
     return allRequests.slice(offset, offset + limit);
   }
 
   /**
    * Get request statistics for a server
+   * For hours > 24, fetches from SQLite.
    */
   getServerStats(serverId: string, hours = 24): RequestStats {
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
     const serverRequests = this.requests.get(serverId) ?? [];
-    const recentRequests = serverRequests.filter(r => r.timestamp >= cutoff);
+    let recentRequests = serverRequests.filter(r => r.timestamp >= cutoff);
+
+    // For windows that exceed the 24h in-memory retention, pull from SQLite
+    if (hours > 24) {
+      const sqliteRows = this.fetchFromSQLite({ serverId, startTime: cutoff });
+      if (sqliteRows.length > 0) {
+        recentRequests = this.mergeAndDedup(recentRequests, sqliteRows);
+      }
+    }
 
     if (recentRequests.length === 0) {
       return this.createEmptyStats();
@@ -357,6 +384,7 @@ export class RequestHistory {
 
   /**
    * Search requests by criteria
+   * Merges in-memory data with SQLite when the time window exceeds 24h.
    */
   searchRequests(params: {
     serverId?: string;
@@ -377,7 +405,7 @@ export class RequestHistory {
       }
     }
 
-    // Apply filters
+    // Apply filters to in-memory set
     if (params.model) {
       results = results.filter(r => r.model === params.model);
     }
@@ -392,6 +420,29 @@ export class RequestHistory {
     }
     if (params.endTime !== undefined) {
       results = results.filter(r => r.timestamp <= params.endTime!);
+    }
+
+    // Determine if the search window reaches beyond 24h in-memory retention
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const windowStart = params.startTime ?? 0;
+    if (windowStart < oneDayAgo) {
+      // Pull older data from SQLite and merge
+      const sqliteRows = this.fetchFromSQLite({
+        serverId: params.serverId,
+        model: params.model,
+        success: params.success,
+        startTime: params.startTime,
+        endTime: params.endTime,
+        limit: (params.limit ?? 100) + 10000,
+      });
+      if (sqliteRows.length > 0) {
+        // Apply endpoint filter (not available as a SQLite column in RequestRow but present in endpoint)
+        let filteredSqlite = sqliteRows;
+        if (params.endpoint) {
+          filteredSqlite = sqliteRows.filter(r => r.endpoint === params.endpoint);
+        }
+        results = this.mergeAndDedup(results, filteredSqlite);
+      }
     }
 
     // Sort by timestamp descending
@@ -459,6 +510,80 @@ export class RequestHistory {
    */
   clearAllHistory(): void {
     this.requests.clear();
+  }
+
+  // ==========================================
+  // Phase 2: SQLite helpers for extended reads
+  // ==========================================
+
+  /**
+   * Convert a SQLite RequestRow to a RequestRecord shape.
+   */
+  private rowToRecord(row: RequestRow): RequestRecord {
+    return {
+      id: row.id,
+      timestamp: row.timestamp,
+      serverId: row.server_id,
+      model: row.model,
+      endpoint: row.endpoint,
+      streaming: row.streaming === 1,
+      duration: row.duration_ms ?? 0,
+      success: row.success === 1,
+      tokensGenerated: row.tokens_generated ?? undefined,
+      tokensPrompt: row.tokens_prompt ?? undefined,
+      errorType: row.error_type ?? undefined,
+      errorMessage: row.error_message ?? undefined,
+      ttft: row.ttft_ms ?? undefined,
+      streamingDuration: row.streaming_duration_ms ?? undefined,
+      chunkCount: row.chunk_count ?? undefined,
+      totalBytes: row.total_bytes ?? undefined,
+      maxChunkGapMs: row.max_chunk_gap_ms ?? undefined,
+      avgChunkSizeBytes: row.avg_chunk_size ?? undefined,
+      queueWaitTime: row.queue_wait_ms ?? undefined,
+    };
+  }
+
+  /**
+   * Fetch records from SQLite, converting them to RequestRecord.
+   * Returns empty array if MetricsStore is unavailable.
+   */
+  private fetchFromSQLite(opts: {
+    serverId?: string;
+    model?: string;
+    success?: boolean;
+    startTime?: number;
+    endTime?: number;
+    limit?: number;
+  }): RequestRecord[] {
+    try {
+      const store = getMetricsStore();
+      const rows = store.getRequests({
+        serverId: opts.serverId,
+        model: opts.model,
+        success: opts.success,
+        startTime: opts.startTime,
+        endTime: opts.endTime,
+        limit: opts.limit ?? 1000,
+      });
+      return rows.map(r => this.rowToRecord(r));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Merge two RequestRecord arrays, deduplicating by id, sorted newest-first.
+   */
+  private mergeAndDedup(inMemory: RequestRecord[], fromSQLite: RequestRecord[]): RequestRecord[] {
+    const seen = new Set<string>(inMemory.map(r => r.id));
+    const merged = [...inMemory];
+    for (const r of fromSQLite) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id);
+        merged.push(r);
+      }
+    }
+    return merged.sort((a, b) => b.timestamp - a.timestamp);
   }
 
   /**

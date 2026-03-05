@@ -1,9 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { DecisionHistory } from '../../src/decision-history';
-import type { FailoverAttempt } from '../../src/decision-history';
-import type { ServerScore } from '../../src/load-balancer';
-import type { AIServer } from '../../src/orchestrator.types';
+// Mock SQLite store used by DecisionHistory Phase 2 reads/writes
+vi.mock('../../src/storage/metrics-store.js', () => {
+  const mockStore = {
+    getDecisions: vi.fn(),
+    recordDecision: vi.fn(),
+  };
+  return { getMetricsStore: () => mockStore, _mockStore: mockStore };
+});
+
+import { DecisionHistory } from '../../src/decision-history.js';
+import type { FailoverAttempt } from '../../src/decision-history.js';
+import type { ServerScore } from '../../src/load-balancer.js';
+import type { AIServer } from '../../src/orchestrator.types.js';
 
 describe('DecisionHistory', () => {
   let history: DecisionHistory;
@@ -35,6 +44,7 @@ describe('DecisionHistory', () => {
         circuitBreakerScore: 100,
         timeoutScore: 100,
         throughputScore: 0,
+        vramScore: 0,
       },
     },
   ];
@@ -97,6 +107,7 @@ describe('DecisionHistory', () => {
             circuitBreakerScore: 100,
             timeoutScore: 100,
             throughputScore: 0,
+            vramScore: 0,
           },
         },
       ];

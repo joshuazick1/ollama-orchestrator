@@ -152,7 +152,7 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
                             {serverId}:{model}
                           </span>
                           <span className="text-cyan-400 text-sm font-mono">
-                            {streaming.recentTTFTs?.length || 0} streams
+                            {streaming.recentTTFTs?.length || 0} samples
                           </span>
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-xs">

@@ -89,6 +89,19 @@ select:focus {
   }
 }
 
+@keyframes shimmer-x {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer-x {
+  animation: shimmer-x 1.5s infinite linear;
+}
+
 .animate-shimmer {
   animation: shimmer 2s infinite;
   background: linear-gradient(

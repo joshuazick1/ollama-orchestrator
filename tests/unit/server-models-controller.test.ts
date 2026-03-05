@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 vi.mock('../../src/orchestrator-instance.js');
 vi.mock('../../src/utils/fetchWithTimeout.js', () => ({
   fetchWithTimeout: vi.fn(),
+  parseResponse: vi.fn(),
 }));
 
 import {
@@ -19,11 +20,41 @@ import {
   getFleetModelStats,
 } from '../../src/controllers/serverModelsController.js';
 import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import { fetchWithTimeout } from '../../src/utils/fetchWithTimeout.js';
-
+import { fetchWithTimeout, parseResponse } from '../../src/utils/fetchWithTimeout.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockFetchWithTimeout = fetchWithTimeout as Mock;
+const mockParseResponse = parseResponse as Mock;
+
+/** Create a ReadableStream from NDJSON lines (simulates Ollama streaming pull response) */
+function createNDJSONStream(lines: object[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const ndjson = lines.map(l => JSON.stringify(l)).join('\n') + '\n';
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(ndjson));
+      controller.close();
+    },
+  });
+}
+
+/** Create a mock fetch Response with streaming body */
+function createStreamingResponse(
+  lines: object[],
+  ok = true,
+  statusText = 'OK'
+): globalThis.Response {
+  return {
+    ok,
+    statusText,
+    body: createNDJSONStream(lines),
+    json: vi.fn(),
+  } as any;
+}
+
+// Mock global fetch for pull/copy (which use fetch() directly, not fetchWithTimeout)
+const mockGlobalFetch = vi.fn();
+vi.stubGlobal('fetch', mockGlobalFetch);
 
 describe('serverModelsController', () => {
   let mockOrchestrator: any;
@@ -48,6 +79,11 @@ describe('serverModelsController', () => {
     mockRes = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
+      setHeader: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+      headersSent: false,
     };
   });
 
@@ -244,20 +280,21 @@ describe('serverModelsController', () => {
       const mockServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockServer]);
 
-      const mockResponse = {
-        ok: true,
-        json: vi.fn().mockResolvedValue({ status: 'success' }),
-      } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([
+        { status: 'pulling manifest' },
+        { status: 'success' },
+      ]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
 
       await pullModelToServer(mockReq as Request, mockRes as Response);
 
-      expect(mockFetchWithTimeout).toHaveBeenCalled();
+      expect(mockGlobalFetch).toHaveBeenCalled();
       expect(mockOrchestrator.updateServerStatus).toHaveBeenCalledWith(mockServer);
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
+      expect(mockRes.end).toHaveBeenCalled();
     });
 
     it('should return 400 when model is missing', async () => {
@@ -273,15 +310,15 @@ describe('serverModelsController', () => {
       const mockServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: '  Llama3 / Latest  ' };
 
       await pullModelToServer(mockReq as Request, mockRes as Response);
 
-      const callArg = mockFetchWithTimeout.mock.calls[0]?.[1];
+      const callArg = mockGlobalFetch.mock.calls[0]?.[1];
       expect(callArg?.body).toContain('llama3/latest');
     });
 
@@ -312,7 +349,7 @@ describe('serverModelsController', () => {
       const mockServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockServer]);
 
-      mockFetchWithTimeout.mockRejectedValue(new Error('Pull failed'));
+      mockGlobalFetch.mockRejectedValue(new Error('Pull failed'));
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
@@ -340,9 +377,11 @@ describe('serverModelsController', () => {
 
       const mockResponse = {
         ok: false,
+        statusText: 'Not Found',
         json: vi.fn().mockResolvedValue({ error: 'Model not found' }),
       } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue({ error: 'Model not found' });
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'unknown-model' };
@@ -359,9 +398,9 @@ describe('serverModelsController', () => {
       const mockResponse = {
         ok: false,
         statusText: 'Bad Request',
-        json: vi.fn().mockRejectedValue(new Error('Parse error')),
       } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue(null);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'unknown-model' };
@@ -384,8 +423,8 @@ describe('serverModelsController', () => {
       const mockServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: '   ' };
@@ -393,7 +432,7 @@ describe('serverModelsController', () => {
       await pullModelToServer(mockReq as Request, mockRes as Response);
 
       // Whitespace normalizes to empty string but the controller only checks for falsy
-      const callArg = mockFetchWithTimeout.mock.calls[0]?.[1];
+      const callArg = mockGlobalFetch.mock.calls[0]?.[1];
       expect(callArg?.body).toContain('"name":""');
     });
 
@@ -401,50 +440,49 @@ describe('serverModelsController', () => {
       const mockServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: '  Model / Name / Test  ' };
 
       await pullModelToServer(mockReq as Request, mockRes as Response);
 
-      const callArg = mockFetchWithTimeout.mock.calls[0]?.[1];
+      const callArg = mockGlobalFetch.mock.calls[0]?.[1];
       expect(callArg?.body).toContain('model/name/test');
     });
 
-    it('should return detailed response with pull data', async () => {
+    it('should stream SSE progress events during pull', async () => {
       const mockServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockServer]);
 
-      const mockResponse = {
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          status: 'success',
-          digest: 'abc123',
-          total: 1000,
-          completed: 1000,
-        }),
-      } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([
+        { status: 'pulling manifest' },
+        { status: 'downloading', digest: 'sha256:abc123', total: 1000, completed: 500 },
+        { status: 'downloading', digest: 'sha256:abc123', total: 1000, completed: 1000 },
+        { status: 'success' },
+      ]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
 
       await pullModelToServer(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        serverId: 'server-1',
-        model: 'llama3:latest',
-        message: "Model 'llama3:latest' pulled successfully",
-        details: {
-          status: 'success',
-          digest: 'abc123',
-          total: 1000,
-          completed: 1000,
-        },
-      });
+      expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
+      // Should have written progress events and a complete event
+      const writeCalls = (mockRes.write as any).mock.calls.map((c: any[]) => c[0]);
+      const events = writeCalls
+        .map((c: string) => {
+          const match = c.match(/^data: (.+)\n\n$/);
+          return match ? JSON.parse(match[1]) : null;
+        })
+        .filter(Boolean);
+
+      // At least one progress event and one complete event
+      expect(events.some((e: any) => e.type === 'progress')).toBe(true);
+      expect(events.some((e: any) => e.type === 'complete')).toBe(true);
+      expect(mockRes.end).toHaveBeenCalled();
     });
 
     it('should handle missing server id', async () => {
@@ -625,15 +663,16 @@ describe('serverModelsController', () => {
       const mockSourceServer = createMockServer({ id: 'source-server' });
       mockOrchestrator.getServers.mockReturnValue([mockTargetServer, mockSourceServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest', sourceServerId: 'source-server' };
 
       await copyModelToServer(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
+      expect(mockRes.end).toHaveBeenCalled();
     });
 
     it('should return 400 when model is missing', async () => {
@@ -726,7 +765,7 @@ describe('serverModelsController', () => {
       const mockTargetServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockTargetServer]);
 
-      mockFetchWithTimeout.mockRejectedValue(new Error('Network error'));
+      mockGlobalFetch.mockRejectedValue(new Error('Network error'));
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
@@ -742,9 +781,11 @@ describe('serverModelsController', () => {
 
       const mockResponse = {
         ok: false,
+        statusText: 'Failed',
         json: vi.fn().mockResolvedValue({ error: 'Copy failed' }),
       } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue({ error: 'Copy failed' });
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
@@ -761,9 +802,9 @@ describe('serverModelsController', () => {
       const mockResponse = {
         ok: false,
         statusText: 'Internal Server Error',
-        json: vi.fn().mockRejectedValue(new Error('Parse error')),
       } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue(null);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
@@ -777,15 +818,15 @@ describe('serverModelsController', () => {
       const mockTargetServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockTargetServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: '  Llama3 / Latest  ' };
 
       await copyModelToServer(mockReq as Request, mockRes as Response);
 
-      const callArg = mockFetchWithTimeout.mock.calls[0]?.[1];
+      const callArg = mockGlobalFetch.mock.calls[0]?.[1];
       expect(callArg?.body).toContain('llama3/latest');
     });
 
@@ -802,8 +843,8 @@ describe('serverModelsController', () => {
       const mockTargetServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockTargetServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: '   ' };
@@ -811,7 +852,7 @@ describe('serverModelsController', () => {
       await copyModelToServer(mockReq as Request, mockRes as Response);
 
       // Whitespace normalizes to empty string but the controller only checks for falsy
-      const callArg = mockFetchWithTimeout.mock.calls[0]?.[1];
+      const callArg = mockGlobalFetch.mock.calls[0]?.[1];
       expect(callArg?.body).toContain('"name":""');
     });
 
@@ -824,39 +865,47 @@ describe('serverModelsController', () => {
       expect(mockRes.status).toHaveBeenCalledWith(404);
     });
 
-    it('should return success response with correct format', async () => {
+    it('should stream complete event with correct format', async () => {
       const mockTargetServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockTargetServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
 
       await copyModelToServer(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        serverId: 'server-1',
-        model: 'llama3:latest',
-        message: "Model 'llama3:latest' copied successfully",
-      });
+      // Verify the complete event was streamed
+      const writeCalls = (mockRes.write as any).mock.calls.map((c: any[]) => c[0]);
+      const completeEvent = writeCalls
+        .map((c: string) => {
+          const match = c.match(/^data: (.+)\n\n$/);
+          return match ? JSON.parse(match[1]) : null;
+        })
+        .filter(Boolean)
+        .find((e: any) => e.type === 'complete');
+
+      expect(completeEvent).toBeTruthy();
+      expect(completeEvent.serverId).toBe('server-1');
+      expect(completeEvent.model).toBe('llama3:latest');
     });
 
     it('should handle copy without source server', async () => {
       const mockTargetServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockTargetServer]);
 
-      const mockResponse = { ok: true, json: vi.fn().mockResolvedValue({}) } as any;
-      mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      const mockResponse = createStreamingResponse([{ status: 'success' }]);
+      mockGlobalFetch.mockResolvedValue(mockResponse);
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
 
       await copyModelToServer(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
+      expect(mockRes.end).toHaveBeenCalled();
     });
   });
 
@@ -1038,7 +1087,7 @@ describe('serverModelsController', () => {
       const mockServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockServer]);
 
-      mockFetchWithTimeout.mockRejectedValue('Network failure');
+      mockGlobalFetch.mockRejectedValue('Network failure');
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
@@ -1077,7 +1126,7 @@ describe('serverModelsController', () => {
       const mockTargetServer = createMockServer();
       mockOrchestrator.getServers.mockReturnValue([mockTargetServer]);
 
-      mockFetchWithTimeout.mockRejectedValue('Copy failed');
+      mockGlobalFetch.mockRejectedValue('Copy failed');
 
       mockReq.params = { id: 'server-1' };
       mockReq.body = { model: 'llama3:latest' };
