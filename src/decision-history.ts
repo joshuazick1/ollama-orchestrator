@@ -8,6 +8,7 @@ import path from 'path';
 import { JsonFileHandler } from './config/jsonFileHandler.js';
 import type { ServerScore } from './load-balancer.js';
 import type { AIServer } from './orchestrator.types.js';
+import { getMetricsStore } from './storage/metrics-store.js';
 import { logger } from './utils/logger.js';
 
 /**
@@ -143,6 +144,33 @@ export class DecisionHistory {
     };
 
     this.events.push(event);
+
+    // Mirror to SQLite for long-term retention (Phase 1 dual-write)
+    try {
+      getMetricsStore().recordDecision({
+        timestamp: event.timestamp,
+        model: event.model,
+        selectedServerId: event.selectedServerId,
+        algorithm: event.algorithm,
+        selectionReason: event.selectionReason,
+        candidates: event.candidates.map(c => ({
+          serverId: c.serverId,
+          totalScore: c.totalScore,
+          latencyScore: c.breakdown.latencyScore,
+          successRateScore: c.breakdown.successRateScore,
+          loadScore: c.breakdown.loadScore,
+          capacityScore: c.breakdown.capacityScore,
+          p95Latency: c.metrics?.p95Latency,
+          successRate: c.metrics?.successRate,
+          inFlight: c.metrics?.inFlight,
+          throughput: c.metrics?.throughput,
+        })),
+      });
+    } catch (err) {
+      logger.debug('[DecisionHistory] MetricsStore.recordDecision failed (non-fatal)', {
+        error: err,
+      });
+    }
 
     // Prune old events if exceeded max
     if (this.events.length > this.config.maxEvents) {

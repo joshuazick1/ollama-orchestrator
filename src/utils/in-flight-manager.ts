@@ -130,6 +130,21 @@ export class InFlightManager {
     return total;
   }
 
+  /**
+   * Returns the total number of in-flight requests across all servers and models.
+   * Used by MetricsStore to find low-traffic windows for rollup computation.
+   */
+  getGlobalInFlightCount(): number {
+    let total = 0;
+    for (const count of this.inFlight.values()) {
+      total += count;
+    }
+    for (const count of this.inFlightBypass.values()) {
+      total += count;
+    }
+    return total;
+  }
+
   getInFlightByServer(serverId: string): Record<string, number> {
     const result: Record<string, number> = {};
 

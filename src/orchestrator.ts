@@ -44,6 +44,7 @@ import {
   setRecoveryTestCoordinator,
 } from './recovery-test-coordinator.js';
 import { getRequestHistory } from './request-history.js';
+import { getMetricsStore } from './storage/metrics-store.js';
 import { BanManager } from './utils/ban-manager.js';
 import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
@@ -740,7 +741,7 @@ export class AIOrchestrator {
     const newServer: AIServer = {
       ...server,
       url: normalizedUrl, // Store the normalized URL
-      type: 'ollama',
+      type: server.type ?? 'auto',
       healthy: true,
       lastResponseTime: Infinity,
       models: [],
@@ -871,23 +872,49 @@ export class AIOrchestrator {
       const timeout = setTimeout(() => controller.abort(), 5000);
       const startTime = Date.now();
 
-      const [response, versionResponse] = await Promise.all([
-        fetch(`${server.url}/api/tags`, {
-          signal: controller.signal,
-        }),
-        fetch(`${server.url}/api/version`, {
-          signal: controller.signal,
-        }).catch(() => null),
+      // Probe selection respects server.type: ollama=skip v1, openai=skip tags, auto=probe both
+      const probeOllama = server.type !== 'openai';
+      const probeV1 = server.type !== 'ollama';
+
+      const [response, versionResponse, v1Response] = await Promise.all([
+        probeOllama
+          ? fetch(`${server.url}/api/tags`, {
+              signal: controller.signal,
+            }).catch(() => null)
+          : Promise.resolve(null),
+        probeOllama
+          ? fetch(`${server.url}/api/version`, {
+              signal: controller.signal,
+            }).catch(() => null)
+          : Promise.resolve(null),
+        probeV1
+          ? fetch(`${server.url}/v1/models`, {
+              signal: controller.signal,
+            }).catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       clearTimeout(timeout);
       const responseTime = Date.now() - startTime;
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      // Check which endpoints are supported
+      const supportsOllama = response?.ok ?? false;
+      const supportsV1 = v1Response?.ok ?? false;
+
+      // Update capability flags
+      if (supportsOllama !== server.supportsOllama) {
+        logger.info(`Server ${server.id} Ollama support: ${supportsOllama}`);
+        server.supportsOllama = supportsOllama;
+      }
+      if (supportsV1 !== server.supportsV1) {
+        logger.info(`Server ${server.id} /v1/* support: ${supportsV1}`);
+        server.supportsV1 = supportsV1;
       }
 
-      const data = (await response.json()) as { models?: unknown };
+      // Server is healthy if at least one endpoint works
+      if (!supportsOllama && !supportsV1) {
+        throw new Error('Neither /api/tags nor /v1/models responded');
+      }
 
       // Handle version
       if (versionResponse?.ok) {
@@ -902,26 +929,43 @@ export class AIOrchestrator {
       server.healthy = true;
       server.lastResponseTime = responseTime;
 
-      // Extract models from response
-      if (data && typeof data === 'object' && 'models' in data) {
-        const models = (data as { models: unknown }).models;
-        if (Array.isArray(models)) {
-          server.models = models
-            .map((m: unknown) => {
-              if (typeof m === 'string') {
-                return m;
-              }
-              if (typeof m === 'object' && m !== null) {
-                const record = m as Record<string, unknown>;
-                return (
-                  (record.model as string | undefined) ??
-                  (record.name as string | undefined) ??
-                  null
-                );
-              }
-              return null;
-            })
-            .filter(Boolean) as string[];
+      // Extract Ollama models from /api/tags response
+      if (response?.ok) {
+        const data = (await response.json()) as { models?: unknown };
+        if (data && typeof data === 'object' && 'models' in data) {
+          const models = (data as { models: unknown }).models;
+          if (Array.isArray(models)) {
+            server.models = models
+              .map((m: unknown) => {
+                if (typeof m === 'string') {
+                  return m;
+                }
+                if (typeof m === 'object' && m !== null) {
+                  const record = m as Record<string, unknown>;
+                  return (
+                    (record.model as string | undefined) ??
+                    (record.name as string | undefined) ??
+                    null
+                  );
+                }
+                return null;
+              })
+              .filter(Boolean) as string[];
+          }
+        }
+      }
+
+      // Extract OpenAI models from /v1/models response
+      if (v1Response?.ok) {
+        try {
+          const data = (await v1Response.json()) as { data?: Array<{ id?: string }> };
+          if (data && Array.isArray(data.data)) {
+            server.v1Models = data.data
+              .map((m: { id?: string }) => m.id)
+              .filter((id): id is string => typeof id === 'string');
+          }
+        } catch (e) {
+          // Ignore v1 parsing errors
         }
       }
 
@@ -936,6 +980,9 @@ export class AIOrchestrator {
       logger.debug(`Health check passed for ${server.id}`, {
         responseTime,
         models: server.models.length,
+        supportsOllama,
+        supportsV1,
+        v1Models: server.v1Models?.length ?? 0,
       });
     } catch (error) {
       server.healthy = false;
@@ -1716,6 +1763,8 @@ export class AIOrchestrator {
     const failoverErrors: Array<{ serverId: string; error: string; errorType?: string }> = [];
     const allServersTried: string[] = [];
     let concurrencySkipCount = 0; // Track how many candidates were skipped due to max concurrency
+    // Generate a stable user request ID that links all retry/failover attempts
+    const userRequestId = `ureq-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Phase 1: Try each candidate once (failover-first strategy)
     logger.info(`Phase 1: Trying ${candidates.length} candidate(s) once each`, { model });
@@ -1743,6 +1792,14 @@ export class AIOrchestrator {
           serverId: server.id,
           result: 'skipped',
         });
+        getMetricsStore().recordFailover({
+          requestId: userRequestId,
+          timestamp: Date.now(),
+          model,
+          phase: 1,
+          serverId: server.id,
+          result: 'skipped',
+        });
         continue;
       }
 
@@ -1755,13 +1812,24 @@ export class AIOrchestrator {
         isStreaming,
         errors,
         undefined,
-        true
+        true,
+        userRequestId,
+        retryCount > 0
       );
       const attemptLatency1 = Date.now() - attemptStart1;
 
       if (result.success) {
         // REC-74: Record successful attempt
         getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 1,
+          serverId: server.id,
+          result: 'success',
+          latencyMs: attemptLatency1,
+        });
+        getMetricsStore().recordFailover({
+          requestId: userRequestId,
+          timestamp: Date.now(),
           model,
           phase: 1,
           serverId: server.id,
@@ -1795,6 +1863,16 @@ export class AIOrchestrator {
       // REC-74: Record failed attempt
       const lastError = errors[errors.length - 1];
       getDecisionHistory().recordFailoverAttempt({
+        model,
+        phase: 1,
+        serverId: server.id,
+        result: 'failure',
+        errorType: lastError?.type,
+        latencyMs: attemptLatency1,
+      });
+      getMetricsStore().recordFailover({
+        requestId: userRequestId,
+        timestamp: Date.now(),
         model,
         phase: 1,
         serverId: server.id,
@@ -1853,6 +1931,14 @@ export class AIOrchestrator {
           serverId: server.id,
           result: 'skipped',
         });
+        getMetricsStore().recordFailover({
+          requestId: userRequestId,
+          timestamp: Date.now(),
+          model,
+          phase: 2,
+          serverId: server.id,
+          result: 'skipped',
+        });
         continue;
       }
 
@@ -1864,13 +1950,24 @@ export class AIOrchestrator {
         isStreaming,
         errors,
         undefined,
-        true
+        true,
+        userRequestId,
+        true // Phase 2 is always a retry
       );
       const attemptLatency2 = Date.now() - attemptStart2;
 
       if (result.success) {
         // REC-74: Record successful attempt
         getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 2,
+          serverId: server.id,
+          result: 'success',
+          latencyMs: attemptLatency2,
+        });
+        getMetricsStore().recordFailover({
+          requestId: userRequestId,
+          timestamp: Date.now(),
           model,
           phase: 2,
           serverId: server.id,
@@ -1903,6 +2000,16 @@ export class AIOrchestrator {
       // REC-74: Record failed attempt
       const lastError2 = errors[errors.length - 1];
       getDecisionHistory().recordFailoverAttempt({
+        model,
+        phase: 2,
+        serverId: server.id,
+        result: 'failure',
+        errorType: lastError2?.type,
+        latencyMs: attemptLatency2,
+      });
+      getMetricsStore().recordFailover({
+        requestId: userRequestId,
+        timestamp: Date.now(),
         model,
         phase: 2,
         serverId: server.id,
@@ -1943,13 +2050,24 @@ export class AIOrchestrator {
         fn,
         isStreaming,
         retryConfig,
-        errors
+        errors,
+        undefined,
+        userRequestId
       );
       const attemptLatency3 = Date.now() - attemptStart3;
 
       if (result.success) {
         // REC-74: Record successful Phase 3 attempt
         getDecisionHistory().recordFailoverAttempt({
+          model,
+          phase: 3,
+          serverId: initialServer.id,
+          result: 'success',
+          latencyMs: attemptLatency3,
+        });
+        getMetricsStore().recordFailover({
+          requestId: userRequestId,
+          timestamp: Date.now(),
           model,
           phase: 3,
           serverId: initialServer.id,
@@ -1980,6 +2098,16 @@ export class AIOrchestrator {
       // REC-74: Record failed Phase 3 attempt
       const lastError3 = errors[errors.length - 1];
       getDecisionHistory().recordFailoverAttempt({
+        model,
+        phase: 3,
+        serverId: initialServer.id,
+        result: 'failure',
+        errorType: lastError3?.type,
+        latencyMs: attemptLatency3,
+      });
+      getMetricsStore().recordFailover({
+        requestId: userRequestId,
+        timestamp: Date.now(),
         model,
         phase: 3,
         serverId: initialServer.id,
@@ -2104,7 +2232,6 @@ export class AIOrchestrator {
 
       // Only record circuit breaker success if not bypassing
       if (!bypassCircuitBreaker) {
-        modelCb.recordSuccess();
         this.recordSuccess(server.id, model, Date.now() - startTime);
       }
 
@@ -2138,7 +2265,9 @@ export class AIOrchestrator {
     isStreaming: boolean,
     errors: Array<{ server: string; error: string; type?: ErrorType }>,
     _timeoutMs?: number,
-    alreadyIncremented: boolean = false
+    alreadyIncremented: boolean = false,
+    parentRequestId?: string,
+    isRetry: boolean = false
   ): Promise<{ success: true; value: T } | { success: false }> {
     // Check circuit breaker state BEFORE attempting request
     const serverCb = this.getCircuitBreaker(server.id);
@@ -2274,6 +2403,8 @@ export class AIOrchestrator {
       endpoint: 'generate',
       streaming: isStreaming,
       success: false,
+      parentRequestId,
+      isRetry,
     };
 
     try {
@@ -2363,6 +2494,7 @@ export class AIOrchestrator {
 
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
+      getMetricsStore().recordRequest(requestContext);
 
       // Remove streaming request tracking
       if (isStreaming) {
@@ -2417,6 +2549,7 @@ export class AIOrchestrator {
       requestContext.error = lastError;
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
+      getMetricsStore().recordRequest(requestContext);
 
       const errorMessage = lastError.message;
       const errorType = classifyError(errorMessage).type;
@@ -2439,7 +2572,8 @@ export class AIOrchestrator {
     isStreaming: boolean,
     retryConfig: RetryConfig,
     errors: Array<{ server: string; error: string; type?: ErrorType }>,
-    _timeoutMs?: number
+    _timeoutMs?: number,
+    parentRequestId?: string
   ): Promise<{ success: true; value: T } | { success: false }> {
     let lastError: Error | undefined;
     let retryCount = 0;
@@ -2466,6 +2600,8 @@ export class AIOrchestrator {
         endpoint: 'generate',
         streaming: isStreaming,
         success: false,
+        parentRequestId,
+        isRetry: retryCount > 0,
       };
 
       try {
@@ -2570,6 +2706,7 @@ export class AIOrchestrator {
 
         this.metricsAggregator.recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
+        getMetricsStore().recordRequest(requestContext);
 
         // Remove streaming request tracking
         if (isStreaming) {
@@ -2611,6 +2748,7 @@ export class AIOrchestrator {
         requestContext.error = lastError;
         this.metricsAggregator.recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
+        getMetricsStore().recordRequest(requestContext);
 
         const errorMessage = lastError.message;
         const errorType = classifyError(errorMessage).type;
@@ -2860,6 +2998,7 @@ export class AIOrchestrator {
    */
   incrementInFlight(serverId: string, model: string, bypass: boolean = false): void {
     this.inFlightManager.incrementInFlight(serverId, model, bypass);
+    this.metricsAggregator.incrementInFlight(serverId, model);
   }
 
   /**
@@ -3157,6 +3296,17 @@ export class AIOrchestrator {
     try {
       // Initialize metrics aggregator persistence
       await this.metricsAggregator.initialize();
+
+      // Initialize SQLite metrics store with config and in-flight callback
+      const storageCfg = this.config.storage;
+      getMetricsStore({
+        dbPath: storageCfg.dbPath,
+        retention: storageCfg.retention,
+        performance: storageCfg.performance,
+        temporal: storageCfg.temporal,
+        getInFlightCount: () => this.inFlightManager.getGlobalInFlightCount(),
+      });
+      logger.info('[MetricsStore] Initialized via orchestrator startup');
 
       // Initialize circuit breaker persistence
       await this.circuitBreakerPersistence.initialize();

@@ -98,6 +98,56 @@ export interface RecoveryTestConfig {
   tagsTestTimeoutMs: number;
 }
 
+export interface StorageRetentionConfig {
+  /** Days to retain individual request rows (default: 30) */
+  requests: number;
+  /** Days to retain decision + candidate rows (default: 30) */
+  decisions: number;
+  /** Days to retain hourly/daily rollup rows (default: 90) */
+  rollups: number;
+  /** Trailing days used to build temporal profiles (default: 14) */
+  profiles: number;
+}
+
+export interface StoragePerformanceConfig {
+  /** Max requests buffered before forced flush (default: 100) */
+  batchSize: number;
+  /** Max ms between forced flushes (default: 1000) */
+  batchFlushIntervalMs: number;
+  /**
+   * Minutes past the hour before rollup runs regardless of in-flight count.
+   * (default: 10)
+   */
+  rollupDeadlineMinutes: number;
+  /** Ms between daily profile rebuild jobs (default: 86_400_000) */
+  profileRebuildIntervalMs: number;
+  /** Ms between retention pruning runs (default: 3_600_000) */
+  retentionCheckIntervalMs: number;
+}
+
+export interface StorageTemporalConfig {
+  /** Enable temporal scoring adjustments in load balancer (default: true) */
+  enabled: boolean;
+  /** Minimum confidence to apply temporal adjustment (default: 0.3) */
+  minConfidence: number;
+  /** Maximum latency multiplier from temporal scoring (default: 2.0) */
+  maxAdjustment: number;
+  /** Log-only shadow mode — adjustments not applied to routing (default: false) */
+  shadowMode: boolean;
+  /** Confidence multiplier for model-wide Level 2 fallback (default: 0.6) */
+  modelFallbackConfidence: number;
+  /** Confidence multiplier for server-wide Level 3 fallback (default: 0.4) */
+  serverFallbackConfidence: number;
+}
+
+export interface StorageConfig {
+  /** Path to the SQLite database file (default: './data/metrics.db') */
+  dbPath: string;
+  retention: StorageRetentionConfig;
+  performance: StoragePerformanceConfig;
+  temporal: StorageTemporalConfig;
+}
+
 export interface OrchestratorConfig {
   // Server settings
   port: number;
@@ -123,6 +173,7 @@ export interface OrchestratorConfig {
   cooldown: CooldownConfig;
   modelManager: ModelManagerConfig;
   recoveryTest: RecoveryTestConfig;
+  storage: StorageConfig;
 
   // Ollama servers
   servers: ServerConfig[];
@@ -336,6 +387,31 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       large: 20000,
       xl: 40000,
       xxl: 80000,
+    },
+  },
+
+  storage: {
+    dbPath: './data/metrics.db',
+    retention: {
+      requests: 30,
+      decisions: 30,
+      rollups: 90,
+      profiles: 14,
+    },
+    performance: {
+      batchSize: 100,
+      batchFlushIntervalMs: 1000,
+      rollupDeadlineMinutes: 10,
+      profileRebuildIntervalMs: 86_400_000,
+      retentionCheckIntervalMs: 3_600_000,
+    },
+    temporal: {
+      enabled: true,
+      minConfidence: 0.3,
+      maxAdjustment: 2.0,
+      shadowMode: false,
+      modelFallbackConfidence: 0.6,
+      serverFallbackConfidence: 0.4,
     },
   },
 
@@ -748,6 +824,17 @@ export class ConfigManager {
       cooldown: { ...DEFAULT_CONFIG.cooldown, ...partial.cooldown },
       recoveryTest: { ...DEFAULT_CONFIG.recoveryTest, ...partial.recoveryTest },
       modelManager: { ...DEFAULT_CONFIG.modelManager, ...partial.modelManager },
+      storage: partial.storage
+        ? {
+            dbPath: partial.storage.dbPath ?? DEFAULT_CONFIG.storage.dbPath,
+            retention: { ...DEFAULT_CONFIG.storage.retention, ...partial.storage.retention },
+            performance: {
+              ...DEFAULT_CONFIG.storage.performance,
+              ...partial.storage.performance,
+            },
+            temporal: { ...DEFAULT_CONFIG.storage.temporal, ...partial.storage.temporal },
+          }
+        : DEFAULT_CONFIG.storage,
       servers: partial.servers ?? DEFAULT_CONFIG.servers,
       persistencePath: partial.persistencePath ?? DEFAULT_CONFIG.persistencePath,
       configReloadIntervalMs:
