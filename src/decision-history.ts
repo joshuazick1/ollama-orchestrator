@@ -646,29 +646,12 @@ export class DecisionHistory {
 
   /**
    * Persist events to storage
+   * Phase 4: Data is now persisted in SQLite via MetricsStore
+   * This is a no-op to maintain API compatibility
    */
   persist(): Promise<void> {
-    if (this.config.persistenceEnabled) {
-      try {
-        // Save events
-        const data = {
-          timestamp: Date.now(),
-          events: this.events,
-        };
-
-        const success = this.fileHandler?.write(data);
-
-        if (!success) {
-          logger.error('Failed to persist decision history');
-        } else {
-          logger.debug('Decision history persisted', { eventCount: this.events.length });
-        }
-        return Promise.resolve();
-      } catch (error) {
-        logger.error('Failed to persist decision history:', { error });
-        return Promise.resolve();
-      }
-    }
+    // Data is already persisted in MetricsStore (SQLite)
+    // No need to also persist to JSON
     return Promise.resolve();
   }
 

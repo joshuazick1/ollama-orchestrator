@@ -4270,7 +4270,8 @@ export class AIOrchestrator {
     await getRequestHistory().persist();
 
     // Persist analytics engine data
-    await getAnalyticsEngine().persist();
+    // Note: AnalyticsEngine now uses MetricsStore for persistence (SQLite)
+    // Only need to persist summary snapshots to JSON
     await getAnalyticsEngine().persistSummary();
 
     // Stop persistence timers

@@ -367,7 +367,6 @@ export function getConfigSchema(req: Request, res: Response): void {
           enabled: { type: 'boolean', default: true },
           prometheusEnabled: { type: 'boolean', default: true },
           prometheusPort: { type: 'integer', minimum: 1, maximum: 65535, default: 9090 },
-          historyWindowMinutes: { type: 'integer', minimum: 1, default: 60 },
         },
       },
       streaming: {

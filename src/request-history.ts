@@ -653,31 +653,12 @@ export class RequestHistory {
 
   /**
    * Persist requests to storage
+   * Phase 4: Data is now persisted in SQLite via MetricsStore
+   * This is a no-op to maintain API compatibility
    */
   persist(): Promise<void> {
-    this.pruneOldRequests();
-
-    if (this.config.enablePersistence) {
-      try {
-        // Convert Map to object for serialization
-        const data = {
-          timestamp: Date.now(),
-          requests: Object.fromEntries(this.requests),
-        };
-
-        const success = this.fileHandler?.write(data);
-
-        if (!success) {
-          logger.error('Failed to persist request history');
-        } else {
-          logger.debug('Request history persisted', { serverCount: this.requests.size });
-        }
-        return Promise.resolve();
-      } catch (error) {
-        logger.error('Failed to persist request history:', { error });
-        return Promise.resolve();
-      }
-    }
+    // Data is already persisted in MetricsStore (SQLite)
+    // No need to also persist to JSON
     return Promise.resolve();
   }
 

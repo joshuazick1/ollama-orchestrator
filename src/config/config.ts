@@ -39,7 +39,6 @@ export interface MetricsConfig {
   enabled: boolean;
   prometheusEnabled: boolean;
   prometheusPort: number;
-  historyWindowMinutes: number;
   decay: MetricsDecayConfig;
 }
 
@@ -313,7 +312,6 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     enabled: true,
     prometheusEnabled: true,
     prometheusPort: 9090,
-    historyWindowMinutes: 60,
     decay: {
       enabled: true,
       halfLifeMs: 300000, // 5 minutes

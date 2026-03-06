@@ -100,21 +100,6 @@ export interface TrendAnalysis {
 }
 
 /**
- * Shape of the persisted analytics engine JSON file
- */
-interface PersistedAnalyticsData {
-  timestamp: number;
-  requestHistory: RequestContext[];
-  errorHistory: Array<{
-    timestamp: number;
-    serverId: string;
-    model: string;
-    errorType: string;
-    message: string;
-  }>;
-}
-
-/**
  * Hourly summary snapshot for long-term trend analysis (REC-33)
  */
 export interface MetricsSummarySnapshot {
@@ -153,9 +138,6 @@ export class AnalyticsEngine {
     message: string;
   }> = [];
   private maxHistorySize = 10000;
-  private persistenceTimer?: NodeJS.Timeout;
-  private fileHandler: JsonFileHandler;
-  private readonly persistenceIntervalMs = 60000; // 60 seconds
   private readonly retentionMs = 24 * 60 * 60 * 1000; // 24 hours
 
   // REC-33: Hourly summary snapshots for long-term trends
@@ -166,19 +148,15 @@ export class AnalyticsEngine {
   private readonly summaryRetentionMs = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   constructor() {
-    const filePath = path.join(process.cwd(), 'data', 'analytics-engine.json');
-    this.fileHandler = new JsonFileHandler(filePath, {
-      createBackups: true,
-      maxBackups: 3,
-    });
+    // Phase 4: Data is now persisted in SQLite via MetricsStore
+    // No need to load from JSON file
+    // Keep in-memory arrays for hot-path access within current session
     const summaryFilePath = path.join(process.cwd(), 'data', 'metrics-summary.json');
     this.summaryFileHandler = new JsonFileHandler(summaryFilePath, {
       createBackups: true,
       maxBackups: 3,
     });
-    this.loadFromDisk();
     this.loadSummaryFromDisk();
-    this.startPersistence();
     this.startSummaryTimer();
   }
 
@@ -1109,89 +1087,10 @@ export class AnalyticsEngine {
     };
   }
 
-  // ==========================================
-  // Persistence Methods
-  // ==========================================
-
-  /**
-   * Start periodic persistence (every 60s)
-   */
-  private startPersistence(): void {
-    this.persistenceTimer = setInterval(() => {
-      void this.persist();
-    }, this.persistenceIntervalMs);
-  }
-
-  /**
-   * Persist analytics data to disk (public for explicit flush on shutdown)
-   */
-  persist(): Promise<void> {
-    this.pruneOldData();
-    try {
-      const data: PersistedAnalyticsData = {
-        timestamp: Date.now(),
-        requestHistory: this.requestHistory,
-        errorHistory: this.errorHistory,
-      };
-      const success = this.fileHandler.write(data);
-      if (!success) {
-        logger.error('Failed to persist analytics engine data');
-      } else {
-        logger.debug('Analytics engine data persisted', {
-          requestCount: this.requestHistory.length,
-          errorCount: this.errorHistory.length,
-        });
-      }
-    } catch (error) {
-      logger.error('Failed to persist analytics engine data:', { error });
-    }
-    return Promise.resolve();
-  }
-
-  /**
-   * Load analytics data from disk (called in constructor)
-   */
-  private loadFromDisk(): void {
-    try {
-      const data = this.fileHandler.read<PersistedAnalyticsData>();
-      if (data) {
-        if (Array.isArray(data.requestHistory)) {
-          this.requestHistory = data.requestHistory;
-        }
-        if (Array.isArray(data.errorHistory)) {
-          this.errorHistory = data.errorHistory;
-        }
-        // Prune stale data on load (24h retention)
-        this.pruneOldData();
-        logger.info('Analytics engine data loaded from disk', {
-          requestCount: this.requestHistory.length,
-          errorCount: this.errorHistory.length,
-        });
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        logger.error('Failed to load analytics engine data:', { error });
-      }
-    }
-  }
-
-  /**
-   * Prune data older than retentionMs (24h)
-   */
-  private pruneOldData(): void {
-    const cutoff = Date.now() - this.retentionMs;
-    this.requestHistory = this.requestHistory.filter(r => r.startTime >= cutoff);
-    this.errorHistory = this.errorHistory.filter(e => e.timestamp >= cutoff);
-  }
-
   /**
    * Stop periodic persistence timer
    */
   stop(): void {
-    if (this.persistenceTimer) {
-      clearInterval(this.persistenceTimer);
-      this.persistenceTimer = undefined;
-    }
     if (this.summaryTimer) {
       clearInterval(this.summaryTimer);
       this.summaryTimer = undefined;

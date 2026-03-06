@@ -52,7 +52,6 @@ export const metricsConfigSchema = z.object({
   enabled: z.boolean().default(true),
   prometheusEnabled: z.boolean().default(true),
   prometheusPort: z.number().int().min(1).max(65535).default(9090),
-  historyWindowMinutes: z.number().int().min(1).default(60),
   decay: metricsDecayConfigSchema,
 });
 

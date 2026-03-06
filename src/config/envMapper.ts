@@ -66,7 +66,6 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_METRICS_ENABLED: 'metrics.enabled',
   ORCHESTRATOR_METRICS_PROMETHEUS_ENABLED: 'metrics.prometheusEnabled',
   ORCHESTRATOR_METRICS_PROMETHEUS_PORT: 'metrics.prometheusPort',
-  ORCHESTRATOR_METRICS_HISTORY_WINDOW: 'metrics.historyWindowMinutes',
 
   // Streaming settings
   ORCHESTRATOR_STREAMING_ENABLED: 'streaming.enabled',
