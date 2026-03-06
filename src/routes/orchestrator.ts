@@ -27,6 +27,8 @@ import {
   getHourlyRollups,
   getDailyRollups,
   browseRequests,
+  getTemporalProfile,
+  getTemporalAdjustment,
 } from '../controllers/analyticsController.js';
 import { resetBreaker, getBreakerDetails } from '../controllers/circuitBreakerController.js';
 import {
@@ -201,6 +203,10 @@ monitoringRouter.get('/analytics/request-timeline', getRequestTimeline);
 monitoringRouter.get('/analytics/rollups/hourly', getHourlyRollups);
 monitoringRouter.get('/analytics/rollups/daily', getDailyRollups);
 monitoringRouter.get('/analytics/requests/browse', browseRequests);
+
+// Phase 3: Temporal scoring endpoints
+monitoringRouter.get('/analytics/temporal-profile', getTemporalProfile);
+monitoringRouter.get('/analytics/temporal-adjustment', getTemporalAdjustment);
 
 // === Admin Routes (more restrictive rate limiting) ===
 

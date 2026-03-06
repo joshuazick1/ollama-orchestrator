@@ -46,6 +46,8 @@ describe('Weighted Selection Algorithms Tests', () => {
           circuitBreaker: 0.0,
           timeout: 0.0,
           throughput: 0.0,
+          vram: 0.0,
+          temporal: 0.0,
         },
       });
       expect(lb).toBeDefined();
@@ -336,6 +338,8 @@ describe('Weighted Selection Algorithms Tests', () => {
           circuitBreaker: 0.0,
           timeout: 0.0,
           throughput: 0.0,
+          vram: 0.0,
+          temporal: 0.0,
         },
       });
       expect(loadBalancer.getAlgorithm()).toBeDefined();
@@ -524,7 +528,8 @@ describe('Weighted Selection Algorithms Tests', () => {
       };
 
       const score = calculateServerScore(server, 'llama3:latest', 0, 0, undefined);
-      expect(score.breakdown.throughputScore).toBe(0);
+      // Fix §6.4: throughput cold-start penalty - default to 50 (neutral) instead of 0
+      expect(score.breakdown.throughputScore).toBe(50);
     });
   });
 });

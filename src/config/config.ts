@@ -197,14 +197,15 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
 
   loadBalancer: {
     weights: {
-      latency: 0.2,
-      successRate: 0.2,
-      load: 0.2,
-      capacity: 0.05, // Reduced from 0.1 to make room for VRAM weight (REC-29)
-      circuitBreaker: 0.15,
+      latency: 0.18,
+      successRate: 0.18,
+      load: 0.18,
+      capacity: 0.05,
+      circuitBreaker: 0.13,
       timeout: 0.05,
-      throughput: 0.1, // REC-28: token throughput tokens/sec
-      vram: 0.05, // REC-29: VRAM availability bonus
+      throughput: 0.08,
+      vram: 0.05,
+      temporal: 0.1, // Phase 3: temporal scoring adjustment
     },
     thresholds: {
       maxP95Latency: 5000,

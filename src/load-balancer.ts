@@ -3,6 +3,7 @@
  * Intelligent load balancing using historical metrics
  */
 
+import { getTemporalScorer, type TemporalAdjustment } from './load-balancer/temporal-scorer.js';
 import type { AIServer, ServerModelMetrics } from './orchestrator.types.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { logger } from './utils/logger.js';
@@ -31,8 +32,10 @@ export interface ServerScore {
     timeoutScore: number;
     throughputScore: number;
     vramScore: number;
+    temporalScore?: number;
   };
   metrics?: ServerModelMetrics;
+  temporalAdjustment?: TemporalAdjustment;
 }
 
 /**
@@ -40,14 +43,15 @@ export interface ServerScore {
  */
 export interface LoadBalancerConfig {
   weights: {
-    latency: number; // Weight for P95 latency (default: 0.20)
-    successRate: number; // Weight for success rate (default: 0.20)
-    load: number; // Weight for current load (default: 0.20)
-    capacity: number; // Weight for available capacity (default: 0.10)
-    circuitBreaker: number; // Weight for circuit breaker health (default: 0.15)
+    latency: number; // Weight for P95 latency (default: 0.18)
+    successRate: number; // Weight for success rate (default: 0.18)
+    load: number; // Weight for current load (default: 0.18)
+    capacity: number; // Weight for available capacity (default: 0.05)
+    circuitBreaker: number; // Weight for circuit breaker health (default: 0.13)
     timeout: number; // Weight for timeout penalty (default: 0.05)
-    throughput: number; // Weight for token throughput tokens/sec (default: 0.10)
+    throughput: number; // Weight for token throughput tokens/sec (default: 0.08)
     vram: number; // Weight for VRAM availability (default: 0.05)
+    temporal: number; // Weight for temporal scoring (default: 0.10)
   };
   thresholds: {
     maxP95Latency: number; // Max acceptable P95 in ms (default: 5000)
@@ -102,14 +106,15 @@ export interface LoadBalancerConfig {
  */
 export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
   weights: {
-    latency: 0.2,
-    successRate: 0.2,
-    load: 0.2,
-    capacity: 0.05, // Reduced from 0.1 to make room for VRAM weight (REC-29)
-    circuitBreaker: 0.15, // Reduced from 0.2 to make room for throughput weight
+    latency: 0.18,
+    successRate: 0.18,
+    load: 0.18,
+    capacity: 0.05,
+    circuitBreaker: 0.13,
     timeout: 0.05,
-    throughput: 0.1, // REC-28: token throughput tokens/sec
-    vram: 0.05, // REC-29: VRAM availability bonus
+    throughput: 0.08,
+    vram: 0.05,
+    temporal: 0.1, // Phase 3: temporal scoring adjustment
   },
   thresholds: {
     maxP95Latency: 5000,
@@ -183,13 +188,9 @@ export function calculateServerScore(
     }
 
     // Success rate score: higher is better
-    // Normalize: 100% = 100, 0% = 0
-    successRateScore = metrics.successRate * 100;
-
-    // Penalize low success rate
-    if (metrics.successRate < config.thresholds.minSuccessRate) {
-      successRateScore *= config.thresholds.errorPenalty;
-    }
+    // Fix §6.4: smooth curve instead of cliff at 95%
+    // Use score = 100 * successRate^3 for smooth falloff
+    successRateScore = metrics.successRate * 100 * Math.pow(metrics.successRate, 2);
   } else {
     // Fallback to lastResponseTime if no historical metrics
     const responseTime = server.lastResponseTime || config.defaultLatencyMs;
@@ -203,7 +204,8 @@ export function calculateServerScore(
 
   // Capacity score: more available capacity is better
   // Normalize: maxConcurrency = 100, 0 = 0
-  const capacityScore = (availableCapacity / maxConcurrency) * 100;
+  // Fix §6.4: capacity can go negative - clamp to 0
+  const capacityScore = Math.max(0, (availableCapacity / maxConcurrency) * 100);
 
   // Circuit breaker score: heavily penalize open/half-open circuits
   // closed = 100, half-open = 20 (unstable), open = 5 (broken)
@@ -225,7 +227,8 @@ export function calculateServerScore(
 
   // REC-28: Throughput score: higher tokens/sec is better
   // Normalize: 0 t/s = 0, 50 t/s = 100 (capped)
-  const throughputScore = metrics ? Math.min(100, (metrics.avgTokensPerSecond / 50) * 100) : 0;
+  // Fix §6.4: throughput cold-start penalty - default to 50 (neutral) instead of 0
+  let throughputScore = metrics ? Math.min(100, (metrics.avgTokensPerSecond / 50) * 100) : 50;
 
   // REC-29: VRAM score: prefer servers with enough free VRAM to hold the model
   // Uses loadedModels sizeVram to estimate model size; falls back to neutral 50 if unknown.
@@ -257,7 +260,44 @@ export function calculateServerScore(
     }
   }
 
-  // Calculate weighted total score
+  // Phase 3: Temporal scoring - get temporal adjustment if enabled
+  const temporalScorer = getTemporalScorer();
+  let temporalAdjustment: TemporalAdjustment | undefined;
+  let temporalScore = 100; // Default neutral score
+
+  if (temporalScorer.isEnabled()) {
+    temporalAdjustment = temporalScorer.getAdjustment(server.id, model);
+
+    // Apply temporal latency multiplier to latency score
+    if (temporalAdjustment.confidence >= 0.3) {
+      latencyScore = latencyScore / temporalAdjustment.latencyMultiplier;
+
+      // Also adjust throughput based on temporal expectation
+      throughputScore = throughputScore * temporalAdjustment.throughputMultiplier;
+    }
+
+    // Calculate temporal sub-score (higher is better when server is expected to perform well at this time)
+    // 1.0 multiplier = 100 score, 0.5 multiplier = 50 score
+    if (!temporalScorer.isShadowMode() && temporalAdjustment.confidence >= 0.3) {
+      temporalScore =
+        (100 / temporalAdjustment.latencyMultiplier) * temporalAdjustment.successRateMultiplier;
+    }
+
+    // Log temporal adjustment in debug mode
+    if (temporalAdjustment.confidence > 0) {
+      logger.debug('Temporal adjustment applied', {
+        serverId: server.id,
+        model,
+        confidence: temporalAdjustment.confidence,
+        latencyMult: temporalAdjustment.latencyMultiplier,
+        throughputMult: temporalAdjustment.throughputMultiplier,
+        reason: temporalAdjustment.reason,
+        shadowMode: temporalScorer.isShadowMode(),
+      });
+    }
+  }
+
+  // Calculate weighted total score (Phase 3: includes temporal weight)
   const totalScore =
     latencyScore * config.weights.latency +
     successRateScore * config.weights.successRate +
@@ -266,7 +306,8 @@ export function calculateServerScore(
     circuitBreakerScore * config.weights.circuitBreaker +
     timeoutScore * config.weights.timeout +
     throughputScore * config.weights.throughput +
-    vramScore * config.weights.vram;
+    vramScore * config.weights.vram +
+    temporalScore * (config.weights.temporal ?? 0);
 
   return {
     server,
@@ -280,8 +321,10 @@ export function calculateServerScore(
       timeoutScore,
       throughputScore,
       vramScore,
+      temporalScore,
     },
     metrics,
+    temporalAdjustment,
   };
 }
 

@@ -972,6 +972,120 @@ export class MetricsStore {
     }
   }
 
+  rebuildTemporalProfiles(): void {
+    const now = Date.now();
+    const cutoff = now - this.config.retention.profiles * 86_400_000;
+
+    try {
+      this.db.transaction(() => {
+        // Clear existing profiles
+        this.db.prepare('DELETE FROM temporal_profiles').run();
+
+        // Build exact profiles (server_id + model)
+        this.db
+          .prepare(
+            `INSERT INTO temporal_profiles (
+              server_id, model, hour_of_day, day_of_week, profile_type,
+              sample_count, total_requests,
+              avg_latency_ms, avg_latency_stddev, p95_latency_ms,
+              success_rate, avg_tokens_per_second, cold_start_rate, avg_ttft_ms,
+              confidence, updated_at
+            )
+            SELECT
+              server_id, model, hour_of_day, day_of_week, 'exact',
+              COUNT(*),
+              SUM(total_requests),
+              AVG(latency_sum * 1.0 / NULLIF(total_requests, 0)),
+              -- Stddev calculation
+              CASE WHEN COUNT(*) > 1 THEN
+                SQRT(AVG(POW(latency_sum * 1.0 / NULLIF(total_requests, 0) - 
+                  AVG(latency_sum * 1.0 / NULLIF(total_requests, 0)) OVER (PARTITION BY server_id, model, hour_of_day, day_of_week), 2)))
+              ELSE NULL END,
+              SUM(latency_p95 * total_requests) / NULLIF(SUM(total_requests), 0),
+              CAST(SUM(successes) AS REAL) / NULLIF(SUM(total_requests), 0),
+              SUM(avg_tokens_per_second * total_requests) / NULLIF(SUM(total_requests), 0),
+              CAST(SUM(cold_starts) AS REAL) / NULLIF(SUM(total_requests), 0),
+              SUM(ttft_sum) / NULLIF(SUM(ttft_count), 0),
+              0,
+              :now
+            FROM hourly_rollups
+            WHERE hour_start >= :cutoff
+            GROUP BY server_id, model, hour_of_day, day_of_week`
+          )
+          .run({ cutoff, now });
+
+        // Build model-wide profiles (server_id = NULL)
+        this.db
+          .prepare(
+            `INSERT INTO temporal_profiles (
+              server_id, model, hour_of_day, day_of_week, profile_type,
+              sample_count, total_requests,
+              avg_latency_ms, avg_latency_stddev, p95_latency_ms,
+              success_rate, avg_tokens_per_second, cold_start_rate, avg_ttft_ms,
+              confidence, updated_at
+            )
+            SELECT
+              NULL, model, hour_of_day, day_of_week, 'model',
+              COUNT(*),
+              SUM(total_requests),
+              SUM(latency_sum) * 1.0 / NULLIF(SUM(total_requests), 0),
+              NULL,
+              SUM(latency_p95 * total_requests) / NULLIF(SUM(total_requests), 0),
+              CAST(SUM(successes) AS REAL) / NULLIF(SUM(total_requests), 0),
+              SUM(avg_tokens_per_second * total_requests) / NULLIF(SUM(total_requests), 0),
+              CAST(SUM(cold_starts) AS REAL) / NULLIF(SUM(total_requests), 0),
+              SUM(ttft_sum) / NULLIF(SUM(ttft_count), 0),
+              0,
+              :now
+            FROM hourly_rollups
+            WHERE hour_start >= :cutoff
+            GROUP BY model, hour_of_day, day_of_week`
+          )
+          .run({ cutoff, now });
+
+        // Build server-wide profiles (model = NULL)
+        this.db
+          .prepare(
+            `INSERT INTO temporal_profiles (
+              server_id, model, hour_of_day, day_of_week, profile_type,
+              sample_count, total_requests,
+              avg_latency_ms, avg_latency_stddev, p95_latency_ms,
+              success_rate, avg_tokens_per_second, cold_start_rate, avg_ttft_ms,
+              confidence, updated_at
+            )
+            SELECT
+              server_id, NULL, hour_of_day, day_of_week, 'server',
+              COUNT(*),
+              SUM(total_requests),
+              SUM(latency_sum) * 1.0 / NULLIF(SUM(total_requests), 0),
+              NULL,
+              SUM(latency_p95 * total_requests) / NULLIF(SUM(total_requests), 0),
+              CAST(SUM(successes) AS REAL) / NULLIF(SUM(total_requests), 0),
+              SUM(avg_tokens_per_second * total_requests) / NULLIF(SUM(total_requests), 0),
+              CAST(SUM(cold_starts) AS REAL) / NULLIF(SUM(total_requests), 0),
+              SUM(ttft_sum) / NULLIF(SUM(ttft_count), 0),
+              0,
+              :now
+            FROM hourly_rollups
+            WHERE hour_start >= :cutoff
+            GROUP BY server_id, hour_of_day, day_of_week`
+          )
+          .run({ cutoff, now });
+
+        // Compute confidence scores
+        this.db
+          .prepare(
+            `UPDATE temporal_profiles SET confidence = min(1.0, sample_count / 4.0) WHERE sample_count > 0`
+          )
+          .run();
+      })();
+
+      logger.info('[MetricsStore] Temporal profiles rebuilt successfully');
+    } catch (err) {
+      logger.error('[MetricsStore] Temporal profile rebuild failed', { error: err });
+    }
+  }
+
   // ============================================================
   // Internal: Retention pruning
   // ============================================================
@@ -1040,9 +1154,9 @@ export class MetricsStore {
       this.config.performance.retentionCheckIntervalMs
     );
 
-    // Profile rebuild (phase 3 — no-op in phase 1)
+    // Profile rebuild (phase 3)
     this.profileRebuildTimer = setInterval(() => {
-      /* Phase 3: this.rebuildTemporalProfiles() */
+      this.rebuildTemporalProfiles();
     }, this.config.performance.profileRebuildIntervalMs);
 
     // Hourly rollup scheduling: check once per minute whether a new hour

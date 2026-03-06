@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 
 import type { AnalyticsTimeRange } from '../analytics/analytics-engine.js';
 import { getAnalyticsEngine } from '../analytics-instance.js';
+import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 
@@ -780,6 +781,114 @@ export function browseRequests(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to browse requests',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get temporal profile for a server:model
+ * GET /api/orchestrator/analytics/temporal-profile
+ * Query params: serverId, model
+ */
+export function getTemporalProfile(req: Request, res: Response): void {
+  const { serverId, model } = req.query;
+
+  if (!serverId || !model) {
+    res.status(400).json({
+      error: 'serverId and model are required',
+    });
+    return;
+  }
+
+  try {
+    const store = getMetricsStore();
+    const profiles = store.getTemporalProfiles(serverId as string, model as string);
+
+    // Format as 7x24 grid
+    const grid: Record<string, Record<number, unknown>> = {};
+    for (const profile of profiles) {
+      const dayStr = profile.day_of_week.toString();
+      if (!grid[dayStr]) {
+        grid[dayStr] = {};
+      }
+      grid[dayStr][profile.hour_of_day] = {
+        avgLatencyMs: profile.avg_latency_ms,
+        successRate: profile.success_rate,
+        avgTokensPerSecond: profile.avg_tokens_per_second,
+        sampleCount: profile.sample_count,
+        confidence: profile.confidence,
+      };
+    }
+
+    res.status(200).json({
+      success: true,
+      serverId,
+      model,
+      grid,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get temporal profile',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get temporal adjustments for multiple servers
+ * GET /api/orchestrator/analytics/temporal-adjustment
+ * Query params: model, serverIds (comma-separated)
+ */
+export function getTemporalAdjustment(req: Request, res: Response): void {
+  const { model, serverIds } = req.query;
+
+  if (!model || !serverIds) {
+    res.status(400).json({
+      error: 'model and serverIds are required',
+    });
+    return;
+  }
+
+  const serverIdList = (serverIds as string)
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (serverIdList.length === 0) {
+    res.status(400).json({
+      error: 'At least one serverId is required',
+    });
+    return;
+  }
+
+  try {
+    const scorer = getTemporalScorer();
+    const adjustments = scorer.getComparativeAdjustments(model as string, serverIdList);
+
+    const result: Record<string, unknown> = {};
+    for (const [serverId, adj] of adjustments) {
+      result[serverId] = {
+        latencyMultiplier: adj.latencyMultiplier,
+        successRateMultiplier: adj.successRateMultiplier,
+        throughputMultiplier: adj.throughputMultiplier,
+        confidence: adj.confidence,
+        reason: adj.reason,
+      };
+    }
+
+    res.status(200).json({
+      success: true,
+      model,
+      adjustments: result,
+      config: {
+        enabled: scorer.isEnabled(),
+        shadowMode: scorer.isShadowMode(),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get temporal adjustments',
       details: error instanceof Error ? error.message : String(error),
     });
   }
