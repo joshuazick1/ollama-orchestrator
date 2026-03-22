@@ -15,6 +15,7 @@ import { featureFlags } from './config/feature-flags.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
+import { calculateActiveTestTimeout } from './utils/recovery-backoff.js';
 import { Timer } from './utils/timer.js';
 
 interface ServerTestState {
@@ -117,6 +118,12 @@ export class RecoveryTestCoordinator {
   private readonly MAX_METRICS = 1000;
   /** Set of server IDs currently under test in EITHER entry path (REC-13) */
   private activeServers = new Set<string>();
+  /** Provider for adaptive timeout per server:model */
+  private getTimeout?: (serverId: string, model: string) => number;
+  /** Callback to record timeout failure and escalate timeout */
+  private recordTimeoutFailure?: (serverId: string, model: string) => void;
+  /** Track test attempts per breaker for progressive timeout doubling */
+  private breakerTestAttempts = new Map<string, number>();
 
   constructor(config: Partial<TestCoordinatorConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -214,6 +221,48 @@ export class RecoveryTestCoordinator {
   setDecrementInFlight(decrement: (serverId: string, model: string) => void): void {
     this.decrementInFlight = decrement;
     logger.debug('RecoveryTestCoordinator: setDecrementInFlight configured');
+  }
+
+  /**
+   * Set the adaptive timeout provider function
+   * This returns the current adaptive timeout for a server:model pair
+   */
+  setGetTimeout(getTimeout: (serverId: string, model: string) => number): void {
+    this.getTimeout = getTimeout;
+    logger.debug('RecoveryTestCoordinator: setGetTimeout configured');
+  }
+
+  /**
+   * Set the record timeout failure callback
+   * Called when an active test times out to escalate the adaptive timeout
+   */
+  setRecordTimeoutFailure(callback: (serverId: string, model: string) => void): void {
+    this.recordTimeoutFailure = callback;
+    logger.debug('RecoveryTestCoordinator: setRecordTimeoutFailure configured');
+  }
+
+  /**
+   * Get the current test attempt count for a breaker
+   */
+  private getBreakerTestAttempt(breakerName: string): number {
+    return this.breakerTestAttempts.get(breakerName) || 0;
+  }
+
+  /**
+   * Increment and get the test attempt count for a breaker
+   */
+  private incrementBreakerTestAttempt(breakerName: string): number {
+    const current = this.getBreakerTestAttempt(breakerName);
+    const next = current + 1;
+    this.breakerTestAttempts.set(breakerName, next);
+    return next;
+  }
+
+  /**
+   * Reset the test attempt count for a breaker (call on success)
+   */
+  resetBreakerTestAttempt(breakerName: string): void {
+    this.breakerTestAttempts.delete(breakerName);
   }
 
   /**
@@ -994,6 +1043,33 @@ export class RecoveryTestCoordinator {
         continue;
       }
 
+      // Calculate progressive timeout for this test attempt
+      const testAttempt = this.getBreakerTestAttempt(breakerName);
+      const adaptiveTimeout =
+        model && this.getTimeout
+          ? this.getTimeout(serverId, model)
+          : this.config.modelTestTimeoutMs;
+      const progressiveTimeout = calculateActiveTestTimeout(
+        testAttempt,
+        this.config.modelTestTimeoutMs,
+        undefined,
+        undefined
+      );
+      // Ensure test waits at least as long as the adaptive timeout for real requests
+      const calculatedTimeout = Math.max(
+        progressiveTimeout,
+        adaptiveTimeout,
+        this.config.modelTestTimeoutMs
+      );
+
+      logger.debug(`Active test timeout calculation for ${breakerName}`, {
+        testAttempt,
+        adaptiveTimeout,
+        progressiveTimeout,
+        calculatedTimeout,
+        fixedTimeout: this.config.modelTestTimeoutMs,
+      });
+
       // Create abort controller for this test
       const controller = new AbortController();
       this.abortControllers.set(breakerName, controller);
@@ -1009,7 +1085,8 @@ export class RecoveryTestCoordinator {
             breaker,
             serverId,
             model,
-            controller.signal
+            controller.signal,
+            calculatedTimeout
           );
         } else {
           success = await this.performServerLevelTestWithAbort(breaker, controller.signal);
@@ -1040,8 +1117,10 @@ export class RecoveryTestCoordinator {
         // Update circuit breaker state
         if (success) {
           breaker.recordSuccess();
+          this.resetBreakerTestAttempt(breakerName);
         } else {
           breaker.recordFailure(new Error('Active test failed'), 'transient');
+          this.incrementBreakerTestAttempt(breakerName);
         }
       } catch (error) {
         const duration = timer.elapsed();
@@ -1071,6 +1150,12 @@ export class RecoveryTestCoordinator {
         });
 
         breaker.recordFailure(new Error(errorMsg), 'transient');
+        this.incrementBreakerTestAttempt(breakerName);
+
+        // If test timed out, record failure to escalate adaptive timeout
+        if (isTimeout && model && this.recordTimeoutFailure) {
+          this.recordTimeoutFailure(serverId, model);
+        }
       } finally {
         this.abortControllers.delete(breakerName);
       }
@@ -1118,14 +1203,17 @@ export class RecoveryTestCoordinator {
 
   /**
    * Model-level test with abort support
+   * @param timeoutMs - Calculated timeout (may be adaptive/progressive). Falls back to config if not provided.
    */
   private async performModelLevelTestWithAbort(
     breaker: CircuitBreaker,
     serverId: string,
     modelName: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    timeoutMs?: number
   ): Promise<boolean> {
     const breakerName = (breaker as any).name || 'unknown';
+    const effectiveTimeout = timeoutMs ?? this.config.modelTestTimeoutMs;
 
     try {
       const serverUrl = this.getServerUrl(serverId);
@@ -1146,11 +1234,17 @@ export class RecoveryTestCoordinator {
             options: { num_predict: 1, temperature: 0 },
           };
 
+      logger.debug(`Model-level test starting for ${breakerName}`, {
+        timeout: effectiveTimeout,
+        serverId,
+        model: modelName,
+      });
+
       const response = await fetchWithTimeout(`${serverUrl}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: safeJsonStringify(body),
-        timeout: this.config.modelTestTimeoutMs,
+        timeout: effectiveTimeout,
         signal,
       });
 

@@ -3341,6 +3341,15 @@ export class AIOrchestrator {
       coordinator.setDecrementInFlight((serverId: string, model: string) => {
         this.decrementInFlight(serverId, model, true); // Active tests bypass circuit breaker
       });
+      coordinator.setGetTimeout((serverId: string, model: string) => {
+        return this.timeoutManager.getTimeout(serverId, model);
+      });
+      coordinator.setRecordTimeoutFailure((serverId: string, model: string) => {
+        this.timeoutManager.recordFailure(serverId, model, 'timeout');
+        logger.info(
+          `Active test timeout: escalated timeout for ${serverId}:${model} to ${this.timeoutManager.getTimeout(serverId, model)}ms`
+        );
+      });
 
       logger.info('Orchestrator: Recovery test coordinator callbacks have been set up');
 
