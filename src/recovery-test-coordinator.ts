@@ -1060,18 +1060,28 @@ export class RecoveryTestCoordinator {
         model && this.getTimeout
           ? this.getTimeout(serverId, model)
           : this.config.modelTestTimeoutMs;
+
+      // Scale base timeout with prompt size
+      // Base timeout is designed for 256 tokens; scale proportionally
+      const baseTokens = 256;
+      const promptTokens = this.config.testPromptTokens || baseTokens;
+      const promptScaleFactor = Math.max(1, promptTokens / baseTokens);
+
+      // Apply prompt scaling: larger prompts get proportionally more time
+      // but cap at 2x to avoid excessive waits
+      const scaledBaseTimeout = Math.min(
+        this.config.modelTestTimeoutMs * 2,
+        this.config.modelTestTimeoutMs * promptScaleFactor
+      );
+
       const progressiveTimeout = calculateActiveTestTimeout(
         testAttempt,
-        this.config.modelTestTimeoutMs,
+        scaledBaseTimeout,
         undefined,
         undefined
       );
       // Ensure test waits at least as long as the adaptive timeout for real requests
-      const calculatedTimeout = Math.max(
-        progressiveTimeout,
-        adaptiveTimeout,
-        this.config.modelTestTimeoutMs
-      );
+      const calculatedTimeout = Math.max(progressiveTimeout, adaptiveTimeout, scaledBaseTimeout);
 
       logger.debug(`Active test timeout calculation for ${breakerName}`, {
         testAttempt,
