@@ -52,6 +52,7 @@ import { InFlightManager, getInFlightManager } from './utils/in-flight-manager.j
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { ModelAggregator } from './utils/model-aggregator.js';
+import { canHandleContext, getDefaultContextSize } from './utils/prompt-estimator.js';
 import { TimeoutManager } from './utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
 
@@ -1361,6 +1362,40 @@ export class AIOrchestrator {
   }
 
   /**
+   * Check if a server can handle a prompt of the given size for a model.
+   * Returns true if the server's context limit for the model is sufficient,
+   * or if no context limit is known (assumes it might work).
+   */
+  canServerHandleContext(server: AIServer, model: string, estimatedTokens: number): boolean {
+    const contextLimit = server.modelContextLimits?.[model];
+    return canHandleContext(contextLimit, estimatedTokens, model);
+  }
+
+  /**
+   * Get the context limit for a model on a server.
+   * Returns the configured limit, or the default for that model family if not set.
+   */
+  getModelContextLimit(server: AIServer, model: string): number {
+    return server.modelContextLimits?.[model] ?? getDefaultContextSize(model);
+  }
+
+  /**
+   * Update the context limit for a model on a server.
+   * Called when we learn the context limit from /api/show or configure it manually.
+   */
+  setModelContextLimit(serverId: string, model: string, contextLimit: number): void {
+    const server = this.servers.find(s => s.id === serverId);
+    if (server) {
+      if (!server.modelContextLimits) {
+        server.modelContextLimits = {};
+      }
+      server.modelContextLimits[model] = contextLimit;
+      server.contextLimitsFetchedAt = Date.now();
+      logger.debug(`Set context limit for ${serverId}:${model} to ${contextLimit}`);
+    }
+  }
+
+  /**
    * Find the best server for a given model using historical metrics
    */
   getBestServerForModel(model: string, isStreaming: boolean = false): AIServer | undefined {
@@ -1576,7 +1611,8 @@ export class AIOrchestrator {
     endpoint: 'generate' | 'embeddings' = 'generate',
     requiredCapability?: 'ollama' | 'openai',
     routingContext?: RoutingContext,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    estimatedPromptTokens?: number
   ): Promise<T> {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
     const routingStartTime = Date.now();
@@ -1605,6 +1641,18 @@ export class AIOrchestrator {
       const resolvedModel = this.resolveModelName(model, availableModels);
       if (!resolvedModel) {
         return false;
+      }
+
+      // Context limit filtering: skip servers that can't handle the prompt size
+      // Only applies when we have an estimated prompt size and it's non-trivial
+      if (estimatedPromptTokens !== undefined && estimatedPromptTokens > 100) {
+        if (!this.canServerHandleContext(s, model, estimatedPromptTokens)) {
+          const contextLimit = this.getModelContextLimit(s, model);
+          logger.debug(
+            `Skipping server ${s.id} for ${model}: context limit ${contextLimit} < ${estimatedPromptTokens} tokens`
+          );
+          return false;
+        }
       }
 
       return (

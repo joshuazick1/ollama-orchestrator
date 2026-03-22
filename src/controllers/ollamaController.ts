@@ -23,6 +23,7 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 import { performStreamHandoff } from '../utils/stream-handoff.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
@@ -548,7 +549,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       useStreaming,
       'generate',
       'ollama',
-      routingContext
+      routingContext,
+      undefined,
+      estimatePromptTokens(prompt || '')
     );
 
     // Only send JSON response if not streaming
@@ -987,7 +990,9 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       useStreaming,
       'generate',
       'ollama',
-      routingContext
+      routingContext,
+      undefined,
+      estimateChatTokens((messages || []) as Array<{ role?: string; content?: string }>)
     );
 
     // Only send JSON response if not streaming
@@ -1091,7 +1096,9 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
       false,
       'embeddings',
       'ollama',
-      routingContext
+      routingContext,
+      undefined,
+      estimatePromptTokens(prompt || '')
     );
 
     // Send response with optional debug info (?debug=true or X-Include-Debug-Info: true)
@@ -1194,43 +1201,87 @@ export function handleVersion(req: Request, res: Response): void {
  * Handle /api/show - Show model info by proxying to backend server
  */
 export async function handleShow(req: Request, res: Response): Promise<void> {
+  const body = req.body as ShowRequestBody;
+  const { model } = body;
+  if (!model) {
+    res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
+    return;
+  }
+
+  const orchestrator = getOrchestratorInstance();
+  const routingContext: RoutingContext = {};
+
   try {
-    const body = req.body as ShowRequestBody;
-    const { model } = body;
-    if (!model) {
-      res.status(400).json({ error: ERROR_MESSAGES.MODEL_REQUIRED });
-      return;
+    const result = await orchestrator.tryRequestWithFailover(
+      model,
+      async (server, _context) => {
+        const timeout = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
+        const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.SHOW}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: safeJsonStringify(body),
+          timeout,
+        });
+
+        if (!response.ok) {
+          const errorMessage = await parseOllamaError(response);
+          throw new Error(errorMessage);
+        }
+
+        return (await response.json()) as Record<string, unknown>;
+      },
+      false,
+      'generate',
+      'ollama',
+      routingContext
+    );
+
+    const includeDebug = isDebugRequested(req);
+    if (includeDebug) {
+      const debugInfo = getDebugInfo(routingContext);
+      if (debugInfo && typeof result === 'object' && result !== null) {
+        (result as Record<string, unknown>).debug = debugInfo;
+        setDebugResponseHeaders(res, debugInfo);
+      }
     }
 
-    const orchestrator = getOrchestratorInstance();
-
-    // Find a server that has this model
-    const server = orchestrator.getBestServerForModel(model);
-    if (!server) {
-      res.status(404).json({
-        error: `model '${model}' not found on any healthy server`,
-      });
-      return;
-    }
-
-    // Forward the request to the selected server
-    const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.SHOW}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: safeJsonStringify(body),
-    });
-
-    if (!response.ok) {
-      const error = await parseOllamaError(response);
-      res.status(response.status).json({ error });
-      return;
-    }
-
-    const data = (await response.json()) as Record<string, unknown>;
-    res.json(data);
+    res.json(result);
   } catch (error) {
-    logger.error('Error in handleShow:', error);
-    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+    logger.error('Show request failed:', { error, model });
+
+    if (!res.headersSent) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNoServersError =
+        errorMessage.includes('No') && errorMessage.includes('servers available');
+      const isConcurrencySaturated = errorMessage.includes('at max concurrency');
+
+      const debugPayload = isDebugRequested(req)
+        ? getDebugInfo(routingContext, { lastError: errorMessage })
+        : undefined;
+
+      if (isNoServersError || isConcurrencySaturated) {
+        res.status(503).json({
+          error: isConcurrencySaturated
+            ? 'All servers at max concurrency'
+            : 'No available servers for model',
+          model,
+          message: errorMessage,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (errorMessage.includes('not found')) {
+        // Treat model-not-found as 404
+        res.status(404).json({ error: errorMessage, ...(debugPayload && { debug: debugPayload }) });
+      } else {
+        res.status(500).json({
+          error: 'Show request failed',
+          details: errorMessage,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      }
+    }
   }
 }
 

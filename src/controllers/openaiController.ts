@@ -19,6 +19,7 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 import { performStreamHandoff } from '../utils/stream-handoff.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
@@ -1012,7 +1013,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       stream,
       'generate',
       'openai',
-      routingContext
+      routingContext,
+      undefined,
+      estimateChatTokens(messages as unknown as Array<{ role?: string; content?: string }>)
     );
 
     // Send non-streaming response
@@ -1159,7 +1162,11 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
       stream,
       'generate',
       'openai',
-      routingContext
+      routingContext,
+      undefined,
+      Array.isArray(body.prompt)
+        ? (body.prompt as string[]).reduce((sum, p) => sum + estimatePromptTokens(p), 0)
+        : estimatePromptTokens(body.prompt || '')
     );
 
     if (!stream && result && !result._streamed) {
@@ -1241,7 +1248,11 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       false,
       'embeddings',
       'openai',
-      routingContext
+      routingContext,
+      undefined,
+      Array.isArray(body.input)
+        ? (body.input as string[]).reduce((sum, p) => sum + estimatePromptTokens(p), 0)
+        : estimatePromptTokens(body.input || '')
     );
 
     // Send response with optional debug info (?debug=true or X-Include-Debug-Info: true)

@@ -37,6 +37,11 @@ export interface AIServer {
     loadedModels?: LoadedModel[];
     lastUpdated: Date;
   };
+  // Model context limits (context_window) per model for this server
+  // Can be set via config or learned from /api/show responses
+  modelContextLimits?: Record<string, number>;
+  // Timestamp when context limits were last fetched (for cache invalidation)
+  contextLimitsFetchedAt?: number;
 }
 
 export interface ServerModelBenchmark {

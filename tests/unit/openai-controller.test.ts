@@ -392,7 +392,9 @@ describe('OpenAI Controller', () => {
         false,
         'embeddings',
         'openai',
-        expect.any(Object)
+        expect.any(Object),
+        undefined,
+        expect.any(Number) // estimated tokens
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -807,7 +809,9 @@ describe('OpenAI Controller', () => {
         false,
         'generate',
         'openai',
-        {}
+        {},
+        undefined,
+        expect.any(Number) // estimated tokens
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -1203,7 +1207,9 @@ describe('OpenAI Controller', () => {
         false,
         'generate',
         'openai',
-        {}
+        {},
+        undefined,
+        expect.any(Number) // estimated tokens
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
