@@ -824,7 +824,10 @@ export class AIOrchestrator {
   /**
    * Update server configuration
    */
-  updateServer(serverId: string, updates: Partial<Pick<AIServer, 'maxConcurrency'>>): boolean {
+  updateServer(
+    serverId: string,
+    updates: Partial<Pick<AIServer, 'maxConcurrency' | 'modelContextLimits'>>
+  ): boolean {
     const server = this.servers.find(s => s.id === serverId);
     if (!server) {
       return false;
@@ -833,6 +836,12 @@ export class AIOrchestrator {
     if (typeof updates.maxConcurrency === 'number') {
       server.maxConcurrency = updates.maxConcurrency;
       logger.info(`Updated server ${serverId} maxConcurrency to ${updates.maxConcurrency}`);
+    }
+
+    if (updates.modelContextLimits !== undefined) {
+      server.modelContextLimits = { ...updates.modelContextLimits };
+      server.contextLimitsFetchedAt = Date.now();
+      logger.info(`Updated server ${serverId} modelContextLimits`);
     }
 
     // Persist servers to disk if enabled
