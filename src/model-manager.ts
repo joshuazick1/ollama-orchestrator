@@ -26,6 +26,7 @@ interface OllamaShowResponse {
     parameter_size?: string;
     quantization_level?: string;
     family?: string;
+    context_length?: number;
   };
 }
 
@@ -700,6 +701,7 @@ export class ModelManager {
     parameters?: string;
     quantization?: string;
     family?: string;
+    contextLength?: number; // Context window size in tokens
   }> {
     try {
       const response = await fetchWithTimeout(`${serverUrl}/api/show`, {
@@ -721,6 +723,7 @@ export class ModelManager {
         parameters: data.details?.parameter_size,
         quantization: data.details?.quantization_level,
         family: data.details?.family,
+        contextLength: data.details?.context_length,
       };
     } catch (error) {
       logger.warn(`Error fetching model info for ${model}:`, error);

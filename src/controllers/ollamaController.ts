@@ -1249,6 +1249,19 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
     }
 
     res.json(result);
+
+    // Extract and store context length if available
+    if (routingContext.selectedServerId && typeof result === 'object' && result !== null) {
+      const resultObj = result as Record<string, unknown>;
+      const details = resultObj.details as Record<string, unknown> | undefined;
+      if (details && typeof details.context_length === 'number') {
+        orchestrator.setModelContextLimit(
+          routingContext.selectedServerId,
+          model,
+          details.context_length as number
+        );
+      }
+    }
   } catch (error) {
     logger.error('Show request failed:', { error, model });
 
