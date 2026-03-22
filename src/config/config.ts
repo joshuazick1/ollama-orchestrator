@@ -95,6 +95,8 @@ export interface RecoveryTestConfig {
   modelTestTimeoutMs: number;
   /** Timeout for lightweight /api/tags recovery tests (ms) */
   tagsTestTimeoutMs: number;
+  /** Number of tokens to use in active test prompts (default: 256) */
+  testPromptTokens: number;
 }
 
 export interface StorageRetentionConfig {
@@ -369,6 +371,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     maxWaitForInFlightMs: 5000, // Wait up to 5 seconds for in-flight to clear
     modelTestTimeoutMs: 120000, // 120 seconds for model inference test
     tagsTestTimeoutMs: 5000, // 5 seconds for /api/tags probe
+    testPromptTokens: 256, // ~1KB of context for active tests
   },
 
   modelManager: {

@@ -1398,7 +1398,11 @@ export class AIOrchestrator {
   /**
    * Find the best server for a given model using historical metrics
    */
-  getBestServerForModel(model: string, isStreaming: boolean = false): AIServer | undefined {
+  getBestServerForModel(
+    model: string,
+    isStreaming: boolean = false,
+    estimatedPromptTokens?: number
+  ): AIServer | undefined {
     // Filter candidates based on hard requirements
     const candidates = this.servers.filter(server => {
       // Must be healthy
@@ -1437,6 +1441,18 @@ export class AIOrchestrator {
       const totalLoad = this.getTotalInFlight(server.id);
       if (totalLoad >= maxConcurrency) {
         return false;
+      }
+
+      // Context limit filtering: skip servers that can't handle the prompt size
+      // Only applies when we have an estimated prompt size and it's non-trivial (>100 tokens)
+      if (estimatedPromptTokens !== undefined && estimatedPromptTokens > 100) {
+        if (!this.canServerHandleContext(server, model, estimatedPromptTokens)) {
+          const contextLimit = this.getModelContextLimit(server, model);
+          logger.debug(
+            `getBestServerForModel: skipping ${server.id} for ${model}: context limit ${contextLimit} < ${estimatedPromptTokens} tokens`
+          );
+          return false;
+        }
       }
 
       return true;
@@ -3373,6 +3389,7 @@ export class AIOrchestrator {
           maxWaitForInFlightMs: rtCfg.maxWaitForInFlightMs,
           modelTestTimeoutMs: rtCfg.modelTestTimeoutMs,
           tagsTestTimeoutMs: rtCfg.tagsTestTimeoutMs,
+          testPromptTokens: rtCfg.testPromptTokens,
         })
       );
       const coordinator = getRecoveryTestCoordinator();

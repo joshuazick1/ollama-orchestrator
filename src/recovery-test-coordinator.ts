@@ -37,6 +37,8 @@ interface TestCoordinatorConfig {
   checkInFlightRequests: boolean;
   // Maximum queue size per server
   maxQueueSizePerServer: number;
+  // Number of tokens to use in active test prompts
+  testPromptTokens: number;
 }
 
 const DEFAULT_CONFIG: TestCoordinatorConfig = {
@@ -46,6 +48,7 @@ const DEFAULT_CONFIG: TestCoordinatorConfig = {
   tagsTestTimeoutMs: 5000, // 5 seconds for /api/tags probe
   checkInFlightRequests: true,
   maxQueueSizePerServer: 10,
+  testPromptTokens: 256, // ~1KB of context for active tests
 };
 
 export interface ActiveTestResult {
@@ -637,13 +640,21 @@ export class RecoveryTestCoordinator {
         return false;
       }
 
-      // Perform full inference test
+      // Generate a test prompt of the configured size
+      // Each repetition is roughly 4 tokens, so we repeat to reach target
+      const testPromptTokens = this.config.testPromptTokens || 256;
+      const baseText = 'The quick brown fox jumps over the lazy dog. ';
+      const tokensPerRepetition = 4;
+      const repetitions = Math.ceil(testPromptTokens / tokensPerRepetition);
+      const testPrompt = baseText.repeat(repetitions).trim();
+
+      // Perform full inference test with context
       const response = await fetchWithTimeout(`${serverUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: safeJsonStringify({
           model: modelName,
-          prompt: 'Hi',
+          prompt: testPrompt,
           stream: false,
           options: {
             num_predict: 1,
