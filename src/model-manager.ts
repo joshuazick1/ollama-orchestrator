@@ -124,6 +124,7 @@ export interface ModelManagerConfig {
     xl: number; // 30-70B parameters (default: 40000)
     xxl: number; // > 70B parameters (default: 80000)
   };
+  contextLimitTtlMs: number; // TTL for cached context limits (default: 86400000 = 24h)
 }
 
 export const DEFAULT_MODEL_MANAGER_CONFIG: ModelManagerConfig = {
@@ -142,6 +143,7 @@ export const DEFAULT_MODEL_MANAGER_CONFIG: ModelManagerConfig = {
     xl: 40000,
     xxl: 80000,
   },
+  contextLimitTtlMs: 86400000, // 24 hours
 };
 
 /**

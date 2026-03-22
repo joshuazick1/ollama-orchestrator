@@ -1374,10 +1374,43 @@ export class AIOrchestrator {
    * Check if a server can handle a prompt of the given size for a model.
    * Returns true if the server's context limit for the model is sufficient,
    * or if no context limit is known (assumes it might work).
+   * If enforceFresh is true and the limit is stale (TTL expired), returns false.
    */
-  canServerHandleContext(server: AIServer, model: string, estimatedTokens: number): boolean {
+  canServerHandleContext(
+    server: AIServer,
+    model: string,
+    estimatedTokens: number,
+    enforceFresh: boolean = false
+  ): boolean {
     const contextLimit = server.modelContextLimits?.[model];
+
+    if (contextLimit === undefined) {
+      return true; // No limit known, assume it might work
+    }
+
+    if (enforceFresh && this.isContextLimitStale(server, model)) {
+      return false; // Stale limit, don't trust it
+    }
+
     return canHandleContext(contextLimit, estimatedTokens, model);
+  }
+
+  /**
+   * Check if a context limit is stale (TTL expired).
+   */
+  isContextLimitStale(server: AIServer, model: string): boolean {
+    const contextLimit = server.modelContextLimits?.[model];
+    if (contextLimit === undefined) {
+      return true; // No limit known is considered stale
+    }
+
+    const fetchedAt = server.contextLimitsFetchedAt;
+    if (fetchedAt === undefined) {
+      return true;
+    }
+
+    const ttlMs = this.config.modelManager?.contextLimitTtlMs ?? 86400000; // Default 24h
+    return Date.now() - fetchedAt > ttlMs;
   }
 
   /**
@@ -1725,6 +1758,11 @@ export class AIOrchestrator {
     // Resolve model name for matching (REC-48)
     // Determine which model list to use based on required capability (REC-47)
     const modelListKey = requiredCapability === 'openai' ? 'v1Models' : 'models';
+
+    // Track context-filtered servers for better error messages
+    let contextFilteredCount = 0;
+    let smallestContextLimit = Infinity;
+
     const eligibleServers = this.servers.filter(s => {
       // Check capability requirement
       if (requiredCapability === 'ollama' && s.supportsOllama === false) {
@@ -1748,6 +1786,10 @@ export class AIOrchestrator {
       if (estimatedPromptTokens !== undefined && estimatedPromptTokens > 100) {
         if (!this.canServerHandleContext(s, model, estimatedPromptTokens)) {
           const contextLimit = this.getModelContextLimit(s, model);
+          contextFilteredCount++;
+          if (contextLimit < smallestContextLimit) {
+            smallestContextLimit = contextLimit;
+          }
           logger.debug(
             `Skipping server ${s.id} for ${model}: context limit ${contextLimit} < ${estimatedPromptTokens} tokens`
           );
@@ -1825,6 +1867,19 @@ export class AIOrchestrator {
     if (candidates.length === 0) {
       // REC-71: Differentiate "No servers" error conditions
       let errorReason = 'No servers available';
+
+      // Check if context filtering eliminated all servers (must be checked first)
+      if (
+        estimatedPromptTokens !== undefined &&
+        estimatedPromptTokens > 100 &&
+        contextFilteredCount > 0
+      ) {
+        throw new Error(
+          `Prompt size (${estimatedPromptTokens} tokens) exceeds context limit on all ${contextFilteredCount} server(s) ` +
+            `(smallest limit: ${smallestContextLimit === Infinity ? 'unknown' : smallestContextLimit} tokens) for model '${model}'. ` +
+            'Consider splitting the prompt or using a server with a larger context window.'
+        );
+      }
 
       // Check if no servers support the required capability
       const capabilityServers = this.servers.filter(s => {

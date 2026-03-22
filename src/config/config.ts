@@ -390,6 +390,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       xl: 40000,
       xxl: 80000,
     },
+    contextLimitTtlMs: 86400000, // 24 hours - refresh context limits after this period
   },
 
   storage: {
