@@ -1396,6 +1396,81 @@ export class AIOrchestrator {
   }
 
   /**
+   * Decrease the context limit for a model on a server when we see context errors.
+   * This learns from failures to refine our understanding of actual context limits.
+   */
+  decreaseModelContextLimit(serverId: string, model: string, suggestedLimit?: number): void {
+    const server = this.servers.find(s => s.id === serverId);
+    if (!server) {
+      return;
+    }
+
+    const currentLimit = server.modelContextLimits?.[model];
+    if (currentLimit === undefined) {
+      return;
+    }
+
+    let newLimit: number;
+    if (suggestedLimit !== undefined && suggestedLimit < currentLimit) {
+      newLimit = suggestedLimit;
+    } else {
+      newLimit = Math.floor(currentLimit * 0.8);
+    }
+
+    if (newLimit < currentLimit) {
+      server.modelContextLimits![model] = newLimit;
+      server.contextLimitsFetchedAt = Date.now();
+      logger.info(
+        `Decreased context limit for ${serverId}:${model} from ${currentLimit} to ${newLimit}`
+      );
+    }
+  }
+
+  /**
+   * Detect if an error message is about context length.
+   */
+  isContextError(errorMessage: string): boolean {
+    const contextPatterns = [
+      'context length',
+      'context_window',
+      'too many tokens',
+      'token limit',
+      'maximum context',
+      'context overflow',
+      '超出上下文',
+      'context exceeded',
+    ];
+    const lowerMsg = errorMessage.toLowerCase();
+    return contextPatterns.some(pattern => lowerMsg.includes(pattern.toLowerCase()));
+  }
+
+  /**
+   * Extract a suggested context limit from an error message if present.
+   * Ollama sometimes includes the limit in the error, e.g., "context length 8192 exceeded"
+   */
+  extractContextLimitFromError(errorMessage: string): number | undefined {
+    const patterns = [
+      /context length (\d+)/i,
+      /context_window (\d+)/i,
+      /(\d+) tokens?/i,
+      /token limit (\d+)/i,
+      /maximum context (\d+)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = errorMessage.match(pattern);
+      if (match && match[1]) {
+        const limit = parseInt(match[1], 10);
+        if (!isNaN(limit) && limit > 0) {
+          return limit;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * Find the best server for a given model using historical metrics
    */
   getBestServerForModel(
@@ -3134,6 +3209,16 @@ export class AIOrchestrator {
         errorMsg.toLowerCase().includes('timed out') ||
         (error instanceof Error && error.name === 'AbortError');
       this.timeoutManager.recordFailure(serverId, model, isTimeout ? 'timeout' : undefined);
+
+      // Learn from context errors: decrease context limit if we see a context-related failure
+      if (this.isContextError(errorMsg)) {
+        const suggestedLimit = this.extractContextLimitFromError(errorMsg);
+        this.decreaseModelContextLimit(serverId, model, suggestedLimit);
+        logger.warn(`Context error detected for ${serverId}:${model}, updating context limit`, {
+          error: errorMsg,
+          suggestedLimit,
+        });
+      }
     }
 
     // Map enhanced classification to legacy error types for backward compatibility
