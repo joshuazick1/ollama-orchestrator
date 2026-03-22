@@ -701,18 +701,10 @@ describe('Ollama Controller', () => {
     it('should show model info successfully', async () => {
       mockReq.body = { model: 'llama3:latest' };
 
-      mockOrchestrator.getBestServerForModel.mockReturnValue({
-        ...mockServers.healthy,
-        models: [...mockServers.healthy.models],
-      });
-
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          modelfile: 'FROM llama3',
-          parameters: '8B',
-          template: '{{ .System }}',
-        }),
+      mockOrchestrator.tryRequestWithFailover.mockResolvedValue({
+        modelfile: 'FROM llama3',
+        parameters: '8B',
+        template: '{{ .System }}',
       });
 
       await handleShow(mockReq as Request, mockRes as Response);
@@ -736,7 +728,9 @@ describe('Ollama Controller', () => {
     it('should return 404 when model not found on any server', async () => {
       mockReq.body = { model: 'nonexistent:latest' };
 
-      mockOrchestrator.getBestServerForModel.mockReturnValue(null);
+      mockOrchestrator.tryRequestWithFailover.mockRejectedValue(
+        new Error("model 'nonexistent:latest' not found on any healthy server")
+      );
 
       await handleShow(mockReq as Request, mockRes as Response);
 
@@ -749,16 +743,9 @@ describe('Ollama Controller', () => {
     it('should handle non-ok response from server', async () => {
       mockReq.body = { model: 'llama3:latest' };
 
-      mockOrchestrator.getBestServerForModel.mockReturnValue({
-        ...mockServers.healthy,
-        models: [...mockServers.healthy.models],
-      });
-
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: 'Not Found',
-      });
+      mockOrchestrator.tryRequestWithFailover.mockRejectedValue(
+        new Error("model 'llama3:latest' not found")
+      );
 
       await handleShow(mockReq as Request, mockRes as Response);
 
@@ -768,14 +755,15 @@ describe('Ollama Controller', () => {
     it('should handle errors gracefully', async () => {
       mockReq.body = { model: 'llama3:latest' };
 
-      mockOrchestrator.getBestServerForModel.mockImplementation(() => {
-        throw new Error('Database error');
-      });
+      mockOrchestrator.tryRequestWithFailover.mockRejectedValue(new Error('Database error'));
 
       await handleShow(mockReq as Request, mockRes as Response);
 
       expect(mockRes.status).toHaveBeenCalledWith(500);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Internal server error' });
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Show request failed',
+        details: 'Database error',
+      });
     });
   });
 
