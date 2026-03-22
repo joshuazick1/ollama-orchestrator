@@ -98,6 +98,14 @@ export const DEFAULT_ERROR_PATTERNS: ErrorPatternConfig = {
     'not enough memory',
     'insufficient memory',
     'memory limit exceeded',
+    // Context/token limit errors - these won't succeed on retry
+    'context length',
+    'context_window',
+    'too many tokens',
+    'token limit',
+    'maximum context',
+    'context overflow',
+    'context exceeded',
     // Fatal server errors
     'runner process has terminated',
     'fatal model server error',
