@@ -248,6 +248,7 @@ export class MetricsAggregator {
     metrics.successRate = this.calculateSuccessRate(metrics.windows['5m']);
     metrics.throughput = this.calculateThroughput(metrics.windows['5m']);
     metrics.avgTokensPerRequest = this.calculateAvgTokens(metrics.windows['5m']);
+    metrics.avgPromptTokens = this.calculateAvgPromptTokens(metrics.windows['5m']);
     metrics.lastUpdated = now;
 
     // Schedule persistence save
@@ -304,13 +305,19 @@ export class MetricsAggregator {
   }
 
   /**
-   * Update model metadata (parameter size, quantization, family)
+   * Update model metadata (parameter size, quantization, family, etc.)
    * This enables cross-model inference fallback
    */
   updateModelMetadata(
     serverId: string,
     model: string,
-    metadata: { parameterSize?: string; quantization?: string; family?: string }
+    metadata: {
+      parameterSize?: string;
+      quantization?: string;
+      family?: string;
+      parameterCount?: number;
+      embeddingLength?: number;
+    }
   ): void {
     const key = `${serverId}:${model}`;
     const metrics = this.metrics.get(key);
@@ -319,11 +326,17 @@ export class MetricsAggregator {
       if (metadata.parameterSize) {
         metrics.parameterSize = metadata.parameterSize;
       }
+      if (metadata.parameterCount !== undefined) {
+        metrics.parameterCount = metadata.parameterCount;
+      }
       if (metadata.quantization) {
         metrics.quantization = metadata.quantization;
       }
       if (metadata.family) {
         metrics.family = metadata.family;
+      }
+      if (metadata.embeddingLength !== undefined) {
+        metrics.embeddingLength = metadata.embeddingLength;
       }
       this.rebuildParameterIndex();
     }
@@ -777,6 +790,7 @@ export class MetricsAggregator {
         successRate: metrics.successRate,
         throughput: metrics.throughput,
         avgTokensPerRequest: metrics.avgTokensPerRequest,
+        avgPromptTokens: metrics.avgPromptTokens,
         streamingMetrics: metrics.streamingMetrics,
       };
     }
@@ -840,9 +854,12 @@ export class MetricsAggregator {
       successRate: 1,
       throughput: 0,
       avgTokensPerRequest: 0,
+      avgPromptTokens: 0,
       avgTokensPerSecond: 0,
       coldStartCount: 0,
       avgNetworkOverheadMs: 0,
+      parameterCount: undefined,
+      embeddingLength: undefined,
       streamingMetrics: {
         recentTTFTs: [],
         ttftPercentiles: { p50: 0, p95: 0, p99: 0 },
@@ -997,6 +1014,13 @@ export class MetricsAggregator {
       return 0;
     }
     return window.tokensGenerated / window.count;
+  }
+
+  private calculateAvgPromptTokens(window: MetricsWindow): number {
+    if (window.count === 0) {
+      return 0;
+    }
+    return window.tokensPrompt / window.count;
   }
 
   /**

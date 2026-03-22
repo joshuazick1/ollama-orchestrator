@@ -207,6 +207,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       throughput: 0.08,
       vram: 0.05,
       temporal: 0.1, // Phase 3: temporal scoring adjustment
+      context: 0.05, // REC-XXX: context fit scoring
     },
     thresholds: {
       maxP95Latency: 5000,

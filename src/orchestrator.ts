@@ -1594,7 +1594,10 @@ export class AIOrchestrator {
           metrics,
           undefined,
           cbHealth,
-          this.getTimeout(server.id, model)
+          this.getTimeout(server.id, model),
+          estimatedPromptTokens,
+          (serverId, model) =>
+            this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
         );
       });
 
@@ -1618,7 +1621,10 @@ export class AIOrchestrator {
       isStreaming,
       undefined,
       (serverId, model) => this.getTimeout(serverId, model),
-      serverId => this.getCircuitBreakerHealth(serverId)
+      serverId => this.getCircuitBreakerHealth(serverId),
+      estimatedPromptTokens,
+      (serverId, model) =>
+        this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
     );
 
     // Record the decision for historical analysis
@@ -1635,7 +1641,10 @@ export class AIOrchestrator {
           metrics,
           undefined,
           cbHealth,
-          this.getTimeout(server.id, model)
+          this.getTimeout(server.id, model),
+          estimatedPromptTokens,
+          (serverId, model) =>
+            this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
         );
       });
 
@@ -1843,7 +1852,10 @@ export class AIOrchestrator {
             metrics,
             undefined,
             cbHealth,
-            this.getTimeout(server.id, model)
+            this.getTimeout(server.id, model),
+            estimatedPromptTokens,
+            (serverId, model) =>
+              this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
           );
         });
 

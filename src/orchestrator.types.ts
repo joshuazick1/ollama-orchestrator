@@ -140,8 +140,10 @@ export interface ServerModelMetrics {
 
   // Model metadata (from /api/show)
   parameterSize?: string; // e.g., "8B", "70B"
+  parameterCount?: number; // Actual parameter count (e.g., 8030261248 for 8B model)
   quantization?: string; // e.g., "Q4_K_M", "Q8_0"
   family?: string; // e.g., "llama", "mistral"
+  embeddingLength?: number; // Embedding dimension (for embeddings models)
 
   // Real-time stats
   inFlight: number;
@@ -157,6 +159,8 @@ export interface ServerModelMetrics {
   successRate: number;
   throughput: number; // requests per minute
   avgTokensPerRequest: number;
+  /** Average prompt tokens per request (from prompt_eval_count) */
+  avgPromptTokens: number;
   /** Average token generation throughput in tokens/sec (from eval_count/eval_duration) */
   avgTokensPerSecond: number;
   /** Number of cold-start requests observed (load_duration > threshold) */
@@ -264,6 +268,7 @@ export interface ModelMetricsExport {
   successRate: number;
   throughput: number;
   avgTokensPerRequest: number;
+  avgPromptTokens: number;
   streamingMetrics?: StreamingMetrics;
 }
 

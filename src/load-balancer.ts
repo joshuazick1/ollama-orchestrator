@@ -33,6 +33,7 @@ export interface ServerScore {
     throughputScore: number;
     vramScore: number;
     temporalScore?: number;
+    contextScore?: number;
   };
   metrics?: ServerModelMetrics;
   temporalAdjustment?: TemporalAdjustment;
@@ -52,6 +53,7 @@ export interface LoadBalancerConfig {
     throughput: number; // Weight for token throughput tokens/sec (default: 0.08)
     vram: number; // Weight for VRAM availability (default: 0.05)
     temporal: number; // Weight for temporal scoring (default: 0.10)
+    context: number; // Weight for context fit scoring (default: 0.05)
   };
   thresholds: {
     maxP95Latency: number; // Max acceptable P95 in ms (default: 5000)
@@ -115,6 +117,7 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     throughput: 0.08,
     vram: 0.05,
     temporal: 0.1, // Phase 3: temporal scoring adjustment
+    context: 0.05, // REC-XXX: context fit scoring
   },
   thresholds: {
     maxP95Latency: 5000,
@@ -167,7 +170,9 @@ export function calculateServerScore(
   metrics: ServerModelMetrics | undefined,
   config: LoadBalancerConfig = DEFAULT_LB_CONFIG,
   circuitBreakerHealth?: CircuitBreakerHealth,
-  timeoutMs?: number
+  timeoutMs?: number,
+  estimatedPromptTokens?: number,
+  getContextLimit?: (serverId: string, model: string) => number
 ): ServerScore {
   const maxConcurrency = server.maxConcurrency ?? config.defaultMaxConcurrency;
   const availableCapacity = maxConcurrency - currentLoad;
@@ -297,7 +302,33 @@ export function calculateServerScore(
     }
   }
 
+  // REC-XXX: Context fit scoring - prefer servers with more context headroom
+  // This rewards servers that can handle the prompt with room to generate
+  let contextScore = 100; // Neutral when no estimation or limit data
+  if (estimatedPromptTokens !== undefined && estimatedPromptTokens > 0 && getContextLimit) {
+    const contextLimit = getContextLimit(server.id, model);
+    if (contextLimit > 0) {
+      // Compute headroom: how much context is left after the prompt
+      // Use 90% of limit as effective (leaving 10% for response generation)
+      const effectiveLimit = Math.floor(contextLimit * 0.9);
+      const headroom = effectiveLimit - estimatedPromptTokens;
+
+      if (headroom < 0) {
+        // Can't handle the prompt - should be filtered earlier, but penalize heavily
+        contextScore = 0;
+      } else {
+        // Score based on headroom ratio
+        // headroom = 0 -> score = 50 (tight fit)
+        // headroom = effectiveLimit -> score = 100 (lots of room)
+        const headroomRatio = headroom / effectiveLimit;
+        contextScore = 50 + headroomRatio * 50;
+        contextScore = Math.min(100, Math.max(0, contextScore));
+      }
+    }
+  }
+
   // Calculate weighted total score (Phase 3: includes temporal weight)
+  const contextWeight = config.weights.context ?? 0.05;
   const totalScore =
     latencyScore * config.weights.latency +
     successRateScore * config.weights.successRate +
@@ -307,7 +338,8 @@ export function calculateServerScore(
     timeoutScore * config.weights.timeout +
     throughputScore * config.weights.throughput +
     vramScore * config.weights.vram +
-    temporalScore * (config.weights.temporal ?? 0);
+    temporalScore * (config.weights.temporal ?? 0) +
+    contextScore * contextWeight;
 
   return {
     server,
@@ -322,6 +354,7 @@ export function calculateServerScore(
       throughputScore,
       vramScore,
       temporalScore,
+      contextScore,
     },
     metrics,
     temporalAdjustment,
@@ -482,7 +515,9 @@ export class LoadBalancer {
     isStreaming: boolean = false,
     clientId?: string,
     getTimeout?: (serverId: string, model: string) => number,
-    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined
+    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined,
+    estimatedPromptTokens?: number,
+    getContextLimit?: (serverId: string, model: string) => number
   ): AIServer | undefined {
     switch (this.algorithm) {
       case 'weighted':
@@ -493,7 +528,9 @@ export class LoadBalancer {
           getTotalLoad,
           getMetrics,
           getTimeout,
-          getCircuitBreakerHealth
+          getCircuitBreakerHealth,
+          estimatedPromptTokens,
+          getContextLimit
         );
 
       case 'round-robin':
@@ -525,7 +562,10 @@ export class LoadBalancer {
           getLoad,
           getTotalLoad,
           getMetrics,
-          getTimeout
+          getTimeout,
+          getCircuitBreakerHealth,
+          estimatedPromptTokens,
+          getContextLimit
         );
     }
   }
@@ -540,7 +580,9 @@ export class LoadBalancer {
     getTotalLoad: (serverId: string) => number,
     getMetrics: (serverId: string, model: string) => ServerModelMetrics | undefined,
     getTimeout?: (serverId: string, model: string) => number,
-    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined
+    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined,
+    estimatedPromptTokens?: number,
+    getContextLimit?: (serverId: string, model: string) => number
   ): AIServer | undefined {
     const scores = candidates.map(server => {
       const currentLoad = getLoad(server.id, model);
@@ -557,7 +599,9 @@ export class LoadBalancer {
         metrics,
         this.config,
         circuitBreakerHealth,
-        timeoutMs
+        timeoutMs,
+        estimatedPromptTokens,
+        getContextLimit
       );
     });
 

@@ -28,6 +28,7 @@ interface OllamaShowResponse {
     family?: string;
     context_length?: number;
   };
+  model_info?: Record<string, number | string | boolean>;
 }
 
 /** Individual process entry from Ollama /api/ps */
@@ -704,6 +705,7 @@ export class ModelManager {
     quantization?: string;
     family?: string;
     contextLength?: number; // Context window size in tokens
+    modelInfo?: Record<string, number | string | boolean>; // Full model_info from API
   }> {
     try {
       const response = await fetchWithTimeout(`${serverUrl}/api/show`, {
@@ -726,6 +728,7 @@ export class ModelManager {
         quantization: data.details?.quantization_level,
         family: data.details?.family,
         contextLength: data.details?.context_length,
+        modelInfo: data.model_info,
       };
     } catch (error) {
       logger.warn(`Error fetching model info for ${model}:`, error);

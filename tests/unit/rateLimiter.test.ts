@@ -10,7 +10,6 @@ import {
   createRateLimiter,
   createMonitoringRateLimiter,
   createAdminRateLimiter,
-  createInferenceRateLimiter,
   createAuthRateLimiter,
   defaultKeyGenerator,
   DEFAULT_RATE_LIMIT_CONFIG,
@@ -136,14 +135,6 @@ describe('rateLimiter middleware', () => {
   describe('createAdminRateLimiter', () => {
     it('should create admin rate limiter', () => {
       const middleware = createAdminRateLimiter();
-
-      expect(middleware).toBeDefined();
-    });
-  });
-
-  describe('createInferenceRateLimiter', () => {
-    it('should create inference rate limiter', () => {
-      const middleware = createInferenceRateLimiter();
 
       expect(middleware).toBeDefined();
     });

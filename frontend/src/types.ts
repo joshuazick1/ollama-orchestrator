@@ -452,6 +452,7 @@ export interface ModelMetricsExport {
   successRate: number;
   throughput: number;
   avgTokensPerRequest: number;
+  avgPromptTokens?: number;
   avgTokensPerSecond?: number;
   coldStartCount?: number;
   avgNetworkOverheadMs?: number;

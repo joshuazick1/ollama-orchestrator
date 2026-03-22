@@ -110,17 +110,6 @@ export function createAdminRateLimiter(): any {
 }
 
 /**
- * Inference endpoint rate limiter - more permissive
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createInferenceRateLimiter(): any {
-  return createRateLimiter({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    maxRequests: 60, // 60 requests per minute
-  });
-}
-
-/**
  * Authentication endpoint rate limiter - very restrictive to prevent brute force
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
