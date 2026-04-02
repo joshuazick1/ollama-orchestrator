@@ -129,15 +129,23 @@ export class MetricsPersistence {
     }
   }
 
-  /**
-   * Clean old metrics data based on retention policy
-   */
   private cleanOldData(data: MetricsData): MetricsData {
     const cleanedServers: Record<string, ServerModelMetrics> = {};
+    const cutoff = Date.now() - this.retentionHours * 60 * 60 * 1000;
+    let pruned = 0;
 
     for (const [serverModelKey, serverData] of Object.entries(data.servers)) {
-      // For now, keep all data. In future, could filter recentLatencies by timestamp
-      cleanedServers[serverModelKey] = serverData;
+      if (serverData.lastUpdated >= cutoff || serverData.inFlight > 0) {
+        cleanedServers[serverModelKey] = serverData;
+      } else {
+        pruned++;
+      }
+    }
+
+    if (pruned > 0) {
+      logger.info(
+        `MetricsPersistence: Pruned ${pruned} stale entries older than ${this.retentionHours}h`
+      );
     }
 
     return {
