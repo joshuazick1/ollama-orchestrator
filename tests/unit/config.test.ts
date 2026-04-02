@@ -324,10 +324,16 @@ describe('ConfigManager', () => {
 
     it('should handle full section updates', () => {
       const newWeights = {
-        latency: 0.5,
-        successRate: 0.25,
+        latency: 0.25,
+        successRate: 0.2,
         load: 0.15,
-        capacity: 0.1,
+        capacity: 0.05,
+        circuitBreaker: 0.1,
+        timeout: 0.05,
+        throughput: 0.05,
+        vram: 0.05,
+        temporal: 0.05,
+        context: 0.05,
       };
 
       manager.updateSection('loadBalancer', {
@@ -335,8 +341,8 @@ describe('ConfigManager', () => {
       } as any);
 
       const config = manager.getConfig();
-      expect(config.loadBalancer.weights.latency).toBe(0.5);
-      expect(config.loadBalancer.weights.successRate).toBe(0.25);
+      expect(config.loadBalancer.weights.latency).toBe(0.25);
+      expect(config.loadBalancer.weights.successRate).toBe(0.2);
     });
   });
 });

@@ -199,16 +199,16 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
 
   loadBalancer: {
     weights: {
-      latency: 0.18,
-      successRate: 0.18,
-      load: 0.18,
+      latency: 0.17,
+      successRate: 0.17,
+      load: 0.17,
       capacity: 0.05,
-      circuitBreaker: 0.13,
+      circuitBreaker: 0.12,
       timeout: 0.05,
-      throughput: 0.08,
+      throughput: 0.07,
       vram: 0.05,
-      temporal: 0.1, // Phase 3: temporal scoring adjustment
-      context: 0.05, // REC-XXX: context fit scoring
+      temporal: 0.1,
+      context: 0.05,
     },
     thresholds: {
       maxP95Latency: 5000,

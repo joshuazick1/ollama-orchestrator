@@ -118,14 +118,30 @@ export const cooldownConfigSchema = z.object({
 export const loadBalancerConfigSchema = z.object({
   weights: z
     .object({
-      latency: z.number().min(0).max(1).default(0.35),
-      successRate: z.number().min(0).max(1).default(0.3),
-      load: z.number().min(0).max(1).default(0.2),
-      capacity: z.number().min(0).max(1).default(0.15),
+      latency: z.number().min(0).max(1).default(0.17),
+      successRate: z.number().min(0).max(1).default(0.17),
+      load: z.number().min(0).max(1).default(0.17),
+      capacity: z.number().min(0).max(1).default(0.05),
+      circuitBreaker: z.number().min(0).max(1).default(0.12),
+      timeout: z.number().min(0).max(1).default(0.05),
+      throughput: z.number().min(0).max(1).default(0.07),
+      vram: z.number().min(0).max(1).default(0.05),
+      temporal: z.number().min(0).max(1).default(0.1),
+      context: z.number().min(0).max(1).default(0.05),
     })
     .refine(
       weights => {
-        const sum = weights.latency + weights.successRate + weights.load + weights.capacity;
+        const sum =
+          weights.latency +
+          weights.successRate +
+          weights.load +
+          weights.capacity +
+          weights.circuitBreaker +
+          weights.timeout +
+          weights.throughput +
+          weights.vram +
+          weights.temporal +
+          weights.context;
         return Math.abs(sum - 1) < 0.001;
       },
       { message: 'Weights must sum to 1.0' }
@@ -135,6 +151,7 @@ export const loadBalancerConfigSchema = z.object({
     minSuccessRate: z.number().min(0).max(1).default(0.95),
     latencyPenalty: z.number().min(0).max(1).default(0.5),
     errorPenalty: z.number().min(0).max(1).default(0.3),
+    circuitBreakerPenalty: z.number().min(0).max(1).default(0.1),
   }),
   // Latency blending: how much weight to give recent vs historical latency
   latencyBlendRecent: z.number().min(0).max(1).default(0.6), // Weight for lastResponseTime

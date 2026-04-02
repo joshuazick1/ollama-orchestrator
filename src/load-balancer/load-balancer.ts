@@ -45,13 +45,13 @@ export interface ServerScore {
  */
 export interface LoadBalancerConfig {
   weights: {
-    latency: number; // Weight for P95 latency (default: 0.18)
-    successRate: number; // Weight for success rate (default: 0.18)
-    load: number; // Weight for current load (default: 0.18)
+    latency: number; // Weight for P95 latency (default: 0.17)
+    successRate: number; // Weight for success rate (default: 0.17)
+    load: number; // Weight for current load (default: 0.17)
     capacity: number; // Weight for available capacity (default: 0.05)
-    circuitBreaker: number; // Weight for circuit breaker health (default: 0.13)
+    circuitBreaker: number; // Weight for circuit breaker health (default: 0.12)
     timeout: number; // Weight for timeout penalty (default: 0.05)
-    throughput: number; // Weight for token throughput tokens/sec (default: 0.08)
+    throughput: number; // Weight for token throughput tokens/sec (default: 0.07)
     vram: number; // Weight for VRAM availability (default: 0.05)
     temporal: number; // Weight for temporal scoring (default: 0.10)
     context: number; // Weight for context fit scoring (default: 0.05)
@@ -109,16 +109,16 @@ export interface LoadBalancerConfig {
  */
 export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
   weights: {
-    latency: 0.18,
-    successRate: 0.18,
-    load: 0.18,
+    latency: 0.17,
+    successRate: 0.17,
+    load: 0.17,
     capacity: 0.05,
-    circuitBreaker: 0.13,
+    circuitBreaker: 0.12,
     timeout: 0.05,
-    throughput: 0.08,
+    throughput: 0.07,
     vram: 0.05,
-    temporal: 0.1, // Phase 3: temporal scoring adjustment
-    context: 0.05, // REC-XXX: context fit scoring
+    temporal: 0.1,
+    context: 0.05,
   },
   thresholds: {
     maxP95Latency: 5000,

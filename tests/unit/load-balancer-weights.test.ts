@@ -3,7 +3,7 @@
  * Tests for load balancer exact weight percentages and scoring
  *
  * TESTING REQUIREMENTS:
- * - Tests must verify EXACT weight percentages (35%, 30%, 20%, 15%)
+ * - Tests must verify EXACT weight percentages for all 10 scoring factors
  * - Tests must verify weights sum to 100%
  * - Tests must verify sliding windows (1m, 5m, 15m, 1h)
  * - Tests must verify in-flight requests, model availability, health, circuit breaker
@@ -61,69 +61,97 @@ describe('Load Balancer Weight Verification Tests', () => {
   // ============================================================================
 
   describe('Exact Weight Percentage Tests', () => {
-    // Per documentation: latency: 35%, success: 30%, load: 20%, capacity: 15%
     const EXPECTED_WEIGHTS = {
-      latency: 0.35,
-      successRate: 0.3,
-      load: 0.2,
-      capacity: 0.15,
+      latency: 0.17,
+      successRate: 0.17,
+      load: 0.17,
+      capacity: 0.05,
+      circuitBreaker: 0.12,
+      timeout: 0.05,
+      throughput: 0.07,
+      vram: 0.05,
+      temporal: 0.1,
+      context: 0.05,
     };
 
-    it('should verify latency weight is EXACTLY 35%', () => {
+    it('should verify latency weight is EXACTLY 17%', () => {
       const latencyWeight = EXPECTED_WEIGHTS.latency;
-      expect(latencyWeight).toBe(0.35);
-      expect(latencyWeight * 100).toBe(35);
+      expect(latencyWeight).toBe(0.17);
     });
 
-    it('should verify success rate weight is EXACTLY 30%', () => {
+    it('should verify success rate weight is EXACTLY 17%', () => {
       const successWeight = EXPECTED_WEIGHTS.successRate;
-      expect(successWeight).toBe(0.3);
-      expect(successWeight * 100).toBe(30);
+      expect(successWeight).toBe(0.17);
     });
 
-    it('should verify load weight is EXACTLY 20%', () => {
+    it('should verify load weight is EXACTLY 17%', () => {
       const loadWeight = EXPECTED_WEIGHTS.load;
-      expect(loadWeight).toBe(0.2);
-      expect(loadWeight * 100).toBe(20);
+      expect(loadWeight).toBe(0.17);
     });
 
-    it('should verify capacity weight is EXACTLY 15%', () => {
+    it('should verify capacity weight is EXACTLY 5%', () => {
       const capacityWeight = EXPECTED_WEIGHTS.capacity;
-      expect(capacityWeight).toBe(0.15);
-      expect(capacityWeight * 100).toBe(15);
+      expect(capacityWeight).toBe(0.05);
+    });
+
+    it('should verify circuit breaker weight is EXACTLY 12%', () => {
+      expect(EXPECTED_WEIGHTS.circuitBreaker).toBe(0.12);
+    });
+
+    it('should verify timeout weight is EXACTLY 5%', () => {
+      expect(EXPECTED_WEIGHTS.timeout).toBe(0.05);
+    });
+
+    it('should verify throughput weight is EXACTLY 7%', () => {
+      expect(EXPECTED_WEIGHTS.throughput).toBe(0.07);
+    });
+
+    it('should verify vram weight is EXACTLY 5%', () => {
+      expect(EXPECTED_WEIGHTS.vram).toBe(0.05);
+    });
+
+    it('should verify temporal weight is EXACTLY 10%', () => {
+      expect(EXPECTED_WEIGHTS.temporal).toBe(0.1);
+    });
+
+    it('should verify context weight is EXACTLY 5%', () => {
+      expect(EXPECTED_WEIGHTS.context).toBe(0.05);
     });
 
     it('should verify weights sum to EXACTLY 100%', () => {
-      const totalWeight =
-        EXPECTED_WEIGHTS.latency +
-        EXPECTED_WEIGHTS.successRate +
-        EXPECTED_WEIGHTS.load +
-        EXPECTED_WEIGHTS.capacity;
+      const totalWeight = Object.values(EXPECTED_WEIGHTS).reduce((sum, w) => sum + w, 0);
 
       expect(totalWeight).toBeCloseTo(1.0, 2);
       expect(totalWeight * 100).toBeCloseTo(100, 2);
     });
 
     it('should calculate score with exact weights', () => {
-      // Server with perfect scores
       const serverMetrics = {
-        latencyScore: 100, // 0ms latency -> score 100
-        successRateScore: 100, // 100% success
-        loadScore: 100, // 0 in-flight
-        capacityScore: 100, // plenty capacity
+        latencyScore: 100,
+        successRateScore: 100,
+        loadScore: 100,
+        capacityScore: 100,
         circuitBreakerScore: 100,
         timeoutScore: 100,
+        throughputScore: 100,
+        vramScore: 100,
+        temporalScore: 100,
+        contextScore: 100,
       };
 
-      // Calculate weighted score
       const weightedScore =
         serverMetrics.latencyScore * EXPECTED_WEIGHTS.latency +
         serverMetrics.successRateScore * EXPECTED_WEIGHTS.successRate +
         serverMetrics.loadScore * EXPECTED_WEIGHTS.load +
-        serverMetrics.capacityScore * EXPECTED_WEIGHTS.capacity;
+        serverMetrics.capacityScore * EXPECTED_WEIGHTS.capacity +
+        serverMetrics.circuitBreakerScore * EXPECTED_WEIGHTS.circuitBreaker +
+        serverMetrics.timeoutScore * EXPECTED_WEIGHTS.timeout +
+        serverMetrics.throughputScore * EXPECTED_WEIGHTS.throughput +
+        serverMetrics.vramScore * EXPECTED_WEIGHTS.vram +
+        serverMetrics.temporalScore * EXPECTED_WEIGHTS.temporal +
+        serverMetrics.contextScore * EXPECTED_WEIGHTS.context;
 
-      // Should be 100 * (0.35 + 0.30 + 0.20 + 0.15) = 100
-      expect(weightedScore).toBe(100);
+      expect(weightedScore).toBeCloseTo(100, 1);
     });
 
     it('should calculate score for Ollama server', () => {
@@ -135,30 +163,18 @@ describe('Load Balancer Weight Verification Tests', () => {
       };
 
       const score =
-        metrics.latencyScore * 0.35 +
-        metrics.successRateScore * 0.3 +
-        metrics.loadScore * 0.2 +
-        metrics.capacityScore * 0.15;
+        metrics.latencyScore * 0.17 +
+        metrics.successRateScore * 0.17 +
+        metrics.loadScore * 0.17 +
+        metrics.capacityScore * 0.05;
 
-      // 90*0.35 + 95*0.30 + 85*0.20 + 80*0.15 = 31.5 + 28.5 + 17 + 12 = 89
-      expect(score).toBeCloseTo(89, 1);
+      // 90*0.17 + 95*0.17 + 85*0.17 + 80*0.05 = 15.3 + 16.15 + 14.45 + 4.0 = 49.9
+      expect(score).toBeCloseTo(49.9, 1);
     });
 
     it('should weight contributions add up correctly', () => {
-      // Verify each weight's contribution
-      const latencyContribution = 100 * EXPECTED_WEIGHTS.latency;
-      const successContribution = 100 * EXPECTED_WEIGHTS.successRate;
-      const loadContribution = 100 * EXPECTED_WEIGHTS.load;
-      const capacityContribution = 100 * EXPECTED_WEIGHTS.capacity;
-
-      expect(latencyContribution).toBe(35);
-      expect(successContribution).toBe(30);
-      expect(loadContribution).toBe(20);
-      expect(capacityContribution).toBe(15);
-
-      const total =
-        latencyContribution + successContribution + loadContribution + capacityContribution;
-      expect(total).toBe(100);
+      const total = Object.values(EXPECTED_WEIGHTS).reduce((sum, w) => sum + w * 100, 0);
+      expect(total).toBeCloseTo(100, 1);
     });
   });
 
@@ -385,9 +401,8 @@ describe('Load Balancer Weight Verification Tests', () => {
         },
       ];
 
-      // Weighted: 90*0.35 + 95*0.30 + 80*0.20 + 85*0.15 = 31.5 + 28.5 + 16 + 12.75 = 88.75
-      const expected = 90 * 0.35 + 95 * 0.3 + 80 * 0.2 + 85 * 0.15;
-      expect(expected).toBeCloseTo(88.75, 1);
+      const expected = 90 * 0.17 + 95 * 0.17 + 80 * 0.17 + 85 * 0.05;
+      expect(expected).toBeCloseTo(49.3, 1);
     });
 
     it('should implement round-robin algorithm', () => {
@@ -512,15 +527,13 @@ describe('Load Balancer Weight Verification Tests', () => {
         capacityScore: 80,
       };
 
-      // Weighted: 90*0.35 + 95*0.30 + 85*0.20 + 80*0.15
       const score =
-        metrics.latencyScore * 0.35 +
-        metrics.successRateScore * 0.3 +
-        metrics.loadScore * 0.2 +
-        metrics.capacityScore * 0.15;
+        metrics.latencyScore * 0.17 +
+        metrics.successRateScore * 0.17 +
+        metrics.loadScore * 0.17 +
+        metrics.capacityScore * 0.05;
 
-      // 90*0.35 + 95*0.30 + 85*0.20 + 80*0.15 = 31.5 + 28.5 + 17 + 12 = 89
-      expect(score).toBeCloseTo(89, 1);
+      expect(score).toBeCloseTo(49.9, 1);
     });
 
     it('should calculate score for OpenAI server', () => {
@@ -532,13 +545,12 @@ describe('Load Balancer Weight Verification Tests', () => {
       };
 
       const score =
-        metrics.latencyScore * 0.35 +
-        metrics.successRateScore * 0.3 +
-        metrics.loadScore * 0.2 +
-        metrics.capacityScore * 0.15;
+        metrics.latencyScore * 0.17 +
+        metrics.successRateScore * 0.17 +
+        metrics.loadScore * 0.17 +
+        metrics.capacityScore * 0.05;
 
-      // 95*0.35 + 90*0.30 + 80*0.20 + 85*0.15 = 33.25 + 27 + 16 + 12.75 = 89
-      expect(score).toBeCloseTo(89, 1);
+      expect(score).toBeCloseTo(49.3, 1);
     });
 
     it('should handle mixed server pool correctly', () => {
