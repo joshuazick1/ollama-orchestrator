@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { parseOllamaError, parseOllamaErrorGlobal } from '../../src/utils/ollamaError.js';
+import { parseOllamaError, parseOllamaErrorGlobal } from '../../src/utils/ollama-error.js';
 
 describe('ollamaError', () => {
   let mockLoggerError: ReturnType<typeof vi.fn>;

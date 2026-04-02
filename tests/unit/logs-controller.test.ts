@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import { getLogs, clearLogs } from '../../src/controllers/logsController.js';
+import { getLogs, clearLogs } from '../../src/controllers/logs-controller.js';
 import { logger } from '../../src/utils/logger.js';
 
 vi.mock('../../src/utils/logger.js');

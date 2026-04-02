@@ -8,8 +8,8 @@ import { AddressInfo } from 'net';
 
 import express from 'express';
 
-import { getPrometheusMetrics } from '../../src/controllers/metricsController.js';
-import { AIOrchestrator } from '../../src/orchestrator.js';
+import { getPrometheusMetrics } from '../../src/controllers/metrics-controller.js';
+import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
 import router from '../../src/routes/orchestrator.js';
 
 // Test server instance

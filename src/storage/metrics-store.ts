@@ -22,7 +22,7 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
-import type { RequestContext } from '../orchestrator.types.js';
+import type { RequestContext } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 
 import { applySchema } from './schema.js';
@@ -641,9 +641,11 @@ export class MetricsStore {
       return;
     }
 
-    const requests = this.requestBuffer.splice(0);
-    const decisions = this.decisionBuffer.splice(0);
-    const failovers = this.failoverBuffer.splice(0);
+    // Copy data from buffers before attempting transaction
+    // Only clear buffers after successful commit to prevent data loss
+    const requests = [...this.requestBuffer];
+    const decisions = [...this.decisionBuffer];
+    const failovers = [...this.failoverBuffer];
 
     try {
       this.db.transaction(() => {
@@ -740,10 +742,14 @@ export class MetricsStore {
           );
         }
       })();
+      // Only clear buffers after successful commit
+      this.requestBuffer.length = 0;
+      this.decisionBuffer.length = 0;
+      this.failoverBuffer.length = 0;
     } catch (err) {
       logger.error('[MetricsStore] Batch flush failed', { error: err });
-      // On error, discard the batch rather than retrying to avoid
-      // duplicate rows on re-insert of partial-success transactions.
+      // Keep data in buffers for next flush attempt
+      // Data remains in buffers and will be retried on next flush
     }
   }
 
@@ -1162,7 +1168,7 @@ export class MetricsStore {
     // Hourly rollup scheduling: check once per minute whether a new hour
     // has started and schedule a rollup for the previous hour
     let lastScheduledHour = truncateToHour(Date.now());
-    setInterval(() => {
+    this.rollupCheckTimer = setInterval(() => {
       const currentHour = truncateToHour(Date.now());
       if (currentHour > lastScheduledHour) {
         this.scheduleHourlyRollup(lastScheduledHour);
@@ -1182,7 +1188,7 @@ export class MetricsStore {
     clearInterval(this.flushTimer);
     clearInterval(this.retentionTimer);
     clearInterval(this.profileRebuildTimer);
-    clearTimeout(this.rollupCheckTimer);
+    clearInterval(this.rollupCheckTimer);
   }
 
   // ============================================================

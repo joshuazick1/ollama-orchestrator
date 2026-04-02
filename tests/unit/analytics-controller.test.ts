@@ -7,9 +7,9 @@ import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 // Mock the orchestrator instance
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 // Mock analytics instance
-vi.mock('../../src/analytics-instance.js');
+vi.mock('../../src/analytics/analytics-engine.js');
 // Mock metrics store for rollups/browse endpoints
 vi.mock('../../src/storage/metrics-store.js', () => {
   const mockStore = {
@@ -20,7 +20,7 @@ vi.mock('../../src/storage/metrics-store.js', () => {
   return { getMetricsStore: () => mockStore, _mockStore: mockStore };
 });
 
-import { getAnalyticsEngine } from '../../src/analytics-instance.js';
+import { getAnalyticsEngine } from '../../src/analytics/analytics-engine.js';
 import {
   getTopModels,
   getServerPerformance,
@@ -31,8 +31,8 @@ import {
   getHourlyRollups,
   getDailyRollups,
   browseRequests,
-} from '../../src/controllers/analyticsController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+} from '../../src/controllers/analytics-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import * as metricsStoreMod from '../../src/storage/metrics-store.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);

@@ -3,7 +3,7 @@
  * Mock data for servers, models, and responses
  */
 
-import type { AIServer } from '../../src/orchestrator.types';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types';
 
 // Re-export real API responses for realistic testing
 export {

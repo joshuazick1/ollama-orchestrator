@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { CircuitBreaker, CircuitBreakerRegistry } from '../../src/circuit-breaker.js';
+import { CircuitBreaker, CircuitBreakerRegistry } from '../../src/circuit-breaker/circuit-breaker.js';
 
 describe('Circuit Breaker Enhanced Tests', () => {
   let breaker: CircuitBreaker;

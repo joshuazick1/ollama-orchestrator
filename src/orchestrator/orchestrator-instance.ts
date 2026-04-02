@@ -3,8 +3,12 @@
  * Singleton orchestrator instance management with auto-persistence
  */
 
-import { getConfigManager } from './config/config.js';
-import { getDecisionHistory } from './decision-history.js';
+import { getConfigManager } from '../config/config.js';
+import { getDecisionHistory } from '../decision-history.js';
+import { getRequestHistory } from '../request-history.js';
+import { logger } from '../utils/logger.js';
+import { normalizeServerUrl } from '../utils/url-utils.js';
+
 import {
   loadServersFromDisk,
   loadBansFromDisk,
@@ -12,9 +16,6 @@ import {
 } from './orchestrator-persistence.js';
 import { AIOrchestrator, type RoutingContext } from './orchestrator.js';
 import type { AIServer } from './orchestrator.types.js';
-import { getRequestHistory } from './request-history.js';
-import { logger } from './utils/logger.js';
-import { normalizeServerUrl } from './utils/urlUtils.js';
 
 export type { RoutingContext };
 
@@ -96,40 +97,44 @@ export function getOrchestratorInstance(): AIOrchestrator {
         // Suppress persistence during bulk load to prevent partial writes on interruption
         orchestrator.setSuppressPersistence(true);
 
-        // Load servers (using deduplicated list)
-        for (const server of deduplicatedServers) {
-          // Only add if not already present
-          if (!orchestrator.getServer(server.id)) {
-            orchestrator.addServer({
-              id: server.id,
-              url: server.url,
-              type: server.type,
-              maxConcurrency: server.maxConcurrency,
-            });
-            // Update server state from persisted data
-            const addedServer = orchestrator.getServer(server.id);
-            if (addedServer) {
-              addedServer.healthy = server.healthy;
-              addedServer.models = server.models;
-              addedServer.lastResponseTime = server.lastResponseTime;
-              if (server.supportsOllama !== undefined) {
-                addedServer.supportsOllama = server.supportsOllama;
-              }
-              if (server.supportsV1 !== undefined) {
-                addedServer.supportsV1 = server.supportsV1;
-              }
-              if (server.v1Models !== undefined) {
-                addedServer.v1Models = server.v1Models;
-              }
-              if (server.apiKey !== undefined) {
-                addedServer.apiKey = server.apiKey;
+        try {
+          // Load servers (using deduplicated list)
+          for (const server of deduplicatedServers) {
+            // Only add if not already present
+            if (!orchestrator.getServer(server.id)) {
+              orchestrator.addServer({
+                id: server.id,
+                url: server.url,
+                type: server.type,
+                maxConcurrency: server.maxConcurrency,
+              });
+              // Update server state from persisted data
+              const addedServer = orchestrator.getServer(server.id);
+              if (addedServer) {
+                addedServer.healthy = server.healthy;
+                addedServer.models = server.models;
+                addedServer.lastResponseTime = server.lastResponseTime;
+                if (server.supportsOllama !== undefined) {
+                  addedServer.supportsOllama = server.supportsOllama;
+                }
+                if (server.supportsV1 !== undefined) {
+                  addedServer.supportsV1 = server.supportsV1;
+                }
+                if (server.v1Models !== undefined) {
+                  addedServer.v1Models = server.v1Models;
+                }
+                if (server.apiKey !== undefined) {
+                  addedServer.apiKey = server.apiKey;
+                }
               }
             }
           }
+        } finally {
+          // Always re-enable persistence
+          orchestrator.setSuppressPersistence(false);
         }
 
-        // Re-enable persistence and save once with all servers
-        orchestrator.setSuppressPersistence(false);
+        // Save once with all servers
         saveServersToDisk(orchestrator.getServers());
 
         // Load bans
@@ -180,5 +185,3 @@ export function resetOrchestratorInstance(): void {
 export function hasOrchestratorInstance(): boolean {
   return orchestrator !== null;
 }
-
-export default getOrchestratorInstance;

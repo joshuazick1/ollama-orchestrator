@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
 import { logger } from '../utils/logger.js';
 

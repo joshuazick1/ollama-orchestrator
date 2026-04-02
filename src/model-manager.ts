@@ -4,9 +4,9 @@
  */
 
 import { ERROR_MESSAGES } from './constants/index.js';
-import type { AIServer } from './orchestrator.types.js';
-import { getErrorClassifier } from './utils/errorClassifier.js';
-import { fetchWithTimeout } from './utils/fetchWithTimeout.js';
+import type { AIServer } from './orchestrator/orchestrator.types.js';
+import { getErrorClassifier } from './utils/error-classifier.js';
+import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 
@@ -1276,4 +1276,24 @@ export class ModelManager {
     this.jobCounter = 0;
     logger.info('Model manager reset');
   }
+}
+
+let _modelManagerInstance: ModelManager | null = null;
+
+export function getModelManager(): ModelManager {
+  if (!_modelManagerInstance) {
+    _modelManagerInstance = new ModelManager();
+  }
+  return _modelManagerInstance;
+}
+
+export function setModelManager(manager: ModelManager): void {
+  _modelManagerInstance = manager;
+}
+
+export function resetModelManager(): void {
+  if (_modelManagerInstance) {
+    _modelManagerInstance.reset();
+  }
+  _modelManagerInstance = null;
 }

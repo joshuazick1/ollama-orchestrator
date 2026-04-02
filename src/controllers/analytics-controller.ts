@@ -6,9 +6,9 @@
 import type { Request, Response } from 'express';
 
 import type { AnalyticsTimeRange } from '../analytics/analytics-engine.js';
-import { getAnalyticsEngine } from '../analytics-instance.js';
+import { getAnalyticsEngine } from '../analytics/analytics-engine.js';
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 
 /**

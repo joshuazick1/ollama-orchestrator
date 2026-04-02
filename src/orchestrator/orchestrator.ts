@@ -3,29 +3,51 @@
  * Ollama Orchestrator with Historical Metrics - Server management and request routing
  */
 
-import { ActiveTestScheduler } from './active-test-scheduler.js';
+import { ActiveTestScheduler } from '../active-test-scheduler.js';
+import { getAnalyticsEngine } from '../analytics/analytics-engine.js';
 import {
   getRecoveryFailureTracker,
   type RecoveryFailureRecord,
-} from './analytics/recovery-failure-tracker.js';
-import { getAnalyticsEngine } from './analytics-instance.js';
+} from '../analytics/recovery-failure-tracker.js';
 import {
   CircuitBreakerPersistence,
   type CircuitBreakerData,
-} from './circuit-breaker-persistence.js';
+} from '../circuit-breaker/circuit-breaker-persistence.js';
 import {
   CircuitBreaker,
   CircuitBreakerRegistry,
   type CircuitBreakerConfig,
   type ErrorType,
-} from './circuit-breaker.js';
-import type { HealthCheckConfig, OrchestratorConfig, RetryConfig } from './config/config.js';
-import { DEFAULT_CONFIG, getConfigManager } from './config/config.js';
-import { ERROR_MESSAGES } from './constants/index.js';
-import { getDecisionHistory } from './decision-history.js';
-import { HealthCheckScheduler, type HealthCheckResult } from './health-check-scheduler.js';
-import { LoadBalancer, calculateServerScore, type LoadBalancerConfig } from './load-balancer.js';
-import { MetricsAggregator } from './metrics/index.js';
+} from '../circuit-breaker/circuit-breaker.js';
+import type { HealthCheckConfig, OrchestratorConfig, RetryConfig } from '../config/config.js';
+import { DEFAULT_CONFIG, getConfigManager } from '../config/config.js';
+import { ERROR_MESSAGES } from '../constants/index.js';
+import { getDecisionHistory } from '../decision-history.js';
+import { HealthCheckScheduler, type HealthCheckResult } from '../health-check-scheduler.js';
+import {
+  LoadBalancer,
+  calculateServerScore,
+  type LoadBalancerConfig,
+} from '../load-balancer/load-balancer.js';
+import { MetricsAggregator } from '../metrics/index.js';
+import {
+  getRecoveryTestCoordinator,
+  RecoveryTestCoordinator,
+  setRecoveryTestCoordinator,
+} from '../recovery-test-coordinator.js';
+import { getRequestHistory } from '../request-history.js';
+import { getMetricsStore } from '../storage/metrics-store.js';
+import { BanManager } from '../utils/ban-manager.js';
+import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
+import { fetchWithTimeout, parseResponse } from '../utils/fetch-with-timeout.js';
+import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
+import { safeJsonStringify } from '../utils/json-utils.js';
+import { logger } from '../utils/logger.js';
+import { ModelAggregator } from '../utils/model-aggregator.js';
+import { canHandleContext, getDefaultContextSize } from '../utils/prompt-estimator.js';
+import { TimeoutManager } from '../utils/timeout-manager.js';
+import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
+
 import {
   saveServersToDisk,
   loadTimeoutsFromDisk,
@@ -38,23 +60,6 @@ import type {
   GlobalMetrics,
   MetricsExport,
 } from './orchestrator.types.js';
-import {
-  getRecoveryTestCoordinator,
-  RecoveryTestCoordinator,
-  setRecoveryTestCoordinator,
-} from './recovery-test-coordinator.js';
-import { getRequestHistory } from './request-history.js';
-import { getMetricsStore } from './storage/metrics-store.js';
-import { BanManager } from './utils/ban-manager.js';
-import { classifyError, ErrorCategory } from './utils/errorClassifier.js';
-import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
-import { InFlightManager, getInFlightManager } from './utils/in-flight-manager.js';
-import { safeJsonStringify } from './utils/json-utils.js';
-import { logger } from './utils/logger.js';
-import { ModelAggregator } from './utils/model-aggregator.js';
-import { canHandleContext, getDefaultContextSize } from './utils/prompt-estimator.js';
-import { TimeoutManager } from './utils/timeout-manager.js';
-import { normalizeServerUrl, areUrlsEquivalent } from './utils/urlUtils.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -173,7 +178,7 @@ export class AIOrchestrator {
     ).getOrCreate = (
       name: string,
       config?: Partial<CircuitBreakerConfig>
-    ): import('./circuit-breaker.js').CircuitBreaker => {
+    ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker => {
       return registryGetOrCreate(name, config, (oldState, newState) => {
         const [serverId, ...modelParts] = name.split(':');
         const model = modelParts.length > 0 ? modelParts.join(':') : undefined;
@@ -2527,7 +2532,7 @@ export class AIOrchestrator {
       // its configured halfOpenTimeout, push it back to open immediately rather
       // than spawning another recovery test that will never land.
       const now = Date.now();
-      const checkHalfOpenExpiry = (cb: import('./circuit-breaker.js').CircuitBreaker): boolean => {
+      const checkHalfOpenExpiry = (cb: import('../circuit-breaker/circuit-breaker.js').CircuitBreaker): boolean => {
         if (cb.getState() !== 'half-open') {
           return false;
         }
@@ -3238,6 +3243,13 @@ export class AIOrchestrator {
   incrementInFlight(serverId: string, model: string, bypass: boolean = false): void {
     this.inFlightManager.incrementInFlight(serverId, model, bypass);
     this.metricsAggregator.incrementInFlight(serverId, model);
+
+    // If this is a real request (not bypass) and server is undergoing active tests,
+    // invalidate the test results - we need to re-test when server is idle
+    if (!bypass && this.serversUndergoingActiveTests.has(serverId)) {
+      const coordinator = getRecoveryTestCoordinator();
+      coordinator.invalidateServerTests(serverId);
+    }
   }
 
   /**
@@ -3600,6 +3612,21 @@ export class AIOrchestrator {
           `Active test timeout: escalated timeout for ${serverId}:${model} to ${this.timeoutManager.getTimeout(serverId, model)}ms`
         );
       });
+      coordinator.setOnTestsInvalidated((serverId: string) => {
+        logger.info(
+          `Active tests invalidated for server ${serverId} due to concurrent real request`
+        );
+        // Reset halfOpenStartedAt to give more time for recovery when server becomes idle
+        // This prevents the breaker from timing out while server is still processing requests
+        const breaker = this.circuitBreakerRegistry.get(serverId);
+        if (breaker && breaker.getState() === 'half-open') {
+          const stats = breaker.getStats();
+          if (stats.halfOpenStartedAt > 0) {
+            breaker.resetHalfOpenTimer();
+            logger.info(`Reset half-open timer for ${serverId} after test invalidation`);
+          }
+        }
+      });
 
       logger.info('Orchestrator: Recovery test coordinator callbacks have been set up');
 
@@ -3852,7 +3879,7 @@ export class AIOrchestrator {
   /**
    * Get circuit breaker for a server (with server-level half-open limits)
    */
-  private getCircuitBreaker(serverId: string): import('./circuit-breaker.js').CircuitBreaker {
+  private getCircuitBreaker(serverId: string): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
     return this.circuitBreakerRegistry.getOrCreate(serverId, undefined, (oldState, newState) => {
       // Enforce server-level half-open circuit limits
       if (newState === 'half-open') {
@@ -3891,7 +3918,7 @@ export class AIOrchestrator {
   private getModelCircuitBreaker(
     serverId: string,
     model: string
-  ): import('./circuit-breaker.js').CircuitBreaker {
+  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
     const key = `${serverId}:${model}`;
     return this.circuitBreakerRegistry.getOrCreate(key, undefined, (oldState, newState) => {
       // Enforce server-level half-open circuit limits
@@ -4041,7 +4068,7 @@ export class AIOrchestrator {
    */
   getServerCircuitBreaker(
     serverId: string
-  ): import('./circuit-breaker.js').CircuitBreaker | undefined {
+  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker | undefined {
     return this.circuitBreakerRegistry.get(serverId);
   }
 
@@ -4107,7 +4134,7 @@ export class AIOrchestrator {
   getModelCircuitBreakerPublic(
     serverId: string,
     model: string
-  ): import('./circuit-breaker.js').CircuitBreaker | undefined {
+  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker | undefined {
     return this.getModelCircuitBreaker(serverId, model);
   }
 

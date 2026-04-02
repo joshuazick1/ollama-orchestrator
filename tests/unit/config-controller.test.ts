@@ -14,7 +14,7 @@ import {
   reloadConfig,
   saveConfig,
   getConfigSchema,
-} from '../../src/controllers/configController.js';
+} from '../../src/controllers/config-controller.js';
 
 vi.mock('../../src/config/config.js');
 

@@ -5,7 +5,7 @@
 
 import path from 'path';
 
-import { JsonFileHandler } from '../config/jsonFileHandler.js';
+import { JsonFileHandler } from '../config/json-file-handler.js';
 import {
   getDecisionHistory,
   type DecisionEvent,
@@ -16,7 +16,7 @@ import type {
   MetricsWindow,
   TimeWindow,
   RequestContext,
-} from '../orchestrator.types.js';
+} from '../orchestrator/orchestrator.types.js';
 import { getRequestHistory, type RequestRecord, type RequestStats } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { logger } from '../utils/logger.js';
@@ -1351,4 +1351,24 @@ export class AnalyticsEngine {
   getTotalRequestCount(): number {
     return getRequestHistory().getTotalRequestCount();
   }
+}
+
+let _analyticsEngineInstance: AnalyticsEngine | null = null;
+
+export function getAnalyticsEngine(): AnalyticsEngine {
+  if (!_analyticsEngineInstance) {
+    _analyticsEngineInstance = new AnalyticsEngine();
+  }
+  return _analyticsEngineInstance;
+}
+
+export function setAnalyticsEngine(engine: AnalyticsEngine): void {
+  _analyticsEngineInstance = engine;
+}
+
+export function resetAnalyticsEngine(): void {
+  if (_analyticsEngineInstance) {
+    _analyticsEngineInstance.reset();
+  }
+  _analyticsEngineInstance = null;
 }

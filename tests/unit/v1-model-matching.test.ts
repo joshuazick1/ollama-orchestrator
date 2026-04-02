@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import { AIOrchestrator } from '../../src/orchestrator.js';
+import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
 describe('Wave 3 REC-47/48: v1Models matching and resolveModelName in failover', () => {

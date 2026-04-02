@@ -6,11 +6,12 @@
 import type { Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
-import type { AIServer } from '../orchestrator.types.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { streamResponse } from '../streaming.js';
-import { fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
+import { fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
 
+import { resolveApiKey } from './api-keys.js';
 import type { StreamingRequestProgress } from './in-flight-manager.js';
 
 export interface HandoffResult {
@@ -132,11 +133,12 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
       // F-8: Use fetchWithActivityTimeout so the handoff fetch cannot hang forever.
       // Use the effective stall threshold as the connection/activity timeout for the
       // initial connection; a separate activity controller handles mid-stream activity.
+      const resolvedApiKey = resolveApiKey(newServer.apiKey);
       const fetchResult = await fetchWithActivityTimeout(upstreamUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(newServer.apiKey ? { Authorization: `Bearer ${newServer.apiKey}` } : {}),
+          ...(resolvedApiKey ? { Authorization: `Bearer ${resolvedApiKey}` } : {}),
         },
         body: JSON.stringify(continuationRequest),
         connectionTimeout: effectiveStallThreshold,

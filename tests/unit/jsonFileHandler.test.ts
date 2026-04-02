@@ -9,7 +9,7 @@ import path from 'path';
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { JsonFileHandler } from '../../src/config/jsonFileHandler.js';
+import { JsonFileHandler } from '../../src/config/json-file-handler.js';
 
 describe('JsonFileHandler', () => {
   let tempDir: string;

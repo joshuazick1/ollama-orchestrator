@@ -4,7 +4,7 @@ import {
   fetchWithTimeout,
   createActivityTimeoutController,
   createFetchWithTimeout,
-} from '../../src/utils/fetchWithTimeout';
+} from '../../src/utils/fetch-with-timeout';
 
 describe('fetchWithTimeout', () => {
   it('should resolve fetch without timeout', async () => {

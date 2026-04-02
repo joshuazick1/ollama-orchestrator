@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { CircuitBreaker } from '../../src/circuit-breaker.js';
+import { CircuitBreaker } from '../../src/circuit-breaker/circuit-breaker.js';
 import { BanManager } from '../../src/utils/ban-manager.js';
-import { classifyError } from '../../src/utils/errorClassifier.js';
+import { classifyError } from '../../src/utils/error-classifier.js';
 
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {

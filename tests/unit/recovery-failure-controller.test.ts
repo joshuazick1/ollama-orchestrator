@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/analytics/recovery-failure-tracker.js');
 vi.mock('../../src/recovery-test-coordinator.js');
 
@@ -23,8 +23,8 @@ import {
   resetServerRecoveryStats,
   resetServerCircuitBreaker,
   getServerCircuitBreaker,
-} from '../../src/controllers/recoveryFailureController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+} from '../../src/controllers/recovery-failure-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import { getRecoveryTestCoordinator } from '../../src/recovery-test-coordinator.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);

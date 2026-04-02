@@ -14,7 +14,7 @@ import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // Mock dependencies
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/config/config.js');
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
@@ -26,8 +26,8 @@ vi.mock('../../src/utils/logger.js', () => ({
 }));
 
 import { getConfigManager } from '../../src/config/config.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import type { AIServer } from '../../src/orchestrator.types.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetConfigManager = vi.mocked(getConfigManager);

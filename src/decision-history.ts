@@ -5,9 +5,9 @@
 
 import path from 'path';
 
-import { JsonFileHandler } from './config/jsonFileHandler.js';
-import type { ServerScore } from './load-balancer.js';
-import type { AIServer } from './orchestrator.types.js';
+import { JsonFileHandler } from './config/json-file-handler.js';
+import type { ServerScore } from './load-balancer/load-balancer.js';
+import type { AIServer } from './orchestrator/orchestrator.types.js';
 import { getMetricsStore } from './storage/metrics-store.js';
 import type { DecisionRow } from './storage/types.js';
 import { logger } from './utils/logger.js';

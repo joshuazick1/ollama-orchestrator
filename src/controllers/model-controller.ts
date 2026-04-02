@@ -6,8 +6,8 @@
 import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
-import { getModelManager } from '../model-manager-instance.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getModelManager } from '../model-manager.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
 
@@ -267,7 +267,8 @@ export function cancelWarmup(req: Request, res: Response): void {
  */
 export function getIdleModels(req: Request, res: Response): void {
   const { threshold = 1800000 } = req.query;
-  const idleThreshold = parseInt(threshold as string, 10) || 1800000;
+  const parsed = parseInt(threshold as string, 10);
+  const idleThreshold = !isNaN(parsed) && parsed >= 0 ? parsed : 1800000;
 
   const modelManager = getModelManager();
   const orchestrator = getOrchestratorInstance();

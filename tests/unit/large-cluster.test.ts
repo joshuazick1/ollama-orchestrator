@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import type { AIServer } from '../../src/orchestrator.types.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 import { InFlightManager } from '../../src/utils/in-flight-manager.js';
 
 // Mock logger

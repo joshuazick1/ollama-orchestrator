@@ -3,7 +3,7 @@
  * Export metrics in Prometheus/OpenMetrics format
  */
 
-import type { TimeWindow } from '../orchestrator.types.js';
+import type { TimeWindow } from '../orchestrator/orchestrator.types.js';
 
 import type { MetricsAggregator } from './metrics-aggregator.js';
 

@@ -7,7 +7,7 @@
  *   - Request header:  X-Include-Debug-Info: true
  */
 
-import type { RoutingContext } from '../orchestrator-instance.js';
+import type { RoutingContext } from '../orchestrator/orchestrator-instance.js';
 
 export interface ChunkDebugData {
   chunkCount?: number;

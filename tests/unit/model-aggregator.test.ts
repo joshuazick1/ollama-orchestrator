@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import type { AIServer } from '../../src/orchestrator.types.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 import { ModelAggregator } from '../../src/utils/model-aggregator.js';
 
 describe('ModelAggregator', () => {

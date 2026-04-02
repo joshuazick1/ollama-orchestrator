@@ -6,10 +6,10 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import type { AIServer } from '../orchestrator.types.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 
-import { JsonFileHandler, JsonFileHandlerOptions } from './jsonFileHandler.js';
+import { JsonFileHandler, JsonFileHandlerOptions } from './json-file-handler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

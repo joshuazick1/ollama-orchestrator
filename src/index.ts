@@ -15,14 +15,14 @@ import helmet from 'helmet';
 
 import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
-import { getPrometheusMetrics } from './controllers/metricsController.js';
+import { getPrometheusMetrics } from './controllers/metrics-controller.js';
 import { requireAuth } from './middleware/auth.js';
 import {
   createMonitoringRateLimiter,
   createAdminRateLimiter,
   createInferenceRateLimiter,
-} from './middleware/rateLimiter.js';
-import { getOrchestratorInstance } from './orchestrator-instance.js';
+} from './middleware/rate-limiter.js';
+import { getOrchestratorInstance } from './orchestrator/orchestrator-instance.js';
 import { monitoringRouter, adminRouter, inferenceRouter, v1Router } from './routes/orchestrator.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { logger } from './utils/logger.js';

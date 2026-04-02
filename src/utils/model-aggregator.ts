@@ -1,4 +1,4 @@
-import type { AIServer } from '../orchestrator.types.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 
 export class ModelAggregator {
   private servers: AIServer[] = [];

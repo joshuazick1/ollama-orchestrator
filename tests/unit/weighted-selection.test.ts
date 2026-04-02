@@ -5,8 +5,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { LoadBalancer, calculateServerScore } from '../../src/load-balancer.js';
-import type { AIServer } from '../../src/orchestrator.types.js';
+import { LoadBalancer, calculateServerScore } from '../../src/load-balancer/load-balancer.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 
 describe('Weighted Selection Algorithms Tests', () => {
   let loadBalancer: LoadBalancer;

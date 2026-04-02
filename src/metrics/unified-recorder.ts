@@ -12,7 +12,7 @@
  */
 
 import { featureFlags } from '../config/feature-flags.js';
-import type { RequestContext } from '../orchestrator.types.js';
+import type { RequestContext } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 
 export interface MetricsRecorder {

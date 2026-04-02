@@ -5,9 +5,10 @@
 
 import path from 'path';
 
+import { JsonFileHandler } from '../config/json-file-handler.js';
+import { logger } from '../utils/logger.js';
+
 import type { CircuitState } from './circuit-breaker.js';
-import { JsonFileHandler } from './config/jsonFileHandler.js';
-import { logger } from './utils/logger.js';
 
 export interface CircuitBreakerData {
   timestamp: number;

@@ -10,7 +10,7 @@ import {
   ErrorCategory,
   ErrorSeverity,
   ErrorType,
-} from '../../src/utils/errorClassifier.js';
+} from '../../src/utils/error-classifier.js';
 
 describe('Error Classification Tests', () => {
   let classifier: ErrorClassifier;

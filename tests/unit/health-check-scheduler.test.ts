@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import type { HealthCheckConfig } from '../../src/config/config.js';
 import { HealthCheckScheduler } from '../../src/health-check-scheduler.js';
-import type { AIServer } from '../../src/orchestrator.types.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 
 describe('HealthCheckScheduler', () => {
   let config: HealthCheckConfig;

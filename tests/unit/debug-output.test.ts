@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import type { RoutingContext } from '../../src/orchestrator-instance.js';
+import type { RoutingContext } from '../../src/orchestrator/orchestrator-instance.js';
 import { getDebugInfo } from '../../src/utils/debug-headers.js';
 
 describe('getDebugInfo – REC-55 routing reasoning fields', () => {

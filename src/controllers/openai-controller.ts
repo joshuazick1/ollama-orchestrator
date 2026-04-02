@@ -8,17 +8,25 @@ import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
 import { API_ENDPOINTS } from '../constants/index.js';
-import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
-import type { AIServer } from '../orchestrator.types.js';
+import {
+  getOrchestratorInstance,
+  type RoutingContext,
+} from '../orchestrator/orchestrator-instance.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { type OllamaStreamChunk, type OllamaToolCall } from '../streaming.js';
+import type {
+  OpenAIChatCompletionRequest,
+  OpenAICompletionRequest,
+  OpenAIEmbeddingRequest,
+} from '../types/api-request.types.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
-import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
+import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
-import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 import { performStreamHandoff } from '../utils/stream-handoff.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
@@ -35,60 +43,6 @@ function getBackendHeaders(server: AIServer): Record<string, string> {
     headers['Authorization'] = `Bearer ${resolvedKey}`;
   }
   return headers;
-}
-
-// OpenAI API Types
-interface OpenAIChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | Array<{ type: string; text?: string; image_url?: string | { url: string } }>;
-  name?: string;
-  tool_calls?: Array<{
-    id: string;
-    type: 'function';
-    function: { name: string; arguments: string };
-  }>;
-  tool_call_id?: string;
-}
-
-interface OpenAIChatCompletionRequest {
-  model: string;
-  messages: OpenAIChatMessage[];
-  temperature?: number;
-  top_p?: number;
-  max_tokens?: number;
-  stream?: boolean;
-  stop?: string | string[];
-  presence_penalty?: number;
-  frequency_penalty?: number;
-  seed?: number;
-  response_format?: { type: 'text' | 'json_object' };
-  tools?: Array<{
-    type: 'function';
-    function: { name: string; description?: string; parameters?: object };
-  }>;
-  stream_options?: { include_usage?: boolean };
-}
-
-interface OpenAICompletionRequest {
-  model: string;
-  prompt: string | string[];
-  temperature?: number;
-  top_p?: number;
-  max_tokens?: number;
-  stream?: boolean;
-  stop?: string | string[];
-  presence_penalty?: number;
-  frequency_penalty?: number;
-  seed?: number;
-  suffix?: string;
-  stream_options?: { include_usage?: boolean };
-}
-
-interface OpenAIEmbeddingRequest {
-  model: string;
-  input: string | string[];
-  encoding_format?: 'float' | 'base64';
-  dimensions?: number;
 }
 
 interface _OpenAIModelObject {
@@ -109,7 +63,7 @@ interface _OllamaModelEntry {
  * Generate a unique ID for OpenAI-style responses
  */
 function generateId(prefix: string = 'chatcmpl'): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 9)}`;
+  return `${prefix}-${Date.now().toString(36)}-${crypto.randomUUID().replace(/-/g, '').slice(0, 13)}`;
 }
 
 /**
@@ -1174,7 +1128,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
       routingContext,
       undefined,
       Array.isArray(body.prompt)
-        ? (body.prompt as string[]).reduce((sum, p) => sum + estimatePromptTokens(p), 0)
+        ? body.prompt.reduce((sum, p) => sum + estimatePromptTokens(p), 0)
         : estimatePromptTokens(body.prompt || '')
     );
 
@@ -1260,7 +1214,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       routingContext,
       undefined,
       Array.isArray(body.input)
-        ? (body.input as string[]).reduce((sum, p) => sum + estimatePromptTokens(p), 0)
+        ? body.input.reduce((sum, p) => sum + estimatePromptTokens(p), 0)
         : estimatePromptTokens(body.input || '')
     );
 

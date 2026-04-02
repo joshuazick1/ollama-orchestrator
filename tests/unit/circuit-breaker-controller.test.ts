@@ -6,11 +6,14 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import { resetBreaker, getBreakerDetails } from '../../src/controllers/circuitBreakerController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import {
+  resetBreaker,
+  getBreakerDetails,
+} from '../../src/controllers/circuit-breaker-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import { getRecoveryTestCoordinator } from '../../src/recovery-test-coordinator.js';
 
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/recovery-test-coordinator.js');
 vi.mock('../../src/utils/logger.js');
 

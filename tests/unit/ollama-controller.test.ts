@@ -20,12 +20,12 @@ import {
   handleGenerateToServer,
   handleChatToServer,
   handleEmbeddingsToServer,
-} from '../../src/controllers/ollamaController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+} from '../../src/controllers/ollama-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import { streamResponse, isStreamingRequest, handleStreamWithRetry } from '../../src/streaming.js';
 import { mockResponses, mockServers, mockErrors } from '../fixtures/index.js';
 
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/streaming.js');
 vi.mock('../../src/utils/in-flight-manager.js', () => ({
   getInFlightManager: vi.fn(() => ({

@@ -5,8 +5,8 @@
 
 import path from 'path';
 
-import { JsonFileHandler } from '../config/jsonFileHandler.js';
-import type { ServerModelMetrics } from '../orchestrator.types.js';
+import { JsonFileHandler } from '../config/json-file-handler.js';
+import type { ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 
 export interface MetricsData {

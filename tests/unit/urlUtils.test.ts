@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { normalizeServerUrl, areUrlsEquivalent } from '../../src/utils/urlUtils.js';
+import { normalizeServerUrl, areUrlsEquivalent } from '../../src/utils/url-utils.js';
 
 describe('urlUtils', () => {
   describe('normalizeServerUrl', () => {

@@ -11,8 +11,8 @@ vi.mock('../../src/storage/metrics-store.js', () => {
 
 import { DecisionHistory } from '../../src/decision-history.js';
 import type { FailoverAttempt } from '../../src/decision-history.js';
-import type { ServerScore } from '../../src/load-balancer.js';
-import type { AIServer } from '../../src/orchestrator.types.js';
+import type { ServerScore } from '../../src/load-balancer/load-balancer.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 
 describe('DecisionHistory', () => {
   let history: DecisionHistory;

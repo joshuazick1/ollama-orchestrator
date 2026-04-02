@@ -97,7 +97,7 @@ function makeMockClientResponse(opts: { triggerBackpressureOnNthWrite?: number }
 // through integration-style checks by mocking fetch and express and calling
 // handleChatCompletions / handleCompletions.
 // ---------------------------------------------------------------------------
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/config/config.js');
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
@@ -118,7 +118,7 @@ vi.mock('../../src/utils/in-flight-manager.js', () => ({
     getTotalInFlight: vi.fn().mockReturnValue(0),
   }),
 }));
-vi.mock('../../src/utils/fetchWithTimeout.js', () => ({
+vi.mock('../../src/utils/fetch-with-timeout.js', () => ({
   fetchWithTimeout: vi.fn(),
   fetchWithActivityTimeout: vi.fn(),
 }));
@@ -138,9 +138,9 @@ import { getConfigManager } from '../../src/config/config.js';
 import {
   handleChatCompletions,
   handleCompletions,
-} from '../../src/controllers/openaiController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import { fetchWithActivityTimeout } from '../../src/utils/fetchWithTimeout.js';
+} from '../../src/controllers/openai-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
+import { fetchWithActivityTimeout } from '../../src/utils/fetch-with-timeout.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetConfigManager = vi.mocked(getConfigManager);

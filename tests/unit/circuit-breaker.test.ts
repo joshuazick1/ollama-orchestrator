@@ -6,7 +6,7 @@ import {
   type CircuitBreakerConfig,
   type CircuitState,
   DEFAULT_CIRCUIT_BREAKER_CONFIG,
-} from '../../src/circuit-breaker.js';
+} from '../../src/circuit-breaker/circuit-breaker.js';
 
 // Mock the logger
 vi.mock('../../src/utils/logger.js', () => ({

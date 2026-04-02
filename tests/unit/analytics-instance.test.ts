@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import { AnalyticsEngine } from '../../src/analytics/analytics-engine';
 import {
+  AnalyticsEngine,
   getAnalyticsEngine,
   setAnalyticsEngine,
   resetAnalyticsEngine,
-} from '../../src/analytics-instance';
+} from '../../src/analytics/analytics-engine';
 
 describe('AnalyticsInstance', () => {
   beforeEach(() => {

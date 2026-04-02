@@ -3,10 +3,11 @@
  * Intelligent load balancing using historical metrics
  */
 
-import { getTemporalScorer, type TemporalAdjustment } from './load-balancer/temporal-scorer.js';
-import type { AIServer, ServerModelMetrics } from './orchestrator.types.js';
-import { getInFlightManager } from './utils/in-flight-manager.js';
-import { logger } from './utils/logger.js';
+import type { AIServer, ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
+import { getInFlightManager } from '../utils/in-flight-manager.js';
+import { logger } from '../utils/logger.js';
+
+import { getTemporalScorer, type TemporalAdjustment } from './temporal-scorer.js';
 
 /**
  * Circuit breaker health status
@@ -470,6 +471,9 @@ export class LoadBalancer {
    * Start periodic cleanup of expired sticky sessions
    */
   private startStickySessionCleanup(): void {
+    // Clear any existing interval first to prevent duplicates
+    this.stopCleanup();
+
     const ttl = this.config.roundRobin.stickySessionsTtlMs;
     // Cleanup every TTL/2 to ensure timely removal
     this.stickySessionCleanupInterval = setInterval(() => {

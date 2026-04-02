@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import type { AIServer } from '../../src/orchestrator.types.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 import type { StreamingRequestProgress } from '../../src/utils/in-flight-manager.js';
 import { performStreamHandoff, type HandoffRequest } from '../../src/utils/stream-handoff.js';
 

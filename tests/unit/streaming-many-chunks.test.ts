@@ -15,7 +15,7 @@ import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // Mock dependencies
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/config/config.js');
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
@@ -25,11 +25,11 @@ vi.mock('../../src/utils/logger.js', () => ({
     error: vi.fn(),
   },
 }));
-vi.mock('../../src/utils/fetchWithTimeout.js');
+vi.mock('../../src/utils/fetch-with-timeout.js');
 
 import { getConfigManager } from '../../src/config/config.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import { fetchWithTimeout } from '../../src/utils/fetchWithTimeout.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
+import { fetchWithTimeout } from '../../src/utils/fetch-with-timeout.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockGetConfigManager = vi.mocked(getConfigManager);
@@ -138,7 +138,9 @@ describe('Streaming Many Chunks Tests', () => {
       let maxGap = 0;
       for (let i = 1; i < chunkTimes.length; i++) {
         const gap = chunkTimes[i] - chunkTimes[i - 1];
-        if (gap > maxGap) {maxGap = gap;}
+        if (gap > maxGap) {
+          maxGap = gap;
+        }
       }
 
       // Largest gap is between index 2 (200) and 3 (350) = 150ms
@@ -338,7 +340,9 @@ data: {"done":true}`;
         },
 
         getAverageTTFT() {
-          if (this.ttftSamples.length === 0) {return 0;}
+          if (this.ttftSamples.length === 0) {
+            return 0;
+          }
           return this.ttftSamples.reduce((a, b) => a + b, 0) / this.ttftSamples.length;
         },
       };

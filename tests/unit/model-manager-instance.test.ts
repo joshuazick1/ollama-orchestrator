@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import { ModelManager } from '../../src/model-manager';
 import {
+  ModelManager,
   getModelManager,
   setModelManager,
   resetModelManager,
-} from '../../src/model-manager-instance';
+} from '../../src/model-manager';
 
 describe('ModelManagerInstance', () => {
   beforeEach(() => {

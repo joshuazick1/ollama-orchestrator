@@ -7,7 +7,7 @@
 
 import { describe, it, expect, afterAll, afterEach } from 'vitest';
 
-import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../../src/circuit-breaker.js';
+import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../../src/circuit-breaker/circuit-breaker.js';
 import {
   createDiverseMockServer,
   mockServerFactory,

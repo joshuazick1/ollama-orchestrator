@@ -10,7 +10,7 @@ import {
   isTransientError,
   getErrorClassifier,
   setErrorClassifier,
-} from '../../src/utils/errorClassifier';
+} from '../../src/utils/error-classifier';
 
 describe('ErrorClassifier', () => {
   let classifier: ErrorClassifier;

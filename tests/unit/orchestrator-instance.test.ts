@@ -10,8 +10,8 @@ import {
   getOrchestratorInstance,
   resetOrchestratorInstance,
   hasOrchestratorInstance,
-} from '../../src/orchestrator-instance.js';
-import { AIOrchestrator } from '../../src/orchestrator.js';
+} from '../../src/orchestrator/orchestrator-instance.js';
+import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
 import { logger } from '../../src/utils/logger.js';
 
 vi.mock('../../src/config/config.js');
@@ -59,7 +59,7 @@ describe('Orchestrator Instance', () => {
     it('should verify initialization catch block exists', () => {
       const fs = require('fs');
       const path = require('path');
-      const sourceFile = path.join(__dirname, '../../src/orchestrator-instance.ts');
+      const sourceFile = path.join(__dirname, '../../src/orchestrator/orchestrator-instance.ts');
       const content = fs.readFileSync(sourceFile, 'utf-8');
 
       expect(content).toContain('.catch((error: unknown) => {');

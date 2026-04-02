@@ -13,7 +13,7 @@ import {
   createAuthRateLimiter,
   defaultKeyGenerator,
   DEFAULT_RATE_LIMIT_CONFIG,
-} from '../../src/middleware/rateLimiter.js';
+} from '../../src/middleware/rate-limiter.js';
 
 describe('rateLimiter middleware', () => {
   let mockReq: Partial<Request>;

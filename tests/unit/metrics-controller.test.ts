@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Mock the orchestrator instance
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 // Mock PrometheusExporter
 vi.mock('../../src/metrics/prometheus-exporter.js');
 
@@ -15,9 +15,9 @@ import {
   getMetrics,
   getServerModelMetrics,
   getPrometheusMetrics,
-} from '../../src/controllers/metricsController.js';
+} from '../../src/controllers/metrics-controller.js';
 import { PrometheusExporter } from '../../src/metrics/prometheus-exporter.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 
 const mockPrometheusExporter = vi.mocked(PrometheusExporter);
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);

@@ -8,7 +8,7 @@ vi.mock('../../src/storage/metrics-store.js', () => {
   return { getMetricsStore: () => mockStore, _mockStore: mockStore };
 });
 
-import type { RequestContext, AIServer } from '../../src/orchestrator.types.js';
+import type { RequestContext, AIServer } from '../../src/orchestrator/orchestrator.types.js';
 import { RequestHistory } from '../../src/request-history.js';
 import * as metricsStoreMod from '../../src/storage/metrics-store.js';
 

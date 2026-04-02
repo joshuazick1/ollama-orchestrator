@@ -8,99 +8,37 @@ import type { Request, Response } from 'express';
 import { getConfigManager } from '../config/config.js';
 import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import { TTFTTracker } from '../metrics/ttft-tracker.js';
-import { getOrchestratorInstance, type RoutingContext } from '../orchestrator-instance.js';
-import type { AIServer } from '../orchestrator.types.js';
+import {
+  getOrchestratorInstance,
+  type RoutingContext,
+} from '../orchestrator/orchestrator-instance.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import {
   streamResponse,
   isStreamingRequest,
   handleStreamWithRetry,
   type OllamaDurations,
 } from '../streaming.js';
+import type {
+  GenerateRequestBody,
+  ChatRequestBody,
+  EmbeddingsRequestBody,
+  ShowRequestBody,
+  EmbedRequestBody,
+  PsModelEntry,
+  PsResponse,
+  OllamaStreamingMetrics,
+} from '../types/api-request.types.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
-import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetchWithTimeout.js';
+import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
-import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollamaError.js';
+import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 import { performStreamHandoff } from '../utils/stream-handoff.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
-
-/** Request body for /api/generate */
-interface GenerateRequestBody {
-  model?: string;
-  prompt?: string;
-  stream?: boolean;
-  context?: number[];
-  options?: Record<string, unknown>;
-  keep_alive?: number;
-}
-
-/** Request body for /api/chat */
-interface ChatRequestBody {
-  model?: string;
-  messages?: unknown[];
-  stream?: boolean;
-  options?: Record<string, unknown>;
-  keep_alive?: number;
-}
-
-/** Request body for /api/embeddings */
-interface EmbeddingsRequestBody {
-  model?: string;
-  prompt?: string;
-}
-
-/** Request body for /api/show */
-interface ShowRequestBody {
-  model?: string;
-}
-
-/** Request body for /api/embed */
-interface EmbedRequestBody {
-  model?: string;
-  input?: string | string[];
-  prompt?: string;
-  truncate?: boolean;
-  options?: Record<string, unknown>;
-  keep_alive?: number;
-  dimensions?: number;
-}
-
-/** Response from /api/ps */
-interface PsModelEntry {
-  name?: string;
-  model?: string;
-  size?: number;
-  digest?: string;
-  expires_at?: string;
-  size_vram?: number;
-  [key: string]: unknown;
-}
-
-interface PsResponse {
-  models?: PsModelEntry[];
-}
-
-/** Streaming metrics returned from streaming requests */
-interface StreamingMetrics {
-  _streamingMetrics: {
-    ttft: number | undefined;
-    streamingDuration: number;
-  };
-  _tokenMetrics?: {
-    tokensGenerated: number;
-    tokensPrompt: number;
-  };
-  _chunkData?: {
-    chunkCount: number;
-    totalBytes: number;
-    maxChunkGapMs: number;
-    avgChunkSizeBytes: number;
-  };
-  _ollamaDurations?: OllamaDurations;
-}
 
 /**
  * Handle /api/tags - Get aggregated tags from all servers
@@ -521,7 +459,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             },
             _chunkData: streamingChunkData,
             _ollamaDurations: capturedOllamaDurations,
-          } as StreamingMetrics;
+          } as OllamaStreamingMetrics;
         }
 
         // Non-streaming request uses dynamic timeout from orchestrator
@@ -962,7 +900,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             },
             _chunkData: streamingChunkData,
             _ollamaDurations: capturedOllamaDurations,
-          } as StreamingMetrics;
+          } as OllamaStreamingMetrics;
         }
 
         // Non-streaming request uses dynamic timeout from orchestrator
@@ -1150,8 +1088,6 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
   const servers = orchestrator.getServers().filter(s => s.healthy && s.supportsOllama !== false);
 
   try {
-    const allModels: Array<PsModelEntry & { server: string }> = [];
-
     const promises = servers.map(async server => {
       try {
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.PS}`, {
@@ -1162,25 +1098,26 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
 
         if (!response.ok) {
           logger.warn(`Failed to get ps from ${server.id}: ${response.status}`);
-          return;
+          return [];
         }
 
         const data = (await response.json()) as PsResponse;
         if (data.models && Array.isArray(data.models)) {
           // Add server info to each model entry
-          for (const model of data.models) {
-            allModels.push({
-              ...model,
-              server: server.id, // Add non-standard field for debugging
-            });
-          }
+          return data.models.map(model => ({
+            ...model,
+            server: server.id,
+          }));
         }
+        return [];
       } catch (error) {
         logger.error(`Error getting ps from ${server.id}:`, error);
+        return [];
       }
     });
 
-    await Promise.all(promises);
+    const results = await Promise.all(promises);
+    const allModels: Array<PsModelEntry & { server: string }> = results.flat();
 
     // Return Ollama-compatible format
     res.json({ models: allModels });
@@ -1243,7 +1180,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
     if (includeDebug) {
       const debugInfo = getDebugInfo(routingContext);
       if (debugInfo && typeof result === 'object' && result !== null) {
-        (result as Record<string, unknown>).debug = debugInfo;
+        result.debug = debugInfo;
         setDebugResponseHeaders(res, debugInfo);
       }
     }
@@ -1252,13 +1189,13 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
 
     // Extract and store context length if available
     if (routingContext.selectedServerId && typeof result === 'object' && result !== null) {
-      const resultObj = result as Record<string, unknown>;
+      const resultObj = result;
       const details = resultObj.details as Record<string, unknown> | undefined;
       if (details && typeof details.context_length === 'number') {
         orchestrator.setModelContextLimit(
           routingContext.selectedServerId,
           model,
-          details.context_length as number
+          details.context_length
         );
       }
     }

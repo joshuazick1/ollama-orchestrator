@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import type { RoutingContext } from '../../src/orchestrator-instance.js';
+import type { RoutingContext } from '../../src/orchestrator/orchestrator-instance.js';
 import { getDebugInfo } from '../../src/utils/debug-headers.js';
 
 describe('getDebugInfo', () => {

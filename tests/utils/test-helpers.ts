@@ -5,7 +5,7 @@
 
 import { createServer, Server } from 'http';
 
-import type { AIServer } from '../../src/orchestrator.types';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types';
 import { mockResponses, mockModels } from '../fixtures';
 
 // Track created mock servers for cleanup

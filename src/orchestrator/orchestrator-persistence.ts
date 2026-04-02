@@ -3,9 +3,10 @@
  * Server registration persistence utilities
  */
 
-import { serversConfig, bansConfig, timeoutsConfig } from './config/configManager.js';
+import { serversConfig, bansConfig, timeoutsConfig } from '../config/config-manager.js';
+import { logger } from '../utils/logger.js';
+
 import type { AIServer } from './orchestrator.types.js';
-import { logger } from './utils/logger.js';
 
 /**
  * Save servers to disk

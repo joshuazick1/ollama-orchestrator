@@ -6,8 +6,8 @@ import {
   LoadBalancer,
   DEFAULT_LB_CONFIG,
   CircuitBreakerHealth,
-} from '../../src/load-balancer.js';
-import type { AIServer, ServerModelMetrics } from '../../src/orchestrator.types.js';
+} from '../../src/load-balancer/load-balancer.js';
+import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 
 const mockServer: AIServer = {
   id: 'server-1',

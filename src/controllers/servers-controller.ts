@@ -6,9 +6,9 @@
 import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
-import { normalizeServerUrl, areUrlsEquivalent } from '../utils/urlUtils.js';
+import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
 
 /**
  * Add a new server

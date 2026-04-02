@@ -7,8 +7,8 @@
  * cycle boundary (up to 30 s later).
  */
 
-import type { CircuitBreakerRegistry } from './circuit-breaker.js';
-import type { AIServer } from './orchestrator.types.js';
+import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
+import type { AIServer } from './orchestrator/orchestrator.types.js';
 import { logger } from './utils/logger.js';
 
 /** Milliseconds between polls of the circuit-breaker registry. */

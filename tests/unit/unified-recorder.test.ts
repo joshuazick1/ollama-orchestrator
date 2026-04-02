@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { UnifiedMetricsRecorder, type MetricsRecorder } from '../../src/metrics/unified-recorder';
-import type { RequestContext } from '../../src/orchestrator.types';
+import type { RequestContext } from '../../src/orchestrator/orchestrator.types';
 
 vi.mock('../../src/config/feature-flags.js', () => ({
   featureFlags: {

@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { deepMerge, deepMergeAll } from '../../src/utils/deepMerge.js';
+import { deepMerge, deepMergeAll } from '../../src/utils/deep-merge.js';
 
 describe('deepMerge', () => {
   it('should merge two objects', () => {

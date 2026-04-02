@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../../src/metrics/prometheus-exporter.js';
-import type { ServerModelMetrics, TimeWindow } from '../../src/orchestrator.types.js';
+import type { ServerModelMetrics, TimeWindow } from '../../src/orchestrator/orchestrator.types.js';
 
 describe('PrometheusExporter', () => {
   let mockAggregator: MetricsAggregator;

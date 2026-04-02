@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 
 import {
   addServer,
@@ -29,8 +29,8 @@ import {
   forceOpenBreaker,
   forceCloseBreaker,
   forceHalfOpenBreaker,
-} from '../../src/controllers/serversController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+} from '../../src/controllers/servers-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 
 describe('Servers Controller', () => {
   let mockOrchestrator: any;

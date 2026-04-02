@@ -14,8 +14,8 @@ import {
   serversConfig,
   bansConfig,
   validateServers,
-} from '../../src/config/configManager.js';
-import { JsonFileHandler } from '../../src/config/jsonFileHandler.js';
+} from '../../src/config/config-manager.js';
+import { JsonFileHandler } from '../../src/config/json-file-handler.js';
 import { logger } from '../../src/utils/logger.js';
 
 vi.mock('../../src/utils/logger.js');

@@ -6,8 +6,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { CircuitBreakerConfig } from '../circuit-breaker.js';
-import type { LoadBalancerConfig } from '../load-balancer.js';
+import type { CircuitBreakerConfig } from '../circuit-breaker/circuit-breaker.js';
+import type { LoadBalancerConfig } from '../load-balancer/load-balancer.js';
 import { refreshAuthConfig } from '../middleware/auth.js';
 import type { ModelManagerConfig } from '../model-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';

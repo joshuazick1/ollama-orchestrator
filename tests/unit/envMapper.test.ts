@@ -9,7 +9,7 @@ import {
   ENV_CONFIG_MAPPING,
   applyEnvOverrides,
   getConfigurableEnvVars,
-} from '../../src/config/envMapper.js';
+} from '../../src/config/env-mapper.js';
 
 describe('envMapper', () => {
   let originalEnv: NodeJS.ProcessEnv;

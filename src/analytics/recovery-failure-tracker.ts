@@ -4,7 +4,7 @@
  * Includes circuit breaker state transition tracking
  */
 
-import { JsonFileHandler } from '../config/jsonFileHandler.js';
+import { JsonFileHandler } from '../config/json-file-handler.js';
 import { logger } from '../utils/logger.js';
 
 export interface RecoveryFailureRecord {

@@ -12,15 +12,15 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import { handleGenerate, handleChat } from '../../src/controllers/ollamaController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+import { handleGenerate, handleChat } from '../../src/controllers/ollama-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import { streamResponse, isStreamingRequest } from '../../src/streaming.js';
 import { getInFlightManager } from '../../src/utils/in-flight-manager.js';
 import { performStreamHandoff } from '../../src/utils/stream-handoff.js';
 
 // ---------- Mocks ----------
 
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/streaming.js');
 vi.mock('../../src/utils/stream-handoff.js');
 vi.mock('../../src/utils/in-flight-manager.js', () => ({

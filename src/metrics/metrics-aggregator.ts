@@ -14,7 +14,7 @@ import type {
   GlobalMetrics,
   MetricsExport,
   StreamingMetricsSummary,
-} from '../orchestrator.types.js';
+} from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
 

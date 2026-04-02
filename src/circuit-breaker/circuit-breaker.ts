@@ -3,14 +3,14 @@
  * Enhanced Circuit Breaker with adaptive thresholds and error classification
  */
 
-import { ErrorClassifier, type ErrorType } from './utils/errorClassifier.js';
-import { logger } from './utils/logger.js';
-import { calculateCircuitBreakerBackoff } from './utils/recovery-backoff.js';
+import { ErrorClassifier, type ErrorType } from '../utils/error-classifier.js';
+import { logger } from '../utils/logger.js';
+import { calculateCircuitBreakerBackoff } from '../utils/recovery-backoff.js';
 
 export type CircuitState = 'closed' | 'open' | 'half-open';
 
 // Re-export ErrorType for backwards compatibility
-export type { ErrorType } from './utils/errorClassifier.js';
+export type { ErrorType } from '../utils/error-classifier.js';
 
 export interface CircuitBreakerError {
   type: ErrorType;
@@ -384,11 +384,6 @@ export class CircuitBreaker {
     this.lastSuccess = now;
     this.consecutiveSuccesses++;
 
-    // Decrement active tests counter for half-open state
-    if (this.state === 'half-open' && this.activeTestsInProgress > 0) {
-      this.activeTestsInProgress--;
-    }
-
     this.updateErrorRate();
 
     if (this.state === 'half-open') {
@@ -486,10 +481,6 @@ export class CircuitBreaker {
     }
 
     if (this.state === 'half-open') {
-      // Decrement active tests counter before transitioning
-      if (this.activeTestsInProgress > 0) {
-        this.activeTestsInProgress--;
-      }
       // Store failure reason and type before transitioning
       this.lastFailureReason = error instanceof Error ? error.message : String(error);
       this.lastErrorType = classifiedType;
@@ -739,6 +730,20 @@ export class CircuitBreaker {
   }
 
   /**
+   * Reset the half-open timer
+   * Called when tests are invalidated to give the breaker more time
+   * to recover when the server becomes idle
+   */
+  resetHalfOpenTimer(): void {
+    if (this.state === 'half-open') {
+      this.halfOpenStartedAt = Date.now();
+      logger.debug(
+        `Reset half-open timer for ${this.name}, halfOpenStartedAt = ${this.halfOpenStartedAt}`
+      );
+    }
+  }
+
+  /**
    * Restore circuit breaker state from persistence
    * Used during startup to recover previous state
    */
@@ -904,7 +909,7 @@ export class CircuitBreaker {
 
     try {
       // Import and use the RecoveryTestCoordinator for coordinated testing
-      const { getRecoveryTestCoordinator } = await import('./recovery-test-coordinator.js');
+      const { getRecoveryTestCoordinator } = await import('../recovery-test-coordinator.js');
       const coordinator = getRecoveryTestCoordinator();
 
       // The coordinator handles:

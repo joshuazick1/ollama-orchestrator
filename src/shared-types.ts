@@ -26,4 +26,4 @@ export type {
   ServerModelBenchmark,
   StreamingMetrics,
   PrometheusMetric,
-} from './orchestrator.types.js';
+} from './orchestrator/orchestrator.types.js';

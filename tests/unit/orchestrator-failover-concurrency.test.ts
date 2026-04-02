@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { AIOrchestrator } from '../../src/orchestrator.js';
+import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
 describe('Orchestrator Failover and Concurrency Tests', () => {

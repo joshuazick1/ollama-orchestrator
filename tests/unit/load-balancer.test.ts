@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
-import { calculateServerScore, selectBestServer, LoadBalancer } from '../../src/load-balancer.js';
-import type { AIServer, ServerModelMetrics } from '../../src/orchestrator.types.js';
+import { calculateServerScore, selectBestServer, LoadBalancer } from '../../src/load-balancer/load-balancer.js';
+import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 
 describe('Load Balancer', () => {
   const mockServer: AIServer = {

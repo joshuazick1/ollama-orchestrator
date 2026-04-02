@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 
 import type { MetricsAggregator } from '../metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../metrics/prometheus-exporter.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 

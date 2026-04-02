@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { ModelManager } from '../../src/model-manager.js';
-import type { AIServer } from '../../src/orchestrator.types.js';
+import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 
 describe('Concurrent Requests Tests', () => {
   let modelManager: ModelManager;
@@ -377,7 +377,7 @@ describe('Concurrent Requests Tests', () => {
 
       // Verify that each call creates a fresh context (by checking uniqueness if requestId is set)
       // The orchestrator generates requestId via crypto.randomUUID or similar
-      const { AIOrchestrator } = await import('../../src/orchestrator.js');
+      const { AIOrchestrator } = await import('../../src/orchestrator/orchestrator.js');
       const { resetInFlightManager } = await import('../../src/utils/in-flight-manager.js');
       resetInFlightManager();
 

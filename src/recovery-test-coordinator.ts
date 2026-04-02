@@ -10,9 +10,9 @@
  * - Checks for in-flight requests before testing
  */
 
-import { CircuitBreaker } from './circuit-breaker.js';
+import { CircuitBreaker } from './circuit-breaker/circuit-breaker.js';
 import { featureFlags } from './config/feature-flags.js';
-import { fetchWithTimeout, parseResponse } from './utils/fetchWithTimeout.js';
+import { fetchWithTimeout, parseResponse } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { calculateActiveTestTimeout } from './utils/recovery-backoff.js';
@@ -127,6 +127,10 @@ export class RecoveryTestCoordinator {
   private recordTimeoutFailure?: (serverId: string, model: string) => void;
   /** Track test attempts per breaker for progressive timeout doubling */
   private breakerTestAttempts = new Map<string, number>();
+  /** Track which servers have tests invalidated by real requests during testing */
+  private serverTestsInvalidated = new Map<string, boolean>();
+  /** Callback to notify when tests are invalidated so orchestrator can re-schedule */
+  private onTestsInvalidated?: (serverId: string) => void;
 
   constructor(config: Partial<TestCoordinatorConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -242,6 +246,43 @@ export class RecoveryTestCoordinator {
   setRecordTimeoutFailure(callback: (serverId: string, model: string) => void): void {
     this.recordTimeoutFailure = callback;
     logger.debug('RecoveryTestCoordinator: setRecordTimeoutFailure configured');
+  }
+
+  /**
+   * Set the callback to notify when tests are invalidated
+   * The orchestrator can use this to re-schedule testing when the server becomes idle
+   */
+  setOnTestsInvalidated(callback: (serverId: string) => void): void {
+    this.onTestsInvalidated = callback;
+    logger.debug('RecoveryTestCoordinator: setOnTestsInvalidated configured');
+  }
+
+  /**
+   * Mark tests for a server as invalidated
+   * Called by the orchestrator when a real request starts during active testing
+   * Any in-progress or completed tests for this server will be discarded
+   */
+  invalidateServerTests(serverId: string): void {
+    if (this.activeServers.has(serverId)) {
+      this.serverTestsInvalidated.set(serverId, true);
+      logger.info(
+        `RecoveryTestCoordinator: tests invalidated for server ${serverId} due to real request`
+      );
+    }
+  }
+
+  /**
+   * Check if tests for a server were invalidated
+   */
+  areServerTestsInvalidated(serverId: string): boolean {
+    return this.serverTestsInvalidated.get(serverId) ?? false;
+  }
+
+  /**
+   * Clear invalidation state for a server (call when re-testing)
+   */
+  clearServerTestsInvalidated(serverId: string): void {
+    this.serverTestsInvalidated.delete(serverId);
   }
 
   /**
@@ -792,11 +833,14 @@ export class RecoveryTestCoordinator {
   private async performEmbeddingTest(
     breaker: CircuitBreaker,
     serverId: string,
-    modelName: string
+    modelName: string,
+    signal?: AbortSignal,
+    timeoutMs?: number
   ): Promise<boolean> {
     const breakerName = (breaker as any).name || 'unknown';
-    const _state = this.getServerState(serverId);
+    const state = this.getServerState(serverId);
     const startTime = Date.now();
+    const metricsStartTime = Date.now();
 
     // Increment in-flight count for recovery test
     if (this.incrementInFlight) {
@@ -804,15 +848,55 @@ export class RecoveryTestCoordinator {
       logger.debug(`Recovery test embedding incrementInFlight for ${serverId}:${modelName}`);
     }
 
+    // Calculate adaptive timeout for embedding test
+    // Embeddings are typically faster than generation, so use shorter base
+    const embeddingBaseTimeout =
+      timeoutMs ??
+      (() => {
+        const testAttempt = this.getBreakerTestAttempt(breakerName);
+        const adaptiveTimeout = this.getTimeout ? this.getTimeout(serverId, modelName) : 15000; // Default 15s for embedding tests
+
+        const progressiveTimeout = calculateActiveTestTimeout(
+          testAttempt,
+          15000, // Base timeout for embedding tests
+          undefined,
+          undefined
+        );
+
+        // For embedding tests, use adaptive timeout if it's longer than our base
+        const calculatedTimeout = Math.max(progressiveTimeout, adaptiveTimeout, 15000);
+
+        logger.debug(`Embedding test timeout calculation for ${breakerName}`, {
+          testAttempt,
+          adaptiveTimeout,
+          progressiveTimeout,
+          calculatedTimeout,
+        });
+
+        return calculatedTimeout;
+      })();
+
     try {
       const serverUrl = this.getServerUrl(serverId);
       if (!serverUrl) {
+        this.recordTestMetrics({
+          breakerName,
+          model: modelName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration: Date.now() - metricsStartTime,
+          success: false,
+          error: 'Server URL not found',
+          timeout: false,
+          cancelled: false,
+        });
         return false;
       }
 
       logger.info(`Running embedding test for ${breakerName}`, {
         serverId,
         model: modelName,
+        timeout: embeddingBaseTimeout,
       });
 
       // Perform embedding test
@@ -823,16 +907,28 @@ export class RecoveryTestCoordinator {
           model: modelName,
           prompt: 'test',
         }),
-        timeout: 15000, // Shorter timeout for embedding test
+        timeout: embeddingBaseTimeout,
+        signal,
       });
 
       const duration = Date.now() - startTime;
+      state.currentTestBreakerId = null;
 
       if (response.ok) {
         logger.info(`Embedding test passed for ${breakerName}`, {
           duration,
           serverId,
           model: modelName,
+        });
+        this.recordTestMetrics({
+          breakerName,
+          model: modelName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration,
+          success: true,
+          timeout: false,
+          cancelled: false,
         });
         return true;
       } else {
@@ -844,13 +940,46 @@ export class RecoveryTestCoordinator {
           serverId,
           model: modelName,
         });
+        this.recordTestMetrics({
+          breakerName,
+          model: modelName,
+          startTime: metricsStartTime,
+          endTime: Date.now(),
+          duration,
+          success: false,
+          error: errorText,
+          timeout: false,
+          cancelled: false,
+        });
         return false;
       }
     } catch (error) {
-      logger.error(`Embedding test error for ${breakerName}`, {
-        error: error instanceof Error ? error.message : String(error),
-        serverId,
+      const duration = Date.now() - startTime;
+      state.currentTestBreakerId = null;
+
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const isAbort = error instanceof Error && error.name === 'AbortError';
+
+      if (isAbort) {
+        logger.debug(`Embedding test aborted for ${breakerName}`);
+      } else {
+        logger.error(`Embedding test error for ${breakerName}`, {
+          error: errorMsg,
+          serverId,
+          model: modelName,
+        });
+      }
+
+      this.recordTestMetrics({
+        breakerName,
         model: modelName,
+        startTime: metricsStartTime,
+        endTime: Date.now(),
+        duration,
+        success: false,
+        error: errorMsg,
+        timeout: false,
+        cancelled: isAbort,
       });
       return false;
     } finally {
@@ -859,6 +988,8 @@ export class RecoveryTestCoordinator {
         this.decrementInFlight(serverId, modelName);
         logger.debug(`Recovery test embedding decrementInFlight for ${serverId}:${modelName}`);
       }
+      // Release server lock
+      this.activeServers.delete(serverId);
     }
   }
 
@@ -1003,6 +1134,9 @@ export class RecoveryTestCoordinator {
     // Mark server as active for the duration of the batch
     this.activeServers.add(serverId);
 
+    // Clear any previous invalidation state for this server
+    this.serverTestsInvalidated.delete(serverId);
+
     const results: ActiveTestResult[] = [];
 
     // Limit concurrent tests per server
@@ -1135,13 +1269,27 @@ export class RecoveryTestCoordinator {
           cancelled: false,
         });
 
-        // Update circuit breaker state
-        if (success) {
-          breaker.recordSuccess();
-          this.resetBreakerTestAttempt(breakerName);
+        // Check if tests were invalidated by a real request during testing
+        if (this.serverTestsInvalidated.get(serverId)) {
+          logger.info(`Test for ${breakerName} invalidated - real request arrived during testing`);
+          results.push({
+            breakerName,
+            model,
+            success: false,
+            duration,
+            error: 'Test invalidated due to concurrent real request',
+          });
+          // Notify orchestrator so it can re-schedule testing
+          this.onTestsInvalidated?.(serverId);
         } else {
-          breaker.recordFailure(new Error('Active test failed'), 'transient');
-          this.incrementBreakerTestAttempt(breakerName);
+          // Update circuit breaker state
+          if (success) {
+            breaker.recordSuccess();
+            this.resetBreakerTestAttempt(breakerName);
+          } else {
+            breaker.recordFailure(new Error('Active test failed'), 'transient');
+            this.incrementBreakerTestAttempt(breakerName);
+          }
         }
       } catch (error) {
         const duration = timer.elapsed();
@@ -1170,12 +1318,20 @@ export class RecoveryTestCoordinator {
           error: errorMsg,
         });
 
-        breaker.recordFailure(new Error(errorMsg), 'transient');
-        this.incrementBreakerTestAttempt(breakerName);
+        // Check if tests were invalidated by a real request during testing
+        if (!this.serverTestsInvalidated.get(serverId)) {
+          breaker.recordFailure(new Error(errorMsg), 'transient');
+          this.incrementBreakerTestAttempt(breakerName);
 
-        // If test timed out, record failure to escalate adaptive timeout
-        if (isTimeout && model && this.recordTimeoutFailure) {
-          this.recordTimeoutFailure(serverId, model);
+          // If test timed out, record failure to escalate adaptive timeout
+          if (isTimeout && model && this.recordTimeoutFailure) {
+            this.recordTimeoutFailure(serverId, model);
+          }
+        } else {
+          logger.info(
+            `Error test for ${breakerName} invalidated - real request arrived during testing`
+          );
+          this.onTestsInvalidated?.(serverId);
         }
       } finally {
         this.abortControllers.delete(breakerName);

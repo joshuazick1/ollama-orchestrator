@@ -6,34 +6,17 @@
 import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
-import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import type {
+  ModelRequestBody,
+  CopyModelRequestBody,
+  OllamaErrorResponse,
+  OllamaPullResponse,
+} from '../types/api-request.types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
-import { fetchWithTimeout, parseResponse } from '../utils/fetchWithTimeout.js';
+import { fetchWithTimeout, parseResponse } from '../utils/fetch-with-timeout.js';
 import { safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
-
-/** Shape of a request body containing a model name */
-interface ModelRequestBody {
-  model?: string;
-}
-
-/** Shape of a request body for copying a model (includes source server) */
-interface CopyModelRequestBody extends ModelRequestBody {
-  sourceServerId?: string;
-}
-
-/** Shape of an Ollama API error response */
-interface OllamaErrorResponse {
-  error?: string;
-}
-
-/** Shape of an Ollama API pull response */
-interface OllamaPullResponse {
-  status?: string;
-  digest?: string;
-  total?: number;
-  completed?: number;
-}
 
 /**
  * Normalize model name by:

@@ -7,9 +7,9 @@ import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 // Mock the model manager instance
-vi.mock('../../src/model-manager-instance.js');
+vi.mock('../../src/model-manager.js');
 // Mock the orchestrator instance
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 
 import {
   warmupModel,
@@ -18,9 +18,9 @@ import {
   getWarmupRecommendations,
   unloadModel,
   getIdleModels,
-} from '../../src/controllers/modelController.js';
-import { getModelManager } from '../../src/model-manager-instance.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
+} from '../../src/controllers/model-controller.js';
+import { getModelManager } from '../../src/model-manager.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 
 const mockGetModelManager = vi.mocked(getModelManager);
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);

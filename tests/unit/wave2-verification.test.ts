@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { classifyError } from '../../src/utils/errorClassifier.js';
-import { parseOllamaError, parseOllamaErrorGlobal } from '../../src/utils/ollamaError.js';
+import { classifyError } from '../../src/utils/error-classifier.js';
+import { parseOllamaError, parseOllamaErrorGlobal } from '../../src/utils/ollama-error.js';
 import { TimeoutManager } from '../../src/utils/timeout-manager.js';
 
 vi.mock('../../src/utils/logger.js', () => ({

@@ -8,7 +8,7 @@ import type { Response } from 'express';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
-import type { RequestContext } from '../../src/orchestrator.types.js';
+import type { RequestContext } from '../../src/orchestrator/orchestrator.types.js';
 import { streamResponse, type OllamaDurations } from '../../src/streaming.js';
 
 // Mock the logger

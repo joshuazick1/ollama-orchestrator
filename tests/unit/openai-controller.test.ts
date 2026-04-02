@@ -16,16 +16,16 @@ import {
   handleChatCompletionsToServer,
   handleCompletionsToServer,
   handleOpenAIEmbeddingsToServer,
-} from '../../src/controllers/openaiController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import { fetchWithTimeout, fetchWithActivityTimeout } from '../../src/utils/fetchWithTimeout.js';
+} from '../../src/controllers/openai-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
+import { fetchWithTimeout, fetchWithActivityTimeout } from '../../src/utils/fetch-with-timeout.js';
 import { logger } from '../../src/utils/logger.js';
-import { parseOllamaErrorGlobal as parseOllamaError } from '../../src/utils/ollamaError.js';
+import { parseOllamaErrorGlobal as parseOllamaError } from '../../src/utils/ollama-error.js';
 
 // Mock dependencies
-vi.mock('../../src/orchestrator-instance.js');
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
 vi.mock('../../src/config/config.js');
-vi.mock('../../src/utils/fetchWithTimeout.js');
+vi.mock('../../src/utils/fetch-with-timeout.js');
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
     info: vi.fn(),
@@ -34,7 +34,7 @@ vi.mock('../../src/utils/logger.js', () => ({
     warn: vi.fn(),
   },
 }));
-vi.mock('../../src/utils/ollamaError.js');
+vi.mock('../../src/utils/ollama-error.js');
 vi.mock('../../src/utils/debug-headers.js', () => ({
   getDebugInfo: vi.fn().mockReturnValue(null),
   isDebugRequested: vi.fn().mockReturnValue(false),

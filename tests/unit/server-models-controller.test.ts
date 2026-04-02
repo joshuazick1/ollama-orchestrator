@@ -6,8 +6,8 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 
-vi.mock('../../src/orchestrator-instance.js');
-vi.mock('../../src/utils/fetchWithTimeout.js', () => ({
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
+vi.mock('../../src/utils/fetch-with-timeout.js', () => ({
   fetchWithTimeout: vi.fn(),
   parseResponse: vi.fn(),
 }));
@@ -18,9 +18,9 @@ import {
   deleteModelFromServer,
   copyModelToServer,
   getFleetModelStats,
-} from '../../src/controllers/serverModelsController.js';
-import { getOrchestratorInstance } from '../../src/orchestrator-instance.js';
-import { fetchWithTimeout, parseResponse } from '../../src/utils/fetchWithTimeout.js';
+} from '../../src/controllers/server-models-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
+import { fetchWithTimeout, parseResponse } from '../../src/utils/fetch-with-timeout.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockFetchWithTimeout = fetchWithTimeout as Mock;
