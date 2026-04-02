@@ -218,6 +218,24 @@ export function calculateServerScore(
     latencyScore *= coldPenalty;
   }
 
+  // B.2: Model eviction awareness — penalize servers where model is about to be evicted
+  // Mirrors selectFastestResponse() expiresAt thresholds for the weighted algorithm.
+  // Near-eviction means the next request will likely trigger a cold reload.
+  let evictionPenalty = 1.0;
+  if (loadedModel?.expiresAt) {
+    const expiresIn = new Date(loadedModel.expiresAt).getTime() - Date.now();
+    if (expiresIn < 30_000) {
+      // < 30s: imminent eviction — treat almost like cold start
+      evictionPenalty = 0.6;
+    } else if (expiresIn < 120_000) {
+      // < 2min: approaching eviction — moderate penalty
+      evictionPenalty = 0.85;
+    }
+    if (evictionPenalty < 1.0) {
+      latencyScore *= evictionPenalty;
+    }
+  }
+
   // Load score: lower total load is better
   // Normalize: 0 load = 100, maxConcurrency * 2 = 0
   const maxExpectedLoad = maxConcurrency * 2;
@@ -258,8 +276,8 @@ export function calculateServerScore(
   const hw = server.hardware;
   if (hw) {
     if (loadedModel) {
-      // Model already in VRAM — best case
-      vramScore = 100;
+      // Model already in VRAM — best case, but reduce if near eviction (B.2)
+      vramScore = 100 * evictionPenalty;
     } else if (hw.totalVram !== undefined && hw.totalVram > 0) {
       // We have total VRAM info — estimate free VRAM
       const freeVram = hw.totalVram - (hw.usedVram ?? 0);
