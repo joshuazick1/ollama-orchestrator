@@ -119,3 +119,15 @@ export function createAuthRateLimiter(): any {
     maxRequests: 10, // 10 attempts per 15 minutes
   });
 }
+
+/**
+ * Inference endpoint rate limiter - protects /api and /v1 inference routes
+ * from abuse while allowing reasonable throughput for legitimate usage
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createInferenceRateLimiter(): any {
+  return createRateLimiter({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    maxRequests: 100, // 100 inference requests per 15 minutes per key/IP
+  });
+}
