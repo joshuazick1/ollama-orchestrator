@@ -5,6 +5,7 @@
 
 import 'dotenv/config';
 
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -16,7 +17,11 @@ import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metricsController.js';
 import { requireAuth } from './middleware/auth.js';
-import { createMonitoringRateLimiter, createAdminRateLimiter } from './middleware/rateLimiter.js';
+import {
+  createMonitoringRateLimiter,
+  createAdminRateLimiter,
+  createInferenceRateLimiter,
+} from './middleware/rateLimiter.js';
 import { getOrchestratorInstance } from './orchestrator-instance.js';
 import { monitoringRouter, adminRouter, inferenceRouter, v1Router } from './routes/orchestrator.js';
 import { logger } from './utils/logger.js';
@@ -31,15 +36,22 @@ const PORT = process.env.PORT ?? 5100;
 const configManager = getConfigManager();
 const corsOrigins = configManager.getConfig().security.corsOrigins;
 
-// Security middleware - relaxed for HTTP access
-app.use(
+// Generate a unique CSP nonce per request
+app.use((_req, res, next) => {
+  res.locals.cspNonce = crypto.randomBytes(16).toString('base64');
+  next();
+});
+
+// Security middleware
+app.use((req, res, next) => {
+  const nonce = res.locals.cspNonce as string;
   helmet({
     contentSecurityPolicy: {
       useDefaults: false,
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'", `'nonce-${nonce}'`],
+        styleSrc: ["'self'", `'nonce-${nonce}'`],
         imgSrc: ["'self'", 'data:', 'blob:', 'http:', 'https:'],
         fontSrc: ["'self'"],
         connectSrc: ["'self'"],
@@ -56,21 +68,22 @@ app.use(
     dnsPrefetchControl: { allow: false },
     frameguard: { action: 'deny' },
     hidePoweredBy: true,
-    hsts: false,
+    hsts: { maxAge: 31536000, includeSubDomains: true },
     ieNoOpen: true,
     noSniff: true,
     originAgentCluster: false,
     permittedCrossDomainPolicies: { permittedPolicies: 'none' },
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     xssFilter: true,
-  })
-);
+  })(req, res, next);
+});
 
 // CORS middleware - use configured origins
+// Empty array = same-origin only (no CORS), ['*'] = all origins, specific = whitelist
 const corsOptions: cors.CorsOptions = {
-  origin: corsOrigins.length > 0 && !corsOrigins.includes('*') ? corsOrigins : undefined,
+  origin: corsOrigins.includes('*') ? true : corsOrigins.length > 0 ? corsOrigins : false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key'],
   credentials: corsOrigins.length > 0 && !corsOrigins.includes('*'),
   maxAge: 86400,
 };
@@ -93,9 +106,17 @@ logger.info('Orchestrator initialized');
 // Rate limiting middleware
 const monitoringRateLimiter = createMonitoringRateLimiter();
 const adminRateLimiter = createAdminRateLimiter();
+const inferenceRateLimiter = createInferenceRateLimiter();
 
 // Authentication middleware
 const requireAuthentication = requireAuth();
+
+// Warn if authentication is disabled
+if (process.env.ENABLE_AUTH === 'false' || process.env.ORCHESTRATOR_ENABLE_AUTH === 'false') {
+  logger.warn(
+    'Authentication is DISABLED. All endpoints are publicly accessible. Set ENABLE_AUTH=true to secure your instance.'
+  );
+}
 
 // Routes with rate limiting and authentication
 // Monitoring routes (permissive rate limiting, require auth)
@@ -104,11 +125,11 @@ app.use('/api/orchestrator', monitoringRateLimiter, requireAuthentication, monit
 // Admin routes (restrictive rate limiting, require auth)
 app.use('/api/orchestrator', adminRateLimiter, requireAuthentication, adminRouter);
 
-// Inference routes (no rate limiting, optional auth) - Ollama-compatible endpoints
-app.use('/api', inferenceRouter);
+// Inference routes (rate limited, optional auth) - Ollama-compatible endpoints
+app.use('/api', inferenceRateLimiter, inferenceRouter);
 
 // OpenAI-compatible endpoints at /v1/*
-app.use('/v1', v1Router);
+app.use('/v1', inferenceRateLimiter, v1Router);
 
 // Prometheus metrics endpoint at root
 // Only allow access from localhost/internal IPs in production
