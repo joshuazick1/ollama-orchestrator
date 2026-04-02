@@ -6,6 +6,8 @@
 
 import { featureFlags } from '../config/feature-flags.js';
 
+import { isOrchestratorError } from './domain-errors.js';
+
 /**
  * Safely extract error message from any error type
  */
@@ -56,15 +58,25 @@ export function getErrorDetails(error: unknown): {
  * Format error for API responses
  */
 export function formatErrorResponse(error: unknown): {
-  error: string;
-  details?: string;
-  type?: string;
+  type: string;
+  status: number;
+  title: string;
+  detail?: string;
 } {
+  if (isOrchestratorError(error)) {
+    return {
+      type: `https://orchestrator.local/errors/${error.code}`,
+      status: error.status,
+      title: error.message,
+    };
+  }
+
   const details = getErrorDetails(error);
   return {
-    error: details.message,
-    details: details.stack?.split('\n')[1]?.trim(),
-    type: details.name,
+    type: 'https://orchestrator.local/errors/internal_server_error',
+    status: 500,
+    title: details.message,
+    detail: details.stack?.split('\n')[1]?.trim(),
   };
 }
 

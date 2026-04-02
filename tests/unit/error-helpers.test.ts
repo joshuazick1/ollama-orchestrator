@@ -61,18 +61,20 @@ describe('error-helpers', () => {
   });
 
   describe('formatErrorResponse', () => {
-    it('should format Error for API response', () => {
+    it('should format Error as RFC 7807 response', () => {
       const error = new Error('test error');
       const response = formatErrorResponse(error);
-      expect(response.error).toBe('test error');
-      expect(response.type).toBe('Error');
-      expect(response.details).toBeDefined();
+      expect(response.title).toBe('test error');
+      expect(response.status).toBe(500);
+      expect(response.type).toBe('https://orchestrator.local/errors/internal_server_error');
+      expect(response.detail).toBeDefined();
     });
 
     it('should handle string errors', () => {
       const response = formatErrorResponse('string error');
-      expect(response.error).toBe('string error');
-      expect(response.type).toBe('StringError');
+      expect(response.title).toBe('string error');
+      expect(response.status).toBe(500);
+      expect(response.type).toBe('https://orchestrator.local/errors/internal_server_error');
     });
   });
 

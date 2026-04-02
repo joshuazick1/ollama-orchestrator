@@ -24,6 +24,7 @@ import {
 } from './middleware/rateLimiter.js';
 import { getOrchestratorInstance } from './orchestrator-instance.js';
 import { monitoringRouter, adminRouter, inferenceRouter, v1Router } from './routes/orchestrator.js';
+import { isOrchestratorError } from './utils/domain-errors.js';
 import { logger } from './utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -185,20 +186,27 @@ app.get('/health/ready', (_req, res) => {
 
 // Error handler
 // REC-40: return OpenAI-compatible error format for /v1 routes
+// Audit E-5: RFC 7807 error format for internal routes
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Unhandled error:', { error: err });
+
+  const status = isOrchestratorError(err) ? err.status : 500;
+  const code = isOrchestratorError(err) ? err.code : 'internal_server_error';
+
   if (req.path.startsWith('/v1')) {
-    res.status(500).json({
+    res.status(status).json({
       error: {
         message: err?.message ?? ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
         type: 'server_error',
-        code: 'internal_server_error',
+        code,
       },
     });
   } else {
-    res.status(500).json({
-      error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
-      details: err?.message ?? 'Unknown error',
+    res.status(status).json({
+      type: `https://orchestrator.local/errors/${code}`,
+      status,
+      title: err?.message ?? ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      detail: err?.message ?? 'Unknown error',
     });
   }
 });
@@ -221,9 +229,13 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// 404 handler
+// 404 handler (Audit E-5: RFC 7807)
 app.use((_req, res) => {
-  res.status(404).json({ error: ERROR_MESSAGES.NOT_FOUND });
+  res.status(404).json({
+    type: 'https://orchestrator.local/errors/not_found',
+    status: 404,
+    title: ERROR_MESSAGES.NOT_FOUND,
+  });
 });
 
 // Start server
