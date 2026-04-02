@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getErrorMessage } from '../utils/error-helpers.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/urlUtils.js';
 
 /**
@@ -220,7 +221,7 @@ export async function healthCheck(req: Request, res: Response): Promise<void> {
   } catch (error) {
     res.status(500).json({
       error: ERROR_MESSAGES.HEALTH_CHECK_FAILED,
-      details: error instanceof Error ? error.message : String(error),
+      details: getErrorMessage(error),
     });
   }
 }
@@ -302,7 +303,7 @@ export function getCircuitBreakers(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: ERROR_MESSAGES.FAILED_TO_GET_CIRCUIT_BREAKER_STATUS,
-      details: error instanceof Error ? error.message : String(error),
+      details: getErrorMessage(error),
     });
   }
 }
@@ -448,7 +449,7 @@ export async function manualRecoveryTest(req: Request, res: Response): Promise<v
   } catch (error) {
     res.status(500).json({
       error: 'Manual recovery test failed',
-      details: error instanceof Error ? error.message : String(error),
+      details: getErrorMessage(error),
     });
   }
 }

@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getModelManager } from '../model-manager-instance.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -68,7 +69,7 @@ export async function warmupModel(req: Request, res: Response): Promise<void> {
     logger.error('Failed to warmup model:', error);
     res.status(500).json({
       error: 'Failed to warmup model',
-      details: error instanceof Error ? error.message : String(error),
+      details: getErrorMessage(error),
     });
   }
 }

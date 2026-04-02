@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator-instance.js';
+import { getErrorMessage } from '../utils/error-helpers.js';
 import { fetchWithTimeout, parseResponse } from '../utils/fetchWithTimeout.js';
 import { safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -99,7 +100,7 @@ export async function listServerModels(req: Request, res: Response): Promise<voi
     logger.error(`Failed to list models for server ${id}:`, { error });
     res.status(500).json({
       error: 'Failed to list models',
-      details: error instanceof Error ? error.message : String(error),
+      details: getErrorMessage(error),
     });
   }
 }
@@ -148,7 +149,9 @@ async function streamPullProgress(
     /* eslint-disable no-constant-condition */
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) {break;}
+      if (done) {
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
 
@@ -220,7 +223,7 @@ async function streamPullProgress(
     logger.error(`${label} stream error for ${model} on server ${serverId}:`, { error });
     const errorEvent = safeJsonStringify({
       type: 'error',
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     });
     res.write(`data: ${errorEvent}\n\n`);
   } finally {
@@ -298,13 +301,13 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
     if (!res.headersSent) {
       res.status(500).json({
         error: 'Failed to pull model',
-        details: error instanceof Error ? error.message : String(error),
+        details: getErrorMessage(error),
       });
     } else {
       // Headers already sent (SSE), send error as SSE event
       const errorEvent = safeJsonStringify({
         type: 'error',
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       res.write(`data: ${errorEvent}\n\n`);
       res.end();
@@ -378,7 +381,7 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
     logger.error(`Failed to delete model ${model} from server ${id}:`, { error });
     res.status(500).json({
       error: 'Failed to delete model',
-      details: error instanceof Error ? error.message : String(error),
+      details: getErrorMessage(error),
     });
   }
 }
@@ -473,12 +476,12 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
     if (!res.headersSent) {
       res.status(500).json({
         error: 'Failed to copy model',
-        details: error instanceof Error ? error.message : String(error),
+        details: getErrorMessage(error),
       });
     } else {
       const errorEvent = safeJsonStringify({
         type: 'error',
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       res.write(`data: ${errorEvent}\n\n`);
       res.end();
@@ -542,7 +545,7 @@ export function getFleetModelStats(req: Request, res: Response): void {
     logger.error('Failed to get fleet model stats:', { error });
     res.status(500).json({
       error: 'Failed to get fleet model stats',
-      details: error instanceof Error ? error.message : String(error),
+      details: getErrorMessage(error),
     });
   }
 }
