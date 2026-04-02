@@ -34,6 +34,7 @@ export class BanManager {
   private serverFailureCount: Map<string, number> = new Map();
   private modelFailureTracker: Map<string, FailureTracker> = new Map();
   private config: BanManagerConfig;
+  private cleanupInterval?: ReturnType<typeof setInterval>;
 
   constructor(config?: Partial<BanManagerConfig>) {
     const defaultConfig = getConfigManager().getConfig();
@@ -41,6 +42,21 @@ export class BanManager {
       failureCooldownMs: defaultConfig.cooldown?.failureCooldownMs ?? 120000,
       ...config,
     };
+  }
+
+  startPeriodicCleanup(intervalMs: number = 5 * 60 * 1000): void {
+    this.stopPeriodicCleanup();
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupExpiredCooldowns();
+    }, intervalMs);
+    this.cleanupInterval.unref();
+  }
+
+  stopPeriodicCleanup(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
   }
 
   isInCooldown(serverId: string, model: string): boolean {
@@ -267,10 +283,14 @@ export class BanManager {
 export function getBanManager(): BanManager {
   if (!managerInstance) {
     managerInstance = new BanManager();
+    managerInstance.startPeriodicCleanup();
   }
   return managerInstance;
 }
 
 export function resetBanManager(): void {
+  if (managerInstance) {
+    managerInstance.stopPeriodicCleanup();
+  }
   managerInstance = undefined;
 }
