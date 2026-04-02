@@ -293,17 +293,35 @@ export class HealthCheckScheduler {
         probeOllama
           ? fetchWithAuth(`${server.url}/api/tags`, server.apiKey, {
               timeout: this.config.timeoutMs,
-            }).catch(() => null)
+            }).catch((err: unknown) => {
+              logger.debug('Health probe failed for /api/tags', {
+                serverId: server.id,
+                error: String(err),
+              });
+              return null;
+            })
           : Promise.resolve(null),
         probeOllama
           ? fetchWithAuth(`${server.url}/api/ps`, server.apiKey, {
-              timeout: 5000, // Shorter timeout for ps - don't fail health check if ps is slow
-            }).catch(() => null) // Don't fail health check if ps endpoint fails
+              timeout: 5000,
+            }).catch((err: unknown) => {
+              logger.debug('Health probe failed for /api/ps', {
+                serverId: server.id,
+                error: String(err),
+              });
+              return null;
+            })
           : Promise.resolve(null),
         probeV1
           ? fetchWithAuth(`${server.url}/v1/models`, server.apiKey, {
-              timeout: 5000, // Shorter timeout for v1 - don't fail health check if not supported
-            }).catch(() => null) // Don't fail health check if v1 endpoint fails
+              timeout: 5000,
+            }).catch((err: unknown) => {
+              logger.debug('Health probe failed for /v1/models', {
+                serverId: server.id,
+                error: String(err),
+              });
+              return null;
+            })
           : Promise.resolve(null),
       ]);
 

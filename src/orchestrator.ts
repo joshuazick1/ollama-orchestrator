@@ -890,17 +890,35 @@ export class AIOrchestrator {
         probeOllama
           ? fetch(`${server.url}/api/tags`, {
               signal: controller.signal,
-            }).catch(() => null)
+            }).catch((err: unknown) => {
+              logger.debug('Probe fetch failed for /api/tags', {
+                serverId: server.id,
+                error: String(err),
+              });
+              return null;
+            })
           : Promise.resolve(null),
         probeOllama
           ? fetch(`${server.url}/api/version`, {
               signal: controller.signal,
-            }).catch(() => null)
+            }).catch((err: unknown) => {
+              logger.debug('Probe fetch failed for /api/version', {
+                serverId: server.id,
+                error: String(err),
+              });
+              return null;
+            })
           : Promise.resolve(null),
         probeV1
           ? fetch(`${server.url}/v1/models`, {
               signal: controller.signal,
-            }).catch(() => null)
+            }).catch((err: unknown) => {
+              logger.debug('Probe fetch failed for /v1/models', {
+                serverId: server.id,
+                error: String(err),
+              });
+              return null;
+            })
           : Promise.resolve(null),
       ]);
 
@@ -932,7 +950,10 @@ export class AIOrchestrator {
           const versionData = (await versionResponse.json()) as { version: string };
           server.version = versionData.version;
         } catch (e) {
-          // Ignore version parsing errors
+          logger.debug('Failed to parse version response', {
+            serverId: server.id,
+            error: String(e),
+          });
         }
       }
 
@@ -975,7 +996,10 @@ export class AIOrchestrator {
               .filter((id): id is string => typeof id === 'string');
           }
         } catch (e) {
-          // Ignore v1 parsing errors
+          logger.debug('Failed to parse v1 models response', {
+            serverId: server.id,
+            error: String(e),
+          });
         }
       }
 

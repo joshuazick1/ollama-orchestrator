@@ -739,7 +739,7 @@ export async function streamResponse(
         }
       }
     } catch (e) {
-      // Ignore removal errors
+      logger.debug('Error during stream cleanup', { error: String(e) });
     }
 
     // Call onStreamEnd callback for cleanup (e.g., remove from InFlightManager)

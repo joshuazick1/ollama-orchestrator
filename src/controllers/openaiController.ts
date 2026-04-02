@@ -213,7 +213,10 @@ async function streamOpenAIResponse(
                 try {
                   void reader.cancel();
                 } catch (_e) {
-                  // Ignore cancel errors
+                  logger.debug('Reader cancel failed in stall handler', {
+                    responseId,
+                    error: String(_e),
+                  });
                 }
                 if (res?.success) {
                   logger.info('OpenAI stall handled successfully via handoff', {
@@ -230,7 +233,10 @@ async function streamOpenAIResponse(
                 try {
                   void reader.cancel();
                 } catch (_e) {
-                  // Ignore cancel errors
+                  logger.debug('Reader cancel failed in stall error handler', {
+                    responseId,
+                    error: String(_e),
+                  });
                 }
               });
           }
@@ -591,8 +597,11 @@ async function passthroughSSEStream(
         logger.info('Client disconnected from SSE passthrough stream', { responseId, model });
         try {
           void reader.cancel();
-        } catch {
-          // Ignore cancel errors
+        } catch (cancelErr) {
+          logger.debug('Reader cancel failed in SSE passthrough stall handler', {
+            responseId,
+            error: String(cancelErr),
+          });
         }
         break;
       }
