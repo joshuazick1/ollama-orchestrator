@@ -2058,7 +2058,8 @@ export class AIOrchestrator {
         undefined,
         true,
         userRequestId,
-        retryCount > 0
+        retryCount > 0,
+        routingContext
       );
       const attemptLatency1 = Date.now() - attemptStart1;
 
@@ -2196,7 +2197,8 @@ export class AIOrchestrator {
         undefined,
         true,
         userRequestId,
-        true // Phase 2 is always a retry
+        true, // Phase 2 is always a retry
+        routingContext
       );
       const attemptLatency2 = Date.now() - attemptStart2;
 
@@ -2296,7 +2298,8 @@ export class AIOrchestrator {
         retryConfig,
         errors,
         undefined,
-        userRequestId
+        userRequestId,
+        routingContext
       );
       const attemptLatency3 = Date.now() - attemptStart3;
 
@@ -2511,7 +2514,8 @@ export class AIOrchestrator {
     _timeoutMs?: number,
     alreadyIncremented: boolean = false,
     parentRequestId?: string,
-    isRetry: boolean = false
+    isRetry: boolean = false,
+    routingContext?: RoutingContext
   ): Promise<{ success: true; value: T } | { success: false }> {
     // Check circuit breaker state BEFORE attempting request
     const serverCb = this.getCircuitBreaker(server.id);
@@ -2738,6 +2742,7 @@ export class AIOrchestrator {
         }
       }
 
+      requestContext.queueWaitTime = routingContext?.queueWaitTime;
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
       getMetricsStore().recordRequest(requestContext);
@@ -2793,6 +2798,7 @@ export class AIOrchestrator {
       requestContext.duration = requestContext.endTime - requestContext.startTime;
       requestContext.success = false;
       requestContext.error = lastError;
+      requestContext.queueWaitTime = routingContext?.queueWaitTime;
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
       getMetricsStore().recordRequest(requestContext);
@@ -2819,7 +2825,8 @@ export class AIOrchestrator {
     retryConfig: RetryConfig,
     errors: Array<{ server: string; error: string; type?: ErrorType }>,
     _timeoutMs?: number,
-    parentRequestId?: string
+    parentRequestId?: string,
+    routingContext?: RoutingContext
   ): Promise<{ success: true; value: T } | { success: false }> {
     let lastError: Error | undefined;
     let retryCount = 0;
@@ -2950,6 +2957,7 @@ export class AIOrchestrator {
           }
         }
 
+        requestContext.queueWaitTime = routingContext?.queueWaitTime;
         this.metricsAggregator.recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
         getMetricsStore().recordRequest(requestContext);
@@ -2992,6 +3000,7 @@ export class AIOrchestrator {
         requestContext.duration = requestContext.endTime - requestContext.startTime;
         requestContext.success = false;
         requestContext.error = lastError;
+        requestContext.queueWaitTime = routingContext?.queueWaitTime;
         this.metricsAggregator.recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
         getMetricsStore().recordRequest(requestContext);

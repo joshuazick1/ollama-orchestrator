@@ -247,7 +247,14 @@ export function calculateServerScore(
   // Load score: lower total load is better
   // Normalize: 0 load = 100, maxConcurrency * 2 = 0
   const maxExpectedLoad = maxConcurrency * 2;
-  const loadScore = Math.max(0, 100 - (totalLoad / maxExpectedLoad) * 100);
+  let loadScore = Math.max(0, 100 - (totalLoad / maxExpectedLoad) * 100);
+
+  // B.4: Queue wait time penalty — high avg queue wait means this server is congested.
+  // >200ms wait is notable; >2000ms is severe. Scales load score down by up to 25%.
+  if (metrics?.avgQueueWaitTimeMs && metrics.avgQueueWaitTimeMs > 200) {
+    const queueFraction = Math.min(1, (metrics.avgQueueWaitTimeMs - 200) / 1800);
+    loadScore *= 1 - queueFraction * 0.25;
+  }
 
   // Capacity score: more available capacity is better
   // Normalize: maxConcurrency = 100, 0 = 0

@@ -146,6 +146,15 @@ export class MetricsAggregator {
       }
     }
 
+    // B.4: Aggregate queue/routing wait time into metrics (EMA, alpha=0.2)
+    if (context.queueWaitTime !== undefined && context.queueWaitTime >= 0) {
+      if (metrics.avgQueueWaitTimeMs === undefined || metrics.avgQueueWaitTimeMs === 0) {
+        metrics.avgQueueWaitTimeMs = context.queueWaitTime;
+      } else {
+        metrics.avgQueueWaitTimeMs = metrics.avgQueueWaitTimeMs * 0.8 + context.queueWaitTime * 0.2;
+      }
+    }
+
     // Update all time windows
     const isRetry = context.isRetry ?? false;
     (Object.keys(this.windowSizes) as TimeWindow[]).forEach(windowName => {
@@ -859,6 +868,7 @@ export class MetricsAggregator {
       avgTokensPerSecond: 0,
       coldStartCount: 0,
       avgNetworkOverheadMs: 0,
+      avgQueueWaitTimeMs: 0,
       parameterCount: undefined,
       embeddingLength: undefined,
       streamingMetrics: {

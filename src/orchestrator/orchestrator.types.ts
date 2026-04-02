@@ -167,6 +167,8 @@ export interface ServerModelMetrics {
   coldStartCount: number;
   /** Average network overhead in ms (client latency - server total_duration) */
   avgNetworkOverheadMs?: number;
+  /** Average queue/routing wait time in ms before server selection completes */
+  avgQueueWaitTimeMs?: number;
 
   // Streaming-specific metrics
   streamingMetrics?: StreamingMetrics;
@@ -215,6 +217,8 @@ export interface RequestContext {
   // Derived from Ollama fields
   tokensPerSecond?: number; // eval_count / (eval_duration / 1e9)
   isColdStart?: boolean; // true when load_duration > cold-start threshold
+  /** Queue/routing wait time in ms (time from request receipt to server selection) */
+  queueWaitTime?: number;
 }
 
 /**
