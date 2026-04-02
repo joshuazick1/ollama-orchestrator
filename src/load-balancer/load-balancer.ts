@@ -236,6 +236,14 @@ export function calculateServerScore(
     }
   }
 
+  // B.3: Network overhead scoring — penalize servers with high client↔server network overhead
+  // avgNetworkOverheadMs = (client-measured latency) - (server-reported total_duration).
+  // >100ms overhead is notable; >500ms is severe. Scales latency score down by up to 20%.
+  if (metrics?.avgNetworkOverheadMs && metrics.avgNetworkOverheadMs > 100) {
+    const overheadFraction = Math.min(1, (metrics.avgNetworkOverheadMs - 100) / 400);
+    latencyScore *= 1 - overheadFraction * 0.2;
+  }
+
   // Load score: lower total load is better
   // Normalize: 0 load = 100, maxConcurrency * 2 = 0
   const maxExpectedLoad = maxConcurrency * 2;
