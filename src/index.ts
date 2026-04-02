@@ -12,6 +12,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 
+import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metricsController.js';
 import { requireAuth } from './middleware/auth.js';
@@ -25,6 +26,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT ?? 5100;
+
+// Get CORS origins from config
+const configManager = getConfigManager();
+const corsOrigins = configManager.getConfig().security.corsOrigins;
 
 // Security middleware - relaxed for HTTP access
 app.use(
@@ -61,8 +66,15 @@ app.use(
   })
 );
 
-// CORS middleware
-app.use(cors());
+// CORS middleware - use configured origins
+const corsOptions: cors.CorsOptions = {
+  origin: corsOrigins.length > 0 && !corsOrigins.includes('*') ? corsOrigins : undefined,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: corsOrigins.length > 0 && !corsOrigins.includes('*'),
+  maxAge: 86400,
+};
+app.use(cors(corsOptions));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -99,7 +111,25 @@ app.use('/api', inferenceRouter);
 app.use('/v1', v1Router);
 
 // Prometheus metrics endpoint at root
-app.get('/metrics', getPrometheusMetrics);
+// Only allow access from localhost/internal IPs in production
+const INTERNAL_IP_PATTERNS = [
+  /^127\./,
+  /^10\./,
+  /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
+  /^192\.168\./,
+  /^::1$/,
+  /^fc00:/,
+  /^fe80:/,
+];
+app.get('/metrics', (req, res) => {
+  const ip = req.ip ?? req.socket.remoteAddress ?? '';
+  const isInternal = INTERNAL_IP_PATTERNS.some(pattern => pattern.test(ip));
+  if (process.env.NODE_ENV === 'production' && !isInternal) {
+    res.status(403).json({ error: 'Metrics only available internally' });
+    return;
+  }
+  getPrometheusMetrics(req, res);
+});
 
 // Health check endpoint
 app.get('/health', (_req, res) => {
@@ -180,7 +210,7 @@ const server = app.listen(PORT, () => {
   // Add Express server timeouts to prevent resource leaks
   server.keepAliveTimeout = 65000;
   server.headersTimeout = 66000;
-  server.requestTimeout = 600000;
+  server.requestTimeout = 300000; // 5 minutes - generous for AI workloads
 
   logger.info(`Ollama Orchestrator listening on port ${PORT}`);
   logger.info(`API endpoints:`);
@@ -199,6 +229,17 @@ const server = app.listen(PORT, () => {
   logger.info(`  - Health check:      GET    /health`);
   logger.info(`  - Logging:           GET    /api/orchestrator/logs`);
   logger.info(`  - Logging:           POST   /api/orchestrator/logs/clear`);
+});
+
+// Global error handlers to prevent silent crashes
+process.on('unhandledRejection', (reason: unknown) => {
+  logger.error('Unhandled promise rejection', { reason });
+});
+
+process.on('uncaughtException', (error: Error) => {
+  logger.error('Uncaught exception — shutting down', { error: error.message, stack: error.stack });
+  // Give logger time to flush, then exit
+  setTimeout(() => process.exit(1), 1000).unref();
 });
 
 // Graceful shutdown
