@@ -23,10 +23,18 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:5100',
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:5100',
         changeOrigin: true,
-        timeout: 0, // Disable timeout for long-running requests (SSE)
-        proxyTimeout: 0, // Disable proxy timeout
+        timeout: 0,
+        proxyTimeout: 0,
+      },
+      '/health': {
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:5100',
+        changeOrigin: true,
+      },
+      '/metrics': {
+        target: process.env.VITE_PROXY_TARGET ?? 'http://localhost:5100',
+        changeOrigin: true,
       },
     },
     headers: {
