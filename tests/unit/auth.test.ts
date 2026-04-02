@@ -117,14 +117,15 @@ describe('auth middleware', () => {
       expect(mockReq.auth).toEqual({ apiKey: 'bearer-token', isAdmin: false });
     });
 
-    it('should extract API key from query parameter', () => {
+    it('should reject API key from query parameter', () => {
       const config: AuthConfig = { enabled: true, apiKeys: ['query-key'], adminApiKeys: [] };
       const middleware = requireAuth(config);
       mockReq.query = { apiKey: 'query-key' };
 
       middleware(mockReq as Request, mockRes as Response, mockNext);
 
-      expect(mockNext).toHaveBeenCalled();
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(401);
     });
   });
 

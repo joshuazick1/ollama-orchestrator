@@ -3,9 +3,21 @@
  * Authentication and authorization middleware
  */
 
+import { timingSafeEqual } from 'crypto';
+
 import type { Request, Response, NextFunction } from 'express';
 
 import { logger } from '../utils/logger.js';
+
+/**
+ * Constant-time string comparison to prevent timing attacks
+ */
+function safeCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 export interface AuthConfig {
   enabled: boolean;
@@ -47,12 +59,6 @@ function extractApiKey(req: Request): string | null {
     return apiKeyHeader;
   }
 
-  // Check query parameter (not recommended for production)
-  const apiKeyQuery = req.query.apiKey;
-  if (typeof apiKeyQuery === 'string') {
-    return apiKeyQuery;
-  }
-
   return null;
 }
 
@@ -85,11 +91,11 @@ export function requireAuth(
       return;
     }
 
-    // Check if it's an admin key
-    const isAdmin = config.adminApiKeys.includes(apiKey);
+    // Check if it's an admin key (using constant-time comparison)
+    const isAdmin = config.adminApiKeys.some(key => safeCompare(apiKey, key));
 
-    // Check if it's a valid regular key or admin key
-    if (!isAdmin && !config.apiKeys.includes(apiKey)) {
+    // Check if it's a valid regular key or admin key (using constant-time comparison)
+    if (!isAdmin && !config.apiKeys.some(key => safeCompare(apiKey, key))) {
       logger.warn(`Authentication failed: Invalid API key`, {
         path: req.path,
         ip: req.ip,
@@ -119,8 +125,9 @@ export function requireAdmin(
   _config: AuthConfig = DEFAULT_AUTH_CONFIG
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction): void => {
+    const config = _config ?? DEFAULT_AUTH_CONFIG;
     // If auth is disabled, allow all requests
-    if (!DEFAULT_AUTH_CONFIG.enabled) {
+    if (!config.enabled) {
       next();
       return;
     }
@@ -169,8 +176,8 @@ export function optionalAuth(
     const apiKey = extractApiKey(req);
 
     if (apiKey) {
-      const isAdmin = config.adminApiKeys.includes(apiKey);
-      const isValid = isAdmin || config.apiKeys.includes(apiKey);
+      const isAdmin = config.adminApiKeys.some(key => safeCompare(apiKey, key));
+      const isValid = isAdmin || config.apiKeys.some(key => safeCompare(apiKey, key));
 
       if (isValid) {
         req.auth = {
