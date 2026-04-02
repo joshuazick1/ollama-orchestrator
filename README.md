@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/joshuazick1/ollama-orchestrator)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue)](https://www.typescriptlang.org/)
 
 ## Overview
@@ -48,7 +48,7 @@ The orchestrator sits between clients and multiple Ollama servers, automatically
 
 ### Prerequisites
 
-- **Node.js**: v18 or higher
+- **Node.js**: v20 or higher
 - **Docker**: For containerized deployment (optional but recommended)
 
 ## Table of Contents
@@ -115,7 +115,7 @@ ollama-orchestrator/
 │   │   └── urlUtils.ts
 │   ├── circuit-breaker.ts    # Circuit breaker implementation
 │   ├── health-check-scheduler.ts
-│   ├── intelligent-recovery-manager.ts
+│   ├── active-test-scheduler.ts
 │   ├── load-balancer.ts
 │   ├── model-manager.ts
 │   ├── orchestrator.ts       # Main orchestration logic
@@ -138,7 +138,6 @@ ollama-orchestrator/
 │   │   │   ├── Dashboard.tsx
 │   │   │   ├── Logs.tsx
 │   │   │   ├── Models.tsx
-│   │   │   ├── Queue.tsx
 │   │   │   ├── Servers.tsx
 │   │   │   └── Settings.tsx
 │   │   └── ...
@@ -287,14 +286,6 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - **GET /api/orchestrator/metrics** - Metrics dashboard
 - **GET /api/orchestrator/metrics/prometheus** - Prometheus metrics
 - **GET /api/orchestrator/metrics/:serverId/:model** - Server:model metrics
-
-### Queue Management
-
-- **GET /api/orchestrator/queue** - Queue status
-- **GET /api/orchestrator/in-flight** - In-flight requests by server
-- **POST /api/orchestrator/queue/pause** - Pause queue
-- **POST /api/orchestrator/queue/resume** - Resume queue
-- **POST /api/orchestrator/drain** - Drain all servers
 
 ### Server Maintenance
 
