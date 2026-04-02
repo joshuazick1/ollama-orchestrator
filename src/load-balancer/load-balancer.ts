@@ -203,6 +203,21 @@ export function calculateServerScore(
     latencyScore = Math.max(0, 100 - (responseTime / config.thresholds.maxP95Latency) * 100);
   }
 
+  // B.1: Cold start penalty — penalize latency score when model is NOT loaded in VRAM
+  // Mirrors selectFastestResponse() hot/cold awareness for the weighted algorithm.
+  // Hot model: latency reflects reality. Cold model: latency will spike from model loading.
+  const loadedModel = server.hardware?.loadedModels?.find(m => m.name === model);
+  if (!loadedModel) {
+    // Model is cold — apply penalty proportional to observed cold starts
+    // Base penalty: reduce latency score by 15% (cold load adds significant latency)
+    let coldPenalty = 0.85;
+    if (metrics && metrics.coldStartCount > 0) {
+      // If we've seen many cold starts, increase penalty (max 30% reduction)
+      coldPenalty = Math.max(0.7, 0.85 - metrics.coldStartCount * 0.01);
+    }
+    latencyScore *= coldPenalty;
+  }
+
   // Load score: lower total load is better
   // Normalize: 0 load = 100, maxConcurrency * 2 = 0
   const maxExpectedLoad = maxConcurrency * 2;
@@ -242,7 +257,6 @@ export function calculateServerScore(
   let vramScore = 50; // Neutral when no hardware data available
   const hw = server.hardware;
   if (hw) {
-    const loadedModel = hw.loadedModels?.find(m => m.name === model);
     if (loadedModel) {
       // Model already in VRAM — best case
       vramScore = 100;
