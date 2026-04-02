@@ -2532,7 +2532,9 @@ export class AIOrchestrator {
       // its configured halfOpenTimeout, push it back to open immediately rather
       // than spawning another recovery test that will never land.
       const now = Date.now();
-      const checkHalfOpenExpiry = (cb: import('../circuit-breaker/circuit-breaker.js').CircuitBreaker): boolean => {
+      const checkHalfOpenExpiry = (
+        cb: import('../circuit-breaker/circuit-breaker.js').CircuitBreaker
+      ): boolean => {
         if (cb.getState() !== 'half-open') {
           return false;
         }
@@ -3017,11 +3019,12 @@ export class AIOrchestrator {
         });
 
         if (isRetryableOnSameServer && retryCount < retryConfig.maxRetriesPerServer) {
-          // Calculate delay with exponential backoff
-          const delay = Math.min(
+          // Calculate delay with exponential backoff + jitter to prevent thundering herd
+          const baseDelay = Math.min(
             retryConfig.retryDelayMs * Math.pow(retryConfig.backoffMultiplier, retryCount),
             retryConfig.maxRetryDelayMs
           );
+          const delay = Math.round(baseDelay * (0.5 + Math.random() * 0.5));
 
           logger.info(
             `Will retry on same server ${server.id} for model ${model} in ${delay}ms (attempt ${retryCount + 1}/${retryConfig.maxRetriesPerServer})`,
@@ -3879,7 +3882,9 @@ export class AIOrchestrator {
   /**
    * Get circuit breaker for a server (with server-level half-open limits)
    */
-  private getCircuitBreaker(serverId: string): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
+  private getCircuitBreaker(
+    serverId: string
+  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
     return this.circuitBreakerRegistry.getOrCreate(serverId, undefined, (oldState, newState) => {
       // Enforce server-level half-open circuit limits
       if (newState === 'half-open') {
