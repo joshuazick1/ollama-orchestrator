@@ -27,10 +27,23 @@ export interface AuthConfig {
 
 // In production, these should come from environment variables
 export const DEFAULT_AUTH_CONFIG: AuthConfig = {
-  enabled: process.env.ENABLE_AUTH === 'true',
+  enabled: process.env.ENABLE_AUTH !== 'false',
   apiKeys: process.env.API_KEYS?.split(',').filter(Boolean) ?? [],
   adminApiKeys: process.env.ADMIN_API_KEYS?.split(',').filter(Boolean) ?? [],
 };
+
+/**
+ * Re-read API keys from environment variables.
+ * Called by the config hot-reload cycle to pick up rotated secrets
+ * without restarting the process.
+ */
+export function refreshAuthConfig(): AuthConfig {
+  DEFAULT_AUTH_CONFIG.enabled = process.env.ENABLE_AUTH !== 'false';
+  DEFAULT_AUTH_CONFIG.apiKeys = process.env.API_KEYS?.split(',').filter(Boolean) ?? [];
+  DEFAULT_AUTH_CONFIG.adminApiKeys = process.env.ADMIN_API_KEYS?.split(',').filter(Boolean) ?? [];
+  logger.info('Auth configuration refreshed from environment');
+  return DEFAULT_AUTH_CONFIG;
+}
 
 // Extend Express Request type to include auth info
 declare module 'express-serve-static-core' {

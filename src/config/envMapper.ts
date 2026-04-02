@@ -215,7 +215,7 @@ function getEnvVarDescription(envVar: string): string {
     ORCHESTRATOR_PORT: 'Server port (default: 5100)',
     ORCHESTRATOR_HOST: 'Server host (default: 0.0.0.0)',
     ORCHESTRATOR_LOG_LEVEL: 'Log level: debug, info, warn, error (default: info)',
-    ORCHESTRATOR_ENABLE_AUTH: 'Enable API key authentication (default: false)',
+    ORCHESTRATOR_ENABLE_AUTH: 'Enable API key authentication (default: true)',
     ORCHESTRATOR_API_KEYS: 'Comma-separated list of API keys',
     ORCHESTRATOR_ADMIN_API_KEYS: 'Comma-separated list of admin API keys',
     ORCHESTRATOR_QUEUE_MAX_SIZE: 'Maximum queue size (default: 1000)',
