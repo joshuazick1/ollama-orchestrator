@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "prebuild": "bash scripts/sync-types.sh",
     "build": "tsc && npm run build:frontend",
     "build:frontend": "npm run build --prefix frontend",
     "start": "node dist/index.js",

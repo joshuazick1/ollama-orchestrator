@@ -14,7 +14,6 @@ The Ollama Orchestrator is a production-ready Express.js-based API gateway in Ty
 - **Intelligent Load Balancing** - Weighted scoring based on latency, success rate, load, and capacity
 - **Automatic Failover** - Routes requests to healthy servers when failures occur
 - **Circuit Breaker Protection** - Prevents cascading failures with adaptive thresholds
-- **Request Queue** - Priority queue with configurable concurrency limits
 - **Model Management** - Proactive warmup, unload idle models, fleet-wide control
 - **Comprehensive Metrics** - Prometheus export, analytics dashboard, trend analysis
 - **OpenAI-Compatible API** - Drop-in replacement for OpenAI client libraries
@@ -74,23 +73,23 @@ The orchestrator sits between clients and multiple Ollama servers, automatically
 ollama-orchestrator/
 ├── src/                      # Main application source
 │   ├── controllers/          # Request handlers
-│   │   ├── analyticsController.ts
-│   │   ├── circuitBreakerController.ts
-│   │   ├── configController.ts
-│   │   ├── logsController.ts
-│   │   ├── metricsController.ts
-│   │   ├── modelController.ts
-│   │   ├── ollamaController.ts
-│   │   ├── openaiController.ts
-│   │   ├── queueController.ts
-│   │   ├── recoveryFailureController.ts
-│   │   ├── serverModelsController.ts
-│   │   └── serversController.ts
+│   │   ├── analytics-controller.ts
+│   │   ├── circuit-breaker-controller.ts
+│   │   ├── config-controller.ts
+│   │   ├── logs-controller.ts
+│   │   ├── metrics-controller.ts
+│   │   ├── model-controller.ts
+│   │   ├── ollama-controller.ts
+│   │   ├── openai-controller.ts
+│   │   ├── recovery-failure-controller.ts
+│   │   ├── server-models-controller.ts
+│   │   └── servers-controller.ts
 │   ├── config/               # Configuration management
 │   │   ├── config.ts
-│   │   ├── configManager.ts
-│   │   ├── envMapper.ts
-│   │   ├── jsonFileHandler.ts
+│   │   ├── config-manager.ts
+│   │   ├── env-mapper.ts
+│   │   ├── feature-flags.ts
+│   │   ├── json-file-handler.ts
 │   │   └── schema.ts
 │   ├── analytics/            # Analytics and reporting
 │   │   ├── analytics-engine.ts
@@ -100,26 +99,56 @@ ollama-orchestrator/
 │   │   ├── metrics-aggregator.ts
 │   │   ├── metrics-persistence.ts
 │   │   ├── prometheus-exporter.ts
+│   │   ├── ttft-tracker.ts
+│   │   ├── unified-recorder.ts
 │   │   └── index.ts
 │   ├── middleware/           # Express middleware
 │   │   ├── auth.ts
-│   │   ├── rateLimiter.ts
+│   │   ├── rate-limiter.ts
 │   │   └── validation.ts
-│   ├── queue/                # Request queue
-│   │   ├── request-queue.ts
+│   ├── orchestrator/         # Orchestration logic
+│   │   ├── orchestrator.ts
+│   │   ├── orchestrator-instance.ts
+│   │   ├── orchestrator-persistence.ts
+│   │   └── orchestrator.types.ts
+│   ├── circuit-breaker/      # Circuit breaker implementation
+│   │   ├── circuit-breaker.ts
+│   │   └── circuit-breaker-persistence.ts
+│   ├── load-balancer/        # Load balancing
+│   │   ├── load-balancer.ts
+│   │   └── temporal-scorer.ts
+│   ├── routes/               # Express route definitions
+│   │   ├── orchestrator.ts   # Barrel file
+│   │   ├── admin.routes.ts
+│   │   ├── inference.routes.ts
+│   │   ├── monitoring.routes.ts
+│   │   └── v1.routes.ts
+│   ├── types/                # Shared TypeScript types
+│   │   └── api-request.types.ts
+│   ├── constants/            # Application constants
+│   │   ├── api-endpoints.ts
+│   │   ├── error-messages.ts
 │   │   └── index.ts
+│   ├── storage/              # Persistence layer
+│   │   ├── metrics-store.ts
+│   │   ├── schema.ts
+│   │   └── types.ts
 │   ├── utils/                # Utility functions
-│   │   ├── fetchWithTimeout.ts
+│   │   ├── fetch-with-timeout.ts
 │   │   ├── logger.ts
-│   │   ├── ollamaError.ts
-│   │   └── urlUtils.ts
-│   ├── circuit-breaker.ts    # Circuit breaker implementation
+│   │   ├── ollama-error.ts
+│   │   ├── url-utils.ts
+│   │   ├── ban-manager.ts
+│   │   ├── in-flight-manager.ts
+│   │   ├── error-classifier.ts
+│   │   └── ...              # Additional helpers
 │   ├── health-check-scheduler.ts
 │   ├── active-test-scheduler.ts
-│   ├── load-balancer.ts
+│   ├── decision-history.ts
 │   ├── model-manager.ts
-│   ├── orchestrator.ts       # Main orchestration logic
 │   ├── recovery-test-coordinator.ts
+│   ├── request-history.ts
+│   ├── shared-types.ts
 │   ├── streaming.ts
 │   └── index.ts              # Application entry point
 ├── tests/                    # Test suite
@@ -128,18 +157,23 @@ ollama-orchestrator/
 │   ├── e2e/                  # End-to-end tests
 │   ├── chaos/                # Chaos engineering tests
 │   ├── performance/          # Load/stress tests
-│   └── fixtures/             # Test fixtures
+│   ├── fixtures/             # Test fixtures
+│   ├── utils/                # Test utilities
+│   └── setup.ts              # Test setup
 ├── frontend/                 # React dashboard
 │   ├── src/
 │   │   ├── components/       # Reusable UI components
 │   │   ├── pages/            # Dashboard pages
-│   │   │   ├── Analytics.tsx
+│   │   │   ├── analytics/    # Analytics page (multi-tab)
+│   │   │   ├── settings/     # Settings page (multi-tab)
 │   │   │   ├── CircuitBreakers.tsx
 │   │   │   ├── Dashboard.tsx
+│   │   │   ├── InFlight.tsx
 │   │   │   ├── Logs.tsx
 │   │   │   ├── Models.tsx
-│   │   │   ├── Servers.tsx
-│   │   │   └── Settings.tsx
+│   │   │   └── Servers.tsx
+│   │   ├── types/
+│   │   │   └── generated/    # Auto-generated types from backend
 │   │   └── ...
 │   └── package.json
 ├── docs/                     # Documentation
@@ -148,6 +182,8 @@ ollama-orchestrator/
 │   ├── OPERATIONS.md
 │   └── EXAMPLES.md
 ├── scripts/                  # Utility scripts
+│   ├── sync-types.sh         # Frontend type synchronization
+│   └── ...                   # Load testing scripts
 ├── docker-compose.yml        # Development setup
 ├── docker-compose.prod.yml   # Production setup
 ├── Dockerfile
@@ -379,12 +415,6 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 
 ## Concurrent Request Handling
 
-### Request Queue
-
-- Priority queue (max 1000, default)
-- Prevents starvation with priority boosting
-- Tracks wait times, dropped requests
-
 ### Per-Server Concurrency
 
 - In-flight tracking per server:model
@@ -422,13 +452,6 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - Port: 5100 (env: ORCHESTRATOR_PORT)
 - Host: 0.0.0.0 (env: ORCHESTRATOR_HOST)
 - Log level: info (debug/info/warn/error)
-
-### Queue
-
-- Max size: 1000
-- Timeout: 5m
-- Priority boosting: 5s intervals, 5-point boosts
-- Max priority: 100
 
 ### Load Balancer Weights
 
@@ -478,8 +501,10 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 ### Security
 
 - CORS origins: '\*' (configurable)
-- Rate limit: 100 req/min (configurable)
+- Rate limit: 100 req/15min (configurable)
+- Rate limit window: 15min
 - API keys: optional
+- Admin API keys: optional
 
 ### Metrics
 
@@ -521,23 +546,6 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - Failure cooldown: 2m
 - Default max concurrency: 4
 
-### Security
-
-- CORS origins: '\*' (configurable)
-- Rate limit: 100 req/15min (configurable)
-- Rate limit window: 15min
-- API keys: optional
-- Admin API keys: optional
-- Max streams: 100
-- Timeout: 5m
-- Buffer: 1024 bytes
-
-### Tags Aggregation
-
-- Cache TTL: 5m
-- Max concurrent: 10
-- Request timeout: 5s
-
 ### Persistence
 
 - Path: './data'
@@ -546,14 +554,13 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 
 ## Concurrent Request Flow
 
-1. Requests enter priority queue if enabled
-2. Dequeued by priority
-3. Load balancer selects optimal server (considers in-flight, metrics, circuit breakers, model availability)
-4. Verifies not at maxConcurrency (default 4)
-5. Increments in-flight count
-6. Executes request with timeout/retry
-7. Failover on failure to next server
-8. Decrements in-flight, records metrics
-9. For streaming: maintains connection, tracks concurrent streams
+1. Request arrives at the orchestrator
+2. Load balancer selects optimal server (considers in-flight, metrics, circuit breakers, model availability)
+3. Verifies not at maxConcurrency (default 4)
+4. Increments in-flight count
+5. Executes request with timeout/retry
+6. Failover on failure to next server
+7. Decrements in-flight, records metrics
+8. For streaming: maintains connection, tracks concurrent streams
 
 This system handles thousands of concurrent requests with high availability through adaptive load balancing and monitoring.

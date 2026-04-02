@@ -9,7 +9,7 @@ The frontend provides a web-based interface for:
 - **Dashboard** - Overview of system health, requests, and performance
 - **Servers** - Manage and monitor Ollama servers
 - **Models** - Model status, warmup, and fleet management
-- **Queue** - Request queue monitoring and control
+- **In-Flight** - Active request monitoring
 - **Analytics** - Performance metrics and trends
 - **Circuit Breakers** - Circuit breaker status and control
 - **Logs** - Application log viewer
@@ -63,7 +63,6 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5100
 - System health status overview
 - Total requests and error rates
 - Active servers count
-- Queue depth
 - Recent activity
 
 ### Servers
@@ -84,13 +83,11 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5100
 - View warmup recommendations
 - Per-model status on each server
 
-### Queue
+### In-Flight
 
-- Current queue size and capacity
-- Processing vs waiting requests
-- Average wait time
-- Pause/resume queue
 - View in-flight requests by server
+- Active request monitoring
+- Per-server concurrency tracking
 
 ### Analytics
 
@@ -132,7 +129,7 @@ Key endpoints used:
 
 - `/api/orchestrator/servers` - Server management
 - `/api/orchestrator/models` - Model management
-- `/api/orchestrator/queue` - Queue operations
+- `/api/orchestrator/stats` - In-flight and stats data
 - `/api/orchestrator/metrics` - Metrics data
 - `/api/orchestrator/analytics/*` - Analytics endpoints
 - `/api/orchestrator/circuit-breakers` - Circuit breaker control
@@ -157,16 +154,19 @@ src/
 │   ├── ErrorBoundary.tsx
 │   ├── Layout.tsx
 │   ├── Modal.tsx
-│   └── ModelManagerModal.tsx
+│   ├── ModelManagerModal.tsx
+│   └── ...
 ├── pages/           # Page components
-│   ├── Analytics.tsx
+│   ├── analytics/   # Analytics page (multi-tab)
+│   ├── settings/    # Settings page (multi-tab)
 │   ├── CircuitBreakers.tsx
 │   ├── Dashboard.tsx
+│   ├── InFlight.tsx
 │   ├── Logs.tsx
 │   ├── Models.tsx
-│   ├── Queue.tsx
-│   ├── Servers.tsx
-│   └── Settings.tsx
+│   └── Servers.tsx
+├── types/
+│   └── generated/   # Auto-generated types from backend
 ├── types.ts         # TypeScript type definitions
 └── utils/           # Utility functions
     └── security.ts

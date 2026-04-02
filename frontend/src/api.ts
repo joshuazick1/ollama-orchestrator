@@ -1,5 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import type { AIServer, MetricsExport, ServerModelMetrics, OrchestratorConfig } from './types';
+import { streamFetch } from './utils/stream-fetch';
 
 export type { OrchestratorConfig };
 
@@ -650,64 +651,12 @@ export function streamPullModelToServer(
   onProgress: (event: PullProgressEvent) => void,
   onError: (error: Error) => void
 ): AbortController {
-  const controller = new AbortController();
-
-  (async () => {
-    try {
-      const response = await fetch(`/api/orchestrator/servers/${serverId}/models/pull`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        // Non-SSE error response (validation errors, server not found, etc.)
-        const data = await response.json().catch(() => ({}));
-        onError(
-          new Error((data as { error?: string }).error || `Pull failed: ${response.statusText}`)
-        );
-        return;
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        onError(new Error('No response body'));
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE events (format: "data: {...}\n\n")
-        const events = buffer.split('\n\n');
-        buffer = events.pop() || '';
-
-        for (const event of events) {
-          const dataLine = event.trim();
-          if (!dataLine.startsWith('data: ')) continue;
-          const json = dataLine.slice(6);
-          try {
-            const parsed = JSON.parse(json) as PullProgressEvent;
-            onProgress(parsed);
-          } catch {
-            // Skip malformed events
-          }
-        }
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return; // Intentional cancellation
-      onError(err instanceof Error ? err : new Error(String(err)));
-    }
-  })();
-
-  return controller;
+  return streamFetch<PullProgressEvent>({
+    url: `/api/orchestrator/servers/${serverId}/models/pull`,
+    body: { model },
+    onEvent: onProgress,
+    onError,
+  });
 }
 
 /**
@@ -721,62 +670,12 @@ export function streamCopyModelToServer(
   onProgress: (event: PullProgressEvent) => void,
   onError: (error: Error) => void
 ): AbortController {
-  const controller = new AbortController();
-
-  (async () => {
-    try {
-      const response = await fetch(`/api/orchestrator/servers/${serverId}/models/copy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, sourceServerId }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        onError(
-          new Error((data as { error?: string }).error || `Copy failed: ${response.statusText}`)
-        );
-        return;
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        onError(new Error('No response body'));
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        const events = buffer.split('\n\n');
-        buffer = events.pop() || '';
-
-        for (const event of events) {
-          const dataLine = event.trim();
-          if (!dataLine.startsWith('data: ')) continue;
-          const json = dataLine.slice(6);
-          try {
-            const parsed = JSON.parse(json) as PullProgressEvent;
-            onProgress(parsed);
-          } catch {
-            // Skip malformed events
-          }
-        }
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      onError(err instanceof Error ? err : new Error(String(err)));
-    }
-  })();
-
-  return controller;
+  return streamFetch<PullProgressEvent>({
+    url: `/api/orchestrator/servers/${serverId}/models/copy`,
+    body: { model, sourceServerId },
+    onEvent: onProgress,
+    onError,
+  });
 }
 
 /** @deprecated Use streamPullModelToServer instead for progress tracking */
@@ -789,7 +688,9 @@ export const pullModelToServer = async (serverId: string, model: string) => {
 
 export const deleteModelFromServer = async (serverId: string, model: string) => {
   return apiCall(async () => {
-    const response = await api.delete(`/servers/${serverId}/models/${model}`);
+    const response = await api.delete(
+      `/servers/${encodeURIComponent(serverId)}/models/${encodeURIComponent(model)}`
+    );
     return response.data;
   });
 };
