@@ -8,7 +8,6 @@ describe('FeatureFlags', () => {
       expect(featureFlags.get('useTimerUtility')).toBe(true);
       expect(featureFlags.get('useTTFTTracker')).toBe(true);
       expect(featureFlags.get('useContextBuilder')).toBe(true);
-      expect(featureFlags.get('useUnifiedRecorder')).toBe(true);
       expect(featureFlags.get('useStatisticsUtility')).toBe(true);
       expect(featureFlags.get('useTokenExtractor')).toBe(true);
     });
@@ -46,7 +45,6 @@ describe('FeatureFlags', () => {
       expect(all).toHaveProperty('useTimerUtility');
       expect(all).toHaveProperty('useTTFTTracker');
       expect(all).toHaveProperty('useContextBuilder');
-      expect(all).toHaveProperty('useUnifiedRecorder');
       expect(all).toHaveProperty('useStatisticsUtility');
       expect(all).toHaveProperty('useTokenExtractor');
       expect(all).toHaveProperty('useErrorHelpers');

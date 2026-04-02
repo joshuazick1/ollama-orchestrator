@@ -10,11 +10,9 @@ export interface FeatureFlags {
   /** Enable TTFTTracker for consistent TTFT calculation */
   useTTFTTracker: boolean;
 
-  // Phase 2: Context & Recording
+  // Phase 2: Context
   /** Enable RequestContextBuilder */
   useContextBuilder: boolean;
-  /** Enable UnifiedMetricsRecorder */
-  useUnifiedRecorder: boolean;
 
   // Phase 3: Statistics
   /** Enable Statistics utility for percentile calculation */
@@ -41,7 +39,6 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   useTimerUtility: true, // Phase 1 - enabled
   useTTFTTracker: true, // Phase 1 - enabled
   useContextBuilder: true, // Phase 2 - enabled
-  useUnifiedRecorder: true, // Phase 2 - enabled
   useStatisticsUtility: true, // Phase 3 - enabled
   useTokenExtractor: true, // Phase 3 - enabled
   useErrorHelpers: true, // Phase 4 - enabled

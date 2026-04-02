@@ -100,7 +100,6 @@ ollama-orchestrator/
 │   │   ├── metrics-persistence.ts
 │   │   ├── prometheus-exporter.ts
 │   │   ├── ttft-tracker.ts
-│   │   ├── unified-recorder.ts
 │   │   └── index.ts
 │   ├── middleware/           # Express middleware
 │   │   ├── auth.ts
