@@ -30,8 +30,24 @@ export class InFlightManager {
   private inFlight: Map<string, number> = new Map();
   private inFlightBypass: Map<string, number> = new Map();
   private streamingRequests: Map<string, StreamingRequestProgress> = new Map();
+  private cleanupInterval?: ReturnType<typeof setInterval>;
 
   constructor(_config?: InFlightManagerConfig) {}
+
+  startPeriodicCleanup(intervalMs: number = 60_000, maxAgeMs: number = 10 * 60 * 1000): void {
+    this.stopPeriodicCleanup();
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleStreamingRequests(maxAgeMs);
+    }, intervalMs);
+    this.cleanupInterval.unref();
+  }
+
+  stopPeriodicCleanup(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+  }
 
   incrementInFlight(serverId: string, model: string, bypass: boolean = false): void {
     const key = `${serverId}:${model}`;
@@ -483,6 +499,34 @@ export class InFlightManager {
     }
     return potentiallyStalled;
   }
+
+  /**
+   * Remove streaming requests that have been running longer than maxAgeMs.
+   * Prevents leaked entries from accumulating when streams crash or disconnect
+   * without proper cleanup.
+   */
+  cleanupStaleStreamingRequests(maxAgeMs: number = 10 * 60 * 1000): number {
+    const now = Date.now();
+    const staleIds: string[] = [];
+
+    for (const [id, request] of this.streamingRequests) {
+      if (now - request.startTime > maxAgeMs) {
+        staleIds.push(id);
+      }
+    }
+
+    for (const id of staleIds) {
+      this.streamingRequests.delete(id);
+    }
+
+    if (staleIds.length > 0) {
+      logger.warn(`Cleaned up ${staleIds.length} stale streaming request(s)`, {
+        requestIds: staleIds.slice(0, 10),
+      });
+    }
+
+    return staleIds.length;
+  }
 }
 
 let managerInstance: InFlightManager | undefined;
@@ -490,10 +534,14 @@ let managerInstance: InFlightManager | undefined;
 export function getInFlightManager(): InFlightManager {
   if (!managerInstance) {
     managerInstance = new InFlightManager();
+    managerInstance.startPeriodicCleanup();
   }
   return managerInstance;
 }
 
 export function resetInFlightManager(): void {
+  if (managerInstance) {
+    managerInstance.stopPeriodicCleanup();
+  }
   managerInstance = undefined;
 }
