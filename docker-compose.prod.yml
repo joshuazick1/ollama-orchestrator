@@ -37,7 +37,9 @@ services:
           cpus: '0.2'
           memory: 256M
     networks:
-      - ollama-network
+      - frontend
+      - backend
+      - monitoring
 
   # Example Ollama servers
   ollama-server-1:
@@ -64,7 +66,7 @@ services:
           cpus: '0.5'
           memory: 1G
     networks:
-      - ollama-network
+      - backend
 
   # Prometheus for metrics collection
   prometheus:
@@ -91,7 +93,7 @@ services:
           cpus: '0.1'
           memory: 128M
     networks:
-      - ollama-network
+      - monitoring
 
   # Grafana for dashboards
   grafana:
@@ -103,7 +105,7 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
       - GF_USERS_ALLOW_SIGN_UP=false
     restart: unless-stopped
     deploy:
@@ -115,7 +117,7 @@ services:
           cpus: '0.1'
           memory: 128M
     networks:
-      - ollama-network
+      - monitoring
 
 volumes:
   ollama-data-1:
@@ -123,5 +125,11 @@ volumes:
   grafana-data:
 
 networks:
-  ollama-network:
+  frontend:
     driver: bridge
+  backend:
+    driver: bridge
+    internal: true
+  monitoring:
+    driver: bridge
+    internal: true
