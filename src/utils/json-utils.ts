@@ -1,6 +1,8 @@
 // This utility centralizes JSON handling to prevent repeated inline usage
 // and provides basic error handling for the parsing process.
 
+import { logger } from './logger.js';
+
 /**
  * Safely parses a JSON string.
  * @param {string} jsonString - The string to parse.
@@ -13,8 +15,7 @@ export const safeJsonParse = (jsonString: string, fallback: any = null): any => 
   } catch (error) {
     // Only log errors in DEBUG mode to avoid noisy test output
     if (process.env.DEBUG === 'true') {
-      // eslint-disable-next-line no-console
-      console.error('Failed to parse JSON string:', error);
+      logger.error('Failed to parse JSON string:', { error });
     }
     return fallback;
   }
@@ -37,8 +38,7 @@ export const safeJsonStringify = (
   } catch (error) {
     // Only log errors in DEBUG mode to avoid noisy test output
     if (process.env.DEBUG === 'true') {
-      // eslint-disable-next-line no-console
-      console.error('Failed to stringify value:', error);
+      logger.error('Failed to stringify value:', { error });
     }
     return '';
   }
