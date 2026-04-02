@@ -559,11 +559,12 @@ export class MetricsAggregator {
     );
 
     // Create a copy with decayed values
-    // Decay affects confidence in historical data, so we blend towards defaults
+    // Decay affects confidence in historical data, so we blend towards conservative defaults
     const decayedMetrics: ServerModelMetrics = {
       ...metrics,
-      // Success rate decays towards 1 (optimistic) since we have less confidence in old failure data
-      successRate: this.decayTowards(metrics.successRate, 1, decayFactor),
+      // Success rate decays towards 0.5 (conservative neutral) — stale metrics should not
+      // make servers appear artificially reliable after extended idle periods
+      successRate: this.decayTowards(metrics.successRate, 0.5, decayFactor),
       // Throughput decays towards 0 since old throughput data is less relevant
       throughput: metrics.throughput * decayFactor,
       // Percentiles decay towards higher values (more conservative estimates)
