@@ -8,6 +8,7 @@ import path from 'path';
 
 import type { CircuitBreakerConfig } from '../circuit-breaker.js';
 import type { LoadBalancerConfig } from '../load-balancer.js';
+import { refreshAuthConfig } from '../middleware/auth.js';
 import type { ModelManagerConfig } from '../model-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -306,7 +307,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   },
 
   security: {
-    corsOrigins: ['*'],
+    corsOrigins: [],
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
   },
@@ -592,6 +593,10 @@ export class ConfigManager {
 
         logger.info('Configuration reloaded successfully');
       }
+
+      // Always refresh auth config from env on each reload cycle
+      // so rotated API keys are picked up without a restart
+      refreshAuthConfig();
     } catch (error) {
       logger.error('Failed to check/reload configuration:', { error });
     } finally {
@@ -603,7 +608,7 @@ export class ConfigManager {
    * Get current configuration
    */
   getConfig(): OrchestratorConfig {
-    return { ...this.config };
+    return structuredClone(this.config);
   }
 
   /**
