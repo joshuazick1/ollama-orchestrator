@@ -2,7 +2,7 @@
 
 > **Date**: 2026-04-03
 > **Branch**: `phase2/metrics-rollups`
-> **Status**: Research complete — 57 findings across 9 categories, 8-wave remediation plan + Anthropic compatibility analysis (7 new findings, 4-wave plan), pending implementation decisions
+> **Status**: Research complete — 57 findings across 9 categories, 8-wave remediation plan + Anthropic compatibility analysis (8 new findings, 4-wave plan), pending implementation decisions
 
 ## Table of Contents
 
@@ -38,12 +38,12 @@ A comprehensive review of the active testing, adaptive timeout, and overall prog
 
 **Critical theme — Blind Load Balancing**: With ~400 models across ~60 servers, the load balancer has no mechanism to proactively gather performance data. Servers/models without user traffic have zero metrics, forcing random selection. The cross-model inference fallback (parameter-size-based) can reduce the probe requirement from ~24,000 to ~300-420 probes, but no probe system exists to leverage this.
 
-**New — Anthropic Messages API Compatibility**: The orchestrator will gain a third first-class API surface (`POST /v1/messages`) alongside the existing Ollama native and OpenAI-compatible endpoints. The architecture is **pure native passthrough — no translation at any layer**: each request type routes exclusively to servers that natively support that API format. This yields 7 new findings (F-AC-1, F-AC-2, F-AC-4, F-AC-5, F-AC-6, F-AC-8, F-AC-10) across types, health checks, validation, auth, and config.
+**New — Anthropic Messages API Compatibility**: The orchestrator will gain a third first-class API surface (`POST /v1/messages`) alongside the existing Ollama native and OpenAI-compatible endpoints. The architecture is **pure native passthrough — no translation at any layer**: each request type routes exclusively to servers that natively support that API format. Multi-tier health check probing handles servers without standard listing endpoints. This yields 8 new findings (F-AC-1, F-AC-2, F-AC-4, F-AC-5, F-AC-6, F-AC-8, F-AC-10, F-AC-11) across types, health checks, validation, auth, config, and multi-tier probing.
 
 Key findings by area:
 
 - **Active Testing** (9 findings): Schema/config mismatch, dead code, duplicate test results, coverage gaps
-- **Anthropic Compatibility** (7 findings): No capability flag, no model discovery, no request validation, no error format, no auth header handling, unsupported Anthropic-only features, no config section
+- **Anthropic Compatibility** (8 findings): No capability flag, no model discovery, multi-tier probing, no request validation, no error format, no auth header handling, unsupported Anthropic-only features, no config section
 - **Adaptive Timeouts** (8 findings): Double adaptation bug, one-way ratchet, dead state, persistence loss
 - **Config/Schema** (6 findings): Systemic desynchronization — 13+ missing fields, 4 default mismatches
 - **Integration** (7 findings): Missing cleanup on server removal, config hot-reload gaps, no ban↔CB sync
@@ -1724,15 +1724,16 @@ The `family` field (e.g., "llama", "mistral") is stored on `ServerModelMetrics` 
 
 ### Anthropic Compatibility (F-AC-\*) — Passthrough Only
 
-| ID          | Title                                    | Category | Severity | Effort |
-| ----------- | ---------------------------------------- | -------- | -------- | ------ |
-| **F-AC-1**  | No Anthropic capability flag on AIServer | Gap      | High     | Low    |
-| **F-AC-2**  | No Anthropic model discovery             | Gap      | Medium   | Medium |
-| **F-AC-4**  | No Anthropic request validation schema   | Gap      | Medium   | Medium |
-| **F-AC-5**  | No Anthropic error format                | Gap      | Medium   | Medium |
-| **F-AC-6**  | No `anthropic-version` header handling   | Gap      | Low      | Low    |
-| **F-AC-8**  | No support for Anthropic-only features   | Design   | Medium   | Medium |
-| **F-AC-10** | Config schema — no Anthropic section     | Gap      | Medium   | Low    |
+| ID          | Title                                                    | Category | Severity | Effort |
+| ----------- | -------------------------------------------------------- | -------- | -------- | ------ |
+| **F-AC-1**  | No Anthropic capability flag on AIServer                 | Gap      | High     | Low    |
+| **F-AC-2**  | No Anthropic model discovery + per-provider broadcasting | Gap      | Medium   | Medium |
+| **F-AC-4**  | No Anthropic request validation schema                   | Gap      | Medium   | Medium |
+| **F-AC-5**  | No Anthropic error format                                | Gap      | Medium   | Medium |
+| **F-AC-6**  | No `anthropic-version` header handling                   | Gap      | Low      | Low    |
+| **F-AC-8**  | No support for Anthropic-only features                   | Design   | Medium   | Medium |
+| **F-AC-10** | Config schema — no Anthropic section                     | Gap      | Medium   | Low    |
+| **F-AC-11** | Health check has no strategy for non-standard servers    | Gap      | High     | High   |
 
 > **Note**: F-AC-3 (streaming translator), F-AC-7 (SSE ordering), F-AC-9 (tool streaming) are **N/A** — they apply only to translation, which is not supported in the passthrough-only model.
 
@@ -1940,18 +1941,36 @@ v1Models?: string[];      // OpenAI-compatible model list
 
 ### New: Anthropic Detection
 
-Anthropic's `POST /v1/messages` is the primary endpoint. Unlike OpenAI's `/v1/models`, there is no dedicated model listing endpoint.
+Anthropic has no model listing endpoint (`GET /v1/models` equivalent does not exist). Model discovery requires attempting a real request, which wastes compute. Instead, use a **malformed-request probe** — a request structured correctly for the API but targeting a model name that provably does not exist:
 
-**Detection strategy — `POST /v1/messages` probe**:
+**Anthropic malformed-request probe**:
 
 ```typescript
-// Send minimal request: { max_tokens: 1, messages: [{ role: "user", content: "test" }] }
-// Expect 400 with "Missing required parameter: messages" (valid Anthropic server)
-// Expect 404 (not an Anthropic server)
-// Expect connection error (not reachable at all)
+// Purposefully invalid model — should fail fast without inference
+POST /v1/messages
+{
+  model: "__probe_nonexistent_model_000000__",
+  max_tokens: 1,
+  messages: [{ role: "user", content: "probe" }]
+}
+
+// Expect 400/404 with model_not_found → valid Anthropic endpoint, model list unknown
+// Expect 400 with "Missing required parameter" → valid Anthropic endpoint
+// Expect 401/403 → valid Anthropic endpoint, auth issue
+// Expect 404 → not an Anthropic endpoint
+// Expect connection error → not reachable
 ```
 
-A successful probe (200 or 400 with Anthropic error structure) indicates a valid Anthropic endpoint.
+This probe verifies the endpoint exists without triggering inference. The specific error type distinguishes "valid endpoint, unknown model" from "not an Anthropic server."
+
+### Model List Broadcasting by Provider
+
+| Provider  | Model List Endpoint | List Contents                         | Notes                                      |
+| --------- | ------------------- | ------------------------------------- | ------------------------------------------ |
+| Ollama    | `GET /api/tags`     | Full model list with size/digest/VRAM | Exhaustive, no inference required          |
+| OpenAI    | `GET /v1/models`    | Full model list                       | Standard OpenAI spec                       |
+| Anthropic | **None**            | N/A                                   | Model discovery requires inference attempt |
+| Custom    | Varies              | Varies                                | May not expose any listing endpoint        |
 
 ### Proposed `AIServer` Type Extension
 
@@ -1960,15 +1979,64 @@ A successful probe (200 or 400 with Anthropic error structure) indicates a valid
 supportsAnthropic?: boolean;  // Whether server supports /v1/messages Anthropic endpoint
 ```
 
-Note: No `anthropicModels` array — model discovery is not possible without a listing endpoint. Model validation is the client's responsibility.
+### Multi-Strategy Health Check
+
+The health check scheduler must handle servers that don't expose standard listing endpoints. A tiered probing strategy:
+
+```
+For each server, probe in order until capability is confirmed:
+
+Tier 1 — Standard listing endpoints (if server advertises them)
+  GET /api/tags                    → supportsOllama = true, populate models[]
+  GET /v1/models                   → supportsV1 = true, populate v1Models[]
+
+Tier 2 — Malformed-request probes (zero-inference)
+  POST /v1/messages (bad model)   → supportsAnthropic = true (by error type)
+  POST /v1/chat/completions (bad model) → supportsV1 = true (if not already set)
+
+Tier 3 — Connection verification (server reachable but capability unknown)
+  TCP connect to port              → server is reachable
+  OPTIONS request to base URL      → CORS/preflight can confirm endpoint presence
+  Any HTTP request                 → confirms server is up, capability still unknown
+
+If all probes fail:
+  → server.healthy = false (or unknown)
+  → server remains in pool with capability flags = undefined
+  → first actual inference request will probe capability live
+```
+
+### Handling Unknown Capabilities
+
+A server with `supportsOllama = undefined`, `supportsV1 = undefined`, `supportsAnthropic = undefined` (all unknown) cannot be used for routing until at least one capability is confirmed. Options:
+
+**Option A — Optimistic routing**: Route to unknown servers on first request, confirm capability live
+
+- Pro: Servers become usable immediately
+- Con: First request might hit wrong server type and fail
+- Con: Error response may not cleanly indicate "wrong API surface"
+
+**Option B — Conservative (default)**: Unknown servers are excluded from routing until probed
+
+- Pro: No failed routing attempts
+- Con: Servers without standard endpoints remain idle until Tier 3 probe succeeds
+- **Recommended for production fleets**
+
+**Option C — Config override**: Admin manually sets capability flags for known servers
+
+- Useful for custom backends with non-standard endpoints
+- `server.forceCapabilities = { supportsOllama: true }` in config
 
 ### Probe Schedule
 
-| Endpoint       | Method | Probe Interval | Timeout | Capability Flag     |
-| -------------- | ------ | -------------- | ------- | ------------------- |
-| `/api/tags`    | GET    | 30s            | 5s      | `supportsOllama`    |
-| `/v1/models`   | GET    | 30s            | 5s      | `supportsV1`        |
-| `/v1/messages` | POST   | 60s            | 10s     | `supportsAnthropic` |
+| Endpoint                           | Method | Probe Interval | Timeout | Capability Flag        | Inference? |
+| ---------------------------------- | ------ | -------------- | ------- | ---------------------- | ---------- |
+| `/api/tags`                        | GET    | 30s            | 5s      | `supportsOllama`       | No         |
+| `/v1/models`                       | GET    | 30s            | 5s      | `supportsV1`           | No         |
+| `/v1/messages` (malformed)         | POST   | 60s            | 10s     | `supportsAnthropic`    | No         |
+| `/v1/chat/completions` (malformed) | POST   | 60s            | 10s     | `supportsV1` (confirm) | No         |
+| TCP connect                        | —      | 30s            | 3s      | `reachable`            | No         |
+
+**All probes are zero-inference** — they verify endpoint presence and response shape, never trigger model loading.
 
 ---
 
@@ -2013,13 +2081,25 @@ The `AIServer` type in `orchestrator.types.ts` has `supportsOllama` and `support
 
 ---
 
-### F-AC-2: No Anthropic Model Discovery
+### F-AC-2: No Anthropic Model Discovery + Per-Provider Model Broadcasting
 
 **Severity**: Medium | **Category**: Gap | **Effort**: Medium
 
-OpenAI backends expose `/v1/models` for model discovery. Anthropic has no equivalent — `POST /v1/messages` is the only endpoint. Model validation is delegated to the client; the orchestrator does not maintain a model list for Anthropic backends.
+Model list availability varies by provider:
 
-**Fix**: No model discovery mechanism needed. If model validation is required, it should be handled by the Anthropic backend itself (the orchestrator passes the model name through).
+- **Ollama**: `GET /api/tags` returns exhaustive model list — no inference required
+- **OpenAI**: `GET /v1/models` returns exhaustive model list — standard spec
+- **Anthropic**: No model listing endpoint exists — model discovery requires attempting a request
+- **Custom backends**: May expose no listing endpoint at all
+
+Currently, the orchestrator has no strategy for handling providers without listing endpoints. Additionally, the malformed-request probe approach for Anthropic has not been implemented.
+
+**Fix**: Implement the multi-strategy health check described in the Capability Detection section above:
+
+1. Use standard listing endpoints where available (Ollama, OpenAI)
+2. Use malformed-request probes for providers without listing endpoints (Anthropic)
+3. Mark capability as unknown if all probes fail; exclude from routing until live probing confirms capability
+4. For servers where no endpoint responds at all: mark `healthy = false`, retain in pool, re-probe on interval
 
 ---
 
@@ -2084,6 +2164,29 @@ The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section
 
 ---
 
+### F-AC-11: Health Check Has No Strategy for Servers Without Standard Endpoints
+
+**Severity**: High | **Category**: Gap | **Effort**: High
+
+The existing health check scheduler assumes all servers expose `/api/tags` and `/v1/models`. Custom backends, proxies, or non-standard Ollama/OpenAI-compatible servers may expose neither or only one. Currently:
+
+- If `/api/tags` fails → `supportsOllama` stays `undefined`
+- If `/v1/models` fails → `supportsV1` stays `undefined`
+- The server is excluded from routing but no Tier 2/3 probe is attempted
+- No differentiation between "endpoint doesn't exist" and "server is down"
+
+**Impact**: A server behind a reverse proxy that only forwards `/api/chat` would be permanently marked as having no capabilities, even though it is a valid Ollama endpoint.
+
+**Fix**: Implement the multi-tier probing strategy from the Capability Detection section:
+
+1. Tier 1: Standard listing endpoints (existing behavior)
+2. Tier 2: Malformed-request probes for each API surface — zero inference, verify endpoint presence
+3. Tier 3: TCP connection check + OPTIONS preflight for servers where Tier 1/2 both fail
+4. If all tiers fail: mark `healthy = false`, retain in pool, re-probe on next interval
+5. Add `capabilityProbeState` tracking to `AIServer` to record which tier confirmed (or failed) each capability
+
+---
+
 ## Implementation Plan — Wave 9 (Anthropic API Compatibility)
 
 **Depends on**: None (self-contained, follows existing patterns)
@@ -2103,13 +2206,28 @@ The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section
 
 ---
 
-### Wave 9.2 — Health Check Extension (Medium effort)
+### Wave 9.2 — Health Check Extension + Multi-Tier Probing (High effort)
 
-| Task  | Finding | Description                                                                                                                                       |
-| ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 9.2.1 | F-AC-1  | Add `supportsAnthropic` probe to `health-check-scheduler.ts` — `POST /v1/messages` with `{max_tokens:1, messages:[{role:"user",content:"test"}]}` |
+| Task  | Finding | Description                                                                                                                                           |
+| ----- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 9.2.1 | F-AC-1  | Add `supportsAnthropic` malformed-request probe — `POST /v1/messages` with `model: "__probe_nonexistent__"`, interpret error type to confirm endpoint |
+| 9.2.2 | F-AC-11 | Implement Tier 2 malformed-request probes for all API surfaces (`/v1/chat/completions` with bad model for V1 confirmation)                            |
+| 9.2.3 | F-AC-11 | Implement Tier 3: TCP connect + OPTIONS preflight for servers where Tier 1/2 both fail                                                                |
+| 9.2.4 | F-AC-11 | Add `capabilityProbeState` tracking to `AIServer` — record which tier confirmed (or failed) each capability                                           |
+| 9.2.5 | F-AC-11 | Wire multi-tier logic into `health-check-scheduler.ts` — Tier 1 → Tier 2 → Tier 3 cascade on failure                                                  |
+| 9.2.6 | F-AC-2  | Add `discoverAnthropicModels()` — infer model support by observing which models are rejected with `model_not_found` vs other errors                   |
 
-**Files touched**: `health-check-scheduler.ts`
+**Files touched**: `health-check-scheduler.ts`, `orchestrator.types.ts`
+
+**Probe logic for model discovery** (F-AC-2):
+
+```typescript
+// Attempt a request with an obviously fake model to see if it's a model issue vs. endpoint issue
+// Model names matching known patterns (claude-*, gpt-*, llama:) can be probed differently
+// If 400 with "model_not_found" → endpoint valid, model not in list
+// If 400 with other error → endpoint may not exist or auth issue
+// For servers that support it: GET /v1/models after successful auth to get actual list
+```
 
 ---
 
@@ -2153,12 +2271,12 @@ app.use('/v1', inferenceRateLimiter, anthropicRouter); // 2. Anthropic second �
 
 ### Wave 9 Summary
 
-| Wave      | Focus                    | Effort   | Commits |
-| --------- | ------------------------ | -------- | ------- |
-| 9.1       | Types, Config, Constants | Low      | 1-2     |
-| 9.2       | Health Check Extension   | Medium   | 1       |
-| 9.3       | Controller & Routes      | Medium   | 1-2     |
-| 9.4       | Integration Testing      | High     | 1-2     |
-| **Total** |                          | **High** | **4-7** |
+| Wave      | Focus                         | Effort   | Commits |
+| --------- | ----------------------------- | -------- | ------- |
+| 9.1       | Types, Config, Constants      | Low      | 1-2     |
+| 9.2       | Multi-Tier Health Check Probe | High     | 1-2     |
+| 9.3       | Controller & Routes           | Medium   | 1-2     |
+| 9.4       | Integration Testing           | High     | 1-2     |
+| **Total** |                               | **High** | **4-8** |
 
 **No translation. Pure native passthrough to `supportsAnthropic` servers only.**
