@@ -149,6 +149,12 @@ export class AIOrchestrator {
     this.config = config ?? { ...DEFAULT_CONFIG };
     this.metricsAggregator = new MetricsAggregator();
     this.loadBalancer = new LoadBalancer(loadBalancerConfig ?? this.config.loadBalancer);
+
+    const lbConfig = loadBalancerConfig ?? this.config.loadBalancer;
+    if (lbConfig.crossModelInference) {
+      this.metricsAggregator.setCrossModelInferenceConfig(lbConfig.crossModelInference);
+    }
+
     this.circuitBreakerRegistry = new CircuitBreakerRegistry(
       circuitBreakerConfig ?? this.config.circuitBreaker
     );

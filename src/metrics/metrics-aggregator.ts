@@ -443,6 +443,19 @@ export class MetricsAggregator {
   }
 
   /**
+   * Look up the parameter size for a model from any server's metrics.
+   * Used to auto-resolve parameterSize when not explicitly provided.
+   */
+  private getModelParameterSize(model: string): string | undefined {
+    for (const [key, metrics] of this.metrics.entries()) {
+      if (key.endsWith(`:${model}`) && metrics.parameterSize) {
+        return metrics.parameterSize;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Get all metrics for a specific server
    */
   getAllMetricsForServer(serverId: string): ServerModelMetrics[] {
@@ -469,34 +482,72 @@ export class MetricsAggregator {
     model: string,
     parameterSize?: string
   ): ServerModelMetrics | undefined {
+    const crossModelConfig = this.config.crossModelInference;
+
     // 1. Try exact model match first
     const exactMetrics = this.getMetrics(serverId, model);
-    if (exactMetrics) {
-      return exactMetrics;
-    }
 
-    // 2. Try same parameter size if available
-    if (
-      parameterSize &&
-      this.config.crossModelInference?.enabled &&
-      this.config.crossModelInference.useParameterSize
-    ) {
-      const sizeMetrics = this.getMetricsByParameterSize(serverId, parameterSize);
-      if (sizeMetrics) {
-        logger.debug(
-          `Using parameter_size fallback for ${serverId}:${model} from ${sizeMetrics.model}`,
-          {
-            parameterSize,
-          }
-        );
-        return {
-          ...sizeMetrics,
-          model: `${model} (inferred from ${sizeMetrics.model})`,
-        };
+    // 2. Resolve parameter size for potential fallback lookup
+    const resolvedParamSize = parameterSize ?? this.getModelParameterSize(model);
+
+    // 3. Get cross-model fallback if available
+    let fallbackMetrics: ServerModelMetrics | undefined;
+    if (resolvedParamSize && crossModelConfig?.enabled && crossModelConfig.useParameterSize) {
+      const sizeMetrics = this.getMetricsByParameterSize(serverId, resolvedParamSize);
+      if (sizeMetrics && sizeMetrics.model !== model) {
+        fallbackMetrics = sizeMetrics;
       }
     }
 
-    // 3. No fallback available
+    // 4. If exact metrics exist with sufficient samples, return them
+    if (exactMetrics) {
+      const sampleCount = exactMetrics.recentLatencies.length;
+      if (sampleCount >= (crossModelConfig?.minSamplesForExact ?? 5) || !fallbackMetrics) {
+        return exactMetrics;
+      }
+
+      // Low sample exact + fallback available: blend them
+      const minSamples = crossModelConfig?.minSamplesForExact ?? 5;
+      const exactWeight = sampleCount / minSamples;
+      const fallbackW = (1 - exactWeight) * (crossModelConfig?.fallbackWeight ?? 0.5);
+      const totalWeight = exactWeight + fallbackW;
+
+      logger.debug(
+        `Blending exact (${sampleCount} samples) with cross-model fallback for ${serverId}:${model}`,
+        {
+          exactWeight: exactWeight / totalWeight,
+          fallbackWeight: fallbackW / totalWeight,
+          fallbackModel: fallbackMetrics.model,
+        }
+      );
+
+      return {
+        ...exactMetrics,
+        successRate:
+          (exactMetrics.successRate * exactWeight + fallbackMetrics.successRate * fallbackW) /
+          totalWeight,
+        throughput:
+          (exactMetrics.throughput * exactWeight + fallbackMetrics.throughput * fallbackW) /
+          totalWeight,
+      };
+    }
+
+    // 5. No exact metrics — return discounted fallback
+    if (fallbackMetrics) {
+      const weight = crossModelConfig?.fallbackWeight ?? 0.5;
+      logger.debug(
+        `Using parameter_size fallback for ${serverId}:${model} from ${fallbackMetrics.model}`,
+        { parameterSize: resolvedParamSize, fallbackWeight: weight }
+      );
+      return {
+        ...fallbackMetrics,
+        model: `${model} (inferred from ${fallbackMetrics.model})`,
+        successRate: 0.5 + (fallbackMetrics.successRate - 0.5) * weight,
+        throughput: fallbackMetrics.throughput * weight,
+      };
+    }
+
+    // 6. No fallback available
     return undefined;
   }
 
