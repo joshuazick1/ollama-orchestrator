@@ -63,18 +63,18 @@ const DEFAULT_CONTEXT_SIZES: Record<string, number> = {
   llama: 4096,
   llama2: 4096,
   llama3: 8192,
-  'llama3.1': 128,
-  'llama3.2': 8192,
+  'llama3.1': 128000,
+  'llama3.2': 128000,
   codellama: 4096,
-  'llama3.1:8b': 128,
-  'llama3.1:70b': 128,
-  'llama3.1:405b': 128,
+  'llama3.1:8b': 128000,
+  'llama3.1:70b': 128000,
+  'llama3.1:405b': 128000,
 
   // Mistral family
   mistral: 8192,
   mixtral: 32768,
-  'mistral-nemo': 128,
-  'mistral-large': 128,
+  'mistral-nemo': 128000,
+  'mistral-large': 128000,
 
   // Phi family
   phi: 2048,

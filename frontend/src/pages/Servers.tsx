@@ -733,6 +733,12 @@ export const Servers = () => {
             {validationErrors.apiKey && (
               <p className="mt-1 text-sm text-red-400">{validationErrors.apiKey}</p>
             )}
+            {newServerApiKey && !newServerApiKey.startsWith('env:') && (
+              <p className="mt-1 text-sm text-yellow-400">
+                Warning: Plain text API keys are stored unencrypted. Use &quot;env:VAR_NAME&quot; to
+                reference environment variables instead.
+              </p>
+            )}
             <p className="mt-1 text-xs text-gray-500">
               Use "env:VAR_NAME" to reference environment variables
             </p>

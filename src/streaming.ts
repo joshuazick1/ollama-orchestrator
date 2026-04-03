@@ -233,6 +233,7 @@ export async function streamResponse(
   let accumulatedText = '';
   let lastContext: number[] | undefined;
   const LOG_INTERVAL = 30000; // Log progress every 30 seconds
+  const MAX_ACCUMULATED_TEXT = 1_000_000; // 1MB limit to prevent memory issues
   const effectiveStallThreshold = stallThresholdMs ?? 300000; // Default 5 minutes
   const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000; // Default 10 seconds
 
@@ -360,7 +361,12 @@ export async function streamResponse(
       // Parse chunk to extract content and context
       const chunkText = extractChunkText(value);
       if (chunkText) {
-        accumulatedText += chunkText;
+        // Prevent unbounded memory growth by truncating old text if limit exceeded
+        if (accumulatedText.length + chunkText.length > MAX_ACCUMULATED_TEXT) {
+          accumulatedText = accumulatedText.slice(-MAX_ACCUMULATED_TEXT / 2) + chunkText;
+        } else {
+          accumulatedText += chunkText;
+        }
       }
 
       // Extract context from done chunk (Ollama specific)

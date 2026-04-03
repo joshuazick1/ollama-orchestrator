@@ -3,6 +3,8 @@
  * Centralized error classification for consistent handling across the system
  */
 
+import { logger } from './logger.js';
+
 /**
  * Error classification types
  */
@@ -243,13 +245,87 @@ export class ErrorClassifier {
     ignore: RegExp[];
   };
 
+  private static readonly MAX_PATTERN_LENGTH = 200;
+  private static readonly DANGEROUS_PATTERNS = [
+    /^\.\*/,
+    /\*\*+/,
+    /\(\.\*\)\+/,
+    /\(\+\)\+/,
+    /\(a\+\)\+/,
+    /\(a\*\)\+/,
+    /\(.*\)\+/,
+    /\(.*\)\*/,
+  ];
+
+  private static isValidRegexPattern(pattern: string): { valid: boolean; reason?: string } {
+    if (pattern.length > ErrorClassifier.MAX_PATTERN_LENGTH) {
+      return { valid: false, reason: 'Pattern too long' };
+    }
+    for (const dangerous of ErrorClassifier.DANGEROUS_PATTERNS) {
+      if (dangerous.test(pattern)) {
+        return { valid: false, reason: 'Potentially dangerous pattern detected' };
+      }
+    }
+    try {
+      new RegExp(pattern);
+      return { valid: true };
+    } catch {
+      return { valid: false, reason: 'Invalid regex syntax' };
+    }
+  }
+
   constructor(patterns: Partial<ErrorPatternConfig> = {}) {
+    const validatedNonRetryable = (patterns.nonRetryable ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid nonRetryable pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedTransient = (patterns.transient ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid transient pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedNetwork = (patterns.network ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid network pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedResource = (patterns.resource ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid resource pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedIgnore = (patterns.ignore ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid ignore pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
     this.patterns = {
-      nonRetryable: [...DEFAULT_ERROR_PATTERNS.nonRetryable, ...(patterns.nonRetryable ?? [])],
-      transient: [...DEFAULT_ERROR_PATTERNS.transient, ...(patterns.transient ?? [])],
-      network: [...DEFAULT_ERROR_PATTERNS.network, ...(patterns.network ?? [])],
-      resource: [...DEFAULT_ERROR_PATTERNS.resource, ...(patterns.resource ?? [])],
-      ignore: [...DEFAULT_ERROR_PATTERNS.ignore, ...(patterns.ignore ?? [])],
+      nonRetryable: [...DEFAULT_ERROR_PATTERNS.nonRetryable, ...validatedNonRetryable],
+      transient: [...DEFAULT_ERROR_PATTERNS.transient, ...validatedTransient],
+      network: [...DEFAULT_ERROR_PATTERNS.network, ...validatedNetwork],
+      resource: [...DEFAULT_ERROR_PATTERNS.resource, ...validatedResource],
+      ignore: [...DEFAULT_ERROR_PATTERNS.ignore, ...validatedIgnore],
     };
 
     // Compile patterns for performance
@@ -559,23 +635,63 @@ export class ErrorClassifier {
    */
   updatePatterns(patterns: Partial<ErrorPatternConfig>): void {
     if (patterns.nonRetryable) {
-      this.patterns.nonRetryable = [...this.patterns.nonRetryable, ...patterns.nonRetryable];
+      const validated = patterns.nonRetryable.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid nonRetryable pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.nonRetryable = [...this.patterns.nonRetryable, ...validated];
       this.compiledPatterns.nonRetryable = this.patterns.nonRetryable.map(p => new RegExp(p, 'i'));
     }
     if (patterns.transient) {
-      this.patterns.transient = [...this.patterns.transient, ...patterns.transient];
+      const validated = patterns.transient.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid transient pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.transient = [...this.patterns.transient, ...validated];
       this.compiledPatterns.transient = this.patterns.transient.map(p => new RegExp(p, 'i'));
     }
     if (patterns.network) {
-      this.patterns.network = [...this.patterns.network, ...patterns.network];
+      const validated = patterns.network.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid network pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.network = [...this.patterns.network, ...validated];
       this.compiledPatterns.network = this.patterns.network.map(p => new RegExp(p, 'i'));
     }
     if (patterns.resource) {
-      this.patterns.resource = [...this.patterns.resource, ...patterns.resource];
+      const validated = patterns.resource.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid resource pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.resource = [...this.patterns.resource, ...validated];
       this.compiledPatterns.resource = this.patterns.resource.map(p => new RegExp(p, 'i'));
     }
     if (patterns.ignore) {
-      this.patterns.ignore = [...this.patterns.ignore, ...patterns.ignore];
+      const validated = patterns.ignore.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid ignore pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.ignore = [...this.patterns.ignore, ...validated];
       this.compiledPatterns.ignore = this.patterns.ignore.map(p => new RegExp(p, 'i'));
     }
   }

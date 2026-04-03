@@ -71,9 +71,23 @@ export class BanManager {
   markFailure(serverId: string, model: string): void {
     const key = `${serverId}:${model}`;
     this.failureCooldown.set(key, Date.now());
+
+    // Record failure for rate tracking
+    this.recordFailure(serverId, model);
+
     const ban = `${serverId}:${model}`;
     if (this.permanentBan.has(ban)) {
       return;
+    }
+
+    // Track failures for permanent ban logic
+    const currentCount = this.modelFailureTracker.get(key)?.count ?? 0;
+    if (currentCount >= 10) {
+      // Threshold for permanent ban
+      this.permanentBan.add(ban);
+      logger.warn(
+        `Server ${serverId} permanently banned for model ${model} after repeated failures`
+      );
     }
   }
 
