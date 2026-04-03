@@ -1930,113 +1930,176 @@ No translation of streaming formats.
 
 ## Capability Detection
 
-### Current Detection (Ollama + OpenAI)
+### Core Problem: Listing Endpoints Don't Tell the Whole Story
+
+A server behind a reverse proxy may expose inference endpoints but not listing endpoints. Example: an Ollama server behind nginx that only proxies `/api/chat` and `/api/generate` but strips `/api/tags` would be permanently classified as having no capabilities under the current system — even though it fully handles inference requests.
+
+**Therefore: probe ALL inference endpoints, not just listing endpoints.**
+
+### All Inference Endpoints to Probe
+
+| Endpoint                    | Method | Probe Name           | Confirms                              |
+| --------------------------- | ------ | -------------------- | ------------------------------------- |
+| `POST /api/chat`            | POST   | `ollama_chat`        | Ollama chat-compatible endpoint       |
+| `POST /api/generate`        | POST   | `ollama_generate`    | Ollama generate-compatible endpoint   |
+| `POST /api/embeddings`      | POST   | `ollama_embeddings`  | Ollama embeddings-compatible endpoint |
+| `POST /v1/chat/completions` | POST   | `openai_chat`        | OpenAI chat-compatible endpoint       |
+| `POST /v1/completions`      | POST   | `openai_completions` | OpenAI completions endpoint           |
+| `POST /v1/embeddings`       | POST   | `openai_embeddings`  | OpenAI embeddings endpoint            |
+| `POST /v1/messages`         | POST   | `anthropic_messages` | Anthropic messages endpoint           |
+
+`GET /api/tags`, `GET /v1/models`, `GET /api/ps`, `GET /api/version` are **listing-only** — they confirm protocol identity and populate model lists but are not inference endpoints. A server that only exposes inference endpoints is still fully capable of routing.
+
+### Malformed-Request Probe Design
+
+All inference endpoint probes use the **same malformed-request technique**: a structurally valid request for a model name that provably does not exist.
 
 ```typescript
-// AIServer type — existing fields
-supportsOllama?: boolean;  // probed via GET /api/tags
-supportsV1?: boolean;     // probed via GET /v1/models
-v1Models?: string[];      // OpenAI-compatible model list
+// Probing multiple endpoints with the same invalid model
+// All return fast without triggering inference
+
+// Ollama chat probe
+POST /api/chat
+{ model: "__probe_nonexistent__", messages: [{role:"user",content:"probe"}], stream: false }
+
+// OpenAI chat probe
+POST /v1/chat/completions
+{ model: "__probe_nonexistent__", messages: [{role:"user",content:"probe"}], stream: false }
+
+// Anthropic messages probe
+POST /v1/messages
+{ model: "__probe_nonexistent__", max_tokens: 1, messages: [{role:"user",content:"probe"}] }
+
+// OpenAI completions probe
+POST /v1/completions
+{ model: "__probe_nonexistent__", prompt: "probe", stream: false }
+
+// OpenAI embeddings probe
+POST /v1/embeddings
+{ model: "__probe_nonexistent__", input: "probe" }
 ```
 
-### New: Anthropic Detection
+**Expected responses** (distinguishes endpoint exists from server down):
 
-Anthropic has no model listing endpoint (`GET /v1/models` equivalent does not exist). Model discovery requires attempting a real request, which wastes compute. Instead, use a **malformed-request probe** — a request structured correctly for the API but targeting a model name that provably does not exist:
+| Response                         | Meaning                                                    |
+| -------------------------------- | ---------------------------------------------------------- |
+| `400 model_not_found`            | Endpoint exists, model not in list — **confirmed**         |
+| `400 missing required parameter` | Endpoint exists, request parsed — **confirmed**            |
+| `401/403 authentication_error`   | Endpoint exists, auth failed — **confirmed**               |
+| `400 invalid_request_error`      | Endpoint exists, request rejected — **confirmed**          |
+| `404`                            | Endpoint not exposed (reverse proxy filtered) — **absent** |
+| Connection timeout/reset         | Server unreachable or port closed — **down**               |
 
-**Anthropic malformed-request probe**:
+### Probe Result → Capability Mapping
+
+When an inference endpoint probe succeeds (any non-404, non-connection-error response), the orchestrator records which endpoint was confirmed. Protocol support is then inferred from which endpoints exist:
 
 ```typescript
-// Purposefully invalid model — should fail fast without inference
-POST /v1/messages
+// Example probe results
 {
-  model: "__probe_nonexistent_model_000000__",
-  max_tokens: 1,
-  messages: [{ role: "user", content: "probe" }]
+  ollama_chat: true,       // POST /api/chat → 400 model_not_found
+  ollama_generate: true,    // POST /api/generate → 400 model_not_found
+  ollama_embeddings: false,  // POST /api/embeddings → 404
+  openai_chat: true,        // POST /v1/chat/completions → 400 model_not_found
+  openai_completions: true, // POST /v1/completions → 400 model_not_found
+  openai_embeddings: true,  // POST /v1/embeddings → 400 model_not_found
+  anthropic_messages: true,  // POST /v1/messages → 400 model_not_found
 }
 
-// Expect 400/404 with model_not_found → valid Anthropic endpoint, model list unknown
-// Expect 400 with "Missing required parameter" → valid Anthropic endpoint
-// Expect 401/403 → valid Anthropic endpoint, auth issue
-// Expect 404 → not an Anthropic endpoint
-// Expect connection error → not reachable
+// Inference:
+// Server speaks both Ollama and OpenAI protocols (multiple endpoints confirmed)
+// supportsOllama = (ollama_chat || ollama_generate || ollama_embeddings)
+// supportsV1 = (openai_chat || openai_completions || openai_embeddings)
+// supportsAnthropic = anthropic_messages
+
+// If listing endpoints succeed (GET /api/tags, GET /v1/models):
+// → also populate models[], v1Models[]
 ```
 
-This probe verifies the endpoint exists without triggering inference. The specific error type distinguishes "valid endpoint, unknown model" from "not an Anthropic server."
+### Probe Optimization: Listing Endpoints Reduce Inference Probes
 
-### Model List Broadcasting by Provider
+If `GET /api/tags` succeeds:
 
-| Provider  | Model List Endpoint | List Contents                         | Notes                                      |
-| --------- | ------------------- | ------------------------------------- | ------------------------------------------ |
-| Ollama    | `GET /api/tags`     | Full model list with size/digest/VRAM | Exhaustive, no inference required          |
-| OpenAI    | `GET /v1/models`    | Full model list                       | Standard OpenAI spec                       |
-| Anthropic | **None**            | N/A                                   | Model discovery requires inference attempt |
-| Custom    | Varies              | Varies                                | May not expose any listing endpoint        |
+- Confirms `supportsOllama = true` without needing to probe every Ollama inference endpoint
+- Still probe at least one Ollama inference endpoint (`/api/chat`) to confirm the proxy forwards it — a proxy might strip `/api/tags` but not `/api/chat`
+
+If `GET /v1/models` succeeds:
+
+- Confirms `supportsV1 = true` without probing every OpenAI endpoint
+- Still probe at least one OpenAI inference endpoint as a sanity check
 
 ### Proposed `AIServer` Type Extension
 
 ```typescript
-// NEW field in AIServer type (orchestrator.types.ts)
-supportsAnthropic?: boolean;  // Whether server supports /v1/messages Anthropic endpoint
-```
+// Extended AIServer type (orchestrator.types.ts)
+interface AIServer {
+  // ... existing fields ...
 
-### Multi-Strategy Health Check
+  // Endpoint-level probe results — which specific endpoints respond
+  probedEndpoints?: {
+    ollama_chat?: boolean;
+    ollama_generate?: boolean;
+    ollama_embeddings?: boolean;
+    openai_chat?: boolean;
+    openai_completions?: boolean;
+    openai_embeddings?: boolean;
+    anthropic_messages?: boolean;
+  };
 
-The health check scheduler must handle servers that don't expose standard listing endpoints. A tiered probing strategy:
+  // Inferred from probedEndpoints
+  supportsOllama?: boolean; // true if any ollama_* endpoint confirmed
+  supportsV1?: boolean; // true if any openai_* endpoint confirmed
+  supportsAnthropic?: boolean; // true if anthropic_messages confirmed
 
-```
-For each server, probe in order until capability is confirmed:
+  // Listing endpoints (populate model lists)
+  supportsOllamaList?: boolean; // GET /api/tags succeeded
+  supportsV1List?: boolean; // GET /v1/models succeeded
+}
 
-Tier 1 — Standard listing endpoints (if server advertises them)
-  GET /api/tags                    → supportsOllama = true, populate models[]
-  GET /v1/models                   → supportsV1 = true, populate v1Models[]
-
-Tier 2 — Malformed-request probes (zero-inference)
-  POST /v1/messages (bad model)   → supportsAnthropic = true (by error type)
-  POST /v1/chat/completions (bad model) → supportsV1 = true (if not already set)
-
-Tier 3 — Connection verification (server reachable but capability unknown)
-  TCP connect to port              → server is reachable
-  OPTIONS request to base URL      → CORS/preflight can confirm endpoint presence
-  Any HTTP request                 → confirms server is up, capability still unknown
-
-If all probes fail:
-  → server.healthy = false (or unknown)
-  → server remains in pool with capability flags = undefined
-  → first actual inference request will probe capability live
+// Admin override for known servers with non-standard configs
+interface AIServer {
+  forcedCapabilities?: {
+    supportsOllama?: boolean;
+    supportsV1?: boolean;
+    supportsAnthropic?: boolean;
+  };
+}
 ```
 
 ### Handling Unknown Capabilities
 
-A server with `supportsOllama = undefined`, `supportsV1 = undefined`, `supportsAnthropic = undefined` (all unknown) cannot be used for routing until at least one capability is confirmed. Options:
+A server with all `probedEndpoints` = `undefined` (no probe has succeeded yet) cannot be routed. Options:
 
-**Option A — Optimistic routing**: Route to unknown servers on first request, confirm capability live
+**Option A — Optimistic (not recommended)**: Route to unknown servers on first request, confirm capability live
 
-- Pro: Servers become usable immediately
-- Con: First request might hit wrong server type and fail
-- Con: Error response may not cleanly indicate "wrong API surface"
+- Risk: first request fails with potentially confusing error
+- Not recommended for production fleets
 
-**Option B — Conservative (default)**: Unknown servers are excluded from routing until probed
+**Option B — Conservative (default)**: Exclude unknown servers from routing until probed
 
-- Pro: No failed routing attempts
-- Con: Servers without standard endpoints remain idle until Tier 3 probe succeeds
-- **Recommended for production fleets**
+- Clean behavior: only healthy, confirmed servers receive traffic
+- Tradeoff: servers behind restrictive proxies take longer to warm up
 
-**Option C — Config override**: Admin manually sets capability flags for known servers
+**Option C — Admin override**: Manually set `forcedCapabilities` in server config
 
-- Useful for custom backends with non-standard endpoints
-- `server.forceCapabilities = { supportsOllama: true }` in config
+- For servers known to work but behind opaque proxies that block all probes
+- `servers: [{ id: "s1", url: "...", forcedCapabilities: { supportsOllama: true } }]`
 
 ### Probe Schedule
 
-| Endpoint                           | Method | Probe Interval | Timeout | Capability Flag        | Inference? |
-| ---------------------------------- | ------ | -------------- | ------- | ---------------------- | ---------- |
-| `/api/tags`                        | GET    | 30s            | 5s      | `supportsOllama`       | No         |
-| `/v1/models`                       | GET    | 30s            | 5s      | `supportsV1`           | No         |
-| `/v1/messages` (malformed)         | POST   | 60s            | 10s     | `supportsAnthropic`    | No         |
-| `/v1/chat/completions` (malformed) | POST   | 60s            | 10s     | `supportsV1` (confirm) | No         |
-| TCP connect                        | —      | 30s            | 3s      | `reachable`            | No         |
+| Endpoint                                | Method | Interval | Timeout | Cache Duration |
+| --------------------------------------- | ------ | -------- | ------- | -------------- |
+| `GET /api/tags`                         | GET    | 30s      | 5s      | 30s            |
+| `GET /v1/models`                        | GET    | 30s      | 5s      | 30s            |
+| `POST /api/chat` (malformed)            | POST   | 60s      | 10s     | 60s            |
+| `POST /api/generate` (malformed)        | POST   | 120s     | 10s     | 120s           |
+| `POST /api/embeddings` (malformed)      | POST   | 120s     | 10s     | 120s           |
+| `POST /v1/chat/completions` (malformed) | POST   | 60s      | 10s     | 60s            |
+| `POST /v1/completions` (malformed)      | POST   | 120s     | 10s     | 120s           |
+| `POST /v1/embeddings` (malformed)       | POST   | 120s     | 10s     | 120s           |
+| `POST /v1/messages` (malformed)         | POST   | 60s      | 10s     | 60s            |
 
-**All probes are zero-inference** — they verify endpoint presence and response shape, never trigger model loading.
+**Optimization**: Listing endpoints run at 30s. Inference endpoints run at 60-120s since they don't need to be as fresh. If any Ollama inference endpoint is confirmed, the others can be probed less frequently (or not at all, inferring from the confirmed endpoint).
 
 ---
 
@@ -2092,14 +2155,18 @@ Model list availability varies by provider:
 - **Anthropic**: No model listing endpoint exists — model discovery requires attempting a request
 - **Custom backends**: May expose no listing endpoint at all
 
-Currently, the orchestrator has no strategy for handling providers without listing endpoints. Additionally, the malformed-request probe approach for Anthropic has not been implemented.
+Currently the system only probes listing endpoints (`/api/tags`, `/v1/models`) and does not probe inference endpoints. A server behind a reverse proxy that strips listing endpoints but exposes inference endpoints would be permanently classified as having no capabilities.
 
-**Fix**: Implement the multi-strategy health check described in the Capability Detection section above:
+Additionally, the malformed-request probe approach for confirming inference endpoint availability has not been implemented.
 
-1. Use standard listing endpoints where available (Ollama, OpenAI)
-2. Use malformed-request probes for providers without listing endpoints (Anthropic)
-3. Mark capability as unknown if all probes fail; exclude from routing until live probing confirms capability
-4. For servers where no endpoint responds at all: mark `healthy = false`, retain in pool, re-probe on interval
+**Fix**: Implement the comprehensive endpoint probing described in the Capability Detection section:
+
+1. Probe ALL inference endpoints via malformed requests — not just listing endpoints
+2. Listing endpoints remain valuable for populating model lists but are not required for routing
+3. If any one Ollama inference endpoint is confirmed, infer `supportsOllama = true`
+4. If any one OpenAI inference endpoint is confirmed, infer `supportsV1 = true`
+5. Anthropic endpoint confirmed → `supportsAnthropic = true`
+6. Model lists populated only from successful listing endpoint responses
 
 ---
 
@@ -2168,22 +2235,19 @@ The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section
 
 **Severity**: High | **Category**: Gap | **Effort**: High
 
-The existing health check scheduler assumes all servers expose `/api/tags` and `/v1/models`. Custom backends, proxies, or non-standard Ollama/OpenAI-compatible servers may expose neither or only one. Currently:
+The existing health check scheduler only probes listing endpoints (`/api/tags`, `/v1/models`). It does not probe inference endpoints at all. A server behind a reverse proxy that strips listing endpoints would be permanently classified as having no capabilities.
 
-- If `/api/tags` fails → `supportsOllama` stays `undefined`
-- If `/v1/models` fails → `supportsV1` stays `undefined`
-- The server is excluded from routing but no Tier 2/3 probe is attempted
-- No differentiation between "endpoint doesn't exist" and "server is down"
+**Impact**: An Ollama server behind nginx that only proxies `/api/chat` and `/api/generate` (but not `/api/tags`) is permanently excluded from routing — even though it handles inference requests perfectly.
 
-**Impact**: A server behind a reverse proxy that only forwards `/api/chat` would be permanently marked as having no capabilities, even though it is a valid Ollama endpoint.
+**Fix**: Replace the current single-endpoint health check with the comprehensive malformed-request probing described in the Capability Detection section:
 
-**Fix**: Implement the multi-tier probing strategy from the Capability Detection section:
-
-1. Tier 1: Standard listing endpoints (existing behavior)
-2. Tier 2: Malformed-request probes for each API surface — zero inference, verify endpoint presence
-3. Tier 3: TCP connection check + OPTIONS preflight for servers where Tier 1/2 both fail
-4. If all tiers fail: mark `healthy = false`, retain in pool, re-probe on next interval
-5. Add `capabilityProbeState` tracking to `AIServer` to record which tier confirmed (or failed) each capability
+1. Probe ALL inference endpoints with malformed requests — each returns fast without inference
+2. Successful probe (any non-404, non-connection-error) confirms the endpoint is exposed
+3. `supportsOllama` inferred from any successful Ollama inference endpoint probe
+4. `supportsV1` inferred from any successful OpenAI inference endpoint probe
+5. Add `probedEndpoints` map to `AIServer` tracking which specific endpoints respond
+6. Admin `forcedCapabilities` override for servers behind opaque proxies
+7. If all probes fail and server is unreachable: mark `healthy = false`, retain in pool, re-probe
 
 ---
 
@@ -2206,27 +2270,50 @@ The existing health check scheduler assumes all servers expose `/api/tags` and `
 
 ---
 
-### Wave 9.2 — Health Check Extension + Multi-Tier Probing (High effort)
+### Wave 9.2 — Comprehensive Endpoint Health Check Probing (High effort)
 
-| Task  | Finding | Description                                                                                                                                           |
-| ----- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 9.2.1 | F-AC-1  | Add `supportsAnthropic` malformed-request probe — `POST /v1/messages` with `model: "__probe_nonexistent__"`, interpret error type to confirm endpoint |
-| 9.2.2 | F-AC-11 | Implement Tier 2 malformed-request probes for all API surfaces (`/v1/chat/completions` with bad model for V1 confirmation)                            |
-| 9.2.3 | F-AC-11 | Implement Tier 3: TCP connect + OPTIONS preflight for servers where Tier 1/2 both fail                                                                |
-| 9.2.4 | F-AC-11 | Add `capabilityProbeState` tracking to `AIServer` — record which tier confirmed (or failed) each capability                                           |
-| 9.2.5 | F-AC-11 | Wire multi-tier logic into `health-check-scheduler.ts` — Tier 1 → Tier 2 → Tier 3 cascade on failure                                                  |
-| 9.2.6 | F-AC-2  | Add `discoverAnthropicModels()` — infer model support by observing which models are rejected with `model_not_found` vs other errors                   |
+| Task  | Finding | Description                                                                                                                           |
+| ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 9.2.1 | F-AC-11 | Add `probedEndpoints` map + `supportsOllama`/`supportsV1`/`supportsAnthropic` inference to `AIServer` type                            |
+| 9.2.2 | F-AC-11 | Implement malformed-request probe for all 7 inference endpoints — all return fast without inference                                   |
+| 9.2.3 | F-AC-11 | Update `health-check-scheduler.ts` to run the full probe matrix per the schedule (listing endpoints 30s, inference endpoints 60-120s) |
+| 9.2.4 | F-AC-11 | Implement `forcedCapabilities` admin override for servers behind opaque proxies                                                       |
+| 9.2.5 | F-AC-11 | Implement unknown-capability exclusion: servers with all-unknown `probedEndpoints` excluded from routing until first probe succeeds   |
+| 9.2.6 | F-AC-2  | Add `discoverAnthropicModels()` — infer model support by observing which models return `model_not_found` vs other errors              |
+| 9.2.7 | F-AC-1  | Add `supportsAnthropic` probe result to `probedEndpoints` + `supportsAnthropic` inference                                             |
 
-**Files touched**: `health-check-scheduler.ts`, `orchestrator.types.ts`
+**Files touched**: `health-check-scheduler.ts`, `orchestrator.types.ts`, `orchestrator.ts` (routing exclusion logic)
 
-**Probe logic for model discovery** (F-AC-2):
+**Malformed-request probe implementation** (task 9.2.2):
 
 ```typescript
-// Attempt a request with an obviously fake model to see if it's a model issue vs. endpoint issue
-// Model names matching known patterns (claude-*, gpt-*, llama:) can be probed differently
-// If 400 with "model_not_found" → endpoint valid, model not in list
-// If 400 with other error → endpoint may not exist or auth issue
-// For servers that support it: GET /v1/models after successful auth to get actual list
+// All 7 inference endpoints probed with same invalid model
+const PROBE_MODEL = '__probe_nonexistent_model_000000__';
+
+async function probeEndpoint(
+  server: AIServer,
+  method: string,
+  url: string,
+  body: object
+): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      method,
+      body: JSON.stringify({ ...body, model: PROBE_MODEL }),
+      signal: AbortSignal.timeout(10000),
+    });
+    // Any non-404, non-connection-error response = endpoint confirmed
+    if (res.status !== 404) return true;
+    return false; // 404 = endpoint not exposed
+  } catch {
+    return false; // timeout/connection error = unreachable
+  }
+}
+
+// Result: { ollama_chat: true/false, openai_chat: true/false, ... }
+// supportsOllama = ollama_chat || ollama_generate || ollama_embeddings
+// supportsV1 = openai_chat || openai_completions || openai_embeddings
+// supportsAnthropic = anthropic_messages
 ```
 
 ---
