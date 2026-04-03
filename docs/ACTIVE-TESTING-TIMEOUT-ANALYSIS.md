@@ -2,7 +2,7 @@
 
 > **Date**: 2026-04-03
 > **Branch**: `phase2/metrics-rollups`
-> **Status**: Research complete — 57 findings across 9 categories, 8-wave remediation plan + Anthropic compatibility analysis (10 new findings, 7-wave plan), pending implementation decisions
+> **Status**: Research complete — 57 findings across 9 categories, 8-wave remediation plan + Anthropic compatibility analysis (7 new findings, 4-wave plan), pending implementation decisions
 
 ## Table of Contents
 
@@ -38,12 +38,12 @@ A comprehensive review of the active testing, adaptive timeout, and overall prog
 
 **Critical theme — Blind Load Balancing**: With ~400 models across ~60 servers, the load balancer has no mechanism to proactively gather performance data. Servers/models without user traffic have zero metrics, forcing random selection. The cross-model inference fallback (parameter-size-based) can reduce the probe requirement from ~24,000 to ~300-420 probes, but no probe system exists to leverage this.
 
-**New — Anthropic Messages API Compatibility**: The orchestrator will gain a third first-class API surface (`POST /v1/messages`) alongside the existing Ollama native and OpenAI-compatible endpoints. The architecture is a **direct proxy with end-translation**: servers are typed as `ollama`, `openai`, or `anthropic` backends; translation happens at the response boundary, not in the routing layer. This yields 10 new findings (F-AC-1 through F-AC-10) across types, health checks, request/response streaming translation, auth, and config.
+**New — Anthropic Messages API Compatibility**: The orchestrator will gain a third first-class API surface (`POST /v1/messages`) alongside the existing Ollama native and OpenAI-compatible endpoints. The architecture is **pure native passthrough — no translation at any layer**: each request type routes exclusively to servers that natively support that API format. This yields 7 new findings (F-AC-1, F-AC-2, F-AC-4, F-AC-5, F-AC-6, F-AC-8, F-AC-10) across types, health checks, validation, auth, and config.
 
 Key findings by area:
 
 - **Active Testing** (9 findings): Schema/config mismatch, dead code, duplicate test results, coverage gaps
-- **Anthropic Compatibility** (10 findings): No capability flag, no streaming translator, no request validation, no error format, no auth header handling, SSE ordering risk, unsupported Anthropic-only features, no reverse translation
+- **Anthropic Compatibility** (7 findings): No capability flag, no model discovery, no request validation, no error format, no auth header handling, unsupported Anthropic-only features, no config section
 - **Adaptive Timeouts** (8 findings): Double adaptation bug, one-way ratchet, dead state, persistence loss
 - **Config/Schema** (6 findings): Systemic desynchronization — 13+ missing fields, 4 default mismatches
 - **Integration** (7 findings): Missing cleanup on server removal, config hot-reload gaps, no ban↔CB sync
@@ -1722,20 +1722,19 @@ The `family` field (e.g., "llama", "mistral") is stored on `ServerModelMetrics` 
 | **F-PR-3** | Model parameter size not always available    | Data Gap    | Medium   | Medium |
 | **F-PR-4** | `family` field unused for inference grouping | Enhancement | Low      | Medium |
 
-### Anthropic Compatibility (F-AC-\*)
+### Anthropic Compatibility (F-AC-\*) — Passthrough Only
 
-| ID          | Title                                         | Category | Severity | Effort |
-| ----------- | --------------------------------------------- | -------- | -------- | ------ |
-| **F-AC-1**  | No Anthropic capability flag on AIServer      | Gap      | High     | Low    |
-| **F-AC-2**  | No Anthropic model discovery mechanism        | Gap      | Medium   | Medium |
-| **F-AC-3**  | No Anthropic streaming translator             | Gap      | High     | High   |
-| **F-AC-4**  | No Anthropic request validation schema        | Gap      | Medium   | Medium |
-| **F-AC-5**  | No Anthropic error format                     | Gap      | Medium   | Medium |
-| **F-AC-6**  | No `anthropic-version` header handling        | Gap      | Low      | Low    |
-| **F-AC-7**  | Anthropic SDK strict SSE event ordering       | Risk     | High     | High   |
-| **F-AC-8**  | No support for Anthropic-only features        | Design   | Medium   | Medium |
-| **F-AC-9**  | Ollama `stream: true` + `tools` not supported | Gap      | Medium   | High   |
-| **F-AC-10** | Config schema — no Anthropic section          | Gap      | Medium   | Low    |
+| ID          | Title                                    | Category | Severity | Effort |
+| ----------- | ---------------------------------------- | -------- | -------- | ------ |
+| **F-AC-1**  | No Anthropic capability flag on AIServer | Gap      | High     | Low    |
+| **F-AC-2**  | No Anthropic model discovery             | Gap      | Medium   | Medium |
+| **F-AC-4**  | No Anthropic request validation schema   | Gap      | Medium   | Medium |
+| **F-AC-5**  | No Anthropic error format                | Gap      | Medium   | Medium |
+| **F-AC-6**  | No `anthropic-version` header handling   | Gap      | Low      | Low    |
+| **F-AC-8**  | No support for Anthropic-only features   | Design   | Medium   | Medium |
+| **F-AC-10** | Config schema — no Anthropic section     | Gap      | Medium   | Low    |
+
+> **Note**: F-AC-3 (streaming translator), F-AC-7 (SSE ordering), F-AC-9 (tool streaming) are **N/A** — they apply only to translation, which is not supported in the passthrough-only model.
 
 ---
 
@@ -1840,17 +1839,14 @@ Depends on Wave 7 (SQLite migration provides `is_probe` column and clean data la
 
 ### Wave 9 — Anthropic API Compatibility (High effort)
 
-Independent of Waves 1-8. Adds Anthropic Messages API as third first-class backend type.
+Independent of Waves 1-8. Adds Anthropic Messages API as third first-class backend type. **Passthrough-only — no translation.**
 
-| Task | Finding                | Description                                                                                     |
-| ---- | ---------------------- | ----------------------------------------------------------------------------------------------- |
-| 9.1  | F-AC-1, F-AC-10        | Add `supportsAnthropic` + `anthropicModels` to `AIServer`, add Anthropic config schema          |
-| 9.2  | F-AC-1, F-AC-2         | Add `POST /v1/messages` health check probe + model discovery                                    |
-| 9.3  | All                    | Create `anthropic-controller.ts` + `anthropic.routes.ts` for `POST /v1/messages`                |
-| 9.4  | All                    | Build `AnthropicToOllamaTranslator` + `AnthropicToOpenAITranslator` request translators         |
-| 9.5  | F-AC-3, F-AC-7, F-AC-9 | Build `anthropic-stream-translator.ts` — Ollama NDJSON → Anthropic SSE state machine            |
-| 9.6  | All                    | Build reverse translators (`OllamaToAnthropic`, `OpenAIToAnthropic`) for Ollama/OpenAI backends |
-| 9.7  | All                    | Integration tests for all translation paths + SSE event ordering verification                   |
+| Task | Finding                        | Description                                                                                      |
+| ---- | ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| 9.1  | F-AC-1, F-AC-10                | Add `supportsAnthropic` to `AIServer`, add Anthropic config section                              |
+| 9.2  | F-AC-1, F-AC-2                 | Add `POST /v1/messages` health check probe + model discovery                                     |
+| 9.3  | F-AC-4, F-AC-5, F-AC-6, F-AC-8 | Create `anthropic-controller.ts` + routes — validation, error format, routing to native backends |
+| 9.4  | F-AC-7                         | Integration tests — native Anthropic passthrough, error format, header validation                |
 
 ---
 
@@ -1865,85 +1861,69 @@ Independent of Waves 1-8. Adds Anthropic Messages API as third first-class backe
 1. [Executive Summary](#anthropic-executive-summary)
 2. [Architecture Overview](#architecture-overview)
 3. [Capability Detection](#capability-detection)
-4. [Request Translation Matrix](#request-translation-matrix)
-5. [Response Translation Matrix](#response-translation-matrix)
-6. [Streaming Translation](#streaming-translation)
-7. [Model Mapping](#model-mapping)
-8. [Authentication](#authentication)
-9. [Findings (F-AC-\*)](#findings-f-ac-)
-10. [Implementation Plan — Wave 9](#wave-9--anthropic-api-compatibility)
-11. [Escalation Path](#escalation-path)
+4. [Authentication](#authentication)
+5. [Findings (F-AC-\*)](#findings-f-ac-)
+6. [Implementation Plan — Wave 9](#wave-9--anthropic-api-compatibility)
 
 ---
 
 ## Anthropic Executive Summary
 
-The orchestrator currently supports two backend API surfaces (Ollama native `/api/*` and OpenAI-compatible `/v1/*`). The goal is to add Anthropic Messages API (`POST /v1/messages`) as a **third first-class backend type**, alongside Ollama and OpenAI, with **translation at the response boundary** — not at the request boundary.
+The orchestrator currently supports two backend API surfaces (Ollama native `/api/*` and OpenAI-compatible `/v1/*`). The goal is to add Anthropic Messages API (`POST /v1/messages`) as a **third first-class backend type** with **pure passthrough routing — no translation**.
 
-**Core principle — Direct Proxy + End-Translation**:
+**Core principle — Native Passthrough Only**:
 
-- Servers are configured by their native API type (`ollama`, `openai`, `anthropic`)
-- Incoming requests are routed to a compatible backend
-- If the backend's native format matches the request format → passthrough
-- If the backend's native format differs → translate the request to the backend's format, then translate the response back to the client's format
-- Translation is **at the edge** (request in, response out), not in the routing layer
+- Ollama requests (`/api/*`) → route to servers where `server.supportsOllama === true`
+- OpenAI requests (`/v1/chat/completions`) → route to servers where `server.supportsV1 === true`
+- Anthropic requests (`/v1/messages`) → route to servers where `server.supportsAnthropic === true`
+- **No translation** — if no native backend is available, return an appropriate error
+- Each API surface is an independent routing domain with its own server pool
 
 **Key architecture decisions**:
 
 - Add `supportsAnthropic?: boolean` to `AIServer` type (mirrors `supportsOllama`, `supportsV1`)
 - Detect Anthropic capability via `POST /v1/messages` probe (returns `400 missing required parameter` on success — Anthropic returns errors for missing `max_tokens` even on valid servers)
-- Add `anthropicModels?: string[]` to `AIServer` (mirrors `v1Models`)
 - Build `src/controllers/anthropic-controller.ts` for `/v1/messages` endpoints
-- Build `src/streaming/anthropic-stream-translator.ts` for Ollama NDJSON → Anthropic SSE event translation
-- Add explicit `anthropicModels` alias map in config for model name resolution
 - Auth: accept both `x-api-key` and `Authorization: Bearer` on Anthropic routes
+- Reject unsupported Anthropic-only fields (`thinking`, `cache_control`) with validation errors
+- Anthropic error format (`type: "error"`) for all error responses on Anthropic routes
 
-**Effort estimate**: Medium (1-2 days), 4-5 commits
+**Effort estimate**: Medium, 4-7 commits
 
 ---
 
 ## Architecture Overview
 
-### Three Backend Types, Three API Surfaces
+### Three Independent Routing Domains
 
 ```
-Client Request                    Backend Server (by native type)
-─────────────────                 ──────────────────────────────────────────────
-
-Anthropic (/v1/messages)    →    Ollama backend       → translate request + response
-                               →    OpenAI backend      → translate request + response
-                               →    Anthropic backend   → passthrough
-
-OpenAI (/v1/chat/completions) →    Ollama backend       → translate (existing)
-                               →    OpenAI backend      → passthrough (existing)
-
-Ollama (/api/chat)            →    Ollama backend       → passthrough
-                               →    OpenAI backend       → translate (existing)
-                               →    Anthropic backend   → translate request + response
+Client Request                         Routing Rule                              Backend Requirement
+------------------------------------   ---------------------------------------   ----------------------------------
+POST /api/chat                         supportsOllama === true                  Ollama-native server required
+POST /api/generate                     supportsOllama === true                  Ollama-native server required
+POST /v1/chat/completions              supportsV1 === true                       OpenAI-native server required
+POST /v1/completions                   supportsV1 === true                       OpenAI-native server required
+POST /v1/embeddings                   supportsV1 === true                       OpenAI-native server required
+POST /v1/messages                      supportsAnthropic === true                Anthropic-native server required
 ```
 
-### Routing Priority
+### Failover Within Routing Domain
 
-When selecting a backend for an incoming request:
+Failover only occurs within the same routing domain:
 
-1. **Prefer native match**: Route to a backend whose native type matches the incoming API format
-2. **Fall back to any compatible**: If no native backend is healthy, route to any backend that can speak the format (via translation)
-3. **Failover**: Use `tryRequestWithFailover()` with the same 3-phase failover cycle
+- `/v1/messages` failing on one `supportsAnthropic` server → failover to another `supportsAnthropic` server
+- `/v1/messages` with no healthy `supportsAnthropic` servers → `503 Service Unavailable` (Anthropic error format)
+- **No cross-domain failover** — Anthropic requests never fall back to Ollama or OpenAI backends
 
-### Dual-Mode Streaming (Updated for 3 Backends)
+### Streaming
 
-```
-Incoming Request Format     Native Backend?     Action
-─────────────────────────────────────────────────────────────────────────
-Anthropic SSE               Yes                 Passthrough SSE
-Anthropic SSE               No (Ollama)         Ollama NDJSON → Anthropic SSE
-Anthropic SSE               No (OpenAI)         OpenAI SSE → Anthropic SSE
-OpenAI SSE                  Yes                 Passthrough SSE (existing)
-OpenAI SSE                  No (Ollama)         Ollama NDJSON → OpenAI SSE (existing)
-Ollama NDJSON               Yes                 Passthrough NDJSON
-Ollama NDJSON               No (OpenAI)         OpenAI → Ollama translation
-Ollama NDJSON               No (Anthropic)      Anthropic → Ollama translation
-```
+Native streaming only — the orchestrator passes through the SSE stream directly from the backend:
+
+- Ollama backends: NDJSON streaming (existing)
+- OpenAI backends: SSE streaming with `data:` prefix (existing)
+- Anthropic backends: SSE streaming with typed `event:` prefix
+
+No translation of streaming formats.
 
 ---
 
@@ -1960,34 +1940,27 @@ v1Models?: string[];      // OpenAI-compatible model list
 
 ### New: Anthropic Detection
 
-Anthropic's `POST /v1/messages` is the primary endpoint. Unlike OpenAI's `/v1/models`, there is no dedicated model listing endpoint. Detection strategies:
+Anthropic's `POST /v1/messages` is the primary endpoint. Unlike OpenAI's `/v1/models`, there is no dedicated model listing endpoint.
 
-**Strategy A — `OPTIONS /v1/messages` probe**:
-
-```typescript
-// Send OPTIONS request to detect Anthropic endpoint
-// Returns CORS headers + Allow: "POST, OPTIONS" on Anthropic servers
-```
-
-**Strategy B — Test `POST /v1/messages` with minimal request**:
+**Detection strategy — `POST /v1/messages` probe**:
 
 ```typescript
-// Send { max_tokens: 1, messages: [] }
-// Expect 400 with "Missing required parameter: messages" (valid server)
+// Send minimal request: { max_tokens: 1, messages: [{ role: "user", content: "test" }] }
+// Expect 400 with "Missing required parameter: messages" (valid Anthropic server)
 // Expect 404 (not an Anthropic server)
-// Expect connection error (not reachable)
+// Expect connection error (not reachable at all)
 ```
 
-**Strategy C — Health check extension**:
-Add `supportsAnthropic` probe in `health-check-scheduler.ts` using Strategy B. Use a cached "is this an Anthropic server" flag since it doesn't change at runtime.
+A successful probe (200 or 400 with Anthropic error structure) indicates a valid Anthropic endpoint.
 
 ### Proposed `AIServer` Type Extension
 
 ```typescript
-// NEW fields in AIServer type (orchestrator.types.ts)
-supportsAnthropic?: boolean;   // Whether server supports /v1/messages Anthropic endpoint
-anthropicModels?: string[];   // Anthropic-compatible model list (if discoverable)
+// NEW field in AIServer type (orchestrator.types.ts)
+supportsAnthropic?: boolean;  // Whether server supports /v1/messages Anthropic endpoint
 ```
+
+Note: No `anthropicModels` array — model discovery is not possible without a listing endpoint. Model validation is the client's responsibility.
 
 ### Probe Schedule
 
@@ -1996,275 +1969,6 @@ anthropicModels?: string[];   // Anthropic-compatible model list (if discoverabl
 | `/api/tags`    | GET    | 30s            | 5s      | `supportsOllama`    |
 | `/v1/models`   | GET    | 30s            | 5s      | `supportsV1`        |
 | `/v1/messages` | POST   | 60s            | 10s     | `supportsAnthropic` |
-
----
-
-## Request Translation Matrix
-
-### Anthropic → Ollama (for `/v1/messages` → Ollama backend)
-
-| Anthropic Field      | Ollama Field                    | Notes                                          |
-| -------------------- | ------------------------------- | ---------------------------------------------- |
-| `model` (aliased)    | `model`                         | Via `anthropicModels` alias map                |
-| `system` (top-level) | `messages[0]: {role: "system"}` | Prepend as first message                       |
-| `messages[].role`    | `messages[].role`               | Map: `assistant`→`assistant`, `user`→`user`    |
-| `messages[].content` | `messages[].content`            | Flatten content blocks to string               |
-| `max_tokens`         | `options.num_predict`           | Required; cap at Ollama default if excessive   |
-| `temperature`        | `options.temperature`           | —                                              |
-| `top_p`              | `options.top_p`                 | —                                              |
-| `top_k`              | `options.top_k`                 | Anthropic-only, pass through if supported      |
-| `stop_sequences[]`   | `options.stop`                  | Array → comma-separated string                 |
-| `stream: false`      | `stream: false`                 | —                                              |
-| `stream: true`       | `stream: true`                  | Full streaming pipeline                        |
-| `tools[].name`       | `tools[].function.name`         | Anthropic `input_schema` → Ollama `parameters` |
-| `thinking.skip`      | —                               | **Unsupported**: return validation error       |
-| `cache_control`      | —                               | **Unsupported**: return validation error       |
-
-**Content block flattening**:
-
-```typescript
-// Anthropic content blocks → Ollama string
-function flattenContent(content: string | ContentBlock[]): string {
-  if (typeof content === 'string') return content;
-  return content
-    .map(block => {
-      if (block.type === 'text') return block.text;
-      if (block.type === 'image') return '[image]';
-      if (block.type === 'tool_result') return `[tool: ${block.tool_use_id}]`;
-      return '';
-    })
-    .join('\n');
-}
-```
-
-### Anthropic → OpenAI (for `/v1/messages` → OpenAI backend)
-
-| Anthropic Field      | OpenAI Field                    | Notes                                          |
-| -------------------- | ------------------------------- | ---------------------------------------------- |
-| `model`              | `model`                         | Pass through (may need alias)                  |
-| `system` (top-level) | `messages[0]: {role: "system"}` | Prepend as first message                       |
-| `messages[].content` | `messages[].content`            | Same flattening as above                       |
-| `max_tokens`         | `max_tokens`                    | Required                                       |
-| `temperature`        | `temperature`                   | —                                              |
-| `top_p`              | `top_p`                         | —                                              |
-| `tools[].name`       | `tools[].name`                  | `input_schema` → `parameters` (same structure) |
-| `stop_sequences[]`   | `stop`                          | Anthropic array → OpenAI string/array          |
-| `stream: true`       | `stream: true`                  | OpenAI SSE passthrough                         |
-
-### Ollama → Anthropic (for `/api/chat` → Anthropic backend)
-
-| Ollama Field              | Anthropic Field      | Notes                             |
-| ------------------------- | -------------------- | --------------------------------- |
-| `model`                   | `model`              | Via `anthropicModels` reverse map |
-| `messages[0].role=system` | `system` (top-level) | Extract from messages             |
-| `messages[].content`      | `messages[].content` | String → text content block       |
-| `options.num_predict`     | `max_tokens`         | Required                          |
-| `options.temperature`     | `temperature`        | —                                 |
-| `options.top_p`           | `top_p`              | —                                 |
-| `options.stop`            | `stop_sequences`     | String → array                    |
-
-### OpenAI → Anthropic (for `/v1/chat/completions` → Anthropic backend)
-
-| OpenAI Field  | Anthropic Field | Notes                                    |
-| ------------- | --------------- | ---------------------------------------- |
-| `model`       | `model`         | Pass through                             |
-| `messages`    | `messages`      | String content → text blocks             |
-| `max_tokens`  | `max_tokens`    | Required                                 |
-| `temperature` | `temperature`   | —                                        |
-| `tools`       | `tools`         | Schema compatible (both use JSON Schema) |
-
----
-
-## Response Translation Matrix
-
-### Ollama → Anthropic SSE (streaming)
-
-```typescript
-// Ollama NDJSON streaming chunks → Anthropic SSE events
-
-// 1. First chunk (stream start)
-{ message: { content: "" }, done: false }
-  → event: message_start
-    data: {"type":"message_start","message":{"id":"...","type":"message","role":"assistant","content":[],"model":"...","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}
-
-  → event: content_block_start
-    data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
-
-// 2. Text delta chunks
-{ message: { content: "Hello" }, done: false }
-  → event: content_block_delta
-    data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
-
-// 3. Final chunk (stream end)
-{ done: true, eval_count: 42, eval_duration: 123456789012, prompt_eval_count: 10 }
-  → event: content_block_stop
-    data: {"type":"content_block_stop","index":0}
-
-  → event: message_delta
-    data: {"type":"message_delta","delta":{"stop_sequence":null,"usage":{"output_tokens":42}},"usage":{"input_tokens":10,"output_tokens":42}}
-
-  → event: message_stop
-    data: {"type":"message_stop"}
-
-// 4. Keepalive (periodic)
-  → event: ping
-    data: {"type":"ping"}
-```
-
-### OpenAI SSE → Anthropic SSE
-
-```typescript
-// OpenAI SSE → translate to Anthropic SSE events
-
-// OpenAI: data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}
-// Anthropic: event: content_block_delta, data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
-
-// OpenAI: data: {"choices":[{"delta":{},"finish_reason":"stop"}]}
-// Anthropic: event: content_block_stop + event: message_stop
-
-// OpenAI: data: {"choices":[{"delta":{"tool_calls":[...]}}]}
-// Anthropic: event: content_block_start (tool_use) + content_block_delta (input_json)
-```
-
-### Ollama → Anthropic (non-streaming)
-
-```typescript
-// Ollama final response → Anthropic response format
-{
-  id: `msg_${ulid()}`,
-  type: 'message',
-  role: 'assistant',
-  content: [{ type: 'text', text: ollama.response }],
-  model: ollama.model,
-  stop_reason: mapStopReason(ollama.done_reason),
-  stop_sequence: null,
-  usage: {
-    input_tokens: ollama.prompt_eval_count ?? 0,
-    output_tokens: ollama.eval_count ?? 0,
-  },
-}
-```
-
-### Anthropic → Ollama (non-streaming)
-
-```typescript
-// Anthropic response → Ollama-compatible format (for passthrough to non-streaming clients)
-{
-  model: response.model,
-  response: response.content[0]?.text ?? '',
-  done: true,
-  prompt_eval_count: response.usage?.input_tokens,
-  eval_count: response.usage?.output_tokens,
-}
-```
-
----
-
-## Streaming Translation
-
-### Ollama NDJSON → Anthropic SSE (the core translation challenge)
-
-Anthropic SSE uses **typed events** (`event:` prefix), while Ollama uses raw NDJSON lines. The translation must:
-
-1. **Parse Ollama NDJSON** line-by-line (using existing `parseNDJSONStream` from `streaming.ts`)
-2. **Emit Anthropic SSE events** in correct order:
-   - `message_start` (once, before any content)
-   - `content_block_start` (once per content block)
-   - `content_block_delta` (for each text/tool delta)
-   - `content_block_stop` (once per block)
-   - `message_delta` (final usage + stop_reason)
-   - `message_stop` (once, at end)
-   - `ping` (periodic keepalive every ~10s)
-
-### Event Ordering Invariants (Anthropic strictness)
-
-Anthropic SDKs are strict about SSE event ordering. The translator must guarantee:
-
-```
-message_start
-  → content_block_start (index: 0)
-    → content_block_delta (may be many)
-  → content_block_stop (index: 0)
-  → [more blocks if tool_use]
-→ message_delta (final)
-→ message_stop
-```
-
-Any violation of this ordering will cause SDK errors. The translator needs a state machine to ensure correct event sequencing.
-
-### Tool Calls Translation
-
-If Ollama returns a tool call:
-
-```json
-{"message":{"content":"","tool_calls":[{"function":{"name":"get_weather","arguments":"{\"location\":\"Boston\"}"}}]}
-```
-
-Translate to Anthropic:
-
-```
-event: content_block_start
-data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_...","name":"get_weather"}}
-
-event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"location\":\"Boston\"}"}}
-```
-
-### Error Translation
-
-Anthropic error events:
-
-```
-event: error
-data: {"type":"error","error":{"type":"invalid_request_error","message":"..."}}
-```
-
-Must translate Ollama errors (HTTP status codes, NDJSON error format) to Anthropic error events:
-
-- 401 → `authentication_error`
-- 400 → `invalid_request_error`
-- 429 → `rate_limit_error`
-- 503 → `overloaded_error`
-- Other → `server_error`
-
----
-
-## Model Mapping
-
-### Explicit Alias Map
-
-Model names differ across providers. The orchestrator maintains an explicit mapping:
-
-```typescript
-// Config section (new)
-interface AnthropicConfig {
-  models: {
-    aliases: Record<string, string>; // "claude-opus-4-6": "llama3:70b"
-    reverseAliases: Record<string, string>; // "llama3:70b": "claude-opus-4-6"
-  };
-}
-```
-
-### Lookup Order
-
-For an incoming request with model `claude-opus-4-6`:
-
-1. Check `anthropicModels[model]` alias map → resolve to Ollama/OpenAI model name
-2. If no alias, use model name as-is (for native Anthropic backends)
-3. If resolved name not available on selected backend → `400 Unsupported model`
-
-### Reverse Mapping (for Ollama → Anthropic responses)
-
-When an Ollama backend is used for an Anthropic request, the `model` field in the Anthropic response should reflect the **client-facing** Anthropic model name, not the resolved Ollama model name.
-
-```typescript
-// Outbound response model
-const responseModel = reverseAliasMap[ollamaModel] ?? ollamaModel;
-```
-
-### No Heuristic Detection
-
-Do **not** use prefix matching like `claude-*` → assume Anthropic. This creates operational debt at fleet scale. Only explicit aliases are acceptable.
 
 ---
 
@@ -2278,11 +1982,9 @@ Do **not** use prefix matching like `claude-*` → assume Anthropic. This create
 | `Authorization`     | `Bearer <key>` | Also accepted (SDK compatibility) |
 | `anthropic-version` | `2023-06-01`   | Required on all requests          |
 
-### Proposed Auth Middleware Changes
+### Auth Middleware
 
 ```typescript
-// src/middleware/auth.ts — update for Anthropic routes
-
 // On /v1/messages routes, accept both header styles:
 function extractAnthropicKey(req: Request): string | undefined {
   return (
@@ -2290,12 +1992,12 @@ function extractAnthropicKey(req: Request): string | undefined {
   );
 }
 
-// Validate against configured keys (same as existing auth system)
+// Validate against the same configured key set as other routes
 ```
 
 ### `anthropic-version` Header
 
-Must be present and valid on all Anthropic requests. If missing → `400 missing required header: anthropic-version`.
+Required on all Anthropic requests. Missing → `400 missing required header: anthropic-version`. Invalid value → `400 invalid header: anthropic-version`.
 
 ---
 
@@ -2307,27 +2009,17 @@ Must be present and valid on all Anthropic requests. If missing → `400 missing
 
 The `AIServer` type in `orchestrator.types.ts` has `supportsOllama` and `supportsV1` but no `supportsAnthropic`. The health check scheduler has no probe for Anthropic endpoints.
 
-**Fix**: Add `supportsAnthropic?: boolean` and `anthropicModels?: string[]` to `AIServer`. Add `POST /v1/messages` probe to `health-check-scheduler.ts`.
+**Fix**: Add `supportsAnthropic?: boolean` to `AIServer`. Add `POST /v1/messages` probe to `health-check-scheduler.ts`.
 
 ---
 
-### F-AC-2: No Anthropic Model Discovery Mechanism
+### F-AC-2: No Anthropic Model Discovery
 
 **Severity**: Medium | **Category**: Gap | **Effort**: Medium
 
-OpenAI backends expose `/v1/models` for model discovery. Anthropic has no equivalent — `POST /v1/messages` is the only endpoint. Model lists for Anthropic backends must be configured explicitly or discovered out-of-band.
+OpenAI backends expose `/v1/models` for model discovery. Anthropic has no equivalent — `POST /v1/messages` is the only endpoint. Model validation is delegated to the client; the orchestrator does not maintain a model list for Anthropic backends.
 
-**Fix**: Add `anthropicModels` array to server config. Allow manual configuration or infer from backend response errors (attempt a minimal request and note which models are rejected).
-
----
-
-### F-AC-3: No Anthropic Streaming Translator
-
-**Severity**: High | **Category**: Gap | **Effort**: High
-
-The most complex gap. Ollama NDJSON → Anthropic SSE translation requires a state machine that maintains correct event ordering (`message_start` → `content_block_start` → `content_block_delta*` → `content_block_stop` → `message_delta` → `message_stop`). This is substantially different from Ollama → OpenAI SSE translation.
-
-**Fix**: Build `src/streaming/anthropic-stream-translator.ts` as a standalone translator class. Start with text-only streaming, add tool call support in a subsequent minor wave.
+**Fix**: No model discovery mechanism needed. If model validation is required, it should be handled by the Anthropic backend itself (the orchestrator passes the model name through).
 
 ---
 
@@ -2335,9 +2027,9 @@ The most complex gap. Ollama NDJSON → Anthropic SSE translation requires a sta
 
 **Severity**: Medium | **Category**: Gap | **Effort**: Medium
 
-The existing `src/middleware/validation.ts` has Zod schemas for Ollama (`GenerateRequestBody`, `ChatRequestBody`) and OpenAI (`OpenAIChatRequest`, `OpenAICompletionRequest`) but no Anthropic schemas. Anthropic's `MessagesRequest` has specific requirements: `max_tokens` is required, `messages` is required and non-empty, `system` is optional but must be a string if present.
+The existing `src/middleware/validation.ts` has Zod schemas for Ollama and OpenAI but no Anthropic schemas. Anthropic's `MessagesRequest` has specific requirements: `max_tokens` is required, `messages` is required and non-empty, `system` is optional but must be a string if present, `thinking` and `cache_control` are unsupported.
 
-**Fix**: Add `AnthropicMessagesRequest` Zod schema to `validation.ts`. Validate `anthropic-version` header presence.
+**Fix**: Add `AnthropicMessagesRequest` Zod schema to `validation.ts`. Validate `anthropic-version` header presence. Validate that `thinking` and `cache_control` are absent.
 
 ---
 
@@ -2358,7 +2050,7 @@ The existing error handler in `index.ts` returns OpenAI-format errors for `/v1` 
 }
 ```
 
-**Fix**: Add `isAnthropicError()` helper in `ollama-error.ts` or a new `anthropic-error.ts`. Update error handler to detect Anthropic routes and format errors accordingly.
+**Fix**: Add `isAnthropicError()` helper. Update error handler to detect Anthropic routes (`/v1/messages`) and format errors accordingly.
 
 ---
 
@@ -2366,19 +2058,9 @@ The existing error handler in `index.ts` returns OpenAI-format errors for `/v1` 
 
 **Severity**: Low | **Category**: Gap | **Effort**: Low
 
-The `anthropic-version: 2023-06-01` header is required on all Anthropic API requests but not currently validated or passed through to backends.
+The `anthropic-version: 2023-06-01` header is required on all Anthropic API requests but not currently validated.
 
 **Fix**: Add header validation in `anthropic-controller.ts`. Reject requests missing the header with `400 missing required header: anthropic-version`.
-
----
-
-### F-AC-7: Anthropic SDK Strictness — SSE Event Ordering
-
-**Severity**: High | **Category**: Risk | **Effort**: High
-
-Anthropic SDKs are strict about SSE event ordering. The Ollama → Anthropic translator must guarantee: `message_start` before any content, `content_block_start` before `content_block_delta`, `message_delta` before `message_stop`. The existing streaming code has no concept of SSE event ordering — it just pipes NDJSON chunks.
-
-**Fix**: Design the translator as a state machine with explicit event queue. Add integration tests that verify event ordering against the Anthropic SDK reference implementation. Do not attempt passthrough of raw Ollama NDJSON — translation is required.
 
 ---
 
@@ -2386,19 +2068,9 @@ Anthropic SDKs are strict about SSE event ordering. The Ollama → Anthropic tra
 
 **Severity**: Medium | **Category**: Design | **Effort**: Medium
 
-Extended thinking (`thinking.skip`, `thinking.type`, `thinking.budget_tokens`), prompt caching (`cache_control`), and citations are Anthropic-only features with no Ollama equivalent. Currently the design explicitly fails on these with validation errors, which is correct — but this should be documented and tested.
+Extended thinking (`thinking.skip`, `thinking.type`, `thinking.budget_tokens`), prompt caching (`cache_control`), and citations are Anthropic-only features with no Ollama or OpenAI equivalent. Since translation is not supported, these fields should be explicitly rejected with `400 unsupported_field`.
 
-**Fix**: Add explicit validation in `anthropic-controller.ts` for unsupported fields. Add tests that verify these return `400 unsupported_field: thinking`. Document the limitation clearly.
-
----
-
-### F-AC-9: Ollama `stream: true` + `tools` Not Supported
-
-**Severity**: Medium | **Category**: Gap | **Effort**: High
-
-Ollama's streaming with tool calls is not fully standardized. The streaming translator must handle the case where Ollama returns a `tool_call` in the message object during streaming. This pattern is not well-tested in the existing codebase.
-
-**Fix**: Add Ollama tool call streaming tests. Extend `anthropic-stream-translator.ts` to handle `message.tool_calls` in streaming chunks. Map to Anthropic `content_block_start` (tool_use) + `content_block_delta` (input_json_delta) events.
+**Fix**: Add explicit validation in `anthropic-controller.ts` for `thinking` and `cache_control` fields. Return `400 unsupported_field: thinking` or `400 unsupported_field: cache_control`. Document the limitation.
 
 ---
 
@@ -2406,9 +2078,9 @@ Ollama's streaming with tool calls is not fully standardized. The streaming tran
 
 **Severity**: Medium | **Category**: Gap | **Effort**: Low
 
-The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section. Model aliases, API keys, and capability thresholds need a config home.
+The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section. API keys and capability thresholds need a config home.
 
-**Fix**: Add `anthropicConfigSchema` to `schema.ts` with fields: `models.aliases`, `models.reverseAliases`, `apiKey`, `supportedFeatures`. Add to `DEFAULT_CONFIG`.
+**Fix**: Add `anthropicConfigSchema` to `schema.ts` with fields: `apiKey`, `supportedFeatures`. Add to `DEFAULT_CONFIG`. Note: no model aliases section since translation is not supported.
 
 ---
 
@@ -2416,18 +2088,18 @@ The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section
 
 **Depends on**: None (self-contained, follows existing patterns)
 **Preceded by**: Waves 1-8 (existing remediation plan)
+**Principle**: Passthrough-only. No translation at any layer.
 
 ### Wave 9.1 — Type System & Config (Low effort)
 
-| Task  | Finding | Description                                                                                                 |
-| ----- | ------- | ----------------------------------------------------------------------------------------------------------- |
-| 9.1.1 | F-AC-1  | Add `supportsAnthropic?: boolean` and `anthropicModels?: string[]` to `AIServer` in `orchestrator.types.ts` |
-| 9.1.2 | F-AC-10 | Add `anthropicConfigSchema` to `schema.ts` — model aliases, apiKey                                          |
-| 9.1.3 | F-AC-10 | Add `ANTHROPIC` section to `DEFAULT_CONFIG` in `config.ts`                                                  |
-| 9.1.4 | F-AC-10 | Add `API_ENDPOINTS.ANTHROPIC` constant to `api-endpoints.ts`                                                |
-| 9.1.5 | F-AC-4  | Add `AnthropicMessagesRequest` Zod schema to `validation.ts`                                                |
+| Task  | Finding | Description                                                            |
+| ----- | ------- | ---------------------------------------------------------------------- |
+| 9.1.1 | F-AC-1  | Add `supportsAnthropic?: boolean` to `AIServer`                        |
+| 9.1.2 | F-AC-10 | Add `anthropicConfigSchema` to `schema.ts` — apiKey, supportedFeatures |
+| 9.1.3 | F-AC-10 | Add `ANTHROPIC` section to `DEFAULT_CONFIG` in `config.ts`             |
+| 9.1.4 | F-AC-10 | Add `API_ENDPOINTS.ANTHROPIC` constant to `api-endpoints.ts`           |
 
-**Files touched**: `orchestrator.types.ts`, `schema.ts`, `config.ts`, `api-endpoints.ts`, `validation.ts`
+**Files touched**: `orchestrator.types.ts`, `schema.ts`, `config.ts`, `api-endpoints.ts`
 
 ---
 
@@ -2436,7 +2108,6 @@ The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section
 | Task  | Finding | Description                                                                                                                                       |
 | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 9.2.1 | F-AC-1  | Add `supportsAnthropic` probe to `health-check-scheduler.ts` — `POST /v1/messages` with `{max_tokens:1, messages:[{role:"user",content:"test"}]}` |
-| 9.2.2 | F-AC-2  | Add `discoverAnthropicModels()` — infer model list from `400 missing required parameter` error type, or configure explicitly                      |
 
 **Files touched**: `health-check-scheduler.ts`
 
@@ -2444,119 +2115,50 @@ The config schema (`schema.ts`) and `DEFAULT_CONFIG` have no `anthropic` section
 
 ### Wave 9.3 — Controller & Routes (Medium effort)
 
-| Task  | Finding | Description                                                                                         |
-| ----- | ------- | --------------------------------------------------------------------------------------------------- |
-| 9.3.1 | All     | Create `src/controllers/anthropic-controller.ts` — `handleMessages` handler for `POST /v1/messages` |
-| 9.3.2 | All     | Create `src/routes/anthropic.routes.ts` — route definitions                                         |
-| 9.3.3 | All     | Update `src/routes/orchestrator.ts` barrel to export `anthropicRouter`                              |
-| 9.3.4 | F-AC-6  | Validate `anthropic-version` header in handler                                                      |
-| 9.3.5 | F-AC-4  | Validate incoming Anthropic request with Zod schema                                                 |
-| 9.3.6 | F-AC-5  | Add Anthropic error formatter helper                                                                |
+| Task  | Finding        | Description                                                                                         |
+| ----- | -------------- | --------------------------------------------------------------------------------------------------- |
+| 9.3.1 | All            | Create `src/controllers/anthropic-controller.ts` — `handleMessages` handler for `POST /v1/messages` |
+| 9.3.2 | All            | Create `src/routes/anthropic.routes.ts` — route definitions                                         |
+| 9.3.3 | All            | Update `src/routes/orchestrator.ts` barrel to export `anthropicRouter`                              |
+| 9.3.4 | F-AC-6         | Validate `anthropic-version` header — reject missing with `400`                                     |
+| 9.3.5 | F-AC-4         | Validate incoming Anthropic request with Zod schema (`AnthropicMessagesRequest`)                    |
+| 9.3.6 | F-AC-5         | Add Anthropic error formatter — route errors through Anthropic error format                         |
+| 9.3.7 | F-AC-8         | Reject `thinking` and `cache_control` fields with `400 unsupported_field`                           |
+| 9.3.8 | F-AC-1, F-AC-2 | Route only to `server.supportsAnthropic === true` servers. Return `503` if none healthy             |
 
-**Files touched**: `src/controllers/anthropic-controller.ts`, `src/routes/anthropic.routes.ts`, `src/routes/orchestrator.ts`
+**Files touched**: `src/controllers/anthropic-controller.ts`, `src/routes/anthropic.routes.ts`, `src/routes/orchestrator.ts`, `src/middleware/validation.ts`
 
-**Route mounting** (in `src/index.ts`):
+**Route mounting order** (critical — Express matches in registration order):
 
 ```typescript
-// After existing /v1 routes:
-app.use('/v1', inferenceRateLimiter, v1Router);
-// Anthropic routes share /v1 prefix — mount after v1Router so /v1/chat/completions is matched first
-// Or mount at same level with explicit ordering
+app.use('/v1', inferenceRateLimiter, v1Router); // 1. OpenAI first — /chat/completions matched here
+app.use('/v1', inferenceRateLimiter, anthropicRouter); // 2. Anthropic second — /messages matched here
 ```
 
-**Note**: `/v1/messages` and `/v1/chat/completions` share the `/v1` prefix. Express matches routes in registration order. The OpenAI router's `POST /chat/completions` must be registered before the Anthropic router's `POST /messages`.
-
 ---
 
-### Wave 9.4 — Request Translation (Medium effort)
+### Wave 9.4 — Integration Testing (High effort)
 
-| Task  | Finding | Description                                                                                                 |
-| ----- | ------- | ----------------------------------------------------------------------------------------------------------- |
-| 9.4.1 | All     | Build `AnthropicToOllamaTranslator` class in `src/translators/anthropic-to-ollama.ts`                       |
-| 9.4.2 | All     | Build `AnthropicToOpenAITranslator` class in `src/translators/anthropic-to-openai.ts`                       |
-| 9.4.3 | F-AC-8  | Add validation: reject `thinking.*` and `cache_control` fields with `400 unsupported_field`                 |
-| 9.4.4 | All     | Wire translators into `anthropic-controller.ts` — select backend-native format and apply correct translator |
+| Task  | Finding | Description                                                                                |
+| ----- | ------- | ------------------------------------------------------------------------------------------ |
+| 9.4.1 | F-AC-1  | Test: native Anthropic passthrough — request/response round-trip through orchestrator      |
+| 9.4.2 | F-AC-5  | Test: Anthropic error format — verify `type:"error"` + `error.type` on backend failures    |
+| 9.4.3 | F-AC-6  | Test: missing `anthropic-version` returns `400 missing required header: anthropic-version` |
+| 9.4.4 | F-AC-8  | Test: `thinking` and `cache_control` fields return `400 unsupported_field`                 |
+| 9.4.5 | F-AC-1  | Test: no healthy Anthropic server → `503` with Anthropic error format                      |
 
-**Files touched**: `src/translators/anthropic-to-ollama.ts`, `src/translators/anthropic-to-openai.ts`, `src/controllers/anthropic-controller.ts`
-
----
-
-### Wave 9.5 — Streaming Translation (High effort)
-
-| Task  | Finding        | Description                                                                                                                   |
-| ----- | -------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| 9.5.1 | F-AC-3, F-AC-7 | Build `src/streaming/anthropic-stream-translator.ts` — Ollama NDJSON → Anthropic SSE state machine                            |
-| 9.5.2 | F-AC-9         | Handle Ollama tool calls in streaming → Anthropic `content_block_start` (tool_use) + `content_block_delta` (input_json_delta) |
-| 9.5.3 | All            | Wire streaming translator into `anthropic-controller.ts` for streaming responses                                              |
-| 9.5.4 | All            | Add integration test: verify Anthropic SSE event ordering                                                                     |
-
-**Files touched**: `src/streaming/anthropic-stream-translator.ts`, `src/controllers/anthropic-controller.ts`
-
-**Testing gate**: Must pass event ordering test before Wave 9.5 is complete.
-
----
-
-### Wave 9.6 — Reverse Translation (Ollama/OpenAI → Anthropic) (Medium effort)
-
-| Task  | Finding | Description                                                                                 |
-| ----- | ------- | ------------------------------------------------------------------------------------------- |
-| 9.6.1 | All     | Build `OllamaToAnthropicTranslator` for Ollama responses → Anthropic format                 |
-| 9.6.2 | All     | Build `OpenAIToAnthropicTranslator` for OpenAI responses → Anthropic format                 |
-| 9.6.3 | All     | Wire reverse translators into Ollama and OpenAI controllers when target client is Anthropic |
-
-**Files touched**: `src/translators/ollama-to-anthropic.ts`, `src/translators/openai-to-anthropic.ts`, `src/controllers/ollama-controller.ts`, `src/controllers/openai-controller.ts`
-
-**Note**: This enables Ollama and OpenAI backends to serve requests from Anthropic SDK clients. The orchestrator already has a concept of "passthrough" vs "translate" — this extends it to the third dimension.
-
----
-
-### Wave 9.7 — Testing & Integration (High effort)
-
-| Task  | Finding | Description                                                                       |
-| ----- | ------- | --------------------------------------------------------------------------------- |
-| 9.7.1 | All     | Unit tests for all four translator classes                                        |
-| 9.7.2 | All     | Integration tests: `/v1/messages` → Ollama backend, verify Anthropic SSE response |
-| 9.7.3 | All     | Integration tests: `/v1/messages` → OpenAI backend, verify Anthropic SSE response |
-| 9.7.4 | F-AC-3  | Streaming event ordering test against reference                                   |
-| 9.7.5 | F-AC-8  | Test unsupported fields (`thinking`, `cache_control`) return correct errors       |
-| 9.7.6 | F-AC-6  | Test missing `anthropic-version` returns `400`                                    |
-
-**Files touched**: `tests/unit/anthropic-translators.test.ts`, `tests/integration/anthropic.test.ts`
+**Files touched**: `tests/integration/anthropic.test.ts`
 
 ---
 
 ### Wave 9 Summary
 
-| Wave      | Focus                    | Effort   | Commits  |
-| --------- | ------------------------ | -------- | -------- |
-| 9.1       | Types, Config, Constants | Low      | 1-2      |
-| 9.2       | Health Check Extension   | Medium   | 1        |
-| 9.3       | Controller & Routes      | Medium   | 1-2      |
-| 9.4       | Request Translation      | Medium   | 1-2      |
-| 9.5       | Streaming Translation    | High     | 1-2      |
-| 9.6       | Reverse Translation      | Medium   | 1-2      |
-| 9.7       | Testing & Integration    | High     | 2-3      |
-| **Total** |                          | **High** | **8-14** |
+| Wave      | Focus                    | Effort   | Commits |
+| --------- | ------------------------ | -------- | ------- |
+| 9.1       | Types, Config, Constants | Low      | 1-2     |
+| 9.2       | Health Check Extension   | Medium   | 1       |
+| 9.3       | Controller & Routes      | Medium   | 1-2     |
+| 9.4       | Integration Testing      | High     | 1-2     |
+| **Total** |                          | **High** | **4-7** |
 
----
-
-## Escalation Path
-
-### When to Add `supportsAnthropic` Passthrough
-
-Currently, all Anthropic requests go through translation to Ollama/OpenAI backends. If a **native Anthropic backend** (e.g., Claude API proxy, direct Anthropic server) is added to the fleet in the future, the architecture supports clean escalation:
-
-1. Add `supportsAnthropic: true` probe for that server
-2. In `anthropic-controller.ts`, check: if `server.supportsAnthropic === true` → passthrough (no translation)
-3. The existing dual-mode pattern (`supportsV1`) already demonstrates this
-
-### Architecture Extensibility — Fourth Backend
-
-If a fourth backend type is added (e.g., Google AI, AWS Bedrock), the pattern scales:
-
-- Add `supports<Backend>` to `AIServer`
-- Add translator classes (`IncomingTo<Backend>Translator`, `<Backend>ToIncomingTranslator`)
-- Add health check probe
-- Wire into existing controller/route structure
-
-The routing layer (`tryRequestWithFailover`) is backend-agnostic — it only cares about capability flags.
+**No translation. Pure native passthrough to `supportsAnthropic` servers only.**
