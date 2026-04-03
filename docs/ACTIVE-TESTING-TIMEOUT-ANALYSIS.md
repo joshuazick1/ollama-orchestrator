@@ -2,7 +2,7 @@
 
 > **Date**: 2026-04-03
 > **Branch**: `phase2/metrics-rollups`
-> **Status**: Deep dive complete — 57 + 20 new findings (8 original F-AC-_ + 14 deep-dive GAP-_) across 13 categories, 10-wave remediation plan, pending implementation decisions
+> **Status**: Deep dive + cohesion review complete — 57 findings + 34 new cross-cutting findings (8 F-AC-_ + 14 GAP-_ + 14 COH-\*) across 14 categories, pending implementation decisions
 
 ## Table of Contents
 
@@ -48,6 +48,7 @@ Key findings by area:
 - **Ban Manager Deep Dive** (3 findings): Permanent bans not persisted, inconsistent routing behavior, unbounded cooldown Map
 - **Load Balancer Deep Dive** (3 findings): Wrong default algorithm in docs, wrong weight values in docs, 14-day temporal cold start
 - **Recovery System Deep Dive** (3 findings): `performCoordinatedRecoveryTest` untested, full open→close cycle untested, 1,469-line coordinator with minimal coverage
+- **Cross-Cutting Cohesion** (14 findings): Protocol type gaps for Anthropic, metrics not populated for non-Ollama, model manager never wired, model aggregator never updated on outcomes, config hot-reload partial, server removal incomplete cleanup, drain/ban/CB not coordinated, two persistence systems not unified
 - **Adaptive Timeouts** (8 findings): Double adaptation bug, one-way ratchet, dead state, persistence loss
 - **Config/Schema** (6 findings): Systemic desynchronization — 13+ missing fields, 4 default mismatches
 - **Integration** (7 findings): Missing cleanup on server removal, config hot-reload gaps, no ban↔CB sync
@@ -1773,6 +1774,25 @@ The `family` field (e.g., "llama", "mistral") is stored on `ServerModelMetrics` 
 | **GAP-REC-2** | No integration test covers full open→half-open→close cycle  | Coverage | High     | High   |
 | **GAP-REC-3** | RecoveryTestCoordinator (1,469 lines) with minimal coverage | Coverage | Medium   | High   |
 
+### Cross-Cutting Cohesion (COH-\*)
+
+| ID         | Title                                                             | Category     | Severity | Effort |
+| ---------- | ----------------------------------------------------------------- | ------------ | -------- | ------ |
+| **COH-1**  | `protocol` type and streaming handoff don't support Anthropic     | Gap          | High     | High   |
+| **COH-2**  | Ollama-specific metrics not populated for non-Ollama requests     | Gap          | High     | Medium |
+| **COH-3**  | `requiredCapability` routing needs Anthropic option               | Gap          | High     | Low    |
+| **COH-4**  | Health check scheduler has no Anthropic probe                     | Gap          | High     | Medium |
+| **COH-5**  | `modelManager.registerServer()` never wired in orchestrator       | Integration  | High     | Medium |
+| **COH-6**  | `modelAggregator` never updated on request outcomes               | Integration  | High     | Medium |
+| **COH-7**  | Config hot-reload only propagates to 3 of 7+ subsystems           | Integration  | Medium   | Medium |
+| **COH-8**  | Server removal doesn't clean BanManager, TimeoutManager, InFlight | Bug          | High     | Low    |
+| **COH-9**  | Server unhealthy event doesn't update modelAggregator             | Bug          | Medium   | Low    |
+| **COH-10** | Drain, ban, and circuit breaker state not coordinated             | Design       | Medium   | Medium |
+| **COH-11** | Two separate persistence systems (JSON + SQLite) not unified      | Architecture | Medium   | High   |
+| **COH-12** | OpenAI completions endpoint not supported for streaming handoff   | Gap          | Medium   | Medium |
+| **COH-13** | Temporal scorer cold-start affects new deployments (14 days)      | Design       | Medium   | Medium |
+| **COH-14** | Inference probe system would create parallel data flow            | Design       | Medium   | High   |
+
 > **Note**: F-AC-3 (streaming translator), F-AC-7 (SSE ordering), F-AC-9 (tool streaming) are **N/A** — they apply only to translation, which is not supported in the passthrough-only model.
 
 ---
@@ -2028,7 +2048,200 @@ Existing `circuit-breaker-chaos.test.ts` tests state transitions in isolation. `
 
 ---
 
-## Recommended Remediation Order
+## Cross-Cutting Cohesion Findings (COH-\*)
+
+> **Source**: Two parallel cohesion reviews — routing/failover and config/persistence/lifecycle
+
+### COH-1: `protocol` Type and Streaming Handoff Don't Support Anthropic
+
+**Severity**: High | **Category**: Gap | **Effort**: High
+
+The `StreamingRequestProgress` type in `in-flight-manager.ts:23` defines `protocol` as `'ollama' | 'openai'` — no `'anthropic'`. The `stream-handoff.ts` functions `checkSupportsContinuation()` and `buildContinuationRequest()` are closed to `'ollama' | 'openai'`. Anthropic SSE passthrough would have no streaming stall detection or handoff support.
+
+Additionally, `streamOpenAIResponse()` in `openai-controller.ts` is a **duplicate** of `streaming.ts` core logic, not a reuse. OpenAI streaming has its own stall detection at `openai-controller.ts:136-198` rather than sharing the Ollama implementation.
+
+**Fix**: Add `'anthropic'` to `protocol` union type. Implement Anthropic path in `checkSupportsContinuation()` and `buildContinuationRequest()`. Refactor `streamOpenAIResponse()` to reuse `streaming.ts` core logic instead of duplicating it.
+
+---
+
+### COH-2: Ollama-Specific Metrics Not Populated for Non-Ollama Requests
+
+**Severity**: High | **Category**: Gap | **Effort**: Medium
+
+`RequestContext` in `orchestrator.types.ts:186-222` has Ollama-specific fields (`evalDuration`, `promptEvalDuration`, `totalDuration`, `loadDuration`, `tokensPerSecond`, `isColdStart`) that are extracted from Ollama responses at `orchestrator.ts:2686-2749`. These fields are **never populated** for OpenAI or Anthropic responses, even if the upstream provides equivalent data.
+
+The load balancer's scoring uses these fields when available. OpenAI and Anthropic backends that provide token timing data have no path to contribute it.
+
+**Fix**: Add protocol-agnostic timing fields to `RequestContext` that all three API types can populate. Extract OpenAI `usage` data (`prompt_tokens`, `completion_tokens`) and Anthropic `usage` data (`input_tokens`, `output_tokens`) into the same fields.
+
+---
+
+### COH-3: `requiredCapability` Routing Needs Anthropic Option
+
+**Severity**: High | **Category**: Gap | **Effort**: Low
+
+In `orchestrator.ts:1810-1818`, the `requiredCapability` filter only handles `'ollama'` and `'openai'`:
+
+```typescript
+if (requiredCapability === 'ollama' && s.supportsOllama === false) {
+  return false;
+}
+if (requiredCapability === 'openai' && s.supportsV1 === false) {
+  return false;
+}
+// No 'anthropic' case
+```
+
+When Anthropic is added, this needs a third condition for `supportsAnthropic`.
+
+**Fix**: Add `requiredCapability === 'anthropic' && s.supportsAnthropic === false` branch.
+
+---
+
+### COH-4: Health Check Scheduler Has No Anthropic Probe
+
+**Severity**: High | **Category**: Gap | **Effort**: Medium
+
+`health-check-scheduler.ts:281-441` probes `/api/tags`, `/api/ps`, `/v1/models` but has no `/v1/messages` probe. The `HealthCheckResult` interface has `supportsOllama` and `supportsV1` but no `supportsAnthropic`.
+
+**Fix**: Add `/v1/messages` malformed-request probe to health check scheduler alongside the existing inference endpoint probes from F-AC-11.
+
+---
+
+### COH-5: `modelManager.registerServer()` Never Wired in Orchestrator
+
+**Severity**: High | **Category**: Integration | **Effort**: Medium
+
+`modelManager.registerServer()` is called in model-controller operations but **never** in `orchestrator.ts:addServer()` (line 743-781) or `removeServer()`. Servers added via the servers controller are tracked by `this.servers` and `modelAggregator`, but the `modelManager`'s `serverStates` Map remains empty for these servers.
+
+The `modelManager` tracks model loading/unloading state. Without registration, automatic model warmup based on fleet-wide usage patterns would have incomplete data.
+
+**Fix**: Call `modelManager.registerServer(server)` in `addServer()` and `modelManager.unregisterServer(serverId)` in `removeServer()`.
+
+---
+
+### COH-6: `modelAggregator` Never Updated on Request Outcomes
+
+**Severity**: High | **Category**: Integration | **Effort**: Medium
+
+`orchestrator.ts:recordSuccess()` (lines 3293-3324) and `recordFailure()` (lines 3330-3392) update the CB, BanManager, and TimeoutManager — but never call `modelAggregator.recordSuccess()` or `modelAggregator.recordFailure()`. The `modelAggregator` (`model-aggregator.ts`) only tracks which servers have which models loaded, not request outcomes.
+
+This means per-model request outcomes are not aggregated. The `modelAggregator.getServersWithModelLoaded()` relies on warmup state, not actual request success/failure rates.
+
+**Fix**: Add `recordSuccess(model)` / `recordFailure(model)` methods to `modelAggregator` and wire them into `orchestrator.ts` `recordSuccess()` / `recordFailure()`.
+
+---
+
+### COH-7: Config Hot-Reload Only Propagates to 3 of 7+ Subsystems
+
+**Severity**: Medium | **Category**: Integration | **Effort**: Medium
+
+`orchestrator.ts:262-274` (`updateConfig`) only passes config changes to:
+
+- `loadBalancer`
+- `circuitBreakerRegistry`
+- `healthCheckScheduler`
+
+It does **not** propagate to: BanManager, InFlightManager, MetricsAggregator, TimeoutManager, modelAggregator, modelManager.
+
+TimeoutManager has its own `registerComponentWatcher` mechanism (`orchestrator.ts:248-256`) that only responds to `circuitBreaker.openTimeout` changes, not to its own config section.
+
+**Fix**: Add `updateConfig()` calls for all subsystems in `orchestrator.updateConfig()`. Or establish a standard `ConfigSubscriber` interface that all subsystems implement.
+
+---
+
+### COH-8: Server Removal Doesn't Clean Up BanManager, TimeoutManager, or InFlight State
+
+**Severity**: High | **Category**: Bug | **Effort**: Low
+
+`orchestrator.ts:removeServer()` (lines 782-805) cleans up CBs (`circuitBreakerRegistry.removeByPrefix()`) but does **not** clean up:
+
+- `banManager.removeServerBans(serverId)` — bans persist in memory
+- `banManager.clearCooldown(serverId, '')` — cooldowns persist
+- `timeoutManager.reset(serverId)` — timeout entries persist
+- In-flight requests for the removed server
+
+**Fix**: Add all three cleanup calls to `removeServer()`. Handle in-flight requests (cancel or let them complete naturally).
+
+---
+
+### COH-9: Server Unhealthy Event Doesn't Update `modelAggregator`
+
+**Severity**: Medium | **Category**: Bug | **Effort**: Low
+
+When a server goes unhealthy (`onHealthCheckResult` at `orchestrator.ts:280-466`), the CB transitions and ban cooldown are cleared — but `modelAggregator` is **not** notified. The aggregator still thinks the server is available for its loaded models.
+
+**Fix**: Call `modelAggregator.removeServer(serverId)` or add a `setServerUnhealthy()` method when health check marks a server unhealthy.
+
+---
+
+### COH-10: Drain, Ban, and Circuit Breaker State Not Coordinated
+
+**Severity**: Medium | **Category**: Design | **Effort**: Medium
+
+Three independent mechanisms stop routing to a server — drain mode, ban, and CB open — with no coordination:
+
+- Drain mode (`orchestrator.ts:4481-4505`) sets `this.draining = true` and waits for in-flight to drain
+- CB open state is checked separately in `shouldSkipServer()` during routing
+- Ban is checked in `getBestServerForModel()` separately
+
+A server can be **draining AND have an open CB** simultaneously. When drain completes, the server isn't re-evaluated against CB or ban state before accepting new traffic.
+
+**Fix**: After drain completes, call `shouldSkipServer()` / `shouldSkipServerModel()` to re-evaluate before clearing the drain flag. Or add a `mustRedrain()` check when CB opens during drain.
+
+---
+
+### COH-11: Two Separate Persistence Systems (JSON + SQLite) Not Unified
+
+**Severity**: Medium | **Category**: Architecture | **Effort**: High
+
+JsonFileHandler persists: `servers.json`, `bans.json`, `timeouts.json`, `circuit-breakers.json`, adaptive weights
+MetricsStore (SQLite) persists: `requests`, `decisions`, `failover_attempts`, `hourly_rollups`, `daily_rollups`, `temporal_profiles`
+
+These are architecturally separate with different consistency models (atomic rename+backup rotation vs SQLite WAL transactions). The Wave 7 migration to SQLite for bans/timeouts/CB would begin unification, but `servers.json` and adaptive weights would remain on JSON. `metrics-store.ts` comments indicate JSON files continue as fallback for the hot 24h window.
+
+**Fix**: Document the intended final state (all state in SQLite except `servers.json`). Implement the Wave 7 migration as a phased approach.
+
+---
+
+### COH-12: OpenAI Completions Endpoint Not Supported for Streaming Handoff
+
+**Severity**: Medium | **Category**: Gap | **Effort**: Medium
+
+`stream-handoff.ts:260-274` — `checkSupportsContinuation()` returns `false` for OpenAI completions (`/v1/completions`). Only `/v1/chat/completions` supports continuation. If a streaming completions request stalls, no handoff is attempted.
+
+**Fix**: Document this limitation. If OpenAI completions streaming support is needed, add `buildOpenAICompletionsContinuation()` and return `true` from `checkSupportsContinuation()` for the completions endpoint.
+
+---
+
+### COH-13: Temporal Scorer Cold-Start Affects New Deployments
+
+**Severity**: Medium | **Category**: Design | **Effort**: Medium
+
+`temporal-scorer.ts` requires 14 days of data to build profiles. New deployments have neutral temporal scoring for ~14 days. The load balancer during this period can't leverage time-of-day patterns.
+
+**Fix**: Document the 14-day cold-start requirement. Consider shorter initial window (3-7 days) with reduced confidence for faster adaptation. Consider fleet-wide seeded defaults from similar deployments.
+
+---
+
+### COH-14: Inference Probe System Would Create Parallel Data Flow
+
+**Severity**: Medium | **Category**: Design | **Effort**: High
+
+Wave 8 proposes an inference probe system. Currently `health-check-scheduler.ts` probes `/api/tags` and `/v1/models` but doesn't write to `MetricsStore`. If the probe system writes probe results to a separate store, it would create a parallel data flow inconsistent with the existing architecture (where `MetricsStore` is the single source of metrics for the load balancer).
+
+**Fix**: If Wave 8 is implemented, probe results should flow into `MetricsStore.recordRequest()` (marked as `is_probe: true` per F-PR-2) so temporal scoring and LB scoring use the same data store.
+
+---
+
+### What IS Cohesive ✅
+
+- **Error classification** — centralized in `error-classifier.ts`, consistent across all API types
+- **Circuit breakers** — work at server:model level regardless of API type
+- **Load balancing** — scores servers uniformly based on metrics
+- **In-flight tracking** — works per-server:model, not per-protocol (but protocol field needs Anthropic)
+- **Ban manager** — operates on server:model, not endpoint
+- **Model resolution** — name-based, API-type agnostic via `resolveModelName()`
 
 Based on severity, dependency relationships, and effort:
 
@@ -2702,21 +2915,49 @@ app.use('/v1', inferenceRateLimiter, anthropicRouter); // 2. Anthropic second �
 
 ---
 
+### Wave 14 — Cross-Cutting Integration Fixes (High effort)
+
+| Task | Finding | Description                                                                                                                                                                          |
+| ---- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 14.1 | COH-5   | Wire `modelManager.registerServer()` in `orchestrator.addServer()` and `modelManager.unregisterServer()` in `removeServer()`                                                         |
+| 14.2 | COH-6   | Add `modelAggregator.recordSuccess(model)` / `modelAggregator.recordFailure(model)` — wire into orchestrator `recordSuccess`/`recordFailure`                                         |
+| 14.3 | COH-7   | Add config hot-reload propagation to all subsystems in `orchestrator.updateConfig()` — BanManager, InFlightManager, MetricsAggregator, TimeoutManager, modelAggregator, modelManager |
+| 14.4 | COH-8   | Add `banManager.removeServerBans()`, `banManager.clearCooldown()`, `timeoutManager.reset(serverId)` to `orchestrator.removeServer()`                                                 |
+| 14.5 | COH-9   | Call `modelAggregator.removeServer()` or add `modelAggregator.setServerUnhealthy()` when health check marks server unhealthy                                                         |
+| 14.6 | COH-10  | After drain completes, re-evaluate CB and ban state before allowing new traffic — add `shouldSkipServer()` check before clearing drain flag                                          |
+| 14.7 | COH-12  | Document OpenAI completions streaming handoff limitation. Add `buildOpenAICompletionsContinuation()` if completions support needed                                                   |
+
+---
+
+### Wave 15 — Streaming and Protocol Unification (High effort)
+
+| Task | Finding | Description                                                                                                                       |
+| ---- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 15.1 | COH-1   | Add `'anthropic'` to `protocol` union type in `StreamingRequestProgress` and `stream-handoff.ts` functions                        |
+| 15.2 | COH-1   | Add Anthropic SSE stall detection and handoff support to `streaming.ts` — reuse existing stall detection pattern                  |
+| 15.3 | COH-1   | Refactor `streamOpenAIResponse()` in `openai-controller.ts` to reuse `streaming.ts` core logic instead of duplicating it          |
+| 15.4 | COH-2   | Add protocol-agnostic timing fields to `RequestContext` — extract OpenAI `usage` and Anthropic `usage` into same fields as Ollama |
+| 15.5 | COH-3   | Add `'anthropic'` case to `requiredCapability` routing filter in `tryRequestWithFailover()`                                       |
+
+---
+
 ### Revised Total Wave Summary
 
-| Wave      | Focus                            | Effort        | Notes                            |
-| --------- | -------------------------------- | ------------- | -------------------------------- |
-| 1         | Critical bugs + schema align     | Low           | Pre-req for everything           |
-| 2         | Config gaps + integration wiring | Medium        |                                  |
-| 3         | Dead code cleanup                | Low           |                                  |
-| 4         | Design improvements              | Medium        |                                  |
-| 5         | Error handling polish            | Medium        |                                  |
-| 6         | Test coverage                    | High          |                                  |
-| 7         | SQLite migration                 | High          | Pre-req for Wave 8               |
-| 8         | Inference probing system         | High          |                                  |
-| 9         | Anthropic API compatibility      | High          | Self-contained                   |
-| 10        | CB critical bug fixes            | Low           | GAP-CB-2, GAP-CB-3               |
-| 11        | CB + Ban integration             | Medium        | GAP-BAN-\*, GAP-CB-4, GAP-CB-5   |
-| 12        | LB documentation fixes           | Low/Med       | GAP-LB-\*, GAP-LB-3              |
-| 13        | Recovery system test coverage    | High          | GAP-REC-\*                       |
-| **Total** |                                  | **Very High** | **16 waves, significant effort** |
+| Wave      | Focus                              | Effort        | Key Items                                         |
+| --------- | ---------------------------------- | ------------- | ------------------------------------------------- |
+| 1         | Critical bugs + schema align       | Low           | Schema defaults, dead code removal                |
+| 2         | Config gaps + integration wiring   | Medium        |                                                   |
+| 3         | Dead code cleanup                  | Low           |                                                   |
+| 4         | Design improvements                | Medium        |                                                   |
+| 5         | Error handling polish              | Medium        |                                                   |
+| 6         | Test coverage                      | High          |                                                   |
+| 7         | SQLite migration                   | High          | Pre-req for Wave 8                                |
+| 8         | Inference probing system           | High          |                                                   |
+| 9         | Anthropic API compatibility        | High          | Self-contained, depends on Wave 15                |
+| 10        | CB critical bug fixes              | Low           | GAP-CB-2, GAP-CB-3                                |
+| 11        | CB + Ban integration               | Medium        | GAP-BAN-\*, GAP-CB-4, GAP-CB-5                    |
+| 12        | LB documentation fixes             | Low/Med       | GAP-LB-\*, GAP-LB-3                               |
+| 13        | Recovery system test coverage      | High          | GAP-REC-\*                                        |
+| 14        | Cross-cutting integration fixes    | High          | COH-5, COH-6, COH-7, COH-8, COH-9, COH-10, COH-12 |
+| 15        | Streaming and protocol unification | High          | COH-1, COH-2, COH-3 (Anthropic needs this)        |
+| **Total** |                                    | **Very High** | **18 waves**                                      |
