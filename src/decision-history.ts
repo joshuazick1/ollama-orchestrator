@@ -679,6 +679,61 @@ export class DecisionHistory {
     }
   }
 
+  loadFromSQLite(hours = 24): void {
+    try {
+      const store = getMetricsStore();
+      const cutoff = Date.now() - hours * 60 * 60 * 1000;
+
+      const decisionRows = store.getDecisions({ startTime: cutoff, limit: this.config.maxEvents });
+      const sqliteEvents = decisionRows.map(r => this.rowToEvent(r));
+
+      if (sqliteEvents.length > 0) {
+        this.events = this.mergeEvents(this.events, sqliteEvents);
+        if (this.events.length > this.config.maxEvents) {
+          this.events = this.events.slice(0, this.config.maxEvents);
+        }
+      }
+
+      const failoverRows = store.getFailoverAttempts({
+        startTime: cutoff,
+        limit: this.config.maxEvents,
+      });
+      if (failoverRows.length > 0) {
+        const sqliteFailovers: FailoverAttempt[] = failoverRows.map(r => ({
+          timestamp: r.timestamp,
+          model: r.model,
+          phase: r.phase as FailoverAttempt['phase'],
+          serverId: r.server_id,
+          result: r.result as FailoverAttempt['result'],
+          errorType: r.error_type ?? undefined,
+          latencyMs: r.latency_ms ?? undefined,
+        }));
+
+        const existingKeys = new Set(
+          this.failoverAttempts.map(f => `${f.timestamp}:${f.serverId}:${f.model}`)
+        );
+        for (const f of sqliteFailovers) {
+          const key = `${f.timestamp}:${f.serverId}:${f.model}`;
+          if (!existingKeys.has(key)) {
+            existingKeys.add(key);
+            this.failoverAttempts.push(f);
+          }
+        }
+        this.failoverAttempts.sort((a, b) => b.timestamp - a.timestamp);
+        if (this.failoverAttempts.length > this.config.maxEvents) {
+          this.failoverAttempts = this.failoverAttempts.slice(0, this.config.maxEvents);
+        }
+      }
+
+      logger.info('Decision history warmed from SQLite', {
+        events: this.events.length,
+        failoverAttempts: this.failoverAttempts.length,
+      });
+    } catch (error) {
+      logger.warn('Failed to warm decision history from SQLite:', { error });
+    }
+  }
+
   /**
    * Stop persistence timer
    */

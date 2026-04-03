@@ -686,6 +686,38 @@ export class RequestHistory {
     }
   }
 
+  loadFromSQLite(hours = 24): void {
+    try {
+      const sqliteRecords = this.fetchFromSQLite({
+        startTime: Date.now() - hours * 60 * 60 * 1000,
+        limit: this.config.maxRequestsPerServer * 10,
+      });
+
+      if (sqliteRecords.length === 0) return;
+
+      for (const record of sqliteRecords) {
+        const existing = this.requests.get(record.serverId) ?? [];
+        this.requests.set(record.serverId, existing);
+        const existingIds = new Set(existing.map(r => r.id));
+        if (!existingIds.has(record.id)) {
+          existing.push(record);
+        }
+      }
+
+      for (const [serverId, records] of this.requests.entries()) {
+        const sorted = records.sort((a, b) => b.timestamp - a.timestamp);
+        this.requests.set(serverId, sorted.slice(0, this.config.maxRequestsPerServer));
+      }
+
+      logger.info('Request history warmed from SQLite', {
+        serverCount: this.requests.size,
+        totalRecords: Array.from(this.requests.values()).reduce((sum, r) => sum + r.length, 0),
+      });
+    } catch (error) {
+      logger.warn('Failed to warm request history from SQLite:', { error });
+    }
+  }
+
   /**
    * Prune old requests
    */

@@ -145,6 +145,8 @@ export function getOrchestratorInstance(): AIOrchestrator {
           .load()
           .then(() => getRequestHistory().load())
           .then(() => {
+            getDecisionHistory().loadFromSQLite(24);
+            getRequestHistory().loadFromSQLite(24);
             logger.info('Loaded decision and request history from persistence');
           })
           .catch((error: unknown) => {

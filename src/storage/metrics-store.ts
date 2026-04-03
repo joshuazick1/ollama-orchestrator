@@ -32,7 +32,7 @@ import type {
   DecisionQuery,
   DecisionRow,
   DailyRollupRow,
-  FailoverAttemptRow as _FailoverAttemptRow,
+  FailoverAttemptRow,
   HourlyRollupRow,
   MetricsStoreConfig,
   RequestQuery,
@@ -456,6 +456,43 @@ export class MetricsStore {
       .all(id) as DecisionCandidateRow[];
 
     return { ...decision, candidates };
+  }
+
+  getFailoverAttempts(
+    opts: {
+      model?: string;
+      serverId?: string;
+      startTime?: number;
+      endTime?: number;
+      limit?: number;
+    } = {}
+  ): FailoverAttemptRow[] {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (opts.model !== undefined) {
+      conditions.push('model = ?');
+      params.push(opts.model);
+    }
+    if (opts.serverId !== undefined) {
+      conditions.push('server_id = ?');
+      params.push(opts.serverId);
+    }
+    if (opts.startTime !== undefined) {
+      conditions.push('timestamp >= ?');
+      params.push(opts.startTime);
+    }
+    if (opts.endTime !== undefined) {
+      conditions.push('timestamp <= ?');
+      params.push(opts.endTime);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limit = opts.limit ?? 1000;
+
+    return this.db
+      .prepare(`SELECT * FROM failover_attempts ${where} ORDER BY timestamp DESC LIMIT ?`)
+      .all(...params, limit) as FailoverAttemptRow[];
   }
 
   // ============================================================
