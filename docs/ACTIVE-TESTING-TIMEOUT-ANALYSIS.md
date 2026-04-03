@@ -2,7 +2,7 @@
 
 > **Date**: 2026-04-03
 > **Branch**: `phase2/metrics-rollups`
-> **Status**: Research complete — 57 findings across 9 categories, 8-wave remediation plan + Anthropic compatibility analysis (8 new findings, 4-wave plan), pending implementation decisions
+> **Status**: Deep dive complete — 57 + 20 new findings (8 original F-AC-_ + 14 deep-dive GAP-_) across 13 categories, 10-wave remediation plan, pending implementation decisions
 
 ## Table of Contents
 
@@ -26,7 +26,7 @@
 
 ## Executive Summary
 
-A comprehensive review of the active testing, adaptive timeout, and overall program cohesion uncovered **57 findings** across 9 categories, supplemented by **10 Anthropic compatibility findings** (F-AC-\*) across 7 new sub-waves. The original 17 active testing/timeout findings remain, supplemented by 30 additional findings from a broader cohesion sweep covering config/schema synchronization, cross-subsystem integration, error handling, dead code, and type safety — plus 6 SQLite migration findings and 4 inference probing findings from the new feature investigations.
+A comprehensive review of the active testing, adaptive timeout, and overall program cohesion uncovered **57 findings** across 9 categories, supplemented by **8 Anthropic compatibility findings** (F-AC-\*) and **14 deep-dive findings** (GAP-CB-\*, GAP-BAN-\*, GAP-LB-\*, GAP-REC-\*) from a full implementation read of the circuit breaker, ban manager, load balancer, and recovery system. The original 17 active testing/timeout findings remain, supplemented by 30 additional findings from a broader cohesion sweep covering config/schema synchronization, cross-subsystem integration, error handling, dead code, and type safety — plus 6 SQLite migration findings and 4 inference probing findings from the new feature investigations.
 
 **Critical theme — Config/Schema Desynchronization**: The Zod schema (`schema.ts`) and runtime config (`config.ts`) have diverged significantly. This isn't 3 isolated mismatches — it's a **systemic problem** with 13+ fields missing from the schema, 4 default value mismatches, and 4 schema-only fields that don't exist in the runtime config. The schema was created for frontend validation but was never kept in sync with the backend.
 
@@ -44,6 +44,10 @@ Key findings by area:
 
 - **Active Testing** (9 findings): Schema/config mismatch, dead code, duplicate test results, coverage gaps
 - **Anthropic Compatibility** (8 findings): No capability flag, no model discovery, multi-tier probing, no request validation, no error format, no auth header handling, unsupported Anthropic-only features, no config section
+- **Circuit Breaker Deep Dive** (5 findings): Dead LB scoring code, `canExecute()` side-effect bug, half-open restart enforcement, no mutex, starvation path
+- **Ban Manager Deep Dive** (3 findings): Permanent bans not persisted, inconsistent routing behavior, unbounded cooldown Map
+- **Load Balancer Deep Dive** (3 findings): Wrong default algorithm in docs, wrong weight values in docs, 14-day temporal cold start
+- **Recovery System Deep Dive** (3 findings): `performCoordinatedRecoveryTest` untested, full open→close cycle untested, 1,469-line coordinator with minimal coverage
 - **Adaptive Timeouts** (8 findings): Double adaptation bug, one-way ratchet, dead state, persistence loss
 - **Config/Schema** (6 findings): Systemic desynchronization — 13+ missing fields, 4 default mismatches
 - **Integration** (7 findings): Missing cleanup on server removal, config hot-reload gaps, no ban↔CB sync
@@ -1735,7 +1739,292 @@ The `family` field (e.g., "llama", "mistral") is stored on `ServerModelMetrics` 
 | **F-AC-10** | Config schema — no Anthropic section                     | Gap      | Medium   | Low    |
 | **F-AC-11** | Health check has no strategy for non-standard servers    | Gap      | High     | High   |
 
+### Circuit Breaker Deep Dive (GAP-CB-\*)
+
+| ID           | Title                                                        | Category | Severity | Effort |
+| ------------ | ------------------------------------------------------------ | -------- | -------- | ------ |
+| **GAP-CB-1** | `circuitBreakerScore` dead code in weighted LB               | Design   | Medium   | Low    |
+| **GAP-CB-2** | `canExecute()` side effects in `checkModelBreakerEscalation` | Bug      | High     | Low    |
+| **GAP-CB-3** | Half-open timeout not enforced on restart                    | Bug      | Medium   | Low    |
+| **GAP-CB-4** | No mutual exclusion on CB state updates                      | Risk     | Medium   | Medium |
+| **GAP-CB-5** | `shouldSkipServerModel` half-open starvation path            | Design   | Low      | Low    |
+
+### Ban Manager Deep Dive (GAP-BAN-\*)
+
+| ID            | Title                                          | Category | Severity | Effort |
+| ------------- | ---------------------------------------------- | -------- | -------- | ------ |
+| **GAP-BAN-1** | Permanent bans are not persisted               | Bug      | High     | Low    |
+| **GAP-BAN-2** | Cooldown vs permanent ban inconsistent routing | Design   | Medium   | Low    |
+| **GAP-BAN-3** | `failureCooldown` Map grows without bound      | Bug      | Low      | Low    |
+
+### Load Balancer Deep Dive (GAP-LB-\*)
+
+| ID           | Title                                                              | Category      | Severity | Effort |
+| ------------ | ------------------------------------------------------------------ | ------------- | -------- | ------ |
+| **GAP-LB-1** | README claims `weighted` default but `fastest-response` is default | Documentation | Medium   | Low    |
+| **GAP-LB-2** | README claims 35/30/20/15% weights but code uses different values  | Documentation | Medium   | Low    |
+| **GAP-LB-3** | Temporal scorer has 14-day cold start                              | Design        | Medium   | Medium |
+
+### Recovery System Deep Dive (GAP-REC-\*)
+
+| ID            | Title                                                       | Category | Severity | Effort |
+| ------------- | ----------------------------------------------------------- | -------- | -------- | ------ |
+| **GAP-REC-1** | `performCoordinatedRecoveryTest` has zero unit tests        | Coverage | High     | High   |
+| **GAP-REC-2** | No integration test covers full open→half-open→close cycle  | Coverage | High     | High   |
+| **GAP-REC-3** | RecoveryTestCoordinator (1,469 lines) with minimal coverage | Coverage | Medium   | High   |
+
 > **Note**: F-AC-3 (streaming translator), F-AC-7 (SSE ordering), F-AC-9 (tool streaming) are **N/A** — they apply only to translation, which is not supported in the passthrough-only model.
+
+---
+
+## Circuit Breaker Deep Dive Findings (GAP-CB-\*)
+
+> **Source**: Full implementation read — `circuit-breaker.ts` (1,155 lines), `circuit-breaker-persistence.ts` (155 lines), `orchestrator.ts`
+
+### GAP-CB-1: `circuitBreakerScore` Dead Code in Weighted LB Selection
+
+**Severity**: Medium | **Category**: Design | **Effort**: Low
+
+The load balancer's `calculateServerScore()` penalizes open/half-open circuit breakers with a `circuitBreakerScore` (lines 264-276 in `load-balancer.ts`). However, `tryRequestWithFailover()` filters candidates **before** calling the LB:
+
+```typescript
+// orchestrator.ts: tryRequestWithFailover() — candidates filtered first
+const eligibleServers = this.servers.filter(s => {
+  // ...ban, cooldown, CB state checked HERE...
+  !this.shouldSkipServerModel(s.id, model, endpoint)  // CB check BEFORE LB
+});
+// LB receives pre-filtered list — circuitBreakerScore never affects open CBs
+const selected = this.loadBalancer.select(eligibleServers, ...);
+```
+
+`circuitBreakerScore` only affects LB scoring when `calculateServerScore()` is called directly (e.g., `getLBScoreForServerModel` for the debug UI), not during normal routing.
+
+**Fix**: Either remove the dead CB scoring from `calculateServerScore()`, or change the filtering to only check server-level CB (not model-level) in the pre-filter and let the LB penalize open model CBs via score.
+
+---
+
+### GAP-CB-2: `canExecute()` Side Effects in `checkModelBreakerEscalation`
+
+**Severity**: High | **Category**: Bug | **Effort**: Low
+
+`checkModelBreakerEscalation()` at `orchestrator.ts:4345` uses `canExecute()` to filter open breakers:
+
+```typescript
+const openModelBreakers = modelBreakers.filter(cb => !cb.canExecute());
+```
+
+`canExecute()` has side effects — it increments `totalRequestCount` and `blockedRequestCount` every time it's called. On every request, this causes **counter pollution** for every model-level CB that is open, even though the request never routes to those servers.
+
+**Fix**: Use `getState()` (read-only) instead of `canExecute()` to check state:
+
+```typescript
+const openModelBreakers = modelBreakers.filter(cb => cb.getState() === 'open');
+```
+
+---
+
+### GAP-CB-3: Half-Open Timeout Not Enforced on Restart
+
+**Severity**: Medium | **Category**: Bug | **Effort**: Low
+
+When circuit breaker state is restored from persistence, the `restoreState()` method at `circuit-breaker.ts:750-809` checks if an OPEN circuit's `nextRetryAt` has passed and transitions to HALF-OPEN. However, if a circuit was HALF-OPEN when persisted and its `halfOpenTimeout` (5 minutes) has since passed, the code comment explicitly defers handling:
+
+> _"We'll let the next canExecute() handle this"_
+
+If no request arrives, the circuit stays HALF-OPEN indefinitely — accepting traffic it shouldn't.
+
+**Fix**: In `restoreState()`, add:
+
+```typescript
+if (
+  this.state === 'half-open' &&
+  Date.now() > this.halfOpenStartedAt + this.config.halfOpenTimeout
+) {
+  this.transitionTo('open');
+}
+```
+
+---
+
+### GAP-CB-4: No Mutual Exclusion on CB State Updates
+
+**Severity**: Medium | **Category**: Risk | **Effort**: Medium
+
+CB state updates (`recordSuccess()`, `recordFailure()`, `canExecute()`) are not protected by a mutex. While JS is single-threaded, `async` gaps between read and write operations could cause race conditions when `setTimeout` callbacks check state concurrently. Example:
+
+```typescript
+// Thread A (async gap between read and write):
+const count = this.failureCount; // read: 4
+await something();
+// Thread B's setTimeout fires, reads count=4
+this.failureCount = count + 1; // write: 5 (Thread A expected 5)
+```
+
+**Fix**: Add a simple mutex pattern using a `Promise`-chaining guard for all state-modifying methods.
+
+---
+
+### GAP-CB-5: `shouldSkipServerModel` Half-Open Starvation Path
+
+**Severity**: Low | **Category**: Design | **Effort**: Low
+
+In `shouldSkipServerModel()` at `orchestrator.ts:4235-4240`:
+
+```typescript
+if (serverStats.state === 'half-open' && serverStats.successCount === 0) {
+  return true; // Skip — never had a successful recovery test
+}
+```
+
+A half-open breaker with zero successes is skipped. If the recovery test keeps failing on its first attempt, the breaker cycles: open → half-open → skip → (nextRetryAt) → open → ... The `consecutiveFailedRecoveries` counter (which triggers permanent open at ≥5) is the only exit. This is technically correct but could cause long delays.
+
+**Fix**: Document this behavior. The permanent-open safeguard at 5 consecutive failed recoveries is the intended backstop.
+
+---
+
+## Ban Manager Deep Dive Findings (GAP-BAN-\*)
+
+> **Source**: Full implementation read — `ban-manager.ts` (310 lines), cross-referenced with `circuit-breaker.ts` and `orchestrator.ts`
+
+### GAP-BAN-1: Permanent Bans Are Not Persisted
+
+**Severity**: High | **Category**: Bug | **Effort**: Low
+
+`permanentBan` is a `Set<string>` stored only in-memory (`ban-manager.ts:31`). If the orchestrator restarts, all permanent bans are lost. The `getState()`/`loadState()` methods exist (lines 271-294) but `permanentBan` is not included in the serialized state.
+
+**Impact**: A server that was permanently banned after 10+ failures (e.g., a crashed GPU, failed hardware) becomes eligible for routing again after any restart.
+
+**Fix**: Add `permanentBan` to the serialized state in `getState()`. Ensure `loadState()` restores it.
+
+---
+
+### GAP-BAN-2: Cooldown and Permanent Ban Have Inconsistent Routing Behavior
+
+**Severity**: Medium | **Category**: Design | **Effort**: Low
+
+Both cooldown and permanent ban cause `isBanned()` to return true, but they have **different routing impacts**:
+
+| Check                       | LB Filtering      | Execution Blocking                  |
+| --------------------------- | ----------------- | ----------------------------------- |
+| `isInCooldown()` (cooldown) | Skipped in filter | **Not checked** at execution        |
+| `isBanned()` (permanent)    | Skipped in filter | **Throws** at execution (line 2461) |
+
+A server in cooldown can be retried at execution if it somehow got past the filter. A permanently banned server throws even if it somehow reached execution. This asymmetry is not documented.
+
+**Fix**: Normalize behavior — either both throw, or both return false-and-allow. Add `isInCooldown()` check at execution time too.
+
+---
+
+### GAP-BAN-3: `failureCooldown` Map Grows Without Bound
+
+**Severity**: Low | **Category**: Bug | **Effort**: Low
+
+`failureCooldown` Map (`ban-manager.ts:31`) is only cleaned by `cleanupExpiredCooldowns()` which must be called manually. If `cleanupExpiredCooldowns()` is never called (e.g., no code path invokes it regularly), the Map grows indefinitely with stale entries.
+
+**Fix**: Call `cleanupExpiredCooldowns()` in `isInCooldown()` lazily, or run it on a timer. Verify existing call sites.
+
+---
+
+## Load Balancer Deep Dive Findings (GAP-LB-\*)
+
+> **Source**: Full implementation read — `load-balancer.ts` (1,079 lines), `temporal-scorer.ts`, `orchestrator.ts`
+
+### GAP-LB-1: README Claims `weighted` Algorithm But Default Is `fastest-response`
+
+**Severity**: Medium | **Category**: Documentation | **Effort**: Low
+
+The README states weighted scoring is the default. The actual code at `load-balancer.ts:471` sets:
+
+```typescript
+this.config.algorithm = config.algorithm ?? 'fastest-response'; // NOT 'weighted'
+```
+
+Users following the documentation expect weighted selection but get streaming-optimized selection by default.
+
+**Fix**: Update README to reflect actual default, or change the default to `'weighted'`.
+
+---
+
+### GAP-LB-2: README Claims 35/30/20/15% Weights But Code Uses Different Values
+
+**Severity**: Medium | **Category**: Documentation | **Effort**: Low
+
+README claims weights of 35% (latency), 30% (success), 20% (load), 15% (capacity). The actual `calculateServerScore()` at lines 380-390 uses:
+
+```typescript
+latencyScore * 0.17 +      // ~17% (not 35%)
+successRateScore * 0.17 +  // ~17% (not 30%)
+loadScore * 0.17 +         // ~17% (not 20%)
+capacityScore * 0.05 +     // ~5%  (not 15%)
+```
+
+**Fix**: Update README to match actual weights, or update config to match claimed weights.
+
+---
+
+### GAP-LB-3: Temporal Scorer Has 14-Day Cold Start
+
+**Severity**: Medium | **Category**: Design | **Effort**: Medium
+
+`temporal-scorer.ts` builds temporal profiles from a 14-day rolling window (line 195). New deployments have zero historical data. During the first 14 days, `getAdjustment()` returns `neutralAdjustment('low-confidence')` for all servers — temporal scoring is effectively disabled.
+
+**Impact**: Temporal patterns (e.g., peak hours, weekend vs weekday) are never learned on fresh deployments. For a 60-server fleet with established patterns, this means the LB can't leverage them until 2 weeks of data accumulates.
+
+**Fix**: Document the 14-day cold-start requirement. Consider whether shorter historical windows or seeded defaults from similar deployments could reduce cold-start time.
+
+---
+
+## Recovery System Deep Dive Findings (GAP-REC-\*)
+
+> **Source**: Full implementation read — `active-test-scheduler.ts` (279 lines), `recovery-test-coordinator.ts` (1,469 lines), cross-referenced with `circuit-breaker.ts`
+
+### GAP-REC-1: `performCoordinatedRecoveryTest` Has Zero Unit Tests
+
+**Severity**: High | **Category**: Coverage | **Effort**: High
+
+`RecoveryTestCoordinator.performCoordinatedRecoveryTest()` at `circuit-breaker.ts:904-928` (also `recovery-test-coordinator.ts:437-498`) is the path where a circuit breaker directly calls the coordinator for a recovery test. It has **zero dedicated unit tests**. Only `recovery-concurrency-guard.test.ts` (254 lines) tests the concurrency locking around it with mocked fetch.
+
+The full `performCoordinatedRecoveryTest` logic — including server cooldown enforcement, model-type detection (`isEmbeddingModel()`), timeout selection, and result recording — is exercised only through integration tests with mocked HTTP.
+
+**Fix**: Add unit tests for `performCoordinatedRecoveryTest` covering: cooldown enforcement, model-type detection, timeout selection, error handling.
+
+---
+
+### GAP-REC-2: No Integration Test Covers Full Open→Half-Open→Close Cycle
+
+**Severity**: High | **Category**: Coverage | **Effort**: High
+
+No integration test exercises the complete recovery cycle with real (non-mocked) HTTP:
+
+```
+open CB
+  → nextRetryAt expires (ActiveTestScheduler.poll() fires ~1s later)
+  → orchestrator.runActiveTestsForServer()
+  → RecoveryTestCoordinator.runActiveTests()
+  → /api/generate probe succeeds
+  → CB.recordSuccess() × 5
+  → CB: half-open → closed
+```
+
+Existing `circuit-breaker-chaos.test.ts` tests state transitions in isolation. `circuit-breakers.test.ts` (83 lines) only tests admin force-open/reset operations. The full end-to-end recovery path through actual HTTP probes is untested.
+
+**Fix**: Add integration test that starts with a real CB in open state, triggers recovery via ActiveTestScheduler, and verifies clean close after 5 successful probes.
+
+---
+
+### GAP-REC-3: RecoveryTestCoordinator Has 1,469 Lines with Minimal Coverage
+
+**Severity**: Medium | **Category**: Coverage | **Effort**: High
+
+`RecoveryTestCoordinator` has 1,469 lines. Its only dedicated test file (`recovery-test-coordinator.test.ts`) is 136 lines and tests only the `isEmbeddingModel()` helper. Key methods with no direct tests:
+
+- `runActiveTests()` (the main entry point)
+- `performCoordinatedRecoveryTest()` (direct recovery path)
+- `isServerLevelBreaker()` (breaker type detection)
+- `selectTestForBreaker()` (test type selection logic)
+- `executeTestWithTimeout()` (timeout enforcement)
+
+**Fix**: Prioritize tests for the highest-risk paths: `runActiveTests()` with mixed success/failure, `performCoordinatedRecoveryTest()` with cooldown enforcement.
 
 ---
 
@@ -2367,3 +2656,67 @@ app.use('/v1', inferenceRateLimiter, anthropicRouter); // 2. Anthropic second �
 | **Total** |                               | **High** | **4-8** |
 
 **No translation. Pure native passthrough to `supportsAnthropic` servers only.**
+
+---
+
+### Wave 10 — Circuit Breaker Critical Bug Fixes (Low effort)
+
+| Task | Finding  | Description                                                                                                               |
+| ---- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| 10.1 | GAP-CB-2 | Fix `checkModelBreakerEscalation()` — replace `canExecute()` with `getState() === 'open'` to avoid counter pollution      |
+| 10.2 | GAP-CB-3 | Fix `restoreState()` — enforce half-open timeout on restart by checking `halfOpenStartedAt + halfOpenTimeout`             |
+| 10.3 | GAP-CB-1 | Document `circuitBreakerScore` behavior — clarify that LB pre-filtering means CB score only affects debug UI, not routing |
+
+---
+
+### Wave 11 — Circuit Breaker + Ban Manager Integration (Medium effort)
+
+| Task | Finding   | Description                                                                                                             |
+| ---- | --------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 11.1 | GAP-BAN-1 | Persist `permanentBan` Set via `getState()`/`loadState()` in ban-manager                                                |
+| 11.2 | GAP-BAN-2 | Normalize cooldown vs ban routing behavior — add `isInCooldown()` check at execution (line 2461), matching ban behavior |
+| 11.3 | GAP-BAN-3 | Add lazy `cleanupExpiredCooldowns()` call in `isInCooldown()` or a periodic timer                                       |
+| 11.4 | GAP-CB-4  | Add mutex pattern for CB state-modifying methods (`recordSuccess`, `recordFailure`, `canExecute`)                       |
+| 11.5 | GAP-CB-5  | Document half-open starvation behavior as intentional — `consecutiveFailedRecoveries` is the backstop                   |
+
+---
+
+### Wave 12 — Load Balancer Documentation Fixes (Low/Medium effort)
+
+| Task | Finding  | Description                                                                                                         |
+| ---- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| 12.1 | GAP-LB-1 | Update README: default algorithm is `fastest-response`, not `weighted` (or change default to match docs)            |
+| 12.2 | GAP-LB-2 | Update README: correct weight values (0.17/0.17/0.17/0.05) or update config to match claimed 35/30/20/15            |
+| 12.3 | GAP-LB-3 | Document 14-day temporal scorer cold-start in operations guide; consider shorter initial window for faster learning |
+
+---
+
+### Wave 13 — Recovery System Test Coverage (High effort)
+
+| Task | Finding   | Description                                                                                                                              |
+| ---- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 13.1 | GAP-REC-1 | Add unit tests for `performCoordinatedRecoveryTest()` — cooldown enforcement, model-type detection, timeout selection, error handling    |
+| 13.2 | GAP-REC-2 | Add integration test: full open→half-open→probe→close cycle with real (non-mocked) HTTP                                                  |
+| 13.3 | GAP-REC-3 | Add unit tests for `RecoveryTestCoordinator.runActiveTests()` — mixed success/failure, server-level vs model-level breakers, concurrency |
+| 13.4 | GAP-REC-3 | Add unit tests for `selectTestForBreaker()` and `executeTestWithTimeout()`                                                               |
+
+---
+
+### Revised Total Wave Summary
+
+| Wave      | Focus                            | Effort        | Notes                            |
+| --------- | -------------------------------- | ------------- | -------------------------------- |
+| 1         | Critical bugs + schema align     | Low           | Pre-req for everything           |
+| 2         | Config gaps + integration wiring | Medium        |                                  |
+| 3         | Dead code cleanup                | Low           |                                  |
+| 4         | Design improvements              | Medium        |                                  |
+| 5         | Error handling polish            | Medium        |                                  |
+| 6         | Test coverage                    | High          |                                  |
+| 7         | SQLite migration                 | High          | Pre-req for Wave 8               |
+| 8         | Inference probing system         | High          |                                  |
+| 9         | Anthropic API compatibility      | High          | Self-contained                   |
+| 10        | CB critical bug fixes            | Low           | GAP-CB-2, GAP-CB-3               |
+| 11        | CB + Ban integration             | Medium        | GAP-BAN-\*, GAP-CB-4, GAP-CB-5   |
+| 12        | LB documentation fixes           | Low/Med       | GAP-LB-\*, GAP-LB-3              |
+| 13        | Recovery system test coverage    | High          | GAP-REC-\*                       |
+| **Total** |                                  | **Very High** | **16 waves, significant effort** |
