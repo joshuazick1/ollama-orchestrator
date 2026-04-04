@@ -2469,7 +2469,6 @@ export class AIOrchestrator {
     }
 
     // Execute with in-flight tracking (this is the key difference - uses normal request tracking)
-    const startTime = Date.now();
     this.incrementInFlight(server.id, model, bypassCircuitBreaker);
 
     // Generate request context if streaming
@@ -2485,7 +2484,7 @@ export class AIOrchestrator {
 
       // Only record circuit breaker success if not bypassing
       if (!bypassCircuitBreaker) {
-        this.recordSuccess(server.id, model, Date.now() - startTime);
+        this.recordSuccess(server.id, model);
       }
 
       // Populate routing context if provided (REC-54)
@@ -2760,7 +2759,7 @@ export class AIOrchestrator {
 
       // Reset failure count on success - server is working
       this.resetServerFailureCount(server.id);
-      this.recordSuccess(server.id, model, requestContext.duration);
+      this.recordSuccess(server.id, model);
 
       // Use captured circuit state from request start, not current state
       // This fixes the race condition where breaker transitions before we check
@@ -2975,7 +2974,7 @@ export class AIOrchestrator {
 
         // Reset failure count on success - server is working
         this.resetServerFailureCount(server.id);
-        this.recordSuccess(server.id, model, requestContext.duration);
+        this.recordSuccess(server.id, model);
 
         if (retryCount > 0) {
           logger.info(
@@ -3286,18 +3285,10 @@ export class AIOrchestrator {
   }
 
   /**
-   * Record success for circuit breaker (both server and model level)
-   * If responseTime is provided and success occurred during active test (half-open state),
-   * adjust the timeout for this server:model pair based on the actual response time.
+   * Record success for circuit breaker (both server and model level).
    */
-  private recordSuccess(serverId: string, model?: string, responseTime?: number): void {
+  private recordSuccess(serverId: string, model?: string): void {
     const serverCb = this.getCircuitBreaker(serverId);
-    const modelCb = model ? this.getModelCircuitBreaker(serverId, model) : null;
-
-    // Check if either breaker was in half-open state before recording success
-    const wasServerHalfOpen = serverCb.getState() === 'half-open';
-    const wasModelHalfOpen = modelCb?.getState() === 'half-open';
-    const wasActiveTest = wasServerHalfOpen || wasModelHalfOpen;
 
     serverCb.recordSuccess();
 
@@ -3308,15 +3299,6 @@ export class AIOrchestrator {
 
       // Clear failure tracker on success
       this.banManager.recordSuccess(serverId, model);
-    }
-
-    // Adjust timeout based on active test response time
-    if (wasActiveTest && responseTime !== undefined && responseTime > 0 && model) {
-      // Use TimeoutManager for adaptive timeout calculation
-      this.timeoutManager.updateFromResponseTime(serverId, model, responseTime, true);
-      logger.info(
-        `Active test success: adjusted timeout for ${serverId}:${model} to ${this.timeoutManager.getTimeout(serverId, model)}ms`
-      );
     }
 
     // Schedule persistence save
