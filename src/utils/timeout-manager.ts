@@ -121,17 +121,26 @@ export class TimeoutManager {
 
   recordFailure(serverId: string, model: string, errorType?: string): void {
     const key = `${serverId}:${model}`;
-    const state = this.timeouts.get(key);
+    let state = this.timeouts.get(key);
 
-    if (state && errorType === 'timeout') {
+    if (!state) {
+      state = {
+        lastUpdated: Date.now(),
+        baseTimeout: this.config.defaultTimeout,
+        currentTimeout: this.config.defaultTimeout,
+        consecutiveFailures: 0,
+        consecutiveSuccesses: 0,
+      };
+      this.timeouts.set(key, state);
+    }
+
+    if (errorType === 'timeout') {
       state.currentTimeout = Math.min(state.currentTimeout * 1.5, this.config.maxTimeout);
       logger.info(`Timeout escalated for ${key}: ${state.currentTimeout}ms`);
     }
 
-    if (state) {
-      state.consecutiveFailures++;
-      state.consecutiveSuccesses = 0;
-    }
+    state.consecutiveFailures++;
+    state.consecutiveSuccesses = 0;
   }
 
   reset(serverId: string, model: string): void {
