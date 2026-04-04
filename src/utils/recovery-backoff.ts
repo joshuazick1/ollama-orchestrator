@@ -146,39 +146,6 @@ export function calculateActiveTestTimeout(
 }
 
 /**
- * Parse a Retry-After header value into milliseconds.
- * Supports both delta-seconds (integer) and HTTP-date formats.
- * The result is capped at 5 minutes (300_000 ms) to prevent runaway waits.
- *
- * Returns undefined when the header is absent or unparseable.
- */
-export function parseRetryAfterMs(header: string | undefined | null): number | undefined {
-  if (!header) {
-    return undefined;
-  }
-
-  const MAX_RETRY_AFTER_MS = 5 * 60 * 1000; // 5 minutes
-
-  // Try delta-seconds first (most common for OpenAI)
-  const seconds = Number(header.trim());
-  if (!isNaN(seconds) && seconds >= 0) {
-    return Math.min(Math.ceil(seconds * 1000), MAX_RETRY_AFTER_MS);
-  }
-
-  // Try HTTP-date format
-  const retryDate = new Date(header).getTime();
-  if (!isNaN(retryDate)) {
-    const delayMs = retryDate - Date.now();
-    if (delayMs > 0) {
-      return Math.min(delayMs, MAX_RETRY_AFTER_MS);
-    }
-    return 0;
-  }
-
-  return undefined;
-}
-
-/**
  * Backoff delay configuration for circuit breaker open->half-open transitions
  */
 export interface CircuitBreakerBackoffConfig {

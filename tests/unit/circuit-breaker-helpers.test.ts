@@ -6,10 +6,7 @@
 import { Request } from 'express';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import {
-  shouldBypassCircuitBreaker,
-  extractCircuitBreakerOptions,
-} from '../../src/utils/circuit-breaker-helpers.js';
+import { shouldBypassCircuitBreaker } from '../../src/utils/circuit-breaker-helpers.js';
 
 describe('circuit-breaker-helpers', () => {
   let mockReq: Partial<Request>;
@@ -52,32 +49,6 @@ describe('circuit-breaker-helpers', () => {
       const result = shouldBypassCircuitBreaker(mockReq as Request);
 
       expect(result).toBe(false);
-    });
-  });
-
-  describe('extractCircuitBreakerOptions', () => {
-    it('should extract bypass option with bypass reason', () => {
-      mockReq.query = { bypass: 'true' };
-
-      const result = extractCircuitBreakerOptions(mockReq as Request);
-
-      expect(result).toEqual({ bypass: true, reason: 'bypass query param' });
-    });
-
-    it('should extract bypass option with force reason', () => {
-      mockReq.query = { force: 'true' };
-
-      const result = extractCircuitBreakerOptions(mockReq as Request);
-
-      expect(result).toEqual({ bypass: true, reason: 'force query param' });
-    });
-
-    it('should return bypass false when no bypass params', () => {
-      mockReq.query = {};
-
-      const result = extractCircuitBreakerOptions(mockReq as Request);
-
-      expect(result).toEqual({ bypass: false });
     });
   });
 });

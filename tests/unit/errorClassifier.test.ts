@@ -6,10 +6,7 @@ import {
   ErrorSeverity,
   ErrorType,
   classifyError,
-  isRetryableError,
-  isTransientError,
   getErrorClassifier,
-  setErrorClassifier,
 } from '../../src/utils/error-classifier';
 
 describe('ErrorClassifier', () => {
@@ -17,10 +14,6 @@ describe('ErrorClassifier', () => {
 
   beforeEach(() => {
     classifier = new ErrorClassifier();
-  });
-
-  afterEach(() => {
-    setErrorClassifier(new ErrorClassifier());
   });
 
   describe('classify', () => {
@@ -237,30 +230,13 @@ describe('ErrorClassifier', () => {
 });
 
 describe('Module-level functions', () => {
-  afterEach(() => {
-    setErrorClassifier(new ErrorClassifier());
-  });
-
   it('classifyError should use default classifier', () => {
     const result = classifyError('model not found');
     expect(result.isRetryable).toBe(false);
   });
 
-  it('isRetryableError should use default classifier', () => {
-    expect(isRetryableError('connection refused')).toBe(true);
-  });
-
   it('getErrorClassifier should return default instance', () => {
     const classifier = getErrorClassifier();
     expect(classifier).toBeInstanceOf(ErrorClassifier);
-  });
-
-  it('setErrorClassifier should replace default instance', () => {
-    const custom = new ErrorClassifier({
-      nonRetryable: ['my-error'],
-    });
-    setErrorClassifier(custom);
-    const classifier = getErrorClassifier();
-    expect(classifier.classify('my-error').isRetryable).toBe(false);
   });
 });

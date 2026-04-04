@@ -39,13 +39,3 @@ export function deepMerge(
 
   return result;
 }
-
-/**
- * Deep merge multiple sources
- */
-export function deepMergeAll(
-  target: Record<string, unknown>,
-  ...sources: Array<Record<string, unknown>>
-): Record<string, unknown> {
-  return sources.reduce((acc, source) => deepMerge(acc, source), target);
-}

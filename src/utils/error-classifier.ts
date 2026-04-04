@@ -718,31 +718,10 @@ export function getErrorClassifier(): ErrorClassifier {
 }
 
 /**
- * Set a custom default error classifier
- */
-export function setErrorClassifier(classifier: ErrorClassifier): void {
-  defaultClassifier = classifier;
-}
-
-/**
  * Convenience function to classify an error using the default classifier
  */
 export function classifyError(error: Error | string): ErrorClassification {
   return getErrorClassifier().classify(error);
-}
-
-/**
- * Convenience function to check if error is retryable
- */
-export function isRetryableError(error: Error | string): boolean {
-  return getErrorClassifier().isRetryable(error);
-}
-
-/**
- * Convenience function to check if error is transient
- */
-export function isTransientError(error: Error | string): boolean {
-  return getErrorClassifier().isTransient(error);
 }
 
 /**

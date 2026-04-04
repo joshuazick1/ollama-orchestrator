@@ -6,8 +6,6 @@ describe('FeatureFlags', () => {
   describe('get', () => {
     it('should return true for enabled flags by default', () => {
       expect(featureFlags.get('useTimerUtility')).toBe(true);
-      expect(featureFlags.get('useTTFTTracker')).toBe(true);
-      expect(featureFlags.get('useContextBuilder')).toBe(true);
       expect(featureFlags.get('useStatisticsUtility')).toBe(true);
       expect(featureFlags.get('useTokenExtractor')).toBe(true);
     });
@@ -29,13 +27,13 @@ describe('FeatureFlags', () => {
 
     it('should allow setting multiple flags', () => {
       featureFlags.set('useTimerUtility', false);
-      featureFlags.set('useTTFTTracker', false);
+      featureFlags.set('useStatisticsUtility', false);
 
       expect(featureFlags.get('useTimerUtility')).toBe(false);
-      expect(featureFlags.get('useTTFTTracker')).toBe(false);
+      expect(featureFlags.get('useStatisticsUtility')).toBe(false);
 
       featureFlags.set('useTimerUtility', true);
-      featureFlags.set('useTTFTTracker', true);
+      featureFlags.set('useStatisticsUtility', true);
     });
   });
 
@@ -43,15 +41,8 @@ describe('FeatureFlags', () => {
     it('should return all flags', () => {
       const all = featureFlags.getAll();
       expect(all).toHaveProperty('useTimerUtility');
-      expect(all).toHaveProperty('useTTFTTracker');
-      expect(all).toHaveProperty('useContextBuilder');
       expect(all).toHaveProperty('useStatisticsUtility');
       expect(all).toHaveProperty('useTokenExtractor');
-      expect(all).toHaveProperty('useErrorHelpers');
-      expect(all).toHaveProperty('useAsyncHelpers');
-      expect(all).toHaveProperty('useCollectionHelpers');
-      expect(all).toHaveProperty('useMathHelpers');
-      expect(all).toHaveProperty('useCircuitBreakerHelpers');
     });
 
     it('should return a copy of flags', () => {

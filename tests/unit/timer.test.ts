@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { Timer, timed, timedAsync } from '../../src/utils/timer.js';
+import { Timer } from '../../src/utils/timer.js';
 
 describe('Timer', () => {
   beforeEach(() => {
@@ -103,36 +103,5 @@ describe('Timer', () => {
       expect(timer.getAllLaps()).toHaveLength(0);
       expect(timer.elapsed()).toBeLessThan(10);
     });
-  });
-});
-
-describe('timed', () => {
-  it('should return result and duration', () => {
-    const { result, duration } = timed(() => 42);
-    expect(result).toBe(42);
-    expect(duration).toBeGreaterThanOrEqual(0);
-  });
-});
-
-describe('timedAsync', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('should return result and duration for async function', async () => {
-    const promise = timedAsync(async () => {
-      vi.advanceTimersByTime(50);
-      return 'done';
-    });
-
-    vi.advanceTimersByTime(50);
-    const result = await promise;
-
-    expect(result.result).toBe('done');
-    expect(result.duration).toBeGreaterThanOrEqual(50);
   });
 });

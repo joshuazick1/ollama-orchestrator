@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { deepMerge, deepMergeAll } from '../../src/utils/deep-merge.js';
+import { deepMerge } from '../../src/utils/deep-merge.js';
 
 describe('deepMerge', () => {
   it('should merge two objects', () => {
@@ -48,19 +48,5 @@ describe('deepMerge', () => {
     const source = { b: null };
     const result = deepMerge(target, source);
     expect(result).toEqual({ a: 1, b: null });
-  });
-});
-
-describe('deepMergeAll', () => {
-  it('should merge multiple sources', () => {
-    const target = { a: 1 };
-    const result = deepMergeAll(target, { b: 2 }, { c: 3 });
-    expect(result).toEqual({ a: 1, b: 2, c: 3 });
-  });
-
-  it('should give precedence to later sources', () => {
-    const target = { a: 1 };
-    const result = deepMergeAll(target, { a: 2 }, { a: 3 });
-    expect(result).toEqual({ a: 3 });
   });
 });

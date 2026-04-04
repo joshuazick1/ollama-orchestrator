@@ -72,23 +72,3 @@ export class Timer {
     this.laps.clear();
   }
 }
-
-/**
- * Convenience function for one-off timing
- */
-export function timed<T>(fn: () => T): { result: T; duration: number } {
-  const timer = new Timer();
-  const result = fn();
-  return { result, duration: timer.elapsed() };
-}
-
-/**
- * Convenience function for async operations
- */
-export async function timedAsync<T>(
-  fn: () => Promise<T>
-): Promise<{ result: T; duration: number }> {
-  const timer = new Timer();
-  const result = await fn();
-  return { result, duration: timer.elapsed() };
-}
