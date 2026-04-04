@@ -5,6 +5,7 @@
 
 import type { MetricsDecayConfig } from '../config/config.js';
 import { featureFlags } from '../config/feature-flags.js';
+import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import type {
   MetricsWindow,
   ServerModelMetrics,
@@ -1120,6 +1121,7 @@ export class MetricsAggregator {
   reset(): void {
     const count = this.metrics.size;
     this.metrics.clear();
+    getTemporalScorer().clearCache();
     logger.info(`MetricsAggregator: Reset complete, cleared ${count} server:model metrics`);
   }
 }
