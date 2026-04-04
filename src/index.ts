@@ -284,9 +284,15 @@ process.on('SIGTERM', () => {
     logger.info('HTTP server closed');
 
     // Shutdown orchestrator (wait for in-flight requests)
-    void orchestrator.shutdown().then(() => {
-      process.exit(0);
-    });
+    void orchestrator
+      .shutdown()
+      .then(() => {
+        process.exit(0);
+      })
+      .catch((err: unknown) => {
+        logger.error('Orchestrator shutdown failed', { error: String(err) });
+        process.exit(1);
+      });
 
     // Force exit after timeout
     setTimeout(() => {
@@ -304,9 +310,15 @@ process.on('SIGINT', () => {
     logger.info('HTTP server closed');
 
     // Shutdown orchestrator (wait for in-flight requests)
-    void orchestrator.shutdown().then(() => {
-      process.exit(0);
-    });
+    void orchestrator
+      .shutdown()
+      .then(() => {
+        process.exit(0);
+      })
+      .catch((err: unknown) => {
+        logger.error('Orchestrator shutdown failed', { error: String(err) });
+        process.exit(1);
+      });
 
     // Force exit after timeout
     setTimeout(() => {

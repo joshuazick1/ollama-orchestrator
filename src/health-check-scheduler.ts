@@ -294,7 +294,7 @@ export class HealthCheckScheduler {
           ? fetchWithAuth(`${server.url}/api/tags`, server.apiKey, {
               timeout: this.config.timeoutMs,
             }).catch((err: unknown) => {
-              logger.debug('Health probe failed for /api/tags', {
+              logger.warn('Health probe failed for /api/tags', {
                 serverId: server.id,
                 error: String(err),
               });
@@ -305,7 +305,7 @@ export class HealthCheckScheduler {
           ? fetchWithAuth(`${server.url}/api/ps`, server.apiKey, {
               timeout: 5000,
             }).catch((err: unknown) => {
-              logger.debug('Health probe failed for /api/ps', {
+              logger.warn('Health probe failed for /api/ps', {
                 serverId: server.id,
                 error: String(err),
               });
@@ -316,7 +316,7 @@ export class HealthCheckScheduler {
           ? fetchWithAuth(`${server.url}/v1/models`, server.apiKey, {
               timeout: 5000,
             }).catch((err: unknown) => {
-              logger.debug('Health probe failed for /v1/models', {
+              logger.warn('Health probe failed for /v1/models', {
                 serverId: server.id,
                 error: String(err),
               });

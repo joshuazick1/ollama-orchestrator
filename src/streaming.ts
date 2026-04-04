@@ -283,7 +283,7 @@ export async function streamResponse(
           (abortSignal as any).onabort = abortHandler;
         }
       } catch (e) {
-        logger.debug('Failed to attach abort listener to activityController.signal', {
+        logger.warn('Failed to attach abort listener to activityController.signal', {
           error: e instanceof Error ? e.message : String(e),
         });
       }
@@ -730,21 +730,21 @@ export async function streamResponse(
                 streamingRequestId,
               });
             } catch (e) {
-              logger.debug('Failed to clear onabort property', {
+              logger.warn('Failed to clear onabort property', {
                 streamingRequestId,
                 error: String(e),
               });
             }
           }
         } catch (e) {
-          logger.debug('Error while removing abort listener', {
+          logger.warn('Error while removing abort listener', {
             streamingRequestId,
             error: String(e),
           });
         }
       }
     } catch (e) {
-      logger.debug('Error during stream cleanup', { error: String(e) });
+      logger.warn('Error during stream cleanup', { error: String(e) });
     }
 
     // Call onStreamEnd callback for cleanup (e.g., remove from InFlightManager)
