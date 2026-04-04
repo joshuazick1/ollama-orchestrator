@@ -3819,13 +3819,7 @@ export class AIOrchestrator {
       return [];
     }
 
-    // Collect all half-open breakers for this server (server-level + model-level)
     const halfOpenBreakers: Array<{ breaker: CircuitBreaker; model?: string }> = [];
-
-    // Check server-level breaker
-    if (serverCb.getState() === 'half-open') {
-      halfOpenBreakers.push({ breaker: serverCb });
-    }
 
     // Check model-level breakers
     for (const [breakerName, stats] of Object.entries(allStats)) {
