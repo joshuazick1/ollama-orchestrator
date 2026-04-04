@@ -748,7 +748,12 @@ export class RecoveryTestCoordinator {
           return false;
         }
       } else {
-        const errorText = await response.text().catch(() => 'Unknown error');
+        const errorText = await response
+          .text()
+          .catch(
+            (e: unknown) =>
+              `Failed to read error body: ${e instanceof Error ? e.message : String(e)}`
+          );
         const errorLower = errorText.toLowerCase();
 
         // Check if this is a "does not support generate" error
@@ -932,7 +937,12 @@ export class RecoveryTestCoordinator {
         });
         return true;
       } else {
-        const errorText = await response.text().catch(() => 'Unknown error');
+        const errorText = await response
+          .text()
+          .catch(
+            (e: unknown) =>
+              `Failed to read error body: ${e instanceof Error ? e.message : String(e)}`
+          );
         logger.warn(`Embedding test failed for ${breakerName}`, {
           duration,
           status: response.status,

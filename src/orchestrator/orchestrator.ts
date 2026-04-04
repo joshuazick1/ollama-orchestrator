@@ -638,7 +638,12 @@ export class AIOrchestrator {
           });
 
           if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
+            const errorText = await response
+              .text()
+              .catch(
+                (e: unknown) =>
+                  `Failed to read error body: ${e instanceof Error ? e.message : String(e)}`
+              );
             throw new Error(`HTTP ${response.status}: ${errorText}`);
           }
 
@@ -704,7 +709,12 @@ export class AIOrchestrator {
           });
 
           if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
+            const errorText = await response
+              .text()
+              .catch(
+                (e: unknown) =>
+                  `Failed to read error body: ${e instanceof Error ? e.message : String(e)}`
+              );
             throw new Error(`HTTP ${response.status}: ${errorText}`);
           }
 

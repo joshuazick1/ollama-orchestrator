@@ -135,10 +135,12 @@ describe('TimeoutManager', () => {
       expect(state?.consecutiveSuccesses).toBe(0);
     });
 
-    it('should do nothing for unknown server:model', () => {
+    it('should create default state for unknown server:model', () => {
       manager.recordFailure('server-1', 'llama3:latest');
       const state = manager.getTimeoutState('server-1', 'llama3:latest');
-      expect(state).toBeUndefined();
+      expect(state).toBeDefined();
+      expect(state?.consecutiveFailures).toBe(1);
+      expect(state?.currentTimeout).toBe(DEFAULT_TIMEOUT_CONFIG.defaultTimeout);
     });
   });
 
