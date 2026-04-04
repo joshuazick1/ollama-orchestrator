@@ -8,8 +8,6 @@ import type { Request } from 'express';
 
 import { featureFlags } from '../config/feature-flags.js';
 
-import { clamp } from './math-helpers.js';
-
 /**
  * Check if circuit breaker should be bypassed
  */
@@ -32,21 +30,6 @@ export function extractCircuitBreakerOptions(req: Request): {
     : undefined;
 
   return { bypass, reason };
-}
-
-/**
- * Calculate adaptive timeout based on response time
- */
-export function calculateAdaptiveTimeout(
-  responseTime: number,
-  options: {
-    minTimeout?: number;
-    maxTimeout?: number;
-    multiplier?: number;
-  } = {}
-): number {
-  const { minTimeout = 15000, maxTimeout = 600000, multiplier = 3 } = options;
-  return clamp(responseTime * multiplier, minTimeout, maxTimeout);
 }
 
 /**
