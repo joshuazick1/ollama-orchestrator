@@ -65,6 +65,10 @@ export const streamingConfigSchema = z.object({
   bufferSize: z.number().int().min(1).default(1024),
   ttftWeight: z.number().min(0).max(1).default(0.6),
   durationWeight: z.number().min(0).max(1).default(0.4),
+  activityTimeoutMs: z.number().int().min(1000).default(60000), // 60 seconds between chunks
+  stallThresholdMs: z.number().int().min(1000).default(300000), // 5 minutes - mark as stalled
+  stallCheckIntervalMs: z.number().int().min(1000).default(10000), // check every 10 seconds
+  maxHandoffAttempts: z.number().int().min(0).max(10).default(2), // max failover attempts
 });
 
 /**
@@ -208,6 +212,7 @@ export const circuitBreakerConfigSchema = z.object({
   halfOpenTimeout: z.number().int().min(1000).default(300000), // 5 minutes - match activeTestTimeout
   halfOpenMaxRequests: z.number().int().min(1).default(5),
   recoverySuccessThreshold: z.number().int().min(1).default(3),
+  activeTestTimeout: z.number().int().min(5000).max(600000).default(300000), // 5 minutes
   errorRateWindow: z.number().int().min(1000).default(60000), // 1 minute
   errorRateThreshold: z.number().min(0).max(1).default(0.5),
   adaptiveThresholds: z.boolean().default(true),
@@ -253,6 +258,19 @@ export const circuitBreakerConfigSchema = z.object({
       ratioThreshold: z.number().min(0).max(1).default(0.5),
       durationThresholdMs: z.number().int().min(1000).default(300000), // 5 minutes
       checkIntervalMs: z.number().int().min(1000).default(300000), // 5 minutes
+    })
+    .optional(),
+  backoff: z
+    .object({
+      standardDelaysMs: z
+        .array(z.number().int().min(0))
+        .default([30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000]),
+      permanentDelaysMs: z
+        .array(z.number().int().min(0))
+        .default([300000, 600000, 1200000, 2400000, 3600000]),
+      rateLimitBaseMs: z.number().int().min(0).default(300000),
+      rateLimitMultiplier: z.number().min(1).default(3),
+      rateLimitMaxMs: z.number().int().min(0).default(3600000),
     })
     .optional(),
 });
