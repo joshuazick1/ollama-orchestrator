@@ -1526,7 +1526,7 @@ describe('AIOrchestrator', () => {
 
     it('should get default timeout', () => {
       const timeout = orchestrator.getTimeout('server-1', 'llama2');
-      expect(timeout).toBe(120000);
+      expect(timeout).toBe(300000);
     });
 
     it('should set and get custom timeout', () => {

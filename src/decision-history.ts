@@ -672,10 +672,11 @@ export class DecisionHistory {
       }
       return Promise.resolve();
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        logger.error('Failed to load decision history:', { error });
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return Promise.resolve();
       }
-      return Promise.resolve();
+      logger.error('Failed to load decision history:', { error });
+      return Promise.reject(error);
     }
   }
 

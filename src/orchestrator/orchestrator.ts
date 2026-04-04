@@ -225,22 +225,28 @@ export class AIOrchestrator {
 
     // Load timeouts from persistence
     if (this.config.enablePersistence) {
-      const persistedData = loadTimeoutsFromDisk();
-      if (persistedData && Object.keys(persistedData).length > 0) {
-        const timeoutStates: Record<
-          string,
-          { lastUpdated: number; baseTimeout: number; currentTimeout: number }
-        > = {};
-        for (const [key, value] of Object.entries(persistedData)) {
-          timeoutStates[key] = {
-            lastUpdated: Date.now(),
-            baseTimeout: value,
-            currentTimeout: value,
-          };
+      try {
+        const persistedData = loadTimeoutsFromDisk();
+        if (persistedData && Object.keys(persistedData).length > 0) {
+          const timeoutStates: Record<
+            string,
+            { lastUpdated: number; baseTimeout: number; currentTimeout: number }
+          > = {};
+          for (const [key, value] of Object.entries(persistedData)) {
+            timeoutStates[key] = {
+              lastUpdated: Date.now(),
+              baseTimeout: value,
+              currentTimeout: value,
+            };
+          }
+          this.timeoutManager.loadFromPersistedData({
+            timeouts: timeoutStates,
+            version: 1,
+          });
         }
-        this.timeoutManager.loadFromPersistedData({
-          timeouts: timeoutStates,
-          version: 1,
+      } catch (err) {
+        logger.error('Failed to load persisted timeouts, starting with empty state:', {
+          error: err,
         });
       }
     }

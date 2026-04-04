@@ -64,10 +64,7 @@ describe('Persistence', () => {
         throw new Error('Disk read error');
       });
 
-      const servers = loadServersFromDisk();
-      expect(Array.isArray(servers)).toBe(true);
-      expect(servers).toHaveLength(0);
-      expect(logger.error).toHaveBeenCalled();
+      expect(() => loadServersFromDisk()).toThrow('Disk read error');
     });
 
     it('should handle error when saving servers', () => {
@@ -148,10 +145,7 @@ describe('Persistence', () => {
         throw new Error('Disk read error');
       });
 
-      const bans = loadBansFromDisk();
-      expect(bans).toBeInstanceOf(Set);
-      expect(bans.size).toBe(0);
-      expect(logger.error).toHaveBeenCalled();
+      expect(() => loadBansFromDisk()).toThrow('Disk read error');
     });
 
     it('should handle error when saving bans', () => {

@@ -679,10 +679,11 @@ export class RequestHistory {
       }
       return Promise.resolve();
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        logger.error('Failed to load request history:', { error });
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return Promise.resolve();
       }
-      return Promise.resolve();
+      logger.error('Failed to load request history:', { error });
+      return Promise.reject(error);
     }
   }
 
@@ -693,7 +694,9 @@ export class RequestHistory {
         limit: this.config.maxRequestsPerServer * 10,
       });
 
-      if (sqliteRecords.length === 0) return;
+      if (sqliteRecords.length === 0) {
+        return;
+      }
 
       for (const record of sqliteRecords) {
         const existing = this.requests.get(record.serverId) ?? [];

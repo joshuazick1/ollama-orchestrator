@@ -44,40 +44,32 @@ export function saveBansToDisk(bans: Set<string>): void {
 
 /**
  * Load servers from disk
+ * @throws {Error} if the data file exists but cannot be read or parsed
  */
 export function loadServersFromDisk(): AIServer[] {
-  try {
-    const filePath = serversConfig.getPath();
-    logger.info(`Loading servers from disk at ${filePath}...`);
-    const servers = serversConfig.get();
-    if (servers && Array.isArray(servers)) {
-      logger.info(`Successfully loaded ${servers.length} servers from disk`);
-      return servers;
-    } else {
-      logger.warn(`No valid servers found on disk at ${filePath}, returning empty array`);
-      return [];
-    }
-  } catch (err) {
-    logger.error('Exception while loading servers:', { error: err });
+  const filePath = serversConfig.getPath();
+  logger.info(`Loading servers from disk at ${filePath}...`);
+  const servers = serversConfig.get();
+  if (servers && Array.isArray(servers)) {
+    logger.info(`Successfully loaded ${servers.length} servers from disk`);
+    return servers;
+  } else {
+    logger.warn(`No valid servers found on disk at ${filePath}, returning empty array`);
     return [];
   }
 }
 
 /**
  * Load bans from disk
+ * @throws {Error} if the data file exists but cannot be read or parsed
  */
 export function loadBansFromDisk(): Set<string> {
-  try {
-    const bans = bansConfig.get();
-    if (bans && Array.isArray(bans)) {
-      logger.info(`Loaded ${bans.length} bans from disk`);
-      return new Set(bans);
-    } else {
-      logger.warn('No valid bans found on disk, returning empty set');
-      return new Set();
-    }
-  } catch (err) {
-    logger.error('Exception while loading bans:', { error: err });
+  const bans = bansConfig.get();
+  if (bans && Array.isArray(bans)) {
+    logger.info(`Loaded ${bans.length} bans from disk`);
+    return new Set(bans);
+  } else {
+    logger.warn('No valid bans found on disk, returning empty set');
     return new Set();
   }
 }
@@ -103,21 +95,17 @@ export function saveTimeoutsToDisk(timeouts: Record<string, number>): void {
 
 /**
  * Load timeouts from disk
+ * @throws {Error} if the data file exists but cannot be read or parsed
  */
 export function loadTimeoutsFromDisk(): Record<string, number> {
-  try {
-    const filePath = timeoutsConfig.getPath();
-    logger.debug(`Loading timeouts from disk at ${filePath}...`);
-    const timeouts = timeoutsConfig.get();
-    if (timeouts && typeof timeouts === 'object') {
-      logger.debug(`Successfully loaded ${Object.keys(timeouts).length} timeouts from disk`);
-      return timeouts;
-    } else {
-      logger.debug(`No valid timeouts found on disk at ${filePath}, returning empty object`);
-      return {};
-    }
-  } catch (err) {
-    logger.error('Exception while loading timeouts:', { error: err });
+  const filePath = timeoutsConfig.getPath();
+  logger.debug(`Loading timeouts from disk at ${filePath}...`);
+  const timeouts = timeoutsConfig.get();
+  if (timeouts && typeof timeouts === 'object') {
+    logger.debug(`Successfully loaded ${Object.keys(timeouts).length} timeouts from disk`);
+    return timeouts;
+  } else {
+    logger.debug(`No valid timeouts found on disk at ${filePath}, returning empty object`);
     return {};
   }
 }
