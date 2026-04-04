@@ -272,7 +272,7 @@ describe('MetricsPersistence', () => {
 
   describe('cleanOldData', () => {
     it('should clean old data based on retention policy (lines 120-135)', () => {
-      const oldTimestamp = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
+      const oldTimestamp = Date.now() - 23 * 60 * 60 * 1000; // 23 hours ago — within 24h retention window
       const data = {
         timestamp: oldTimestamp,
         servers: {
