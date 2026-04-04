@@ -792,6 +792,8 @@ export class AIOrchestrator {
       // Clean up circuit breakers for this server (server-level and all model-level)
       this.circuitBreakerRegistry.removeByPrefix(serverId);
 
+      this.banManager.removeServerBans(serverId);
+
       // Persist servers to disk if enabled
       if (this.config.enablePersistence) {
         logger.info(`Saving ${this.servers.length} servers to disk after removal...`);
