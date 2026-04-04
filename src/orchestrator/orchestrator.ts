@@ -3896,7 +3896,7 @@ export class AIOrchestrator {
       // Enforce server-level half-open circuit limits
       if (newState === 'half-open') {
         const halfOpenCount = this.countHalfOpenCircuits(serverId);
-        const maxHalfOpenPerServer = 3; // Configurable limit
+        const maxHalfOpenPerServer = this.config.circuitBreaker.maxHalfOpenPerServer;
 
         if (halfOpenCount >= maxHalfOpenPerServer) {
           logger.warn(
@@ -3936,7 +3936,7 @@ export class AIOrchestrator {
       // Enforce server-level half-open circuit limits
       if (newState === 'half-open') {
         const halfOpenCount = this.countHalfOpenCircuits(serverId);
-        const maxHalfOpenPerServer = 3; // Configurable limit
+        const maxHalfOpenPerServer = this.config.circuitBreaker.maxHalfOpenPerServer;
 
         if (halfOpenCount >= maxHalfOpenPerServer) {
           logger.warn(

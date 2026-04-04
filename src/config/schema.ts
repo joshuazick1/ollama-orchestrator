@@ -213,6 +213,7 @@ export const circuitBreakerConfigSchema = z.object({
   halfOpenMaxRequests: z.number().int().min(1).default(5),
   recoverySuccessThreshold: z.number().int().min(1).default(3),
   activeTestTimeout: z.number().int().min(5000).max(600000).default(300000), // 5 minutes
+  maxHalfOpenPerServer: z.number().int().min(1).max(20).default(3),
   errorRateWindow: z.number().int().min(1000).default(60000), // 1 minute
   errorRateThreshold: z.number().min(0).max(1).default(0.5),
   adaptiveThresholds: z.boolean().default(true),

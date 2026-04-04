@@ -54,6 +54,7 @@ export interface CircuitBreakerConfig {
   halfOpenMaxRequests: number; // Number of test requests in half-open state
   recoverySuccessThreshold: number; // Consecutive successes needed to close
   activeTestTimeout: number; // Timeout for active tests in half-open state (ms)
+  maxHalfOpenPerServer: number; // Max concurrent half-open circuits per server
 
   // Error rate calculation
   errorRateWindow: number; // Time window for error rate calculation (ms)
@@ -117,6 +118,7 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
   halfOpenMaxRequests: 3, // Reduced from 5 to be more conservative
   recoverySuccessThreshold: 5, // Increased from 3 for more reliable recovery
   activeTestTimeout: 300000, // 5 minutes
+  maxHalfOpenPerServer: 3,
   errorRateWindow: 60000, // 1 minute
   // Keep errorRateThreshold permissive in tests/legacy usage to avoid opening
   // circuit on small sample windows (tests expect opening by failure count only)

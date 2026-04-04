@@ -259,6 +259,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     halfOpenMaxRequests: 5,
     recoverySuccessThreshold: 3,
     activeTestTimeout: 300000, // 5 minutes
+    maxHalfOpenPerServer: 3,
     errorRateWindow: 60000,
     errorRateThreshold: 0.5,
     adaptiveThresholds: true,
