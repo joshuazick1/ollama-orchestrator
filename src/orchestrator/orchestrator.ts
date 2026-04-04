@@ -216,7 +216,7 @@ export class AIOrchestrator {
     // Initialize TimeoutManager with config default
     const currentConfig = getConfigManager().getConfig();
     this.timeoutManager = new TimeoutManager({
-      defaultTimeout: currentConfig.circuitBreaker.openTimeout,
+      defaultTimeout: currentConfig.circuitBreaker.activeTestTimeout,
       minTimeout: 15000,
       maxTimeout: 600000,
       activeTestMultiplier: 3,
@@ -249,9 +249,9 @@ export class AIOrchestrator {
     this.unsubscribeFromConfig = getConfigManager().registerComponentWatcher(
       'circuitBreaker',
       fullConfig => {
-        this.timeoutManager.updateDefaultTimeout(fullConfig.circuitBreaker.openTimeout);
+        this.timeoutManager.updateDefaultTimeout(fullConfig.circuitBreaker.activeTestTimeout);
         logger.info('TimeoutManager updated with config change', {
-          newDefault: fullConfig.circuitBreaker.openTimeout,
+          newDefault: fullConfig.circuitBreaker.activeTestTimeout,
         });
       }
     );
