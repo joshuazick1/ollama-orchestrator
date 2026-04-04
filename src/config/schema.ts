@@ -305,6 +305,82 @@ export const modelManagerConfigSchema = z.object({
     xl: z.number().int().min(1000).default(40000),
     xxl: z.number().int().min(1000).default(80000),
   }),
+  contextLimitTtlMs: z.number().int().min(1000).default(86400000), // 24 hours
+});
+
+/**
+ * Recovery test configuration schema
+ */
+export const recoveryTestConfigSchema = z.object({
+  /** Minimum ms between recovery tests on the same server */
+  serverCooldownMs: z.number().int().min(0).default(10000), // 10 seconds
+  /** Maximum ms to wait for in-flight requests to clear before testing */
+  maxWaitForInFlightMs: z.number().int().min(0).default(5000), // 5 seconds
+  /** Timeout for model-level inference recovery tests (ms) */
+  modelTestTimeoutMs: z.number().int().min(1000).default(120000), // 120 seconds
+  /** Timeout for lightweight /api/tags recovery tests (ms) */
+  tagsTestTimeoutMs: z.number().int().min(1000).default(5000), // 5 seconds
+  /** Number of tokens to use in active test prompts */
+  testPromptTokens: z.number().int().min(1).default(256),
+});
+
+/**
+ * Storage retention configuration schema
+ */
+export const storageRetentionConfigSchema = z.object({
+  /** Days to retain individual request rows */
+  requests: z.number().int().min(1).default(30),
+  /** Days to retain decision + candidate rows */
+  decisions: z.number().int().min(1).default(30),
+  /** Days to retain hourly/daily rollup rows */
+  rollups: z.number().int().min(1).default(90),
+  /** Trailing days used to build temporal profiles */
+  profiles: z.number().int().min(1).default(14),
+});
+
+/**
+ * Storage performance configuration schema
+ */
+export const storagePerformanceConfigSchema = z.object({
+  /** Max requests buffered before forced flush */
+  batchSize: z.number().int().min(1).default(100),
+  /** Max ms between forced flushes */
+  batchFlushIntervalMs: z.number().int().min(100).default(1000),
+  /** Minutes past the hour before rollup runs regardless of in-flight count */
+  rollupDeadlineMinutes: z.number().int().min(1).default(10),
+  /** Ms between daily profile rebuild jobs */
+  profileRebuildIntervalMs: z.number().int().min(60000).default(86400000), // 24 hours
+  /** Ms between retention pruning runs */
+  retentionCheckIntervalMs: z.number().int().min(60000).default(3600000), // 1 hour
+});
+
+/**
+ * Storage temporal configuration schema
+ */
+export const storageTemporalConfigSchema = z.object({
+  /** Enable temporal scoring adjustments in load balancer */
+  enabled: z.boolean().default(true),
+  /** Minimum confidence to apply temporal adjustment */
+  minConfidence: z.number().min(0).max(1).default(0.3),
+  /** Maximum latency multiplier from temporal scoring */
+  maxAdjustment: z.number().min(1).default(2.0),
+  /** Log-only shadow mode — adjustments not applied to routing */
+  shadowMode: z.boolean().default(false),
+  /** Confidence multiplier for model-wide Level 2 fallback */
+  modelFallbackConfidence: z.number().min(0).max(1).default(0.6),
+  /** Confidence multiplier for server-wide Level 3 fallback */
+  serverFallbackConfidence: z.number().min(0).max(1).default(0.4),
+});
+
+/**
+ * Storage configuration schema
+ */
+export const storageConfigSchema = z.object({
+  /** Path to the SQLite database file */
+  dbPath: z.string().default('./data/metrics.db'),
+  retention: storageRetentionConfigSchema,
+  performance: storagePerformanceConfigSchema,
+  temporal: storageTemporalConfigSchema,
 });
 
 /**
@@ -315,9 +391,6 @@ export const orchestratorConfigSchema = z.object({
   port: z.number().int().min(1).max(65535).default(5100),
   host: z.string().default('0.0.0.0'),
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  userAgent: z
-    .string()
-    .default(`ollama-orchestrator/${process.env.npm_package_version ?? '1.0.0'}`),
 
   // Feature toggles
   enableQueue: z.boolean().default(true),
@@ -325,10 +398,8 @@ export const orchestratorConfigSchema = z.object({
   enableMetrics: z.boolean().default(true),
   enableStreaming: z.boolean().default(true),
   enablePersistence: z.boolean().default(true),
-  enableAuth: z.boolean().default(false),
 
   // Sub-configurations
-  queue: queueConfigSchema,
   loadBalancer: loadBalancerConfigSchema,
   circuitBreaker: circuitBreakerConfigSchema,
   security: securityConfigSchema,
@@ -339,6 +410,8 @@ export const orchestratorConfigSchema = z.object({
   retry: retryConfigSchema,
   cooldown: cooldownConfigSchema,
   modelManager: modelManagerConfigSchema,
+  recoveryTest: recoveryTestConfigSchema,
+  storage: storageConfigSchema,
 
   // Ollama servers
   servers: z.array(serverConfigSchema).default([]),
@@ -362,6 +435,11 @@ export type LoadBalancerConfig = z.infer<typeof loadBalancerConfigSchema>;
 export type CircuitBreakerConfig = z.infer<typeof circuitBreakerConfigSchema>;
 export type QueueConfig = z.infer<typeof queueConfigSchema>;
 export type ModelManagerConfig = z.infer<typeof modelManagerConfigSchema>;
+export type RecoveryTestConfig = z.infer<typeof recoveryTestConfigSchema>;
+export type StorageRetentionConfig = z.infer<typeof storageRetentionConfigSchema>;
+export type StoragePerformanceConfig = z.infer<typeof storagePerformanceConfigSchema>;
+export type StorageTemporalConfig = z.infer<typeof storageTemporalConfigSchema>;
+export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
 
 /**
