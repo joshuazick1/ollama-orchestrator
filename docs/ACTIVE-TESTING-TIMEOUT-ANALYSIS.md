@@ -2312,18 +2312,119 @@ Based on severity, dependency relationships, and effort:
 
 Depends on Wave 1 (schema alignment) and Wave 2 (config wiring). Must be completed before Wave 8.
 
-| Task | Finding        | Description                                                                              |
-| ---- | -------------- | ---------------------------------------------------------------------------------------- |
-| 7.1  | Infrastructure | Create `OperationalStore` class (`src/storage/operational-store.ts`) with shared DB conn |
-| 7.2  | Infrastructure | Add schema migration v2 with 8 new tables in `src/storage/schema.ts`                     |
-| 7.3  | F-DB-1         | Migrate bans: new `bans` table, update `BanManager` to use `OperationalStore`            |
-| 7.4  | F-DB-2, F-TO-8 | Migrate adaptive timeouts: new `adaptive_timeouts` table, persist full `TimeoutState`    |
-| 7.5  | F-DB-3         | Migrate CB state: new `circuit_breaker_state` + `circuit_breaker_transitions` tables     |
-| 7.6  | F-DB-4         | Migrate server metrics snapshot: new `server_metrics_snapshot` table                     |
-| 7.7  | F-DB-5         | Migrate recovery failures: new `recovery_failures` table                                 |
-| 7.8  | F-DB-6         | Migrate metrics summary: new `metrics_summary` table                                     |
-| 7.9  | Cleanup        | Remove `JsonFileHandler` usage from migrated paths, add JSON→SQLite auto-migration       |
-| 7.10 | Testing        | Unit tests for `OperationalStore` CRUD operations and migration                          |
+Each task is broken down into atomic subtasks. **Testing gate** (typecheck → lint → unit tests) runs after every subtask group (7.1.x, 7.2.x, … 7.10.x). Commit after each passing gate.
+
+---
+
+#### Task 7.1 — OperationalStore class skeleton
+
+| Subtask | Description                                                                                                                                                              |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 7.1.1   | Create `src/storage/operational-store.ts` with class body, constructor accepting optional `dbPath`, open DB with WAL mode + `foreign_keys = ON` + `synchronous = NORMAL` |
+| 7.1.2   | Add module-level singleton helpers: `getOperationalStore()`, `setOperationalStore()`, `resetOperationalStore()`                                                          |
+| 7.1.3   | Add `close()` lifecycle method; wire `getOperationalStore().close()` into orchestrator shutdown sequence                                                                 |
+
+---
+
+#### Task 7.2 — Schema migration v2 (8 new tables)
+
+| Subtask | Description                                                                                                       |
+| ------- | ----------------------------------------------------------------------------------------------------------------- |
+| 7.2.1   | Add `SCHEMA_V2_MIGRATION` DDL constant to `src/storage/schema.ts` — `bans` table + indexes                        |
+| 7.2.2   | Add `adaptive_timeouts` table + index to migration DDL                                                            |
+| 7.2.3   | Add `circuit_breaker_state` + `circuit_breaker_transitions` tables + indexes to migration DDL                     |
+| 7.2.4   | Add `server_metrics_snapshot` table + index to migration DDL                                                      |
+| 7.2.5   | Add `recovery_failures` table + indexes to migration DDL                                                          |
+| 7.2.6   | Add `metrics_summary` table + indexes to migration DDL                                                            |
+| 7.2.7   | Bump `CURRENT_SCHEMA_VERSION` to `2`, register `MIGRATIONS[2] = SCHEMA_V2_MIGRATION` in the migrations map        |
+| 7.2.8   | Apply schema in `OperationalStore` constructor via `applySchema(this.db)` — confirms migration runs on first open |
+
+---
+
+#### Task 7.3 — Bans migration (F-DB-1)
+
+| Subtask | Description                                                                                                                                                                                                      |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.3.1   | Add `addBan(serverId, model, reason?)`, `removeBan(serverId, model)`, `getActiveBans()`, `removeServerBans(serverId)`, `getBanHistory(serverId?, since?)` methods to `OperationalStore` with prepared statements |
+| 7.3.2   | Add private `migrateJsonBans(filePath)` helper: read `bans.json` → INSERT each entry as active ban with `reason = 'migrated'` → rename file to `bans.json.bak`                                                   |
+| 7.3.3   | Update `BanManager.addBan()`, `removeBan()`, `removeServerBans()`, `removeModelBans()`, `clearAllBans()`, `loadState()`, `getState()` to call `OperationalStore` instead of in-memory Set                        |
+| 7.3.4   | Remove `saveBansToDisk()` / `loadBansFromDisk()` call sites from `orchestrator-persistence.ts`; remove `bansConfig` import; delete `bansConfig` from `config-manager.ts`                                         |
+
+---
+
+#### Task 7.4 — Adaptive timeouts migration (F-DB-2, F-TO-8)
+
+| Subtask | Description                                                                                                                                                                                                       |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.4.1   | Add `saveTimeout(key, state)`, `getTimeout(key)`, `getAllTimeouts()`, `pruneStaleTimeouts(maxAgeDays)` to `OperationalStore` with prepared statements — stores full `TimeoutState` (base + current + lastUpdated) |
+| 7.4.2   | Add private `migrateJsonTimeouts(filePath)` helper: read `timeouts.json` (handles both legacy `number` and `TimeoutState` formats) → UPSERT each → rename to `.bak`                                               |
+| 7.4.3   | Update `saveTimeoutsToDisk()` / `loadTimeoutsFromDisk()` in `orchestrator-persistence.ts` to delegate to `OperationalStore`                                                                                       |
+| 7.4.4   | Remove `timeoutsConfig` from `config-manager.ts`; remove the now-dead `timeoutsConfig` import from `orchestrator-persistence.ts`                                                                                  |
+
+---
+
+#### Task 7.5 — Circuit breaker state migration (F-DB-3)
+
+| Subtask | Description                                                                                                                                                             |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.5.1   | Add `saveCircuitBreakerState(serverId, model, state)`, `getCircuitBreakerState(serverId, model)`, `getAllCircuitBreakerStates()` to `OperationalStore` — UPSERT pattern |
+| 7.5.2   | Add `recordCBTransition(serverId, model, from, to, reason)`, `getCBTransitions(serverId, model?, since?)` to `OperationalStore`                                         |
+| 7.5.3   | Add private `migrateJsonCircuitBreakers(filePath)` helper: read `circuit-breakers.json` → UPSERT each breaker into `circuit_breaker_state` → rename to `.bak`           |
+| 7.5.4   | Rewrite `CircuitBreakerPersistence.save()` / `load()` / `scheduleSave()` to delegate to `OperationalStore`; remove `JsonFileHandler` dependency                         |
+
+---
+
+#### Task 7.6 — Server metrics snapshot migration (F-DB-4)
+
+| Subtask | Description                                                                                                                                                                   |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.6.1   | Add `saveMetricsSnapshot(serverId, model, metrics)`, `getMetricsSnapshot(serverId, model)`, `getAllMetricsSnapshots()`, `pruneStaleSnapshots(maxAgeMs)` to `OperationalStore` |
+| 7.6.2   | Add private `migrateJsonMetrics(filePath)` helper: read `metrics.json` → UPSERT each `ServerModelMetrics` entry → rename to `.bak`                                            |
+| 7.6.3   | Rewrite `MetricsPersistence.save()` / `load()` / `scheduleSave()` to delegate to `OperationalStore`; remove `JsonFileHandler` dependency                                      |
+
+---
+
+#### Task 7.7 — Recovery failures migration (F-DB-5)
+
+| Subtask | Description                                                                                                                                                                                  |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.7.1   | Add `recordRecoveryFailure(serverId, model?, failure)`, `getRecoveryFailures(serverId?, since?)`, `pruneOldRecoveryFailures(maxAgeDays)` to `OperationalStore`                               |
+| 7.7.2   | Add private `migrateJsonRecoveryFailures(filePath)` helper: read `recovery-failures.json` (PersistenceData shape) → INSERT `records` array into `recovery_failures` table → rename to `.bak` |
+| 7.7.3   | Rewrite `RecoveryFailureTracker.persistToDisk()` / `loadFromDisk()` to delegate to `OperationalStore`; remove `JsonFileHandler` from tracker                                                 |
+
+---
+
+#### Task 7.8 — Metrics summary migration (F-DB-6)
+
+| Subtask | Description                                                                                                                                                                                                                            |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.8.1   | Add `recordMetricsSummary(snapshot)`, `getMetricsSummaries(since?, until?)`, `getLatestMetricsSummary()`, `pruneOldMetricsSummaries(maxAgeDays)` to `OperationalStore` — serializes per-server detail into `snapshot_data` JSON column |
+| 7.8.2   | Add private `migrateJsonMetricsSummary(filePath)` helper: read `metrics-summary.json` (`PersistedMetricsSummary` shape) → INSERT snapshots → rename to `.bak`                                                                          |
+| 7.8.3   | Rewrite `AnalyticsEngine.persistSummary()` / `loadSummaryFromDisk()` to delegate to `OperationalStore`; remove `JsonFileHandler` from analytics engine for summary writes                                                              |
+
+---
+
+#### Task 7.9 — Auto-migration startup + cleanup
+
+| Subtask | Description                                                                                                                                                                                                                                                                                                                      |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.9.1   | Add `runStartupMigrations()` method to `OperationalStore` that detects all 5 JSON files (`bans.json`, `timeouts.json`, `circuit-breakers.json`, `metrics.json`, `recovery-failures.json`, `metrics-summary.json`) and calls the appropriate `migrateJson*()` helper for each that still exists (i.e., not yet renamed to `.bak`) |
+| 7.9.2   | Wire `runStartupMigrations()` call into orchestrator startup sequence, **before** any subsystem loads its state from the store                                                                                                                                                                                                   |
+| 7.9.3   | Remove now-dead `bansConfig` / `timeoutsConfig` definitions from `config-manager.ts`; remove their `JsonFileHandler` call sites; verify no dangling imports remain across the codebase                                                                                                                                           |
+
+---
+
+#### Task 7.10 — Unit tests
+
+| Subtask | Description                                                                                                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7.10.1  | Unit tests for `OperationalStore` bans CRUD: `addBan`, `removeBan`, `getActiveBans`, `removeServerBans`, `getBanHistory`                                                                                |
+| 7.10.2  | Unit tests for `OperationalStore` adaptive timeouts CRUD: `saveTimeout`, `getTimeout`, `getAllTimeouts`, `pruneStaleTimeouts`                                                                           |
+| 7.10.3  | Unit tests for `OperationalStore` circuit breaker state CRUD + transitions: `saveCircuitBreakerState`, `getCircuitBreakerState`, `getAllCircuitBreakerStates`, `recordCBTransition`, `getCBTransitions` |
+| 7.10.4  | Unit tests for `OperationalStore` metrics snapshot CRUD: `saveMetricsSnapshot`, `getMetricsSnapshot`, `getAllMetricsSnapshots`, `pruneStaleSnapshots`                                                   |
+| 7.10.5  | Unit tests for `OperationalStore` recovery failures CRUD: `recordRecoveryFailure`, `getRecoveryFailures`, `pruneOldRecoveryFailures`                                                                    |
+| 7.10.6  | Unit tests for `OperationalStore` metrics summary CRUD: `recordMetricsSummary`, `getMetricsSummaries`, `getLatestMetricsSummary`, `pruneOldMetricsSummaries`                                            |
+| 7.10.7  | Unit tests for JSON→SQLite migration path: each of the 6 `migrateJson*()` helpers — valid input, empty file, missing file, already-migrated (`.bak` exists)                                             |
 
 ### Wave 8 — Inference Probing System (High effort)
 
