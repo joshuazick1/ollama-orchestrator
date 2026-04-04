@@ -24,8 +24,8 @@ export const serverConfigSchema = z.object({
  * Security configuration schema
  */
 export const securityConfigSchema = z.object({
-  corsOrigins: z.array(z.string()).default(['*']),
-  rateLimitWindowMs: z.number().int().min(1000).default(900000), // 15 minutes
+  corsOrigins: z.array(z.string()).default([]),
+  rateLimitWindowMs: z.number().int().min(1000).default(60000), // 1 minute
   rateLimitMax: z.number().int().min(1).default(100),
   apiKeyHeader: z.string().optional(),
   apiKeys: z.array(z.string()).optional(),
@@ -87,7 +87,7 @@ export const healthCheckConfigSchema = z.object({
  * Tags aggregation configuration schema
  */
 export const tagsConfigSchema = z.object({
-  cacheTtlMs: z.number().int().min(1000).default(30000), // 30 seconds
+  cacheTtlMs: z.number().int().min(1000).default(300000), // 5 minutes
   maxConcurrentRequests: z.number().int().min(1).default(10),
   batchDelayMs: z.number().int().min(0).default(50),
   requestTimeoutMs: z.number().int().min(1000).default(5000),
@@ -205,7 +205,7 @@ export const circuitBreakerConfigSchema = z.object({
   maxFailureThreshold: z.number().int().min(1).default(10),
   minFailureThreshold: z.number().int().min(1).default(3),
   openTimeout: z.number().int().min(1000).default(120000), // 2 minutes
-  halfOpenTimeout: z.number().int().min(1000).default(60000), // 1 minute
+  halfOpenTimeout: z.number().int().min(1000).default(300000), // 5 minutes - match activeTestTimeout
   halfOpenMaxRequests: z.number().int().min(1).default(5),
   recoverySuccessThreshold: z.number().int().min(1).default(3),
   errorRateWindow: z.number().int().min(1000).default(60000), // 1 minute
