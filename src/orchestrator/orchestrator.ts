@@ -39,6 +39,7 @@ import {
 } from '../recovery-test-coordinator.js';
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 import { BanManager } from '../utils/ban-manager.js';
 import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
 import { fetchWithTimeout, parseResponse } from '../utils/fetch-with-timeout.js';
@@ -4580,6 +4581,8 @@ export class AIOrchestrator {
     this.inFlightManager.clear();
     this.banManager.clearAllCooldowns();
     this.circuitBreakerRegistry.clear();
+
+    getOperationalStore().close();
 
     logger.info('Orchestrator shutdown complete');
   }
