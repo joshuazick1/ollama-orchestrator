@@ -124,7 +124,10 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
       requestId: originalRequest.id,
       upstreamUrl,
       continuationPromptLength: (continuationRequest.prompt as string)?.length ?? 0,
-      messagesCount: ((continuationRequest.messages as unknown[]) || []).length,
+      messagesCount: (Array.isArray(continuationRequest.messages)
+        ? continuationRequest.messages
+        : []
+      ).length,
     });
 
     let upstreamResponse: globalThis.Response;
@@ -335,7 +338,7 @@ function buildOllamaChatContinuation(
   request: StreamingRequestProgress,
   originalBody: Record<string, unknown>
 ): Record<string, unknown> {
-  const originalMessages = (originalBody.messages as unknown[]) || [];
+  const originalMessages = Array.isArray(originalBody.messages) ? originalBody.messages : [];
 
   const messages = [
     ...originalMessages,
@@ -378,7 +381,7 @@ function buildOpenAIChatContinuation(
   request: StreamingRequestProgress,
   originalBody: Record<string, unknown>
 ): Record<string, unknown> {
-  const originalMessages = (originalBody.messages as unknown[]) || [];
+  const originalMessages = Array.isArray(originalBody.messages) ? originalBody.messages : [];
 
   const messages = [
     ...originalMessages,

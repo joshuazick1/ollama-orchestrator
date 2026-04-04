@@ -31,6 +31,7 @@ import {
 } from '../load-balancer/load-balancer.js';
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { MetricsAggregator } from '../metrics/index.js';
+import { getModelManager } from '../model-manager.js';
 import {
   getRecoveryTestCoordinator,
   RecoveryTestCoordinator,
@@ -201,7 +202,7 @@ export class AIOrchestrator {
 
     this.healthCheckScheduler = new HealthCheckScheduler(
       healthCheckConfig ?? this.config.healthCheck,
-      () => this.servers,
+      () => [...this.servers],
       result => this.onHealthCheckResult(result),
       results => this.onAllHealthChecksComplete(results),
       server => this.runActiveTestsForServer(server)
@@ -209,7 +210,7 @@ export class AIOrchestrator {
 
     this.activeTestScheduler = new ActiveTestScheduler(
       this.circuitBreakerRegistry,
-      () => this.servers,
+      () => [...this.servers],
       server => this.runActiveTestsForServer(server)
     );
 
@@ -771,6 +772,7 @@ export class AIOrchestrator {
 
     this.servers.push(newServer);
     this.modelAggregator.addServer(newServer);
+    getModelManager().registerServer(newServer);
     logger.info(`Added server ${server.id} at ${normalizedUrl}`);
 
     // Invalidate cache since we added a new server
@@ -802,6 +804,7 @@ export class AIOrchestrator {
       this.circuitBreakerRegistry.removeByPrefix(serverId);
 
       this.banManager.removeServerBans(serverId);
+      getModelManager().unregisterServer(serverId);
 
       // Persist servers to disk if enabled
       if (this.config.enablePersistence) {
@@ -1816,14 +1819,9 @@ export class AIOrchestrator {
       throw new Error('Request aborted');
     }
 
-    // Resolve model name for matching (REC-48)
-    // Determine which model list to use based on required capability (REC-47)
-    const modelListKey = requiredCapability === 'openai' ? 'v1Models' : 'models';
-
     // Track context-filtered servers for better error messages
     let contextFilteredCount = 0;
     let smallestContextLimit = Infinity;
-
     const eligibleServers = this.servers.filter(s => {
       // Check capability requirement
       if (requiredCapability === 'ollama' && s.supportsOllama === false) {
@@ -1834,7 +1832,7 @@ export class AIOrchestrator {
       }
 
       // Get the appropriate model list for this capability
-      const availableModels = (s as any)[modelListKey] ?? s.models;
+      const availableModels = requiredCapability === 'openai' ? (s.v1Models ?? s.models) : s.models;
 
       // Resolve model name (try direct match, then :latest)
       const resolvedModel = this.resolveModelName(model, availableModels);
@@ -1961,7 +1959,8 @@ export class AIOrchestrator {
       } else {
         // Check if no servers have the model
         const modelServers = capabilityServers.filter(s => {
-          const availableModels = (s as any)[modelListKey] ?? s.models;
+          const availableModels =
+            requiredCapability === 'openai' ? (s.v1Models ?? s.models) : s.models;
           const resolvedModel = this.resolveModelName(model, availableModels);
           return resolvedModel !== null;
         });
@@ -2570,7 +2569,7 @@ export class AIOrchestrator {
           const timeInHalfOpen = now - stats.halfOpenStartedAt;
           if (timeInHalfOpen > cfg.halfOpenTimeout) {
             logger.warn(
-              `Half-open breaker ${(cb as any).name} timed out in request path after ${timeInHalfOpen}ms (limit: ${cfg.halfOpenTimeout}ms), reverting to open`
+              `Half-open breaker ${cb.getName()} timed out in request path after ${timeInHalfOpen}ms (limit: ${cfg.halfOpenTimeout}ms), reverting to open`
             );
             cb.recordFailure(new Error('Half-open timeout in request path'), 'transient');
             return true;

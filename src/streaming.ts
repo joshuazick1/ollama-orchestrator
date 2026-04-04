@@ -10,6 +10,10 @@ import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 
+interface AbortSignalCompat extends AbortSignal {
+  onabort: ((this: AbortSignal, ev: Event) => unknown) | null;
+}
+
 export interface StreamResponseOptions {
   /** Callback when first token is received */
   onFirstToken?: () => void;
@@ -276,11 +280,11 @@ export async function streamResponse(
     const abortSignal = activityController?.controller.signal;
     if (abortSignal && abortHandler) {
       try {
-        if (typeof (abortSignal as any).addEventListener === 'function') {
-          (abortSignal as any).addEventListener('abort', abortHandler);
-        } else if ('onabort' in (abortSignal as any)) {
+        if (typeof (abortSignal as AbortSignalCompat).addEventListener === 'function') {
+          abortSignal.addEventListener('abort', abortHandler);
+        } else if ('onabort' in abortSignal) {
           // Some test mocks provide an `onabort` handler instead of addEventListener.
-          (abortSignal as any).onabort = abortHandler;
+          (abortSignal as AbortSignalCompat).onabort = abortHandler;
         }
       } catch (e) {
         logger.warn('Failed to attach abort listener to activityController.signal', {
@@ -719,13 +723,12 @@ export async function streamResponse(
       const abortSignal = activityController?.controller.signal;
       if (abortSignal && abortHandler) {
         try {
-          if (typeof (abortSignal as any).removeEventListener === 'function') {
+          if (typeof abortSignal.removeEventListener === 'function') {
             abortSignal.removeEventListener('abort', abortHandler);
             logger.debug('Removed abort listener via removeEventListener', { streamingRequestId });
-          } else if ('onabort' in (abortSignal as any)) {
-            // If test-mock set onabort, clear it
+          } else if ('onabort' in abortSignal) {
             try {
-              (abortSignal as any).onabort = undefined;
+              (abortSignal as AbortSignalCompat).onabort = null;
               logger.debug('Cleared onabort property on abortSignal (test-mock path)', {
                 streamingRequestId,
               });
