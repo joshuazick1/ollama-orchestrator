@@ -1272,13 +1272,13 @@ export class RecoveryTestCoordinator {
         // Check if tests were invalidated by a real request during testing
         if (this.serverTestsInvalidated.get(serverId)) {
           logger.info(`Test for ${breakerName} invalidated - real request arrived during testing`);
-          results.push({
+          results[results.length - 1] = {
             breakerName,
             model,
             success: false,
             duration,
             error: 'Test invalidated due to concurrent real request',
-          });
+          };
           // Notify orchestrator so it can re-schedule testing
           this.onTestsInvalidated?.(serverId);
         } else {
