@@ -29,12 +29,13 @@ function makeBreaker(name: string, state: 'open' | 'half-open' | 'closed' = 'hal
     recordFailure: vi.fn(),
     startActiveTest: vi.fn(),
     endActiveTest: vi.fn(),
+    getName: () => cb._name,
+    getModelType: () => undefined as 'embedding' | 'generation' | undefined,
+    setModelType: vi.fn(),
     get name() {
       return cb._name;
     },
   };
-  // Expose `name` as a non-enumerable own property the coordinator reads via `(breaker as any).name`
-  Object.defineProperty(cb, 'name', { value: name, writable: true });
   return cb as unknown as CircuitBreaker;
 }
 

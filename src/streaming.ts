@@ -466,8 +466,7 @@ export async function streamResponse(
                 stallCheckInterval = undefined;
               }
 
-              // Try to handle the stall - call the async handler
-              onStall(abortController, streamingRequestId)
+              void onStall(abortController, streamingRequestId)
                 .then(result => {
                   // If handler says it handled the handoff successfully, cancel the stalled
                   // reader so the original stream loop exits cleanly and no further chunks

@@ -606,6 +606,10 @@ export class CircuitBreaker {
     logger.debug(`Model type set to ${type} for ${this.name}`);
   }
 
+  getName(): string {
+    return this.name;
+  }
+
   /**
    * Infer model type from model name patterns
    * This is used as a fallback when active testing hasn't determined the type yet

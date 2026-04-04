@@ -402,7 +402,7 @@ export class RecoveryTestCoordinator {
    * Returns true if queued successfully, false if queue is full
    */
   queueForTest(breaker: CircuitBreaker): boolean {
-    const breakerName = (breaker as any).name || 'unknown';
+    const breakerName = breaker.getName();
     const serverId = this.getServerId(breakerName);
     const state = this.getServerState(serverId);
 
@@ -435,7 +435,7 @@ export class RecoveryTestCoordinator {
    * This is the main entry point that should replace direct performRecoveryTest calls
    */
   async performCoordinatedRecoveryTest(breaker: CircuitBreaker): Promise<boolean> {
-    const breakerName = (breaker as any).name || 'unknown';
+    const breakerName = breaker.getName();
     const serverId = this.getServerId(breakerName);
     const isServerLevel = this.isServerLevelBreaker(breakerName);
 
@@ -501,7 +501,7 @@ export class RecoveryTestCoordinator {
    * Perform lightweight test for server-level breaker
    */
   private async performServerLevelTest(breaker: CircuitBreaker): Promise<boolean> {
-    const breakerName = (breaker as any).name || 'unknown';
+    const breakerName = breaker.getName();
     const serverId = this.getServerId(breakerName);
     const state = this.getServerState(serverId);
 
@@ -611,7 +611,7 @@ export class RecoveryTestCoordinator {
     serverId: string,
     modelName: string
   ): Promise<boolean> {
-    const breakerName = (breaker as any).name || 'unknown';
+    const breakerName = breaker.getName();
     const state = this.getServerState(serverId);
 
     const useTimer = featureFlags.get('useTimerUtility');
@@ -640,14 +640,13 @@ export class RecoveryTestCoordinator {
           }
         );
         // Update model type if it was wrong
-        if ((breaker as any).setModelType && (breaker as any).getModelType?.() !== 'embedding') {
-          (breaker as any).setModelType('embedding');
+        if (breaker.getModelType() !== 'embedding') {
+          breaker.setModelType('embedding');
         }
         return this.performEmbeddingTest(breaker, serverId, modelName);
       }
 
-      // Check if model type is already known
-      const modelType = (breaker as any).getModelType?.();
+      const modelType = breaker.getModelType();
 
       if (modelType === 'embedding') {
         logger.info(`Model ${modelName} is embedding-only, skipping generate test`, {
@@ -768,10 +767,7 @@ export class RecoveryTestCoordinator {
             error: errorText,
           });
 
-          // Mark as embedding model
-          if ((breaker as any).setModelType) {
-            (breaker as any).setModelType('embedding');
-          }
+          breaker.setModelType('embedding');
 
           // Try embedding test instead
           return this.performEmbeddingTest(breaker, serverId, modelName);
@@ -842,7 +838,7 @@ export class RecoveryTestCoordinator {
     signal?: AbortSignal,
     timeoutMs?: number
   ): Promise<boolean> {
-    const breakerName = (breaker as any).name || 'unknown';
+    const breakerName = breaker.getName();
     const state = this.getServerState(serverId);
     const startTime = Date.now();
     const metricsStartTime = Date.now();
@@ -1169,7 +1165,7 @@ export class RecoveryTestCoordinator {
     );
 
     for (const { breaker, model } of toTest) {
-      const breakerName = (breaker as any).name || 'unknown';
+      const breakerName = breaker.getName();
       const startTime = Date.now();
 
       // Check for cancellation
@@ -1363,7 +1359,7 @@ export class RecoveryTestCoordinator {
     breaker: CircuitBreaker,
     signal: AbortSignal
   ): Promise<boolean> {
-    const breakerName = (breaker as any).name || 'unknown';
+    const breakerName = breaker.getName();
     const serverId = this.getServerId(breakerName);
 
     try {
@@ -1399,7 +1395,7 @@ export class RecoveryTestCoordinator {
     signal: AbortSignal,
     timeoutMs?: number
   ): Promise<boolean> {
-    const breakerName = (breaker as any).name || 'unknown';
+    const breakerName = breaker.getName();
     const effectiveTimeout = timeoutMs ?? this.config.modelTestTimeoutMs;
 
     try {

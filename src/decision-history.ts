@@ -339,7 +339,10 @@ export class DecisionHistory {
           scoreCount: 0,
         });
       }
-      const serverStats = stats.get(event.selectedServerId)!;
+      const serverStats = stats.get(event.selectedServerId);
+      if (!serverStats) {
+        continue;
+      }
       serverStats.selections++;
       serverStats.byModel.set(event.model, (serverStats.byModel.get(event.model) ?? 0) + 1);
 
@@ -353,7 +356,10 @@ export class DecisionHistory {
             scoreCount: 0,
           });
         }
-        const candidateStats = stats.get(candidate.serverId)!;
+        const candidateStats = stats.get(candidate.serverId);
+        if (!candidateStats) {
+          continue;
+        }
         candidateStats.totalScore += candidate.totalScore;
         candidateStats.scoreCount++;
       }

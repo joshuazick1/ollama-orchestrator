@@ -1327,11 +1327,12 @@ export class AIOrchestrator {
           servers: [serverId],
         });
       } else {
-        // Model already exists, add this server to the list
-        const existing = allTags.get(modelKey)!;
-        const servers = existing.servers as string[];
-        if (!servers.includes(serverId)) {
-          servers.push(serverId);
+        const existing = allTags.get(modelKey);
+        if (existing) {
+          const servers = existing.servers as string[];
+          if (!servers.includes(serverId)) {
+            servers.push(serverId);
+          }
         }
       }
     }
@@ -1353,8 +1354,8 @@ export class AIOrchestrator {
           if (!modelToServers.has(modelId)) {
             modelToServers.set(modelId, []);
           }
-          const servers = modelToServers.get(modelId)!;
-          if (!servers.includes(server.id)) {
+          const servers = modelToServers.get(modelId);
+          if (servers && !servers.includes(server.id)) {
             servers.push(server.id);
           }
         }
@@ -1589,7 +1590,12 @@ export class AIOrchestrator {
         return false;
       }
 
-      // Must not be permanently banned for this model
+      // Must not be permanently banned for this model.
+      // BanManager and CircuitBreaker are intentionally independent: BanManager enforces
+      // cooldown-based exclusions for specific server:model pairs (e.g. after repeated failures
+      // or explicit operator bans), while CircuitBreaker tracks failure-rate thresholds per
+      // server. Both checks are evaluated here to exclude a server from routing — neither is
+      // authoritative for all exclusion scenarios, providing defense-in-depth.
       if (this.banManager.isBanned(server.id, model)) {
         return false;
       }
@@ -3749,7 +3755,10 @@ export class AIOrchestrator {
   private async runActiveTestsForServer(
     server: AIServer
   ): Promise<Array<{ model: string; success: boolean; duration: number; error?: string }>> {
-    // Skip if this server is already undergoing active tests
+    // Fast-path guard: avoids entering RecoveryTestCoordinator when a test cycle is already
+    // running for this server. RecoveryTestCoordinator has its own independent `activeServers`
+    // Set (authoritative inner guard); this outer check is a performance optimization only.
+    // Both guards are intentional defense-in-depth and are not redundant.
     if (this.serversUndergoingActiveTests.has(server.id)) {
       logger.debug(`Skipping active tests for ${server.id} - already in progress`);
       return [];
