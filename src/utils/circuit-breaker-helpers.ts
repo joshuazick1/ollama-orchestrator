@@ -6,8 +6,6 @@
 
 import type { Request } from 'express';
 
-import { featureFlags } from '../config/feature-flags.js';
-
 /**
  * Check if circuit breaker should be bypassed
  */
@@ -30,14 +28,4 @@ export function extractCircuitBreakerOptions(req: Request): {
     : undefined;
 
   return { bypass, reason };
-}
-
-/**
- * Should bypass circuit breaker with feature flag support
- */
-export function shouldBypassWithFlag(req: Request): boolean {
-  if (!featureFlags.get('useCircuitBreakerHelpers')) {
-    return shouldBypassCircuitBreaker(req);
-  }
-  return shouldBypassCircuitBreaker(req);
 }

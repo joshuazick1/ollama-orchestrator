@@ -3,8 +3,6 @@
  * Async utility helpers for delays, timeouts, and concurrency
  */
 
-import { featureFlags } from '../config/feature-flags.js';
-
 /**
  * Sleep for specified milliseconds
  * Replaces scattered Promise/setTimeout patterns
@@ -90,14 +88,4 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
       fn(...args);
     }
   };
-}
-
-/**
- * Sleep with feature flag support
- */
-export function sleepWithFlag(ms: number): Promise<void> {
-  if (!featureFlags.get('useAsyncHelpers')) {
-    return sleep(ms);
-  }
-  return sleep(ms);
 }

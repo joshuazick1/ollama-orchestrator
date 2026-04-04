@@ -4,8 +4,6 @@
  * Centralizes pruning, cleanup, and filtering logic
  */
 
-import { featureFlags } from '../config/feature-flags.js';
-
 interface Timestamped {
   timestamp: number;
 }
@@ -85,17 +83,4 @@ export class SlidingWindow<T> {
   clear(): void {
     this.items = [];
   }
-}
-
-/**
- * Prune with feature flag support
- */
-export function pruneCollectionWithFlag<T extends Timestamped>(
-  items: T[],
-  options: { maxAgeMs?: number; maxSize?: number; now?: number }
-): T[] {
-  if (!featureFlags.get('useCollectionHelpers')) {
-    return items;
-  }
-  return pruneCollection(items, options);
 }

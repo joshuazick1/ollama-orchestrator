@@ -7,45 +7,20 @@ export interface FeatureFlags {
   // Phase 1: Foundation
   /** Enable Timer utility instead of Date.now() */
   useTimerUtility: boolean;
-  /** Enable TTFTTracker for consistent TTFT calculation */
-  useTTFTTracker: boolean;
-
-  // Phase 2: Context
-  /** Enable RequestContextBuilder */
-  useContextBuilder: boolean;
 
   // Phase 3: Statistics
   /** Enable Statistics utility for percentile calculation */
   useStatisticsUtility: boolean;
   /** Enable TokenMetricsExtractor */
   useTokenExtractor: boolean;
-
-  // Phase 4: Common Utilities
-  /** Enable error helper utilities */
-  useErrorHelpers: boolean;
-  /** Enable async helper utilities */
-  useAsyncHelpers: boolean;
-  /** Enable collection helper utilities */
-  useCollectionHelpers: boolean;
-  /** Enable math helper utilities */
-  useMathHelpers: boolean;
-  /** Enable circuit breaker helper utilities */
-  useCircuitBreakerHelpers: boolean;
 }
 
 // Default: Enable all features for new deployments
 // Set to false for gradual rollout
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   useTimerUtility: true, // Phase 1 - enabled
-  useTTFTTracker: true, // Phase 1 - enabled
-  useContextBuilder: true, // Phase 2 - enabled
   useStatisticsUtility: true, // Phase 3 - enabled
   useTokenExtractor: true, // Phase 3 - enabled
-  useErrorHelpers: true, // Phase 4 - enabled
-  useAsyncHelpers: true, // Phase 4 - enabled
-  useCollectionHelpers: true, // Phase 4 - enabled
-  useMathHelpers: true, // Phase 4 - enabled
-  useCircuitBreakerHelpers: true, // Phase 4 - enabled
 };
 
 // Feature flag manager

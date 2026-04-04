@@ -9,7 +9,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   shouldBypassCircuitBreaker,
   extractCircuitBreakerOptions,
-  shouldBypassWithFlag,
 } from '../../src/utils/circuit-breaker-helpers.js';
 
 describe('circuit-breaker-helpers', () => {
@@ -79,16 +78,6 @@ describe('circuit-breaker-helpers', () => {
       const result = extractCircuitBreakerOptions(mockReq as Request);
 
       expect(result).toEqual({ bypass: false });
-    });
-  });
-
-  describe('shouldBypassWithFlag', () => {
-    it('should call shouldBypassCircuitBreaker', () => {
-      mockReq.query = { bypass: 'true' };
-
-      const result = shouldBypassWithFlag(mockReq as Request);
-
-      expect(result).toBe(true);
     });
   });
 });

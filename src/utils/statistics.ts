@@ -4,8 +4,6 @@
  * Replaces duplicated percentile and average implementations
  */
 
-import { featureFlags } from '../config/feature-flags.js';
-
 export interface PercentileResult {
   p50: number;
   p95: number;
@@ -142,19 +140,5 @@ export class Statistics {
       return 0;
     }
     return (count / timeMs) * 1000; // per second
-  }
-
-  /**
-   * Calculate percentiles using feature flag
-   * If flag is disabled, returns default zeros
-   */
-  static calculatePercentilesWithFlag(
-    values: number[],
-    percentiles: number[] = [0.5, 0.95, 0.99]
-  ): PercentileResult {
-    if (!featureFlags.get('useStatisticsUtility')) {
-      return { p50: 0, p95: 0, p99: 0 };
-    }
-    return this.calculatePercentiles(values, percentiles);
   }
 }

@@ -4,8 +4,6 @@
  * Eliminates 73+ duplicate patterns across the codebase
  */
 
-import { featureFlags } from '../config/feature-flags.js';
-
 import { isOrchestratorError } from './domain-errors.js';
 
 /**
@@ -78,15 +76,4 @@ export function formatErrorResponse(error: unknown): {
     title: details.message,
     detail: details.stack?.split('\n')[1]?.trim(),
   };
-}
-
-/**
- * Get error message with feature flag support
- * Returns empty string if flag is disabled
- */
-export function getErrorMessageWithFlag(error: unknown): string {
-  if (!featureFlags.get('useErrorHelpers')) {
-    return getErrorMessage(error);
-  }
-  return getErrorMessage(error);
 }

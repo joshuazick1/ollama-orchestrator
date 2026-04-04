@@ -11,7 +11,6 @@ import {
   withRetry,
   debounce,
   throttle,
-  sleepWithFlag,
 } from '../../src/utils/async-helpers.js';
 
 describe('async-helpers', () => {
@@ -72,7 +71,9 @@ describe('async-helpers', () => {
       let attempts = 0;
       const fn = async () => {
         attempts++;
-        if (attempts < 3) {throw new Error('fail');}
+        if (attempts < 3) {
+          throw new Error('fail');
+        }
         return 'success';
       };
 
@@ -155,15 +156,6 @@ describe('async-helpers', () => {
       throttledFn();
 
       expect(fn).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('sleepWithFlag', () => {
-    it('should sleep for specified time', async () => {
-      const promise = sleepWithFlag(100);
-      vi.advanceTimersByTime(100);
-      await promise;
-      expect(true).toBe(true);
     });
   });
 });

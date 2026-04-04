@@ -5,14 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import {
-  clamp,
-  lerp,
-  calculateBackoff,
-  roundTo,
-  inRange,
-  clampWithFlag,
-} from '../../src/utils/math-helpers.js';
+import { clamp, lerp, calculateBackoff, roundTo, inRange } from '../../src/utils/math-helpers.js';
 
 describe('math-helpers', () => {
   describe('clamp', () => {
@@ -89,14 +82,6 @@ describe('math-helpers', () => {
     it('should include boundaries', () => {
       expect(inRange(0, 0, 10)).toBe(true);
       expect(inRange(10, 0, 10)).toBe(true);
-    });
-  });
-
-  describe('clampWithFlag', () => {
-    it('should clamp value like regular clamp', () => {
-      expect(clampWithFlag(5, 0, 10)).toBe(5);
-      expect(clampWithFlag(-5, 0, 10)).toBe(0);
-      expect(clampWithFlag(15, 0, 10)).toBe(10);
     });
   });
 });

@@ -166,16 +166,4 @@ describe('Statistics', () => {
       expect(result).toBe(1000);
     });
   });
-
-  describe('calculatePercentilesWithFlag', () => {
-    // Note: This feature flag test is complex to mock properly
-    // The function delegates to calculatePercentiles when flag is enabled
-    it('should calculate percentiles (delegates to calculatePercentiles)', () => {
-      const values = Array.from({ length: 100 }, (_, i) => i + 1);
-      const result = Statistics.calculatePercentilesWithFlag(values);
-      expect(result.p50).toBe(50);
-      expect(result.p95).toBe(95);
-      expect(result.p99).toBe(99);
-    });
-  });
 });

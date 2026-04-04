@@ -3,8 +3,6 @@
  * Mathematical utility functions
  */
 
-import { featureFlags } from '../config/feature-flags.js';
-
 /**
  * Clamp value between min and max (inclusive)
  * Replaces Math.max(min, Math.min(max, value)) pattern
@@ -46,14 +44,4 @@ export function roundTo(value: number, decimals: number): number {
  */
 export function inRange(value: number, min: number, max: number): boolean {
   return value >= min && value <= max;
-}
-
-/**
- * Clamp with feature flag support
- */
-export function clampWithFlag(value: number, min: number, max: number): number {
-  if (!featureFlags.get('useMathHelpers')) {
-    return clamp(value, min, max);
-  }
-  return clamp(value, min, max);
 }

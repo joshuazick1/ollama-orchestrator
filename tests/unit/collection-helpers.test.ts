@@ -10,7 +10,6 @@ import {
   pruneByMaxSize,
   pruneCollection,
   SlidingWindow,
-  pruneCollectionWithFlag,
 } from '../../src/utils/collection-helpers.js';
 
 interface TestItem {
@@ -114,17 +113,6 @@ describe('collection-helpers', () => {
       window.add(2);
       window.clear();
       expect(window.size).toBe(0);
-    });
-  });
-
-  describe('pruneCollectionWithFlag', () => {
-    it('should prune collection normally', () => {
-      const items: TestItem[] = [
-        { timestamp: Date.now() - 10000, value: 'old' },
-        { timestamp: Date.now(), value: 'new' },
-      ];
-      const result = pruneCollectionWithFlag(items, { maxAgeMs: 1000 });
-      expect(result).toHaveLength(1);
     });
   });
 });

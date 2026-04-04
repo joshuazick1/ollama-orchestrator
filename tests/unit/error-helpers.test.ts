@@ -9,7 +9,6 @@ import {
   getErrorMessage,
   getErrorDetails,
   formatErrorResponse,
-  getErrorMessageWithFlag,
 } from '../../src/utils/error-helpers.js';
 
 describe('error-helpers', () => {
@@ -75,13 +74,6 @@ describe('error-helpers', () => {
       expect(response.title).toBe('string error');
       expect(response.status).toBe(500);
       expect(response.type).toBe('https://orchestrator.local/errors/internal_server_error');
-    });
-  });
-
-  describe('getErrorMessageWithFlag', () => {
-    it('should return error message', () => {
-      const error = new Error('test');
-      expect(getErrorMessageWithFlag(error)).toBe('test');
     });
   });
 });
