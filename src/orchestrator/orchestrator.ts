@@ -29,6 +29,7 @@ import {
   calculateServerScore,
   type LoadBalancerConfig,
 } from '../load-balancer/load-balancer.js';
+import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { MetricsAggregator } from '../metrics/index.js';
 import {
   getRecoveryTestCoordinator,
@@ -270,6 +271,9 @@ export class AIOrchestrator {
 
     // Update health check scheduler
     this.healthCheckScheduler.updateConfig(config.healthCheck);
+
+    this.metricsAggregator.setDecayConfig(config.metrics.decay);
+    getTemporalScorer().updateConfig(config.storage.temporal);
 
     logger.info('Orchestrator config updated at runtime');
   }
