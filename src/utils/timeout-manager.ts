@@ -20,12 +20,10 @@ export interface TimeoutState {
   lastUpdated: number;
   baseTimeout: number;
   currentTimeout: number;
-  consecutiveFailures: number;
-  consecutiveSuccesses: number;
 }
 
 export interface PersistedTimeoutData {
-  timeouts: Record<string, Omit<TimeoutState, 'consecutiveFailures' | 'consecutiveSuccesses'>>;
+  timeouts: Record<string, TimeoutState>;
   version: number;
 }
 
@@ -68,8 +66,6 @@ export class TimeoutManager {
         lastUpdated: Date.now(),
         baseTimeout: clampedTimeout,
         currentTimeout: clampedTimeout,
-        consecutiveFailures: 0,
-        consecutiveSuccesses: 0,
       });
     }
 
@@ -90,8 +86,6 @@ export class TimeoutManager {
         lastUpdated: Date.now(),
         baseTimeout: this.config.defaultTimeout,
         currentTimeout: this.config.defaultTimeout,
-        consecutiveFailures: 0,
-        consecutiveSuccesses: 0,
       };
       this.timeouts.set(key, state);
     }
@@ -111,8 +105,6 @@ export class TimeoutManager {
     state.currentTimeout = alpha * newTimeout + (1 - alpha) * state.currentTimeout;
     state.currentTimeout = Math.max(state.currentTimeout, this.config.minTimeout);
     state.lastUpdated = Date.now();
-    state.consecutiveSuccesses++;
-    state.consecutiveFailures = 0;
 
     logger.info(
       `Timeout updated for ${key}: ${state.currentTimeout}ms (${multiplier}x ${responseTimeMs}ms, isActiveTest: ${isActiveTest})`
@@ -128,8 +120,6 @@ export class TimeoutManager {
         lastUpdated: Date.now(),
         baseTimeout: this.config.defaultTimeout,
         currentTimeout: this.config.defaultTimeout,
-        consecutiveFailures: 0,
-        consecutiveSuccesses: 0,
       };
       this.timeouts.set(key, state);
     }
@@ -138,9 +128,6 @@ export class TimeoutManager {
       state.currentTimeout = Math.min(state.currentTimeout * 1.5, this.config.maxTimeout);
       logger.info(`Timeout escalated for ${key}: ${state.currentTimeout}ms`);
     }
-
-    state.consecutiveFailures++;
-    state.consecutiveSuccesses = 0;
   }
 
   reset(serverId: string, model: string): void {
@@ -194,28 +181,17 @@ export class TimeoutManager {
     }
 
     for (const [key, savedState] of Object.entries(data.timeouts)) {
-      this.timeouts.set(key, {
-        ...savedState,
-        consecutiveFailures: 0,
-        consecutiveSuccesses: 0,
-      });
+      this.timeouts.set(key, { ...savedState });
     }
 
     logger.info(`Loaded ${Object.keys(data.timeouts).length} timeouts from persistence`);
   }
 
   toPersistedData(): PersistedTimeoutData {
-    const timeouts: Record<
-      string,
-      Omit<TimeoutState, 'consecutiveFailures' | 'consecutiveSuccesses'>
-    > = {};
+    const timeouts: Record<string, TimeoutState> = {};
 
     for (const [key, state] of this.timeouts) {
-      timeouts[key] = {
-        lastUpdated: state.lastUpdated,
-        baseTimeout: state.baseTimeout,
-        currentTimeout: state.currentTimeout,
-      };
+      timeouts[key] = { ...state };
     }
 
     return {

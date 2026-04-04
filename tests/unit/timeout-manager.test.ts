@@ -97,21 +97,6 @@ describe('TimeoutManager', () => {
       expect(timeout).toBeGreaterThanOrEqual(30000);
     });
 
-    it('should increment consecutiveSuccesses', () => {
-      manager.updateFromResponseTime('server-1', 'llama3:latest', 10000, false);
-      manager.updateFromResponseTime('server-1', 'llama3:latest', 10000, false);
-      const state = manager.getTimeoutState('server-1', 'llama3:latest');
-      expect(state?.consecutiveSuccesses).toBe(2);
-    });
-
-    it('should reset consecutiveFailures on success', () => {
-      manager.recordFailure('server-1', 'llama3:latest');
-      manager.recordFailure('server-1', 'llama3:latest');
-      manager.updateFromResponseTime('server-1', 'llama3:latest', 10000, false);
-      const state = manager.getTimeoutState('server-1', 'llama3:latest');
-      expect(state?.consecutiveFailures).toBe(0);
-    });
-
     it('should not go below minTimeout', () => {
       manager.updateFromResponseTime('server-1', 'llama3:latest', 1000, false);
       const timeout = manager.getTimeout('server-1', 'llama3:latest');
@@ -120,26 +105,10 @@ describe('TimeoutManager', () => {
   });
 
   describe('recordFailure', () => {
-    it('should increment consecutiveFailures', () => {
-      manager.setTimeout('server-1', 'llama3:latest', 60000);
-      manager.recordFailure('server-1', 'llama3:latest');
-      manager.recordFailure('server-1', 'llama3:latest');
-      const state = manager.getTimeoutState('server-1', 'llama3:latest');
-      expect(state?.consecutiveFailures).toBe(2);
-    });
-
-    it('should reset consecutiveSuccesses on failure', () => {
-      manager.updateFromResponseTime('server-1', 'llama3:latest', 10000, false);
-      manager.recordFailure('server-1', 'llama3:latest');
-      const state = manager.getTimeoutState('server-1', 'llama3:latest');
-      expect(state?.consecutiveSuccesses).toBe(0);
-    });
-
     it('should create default state for unknown server:model', () => {
       manager.recordFailure('server-1', 'llama3:latest');
       const state = manager.getTimeoutState('server-1', 'llama3:latest');
       expect(state).toBeDefined();
-      expect(state?.consecutiveFailures).toBe(1);
       expect(state?.currentTimeout).toBe(DEFAULT_TIMEOUT_CONFIG.defaultTimeout);
     });
   });
@@ -262,25 +231,6 @@ describe('TimeoutManager', () => {
       manager.loadFromPersistedData(data);
       expect(manager.getAllTimeoutStates().size).toBe(0);
     });
-
-    it('should reset consecutive counters on load', () => {
-      // First create and use a manager to record some state
-      manager.updateFromResponseTime('server-1', 'llama3:latest', 10000, false);
-      manager.recordFailure('server-1', 'llama3:latest');
-      manager.recordFailure('server-1', 'llama3:latest');
-
-      // Get persisted data
-      const data = manager.toPersistedData();
-
-      // Create new manager and load
-      const newManager = new TimeoutManager();
-      newManager.loadFromPersistedData(data);
-
-      // The counters should be reset to 0
-      const state = newManager.getTimeoutState('server-1', 'llama3:latest');
-      expect(state?.consecutiveFailures).toBe(0);
-      expect(state?.consecutiveSuccesses).toBe(0);
-    });
   });
 
   describe('toPersistedData', () => {
@@ -289,13 +239,6 @@ describe('TimeoutManager', () => {
       const data = manager.toPersistedData();
       expect(data.timeouts['server-1:llama3:latest']).toBeDefined();
       expect(data.version).toBe(1);
-    });
-
-    it('should exclude consecutive counters', () => {
-      manager.recordFailure('server-1', 'llama3:latest');
-      manager.updateFromResponseTime('server-1', 'llama3:latest', 10000, false);
-      const data = manager.toPersistedData();
-      expect((data.timeouts['server-1:llama3:latest'] as any).consecutiveFailures).toBeUndefined();
     });
   });
 });
