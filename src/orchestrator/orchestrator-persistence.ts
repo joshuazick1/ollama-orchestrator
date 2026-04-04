@@ -5,6 +5,7 @@
 
 import { serversConfig, bansConfig, timeoutsConfig } from '../config/config-manager.js';
 import { logger } from '../utils/logger.js';
+import type { TimeoutState } from '../utils/timeout-manager.js';
 
 import type { AIServer } from './orchestrator.types.js';
 
@@ -77,7 +78,7 @@ export function loadBansFromDisk(): Set<string> {
 /**
  * Save timeouts to disk
  */
-export function saveTimeoutsToDisk(timeouts: Record<string, number>): void {
+export function saveTimeoutsToDisk(timeouts: Record<string, TimeoutState>): void {
   try {
     logger.debug(
       `Saving ${Object.keys(timeouts).length} timeouts to disk at ${timeoutsConfig.getPath()}...`
@@ -93,19 +94,38 @@ export function saveTimeoutsToDisk(timeouts: Record<string, number>): void {
   }
 }
 
-/**
- * Load timeouts from disk
- * @throws {Error} if the data file exists but cannot be read or parsed
- */
-export function loadTimeoutsFromDisk(): Record<string, number> {
+export function loadTimeoutsFromDisk(defaultTimeout: number): Record<string, TimeoutState> {
   const filePath = timeoutsConfig.getPath();
   logger.debug(`Loading timeouts from disk at ${filePath}...`);
-  const timeouts = timeoutsConfig.get();
-  if (timeouts && typeof timeouts === 'object') {
-    logger.debug(`Successfully loaded ${Object.keys(timeouts).length} timeouts from disk`);
-    return timeouts;
-  } else {
+  const raw = timeoutsConfig.get();
+  if (!raw || typeof raw !== 'object') {
     logger.debug(`No valid timeouts found on disk at ${filePath}, returning empty object`);
     return {};
   }
+
+  const result: Record<string, TimeoutState> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'number') {
+      result[key] = {
+        baseTimeout: defaultTimeout,
+        currentTimeout: value,
+        lastUpdated: Date.now(),
+      };
+    } else if (
+      value !== null &&
+      typeof value === 'object' &&
+      'currentTimeout' in value &&
+      typeof (value as Record<string, unknown>).currentTimeout === 'number'
+    ) {
+      const v = value as Partial<TimeoutState>;
+      result[key] = {
+        baseTimeout: typeof v.baseTimeout === 'number' ? v.baseTimeout : defaultTimeout,
+        currentTimeout: v.currentTimeout as number,
+        lastUpdated: typeof v.lastUpdated === 'number' ? v.lastUpdated : Date.now(),
+      };
+    }
+  }
+
+  logger.debug(`Successfully loaded ${Object.keys(result).length} timeouts from disk`);
+  return result;
 }

@@ -226,19 +226,8 @@ export class AIOrchestrator {
     // Load timeouts from persistence
     if (this.config.enablePersistence) {
       try {
-        const persistedData = loadTimeoutsFromDisk();
-        if (persistedData && Object.keys(persistedData).length > 0) {
-          const timeoutStates: Record<
-            string,
-            { lastUpdated: number; baseTimeout: number; currentTimeout: number }
-          > = {};
-          for (const [key, value] of Object.entries(persistedData)) {
-            timeoutStates[key] = {
-              lastUpdated: Date.now(),
-              baseTimeout: value,
-              currentTimeout: value,
-            };
-          }
+        const timeoutStates = loadTimeoutsFromDisk(currentConfig.circuitBreaker.activeTestTimeout);
+        if (Object.keys(timeoutStates).length > 0) {
           this.timeoutManager.loadFromPersistedData({
             timeouts: timeoutStates,
             version: 1,
@@ -2793,15 +2782,15 @@ export class AIOrchestrator {
           `Active test success: updated timeout for ${server.id}:${model} to ${this.timeoutManager.getTimeout(server.id, model)}ms (3x ${requestContext.duration}ms response time)`
         );
       } else if (requestContext.duration > 5000) {
-        // For regular requests taking >5s, also update timeout if it's longer than current
-        const currentTimeout = this.timeoutManager.getTimeout(server.id, model);
-        const suggestedTimeout = Math.max(15000, Math.min(600000, requestContext.duration * 2));
-        if (suggestedTimeout > currentTimeout) {
-          this.timeoutManager.setTimeout(server.id, model, suggestedTimeout);
-          logger.debug(
-            `Updated timeout for ${server.id}:${model} to ${suggestedTimeout}ms based on response time of ${requestContext.duration}ms`
-          );
-        }
+        this.timeoutManager.updateFromResponseTime(
+          server.id,
+          model,
+          requestContext.duration,
+          false
+        );
+        logger.debug(
+          `Updated timeout for ${server.id}:${model} to ${this.timeoutManager.getTimeout(server.id, model)}ms based on response time of ${requestContext.duration}ms`
+        );
       }
 
       logger.info(`Request succeeded on ${server.id} for model ${model}`, {
@@ -3656,6 +3645,11 @@ export class AIOrchestrator {
       this.healthCheckScheduler.start();
       this.activeTestScheduler.start();
 
+      const DECAY_INTERVAL_MS = 5 * 60 * 1000;
+      this.escalationIntervalId = setInterval(() => {
+        this.timeoutManager.applyDecay();
+      }, DECAY_INTERVAL_MS);
+
       logger.info(
         'Orchestrator initialized with persistence, circuit breakers, and recovery test coordinator'
       );
@@ -3682,11 +3676,7 @@ export class AIOrchestrator {
     // Persist if enabled
     if (this.config.enablePersistence) {
       const persistedData = this.timeoutManager.toPersistedData();
-      const simpleRecord: Record<string, number> = {};
-      for (const [key, state] of Object.entries(persistedData.timeouts)) {
-        simpleRecord[key] = state.currentTimeout;
-      }
-      saveTimeoutsToDisk(simpleRecord);
+      saveTimeoutsToDisk(persistedData.timeouts);
     }
   }
 
@@ -4561,12 +4551,8 @@ export class AIOrchestrator {
     // Persist timeouts on shutdown to ensure they're saved
     if (this.config.enablePersistence) {
       const persistedData = this.timeoutManager.toPersistedData();
-      const simpleRecord: Record<string, number> = {};
-      for (const [key, state] of Object.entries(persistedData.timeouts)) {
-        simpleRecord[key] = state.currentTimeout;
-      }
-      saveTimeoutsToDisk(simpleRecord);
-      logger.info(`Persisted ${Object.keys(simpleRecord).length} timeouts on shutdown`);
+      saveTimeoutsToDisk(persistedData.timeouts);
+      logger.info(`Persisted ${Object.keys(persistedData.timeouts).length} timeouts on shutdown`);
     }
 
     // Persist decision and request history

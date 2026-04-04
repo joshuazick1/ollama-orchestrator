@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
+import type { TimeoutState } from '../utils/timeout-manager.js';
 
 import { JsonFileHandler, JsonFileHandlerOptions } from './json-file-handler.js';
 
@@ -143,7 +144,7 @@ export const bansConfig = createConfigManager<string[]>({
 });
 
 // Timeouts configuration manager
-export const timeoutsConfig = createConfigManager<Record<string, number>>({
+export const timeoutsConfig = createConfigManager<Record<string, TimeoutState>>({
   fileName: 'timeouts.json',
   relativePath: '../../data',
   defaults: {},

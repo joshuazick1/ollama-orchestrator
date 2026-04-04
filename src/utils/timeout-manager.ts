@@ -6,7 +6,17 @@ export interface TimeoutConfig {
   maxTimeout: number;
   activeTestMultiplier: number;
   slowRequestMultiplier: number;
+  /**
+   * Decay rate per millisecond toward baseTimeout.
+   * Applied by applyDecay() on a periodic timer.
+   * Default: 5% reduction every 5 minutes ≈ 1.67e-7 per ms.
+   * Set to 0 to disable decay.
+   */
+  decayRatePerMs: number;
 }
+
+/** 5% reduction per 5-minute decay tick expressed as a per-ms rate */
+const DEFAULT_DECAY_RATE_PER_MS = 1 - Math.pow(0.95, 1 / (5 * 60 * 1000));
 
 export const DEFAULT_TIMEOUT_CONFIG: TimeoutConfig = {
   defaultTimeout: 120000,
@@ -14,6 +24,7 @@ export const DEFAULT_TIMEOUT_CONFIG: TimeoutConfig = {
   maxTimeout: 600000,
   activeTestMultiplier: 3,
   slowRequestMultiplier: 2,
+  decayRatePerMs: DEFAULT_DECAY_RATE_PER_MS,
 };
 
 export interface TimeoutState {
@@ -139,6 +150,35 @@ export class TimeoutManager {
   clearAll(): void {
     this.timeouts.clear();
     logger.info('All timeouts cleared');
+  }
+
+  /**
+   * Apply exponential decay toward baseTimeout for all tracked states.
+   * Call on a periodic timer (e.g. every 5 minutes).
+   * Decay amount is proportional to elapsed time since lastUpdated so that
+   * calling more or less frequently produces the same steady-state behaviour.
+   */
+  applyDecay(): void {
+    if (this.config.decayRatePerMs === 0) {
+      return;
+    }
+
+    const now = Date.now();
+
+    for (const [key, state] of this.timeouts) {
+      if (state.currentTimeout <= state.baseTimeout) {
+        continue;
+      }
+
+      const elapsedMs = now - state.lastUpdated;
+      const decayFactor = Math.pow(1 - this.config.decayRatePerMs, elapsedMs);
+      const decayed = state.baseTimeout + (state.currentTimeout - state.baseTimeout) * decayFactor;
+
+      state.currentTimeout = Math.max(state.baseTimeout, decayed);
+      state.lastUpdated = now;
+
+      logger.debug(`Timeout decayed for ${key}: ${Math.round(state.currentTimeout)}ms`);
+    }
   }
 
   updateDefaultTimeout(newDefaultMs: number): void {
