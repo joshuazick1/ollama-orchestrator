@@ -400,6 +400,15 @@ export const probeSchedulerConfigSchema = z.object({
 });
 
 /**
+ * Anthropic configuration schema
+ */
+export const anthropicConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  apiKey: z.string().optional(),
+  supportedFeatures: z.array(z.string()).default([]),
+});
+
+/**
  * Main orchestrator configuration schema
  */
 export const orchestratorConfigSchema = z.object({
@@ -429,6 +438,7 @@ export const orchestratorConfigSchema = z.object({
   recoveryTest: recoveryTestConfigSchema,
   storage: storageConfigSchema,
   probeScheduler: probeSchedulerConfigSchema,
+  anthropic: anthropicConfigSchema,
 
   // Ollama servers
   servers: z.array(serverConfigSchema).default([]),
@@ -458,6 +468,7 @@ export type StoragePerformanceConfig = z.infer<typeof storagePerformanceConfigSc
 export type StorageTemporalConfig = z.infer<typeof storageTemporalConfigSchema>;
 export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
+export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
 
 /**

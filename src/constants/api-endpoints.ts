@@ -22,7 +22,12 @@ export const API_ENDPOINTS = {
     EMBEDDINGS: '/v1/embeddings',
     MODELS: '/v1/models',
   },
+  ANTHROPIC: {
+    MESSAGES: '/v1/messages',
+  },
 } as const;
 
 export type OllamaEndpoint = (typeof API_ENDPOINTS.OLLAMA)[keyof typeof API_ENDPOINTS.OLLAMA];
 export type OpenAIEndpoint = (typeof API_ENDPOINTS.OPENAI)[keyof typeof API_ENDPOINTS.OPENAI];
+export type AnthropicEndpoint =
+  (typeof API_ENDPOINTS.ANTHROPIC)[keyof typeof API_ENDPOINTS.ANTHROPIC];

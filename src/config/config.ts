@@ -162,6 +162,12 @@ export interface ProbeSchedulerConfig {
   lowTrafficThreshold: number;
 }
 
+export interface AnthropicConfig {
+  enabled: boolean;
+  apiKey?: string;
+  supportedFeatures: string[];
+}
+
 export interface OrchestratorConfig {
   // Server settings
   port: number;
@@ -189,6 +195,7 @@ export interface OrchestratorConfig {
   recoveryTest: RecoveryTestConfig;
   storage: StorageConfig;
   probeScheduler: ProbeSchedulerConfig;
+  anthropic: AnthropicConfig;
 
   // Ollama servers
   servers: ServerConfig[];
@@ -444,6 +451,11 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     minSamplesForCoverage: 5,
     onlyDuringLowTraffic: true,
     lowTrafficThreshold: 0.3,
+  },
+
+  anthropic: {
+    enabled: true,
+    supportedFeatures: [],
   },
 
   servers: [],
@@ -871,6 +883,7 @@ export class ConfigManager {
           }
         : DEFAULT_CONFIG.storage,
       probeScheduler: { ...DEFAULT_CONFIG.probeScheduler, ...partial.probeScheduler },
+      anthropic: { ...DEFAULT_CONFIG.anthropic, ...partial.anthropic },
       servers: partial.servers ?? DEFAULT_CONFIG.servers,
       persistencePath: partial.persistencePath ?? DEFAULT_CONFIG.persistencePath,
       configReloadIntervalMs:
