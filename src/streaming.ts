@@ -17,7 +17,7 @@ interface AbortSignalCompat extends AbortSignal {
 export interface StreamResponseOptions {
   /** Callback when first token is received */
   onFirstToken?: () => void;
-  /** Callback when streaming is complete */
+  /** Callback when streaming is complete — fires BEFORE clientResponse.end() so caller can write final debug chunk */
   onComplete?: (duration: number, tokens: number, chunkData?: ChunkData) => void;
   /** Callback on each chunk received (receives current chunk count) */
   onChunk?: (chunkCount: number) => void;
@@ -36,6 +36,8 @@ export interface StreamResponseOptions {
   stallThresholdMs?: number;
   /** How often to check for stall (default: 10 seconds) */
   stallCheckIntervalMs?: number;
+  /** Callback fired just before clientResponse.end() — use to write final debug chunk */
+  preEnd?: (clientResponse: Response) => void | Promise<void>;
 }
 
 /**
@@ -257,7 +259,8 @@ export async function streamResponse(
   activityController?: {
     resetTimeout: () => void;
     controller: AbortController;
-  }
+  },
+  preEnd?: (clientResponse: Response) => void | Promise<void>
 ): Promise<void> {
   const ttftTracker = existingTtftTracker ?? new TTFTTracker(ttftOptions);
   const startTime = Date.now();
@@ -663,10 +666,7 @@ export async function streamResponse(
       }
     }
 
-    // End the response
-    clientResponse.end();
-
-    // Get the final chunk to extract token counts
+    // Get the final chunk to extract token counts — must happen before end()
     let tokensGenerated = Math.floor(tokenCount);
     let tokensPrompt = 0;
     let ollamaDurations: OllamaDurations | undefined;
@@ -680,7 +680,6 @@ export async function streamResponse(
         if (lastChunk.prompt_eval_count !== undefined) {
           tokensPrompt = lastChunk.prompt_eval_count;
         }
-        // Extract Ollama duration fields (nanoseconds) if present
         if (
           lastChunk.eval_duration !== undefined ||
           lastChunk.prompt_eval_duration !== undefined ||
@@ -701,16 +700,20 @@ export async function streamResponse(
 
     const duration = Date.now() - startTime;
 
-    // Get TTFT metrics from tracker if enabled
     const ttftMetrics = ttftTracker.getMetrics();
 
-    // Prepare chunk data for callback
     const chunkData: ChunkData = {
       chunkCount,
       totalBytes,
       maxChunkGapMs: maxChunkGap,
       avgChunkSizeBytes: chunkCount > 0 ? Math.round(totalBytes / chunkCount) : 0,
     };
+
+    // Fire preEnd BEFORE clientResponse.end() so caller can write final debug chunk
+    await preEnd?.(clientResponse);
+
+    // End the response
+    clientResponse.end();
 
     onComplete?.(duration, tokensGenerated, tokensPrompt, chunkData, ollamaDurations);
 
@@ -896,7 +899,8 @@ export async function streamAnthropicResponse(
   ) => Promise<StallHandlerResult | void>,
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number,
-  onStreamEnd?: () => void
+  onStreamEnd?: () => void,
+  preEnd?: (clientResponse: Response) => void | Promise<void>
 ): Promise<void> {
   const startTime = Date.now();
   let chunkCount = 0;
@@ -1084,6 +1088,8 @@ export async function streamAnthropicResponse(
         break;
       }
     }
+
+    await preEnd?.(clientResponse);
 
     clientResponse.end();
 

@@ -410,38 +410,37 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 }
               },
               // Pass activityController for timeout-based abort (pre-first-chunk detection)
-              activityController
-            );
-
-            const includeDebug = isDebugRequested(req);
-            if (includeDebug && !res.writableEnded) {
-              const streamDuration = Date.now() - streamStartTime;
-              const debugInfo = getDebugInfo(routingContext, {
-                requestId: streamingRequestId,
-                requestTimestamp: streamStartTime,
-                timeToFirstToken: ttftMetrics?.ttft,
-                streamingDuration: streamDuration,
-                tokensGenerated: tokenMetrics?.tokensGenerated,
-                tokensPrompt: tokenMetrics?.tokensPrompt,
-                chunkData: streamingChunkData
-                  ? {
-                      chunkCount: streamingChunkData.chunkCount,
-                      totalBytes: streamingChunkData.totalBytes,
-                      maxChunkGapMs: streamingChunkData.maxChunkGapMs,
-                      avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+              activityController,
+              // preEnd: write debug chunk before stream ends
+              isDebugRequested(req) && !res.writableEnded
+                ? () => {
+                    const debugInfo = getDebugInfo(routingContext, {
+                      requestId: streamingRequestId,
+                      requestTimestamp: streamStartTime,
+                      timeToFirstToken: ttftMetrics?.ttft,
+                      streamingDuration: Date.now() - streamStartTime,
+                      tokensGenerated: tokenMetrics?.tokensGenerated,
+                      tokensPrompt: tokenMetrics?.tokensPrompt,
+                      chunkData: streamingChunkData
+                        ? {
+                            chunkCount: streamingChunkData.chunkCount,
+                            totalBytes: streamingChunkData.totalBytes,
+                            maxChunkGapMs: streamingChunkData.maxChunkGapMs,
+                            avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+                          }
+                        : undefined,
+                      stallDetected,
+                      stallDurationMs: stallStartTime ? Date.now() - stallStartTime : undefined,
+                      handoffAttempted,
+                      handoffSuccess,
+                      handoffTargetServer,
+                    });
+                    if (debugInfo) {
+                      res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                     }
-                  : undefined,
-                stallDetected,
-                stallDurationMs: stallStartTime ? Date.now() - stallStartTime : undefined,
-                handoffAttempted,
-                handoffSuccess,
-                handoffTargetServer,
-              });
-              if (debugInfo) {
-                setDebugResponseHeaders(res, debugInfo);
-                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
-              }
-            }
+                  }
+                : undefined
+            );
           } finally {
             activityController.clearTimeout();
           }
@@ -851,38 +850,39 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               },
               // Pass activityController so streaming.ts can race reader.read() against the
               // abort signal, enabling pre-first-chunk stall detection for /api/chat.
-              activityController
-            );
-
-            const includeDebug = isDebugRequested(req);
-            if (includeDebug && !res.writableEnded) {
-              const streamDuration = Date.now() - streamStartTime;
-              const debugInfo = getDebugInfo(routingContext, {
-                requestId: requestId,
-                requestTimestamp: streamStartTime,
-                timeToFirstToken: ttftMetrics?.ttft,
-                streamingDuration: streamDuration,
-                tokensGenerated: tokenMetrics?.tokensGenerated,
-                tokensPrompt: tokenMetrics?.tokensPrompt,
-                chunkData: streamingChunkData
-                  ? {
-                      chunkCount: streamingChunkData.chunkCount,
-                      totalBytes: streamingChunkData.totalBytes,
-                      maxChunkGapMs: streamingChunkData.maxChunkGapMs,
-                      avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+              activityController,
+              // preEnd: write debug chunk before stream ends
+              isDebugRequested(req) && !res.writableEnded
+                ? () => {
+                    const debugInfo = getDebugInfo(routingContext, {
+                      requestId,
+                      requestTimestamp: streamStartTime,
+                      timeToFirstToken: ttftMetrics?.ttft,
+                      streamingDuration: Date.now() - streamStartTime,
+                      tokensGenerated: tokenMetrics?.tokensGenerated,
+                      tokensPrompt: tokenMetrics?.tokensPrompt,
+                      chunkData: streamingChunkData
+                        ? {
+                            chunkCount: streamingChunkData.chunkCount,
+                            totalBytes: streamingChunkData.totalBytes,
+                            maxChunkGapMs: streamingChunkData.maxChunkGapMs,
+                            avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+                          }
+                        : undefined,
+                      stallDetected: chatStallDetected,
+                      stallDurationMs: chatStallStartTime
+                        ? Date.now() - chatStallStartTime
+                        : undefined,
+                      handoffAttempted: chatHandoffAttempted,
+                      handoffSuccess: chatHandoffSuccess,
+                      handoffTargetServer: chatHandoffTargetServer,
+                    });
+                    if (debugInfo) {
+                      res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                     }
-                  : undefined,
-                stallDetected: chatStallDetected,
-                stallDurationMs: chatStallStartTime ? Date.now() - chatStallStartTime : undefined,
-                handoffAttempted: chatHandoffAttempted,
-                handoffSuccess: chatHandoffSuccess,
-                handoffTargetServer: chatHandoffTargetServer,
-              });
-              if (debugInfo) {
-                setDebugResponseHeaders(res, debugInfo);
-                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
-              }
-            }
+                  }
+                : undefined
+            );
           } finally {
             activityController.clearTimeout();
           }
@@ -1552,26 +1552,25 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             undefined,
             undefined,
             () => {
-              // Cleanup callback - remove from InFlightManager and clear activity timeout
+              // Cleanup callback - remove from InFlightManager only; clearTimeout moved to preEnd
               if (streamingRequestId) {
                 getInFlightManager().removeStreamingRequest(streamingRequestId);
               }
-              activityController.clearTimeout();
             },
-            activityController
-          );
-
-          // Emit debug info for streaming per-server requests
-          const includeDebug = isDebugRequested(req);
-          if (includeDebug && !res.writableEnded) {
-            const debugInfo = getDebugInfo(routingContext, {
-              requestId: streamingRequestId,
-            });
-            if (debugInfo) {
-              setDebugResponseHeaders(res, debugInfo);
-              res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+            activityController,
+            // preEnd: clear activity timeout and write debug chunk before stream ends
+            () => {
+              activityController.clearTimeout();
+              if (isDebugRequested(req) && !res.writableEnded) {
+                const debugInfo = getDebugInfo(routingContext, {
+                  requestId: streamingRequestId,
+                });
+                if (debugInfo) {
+                  res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+                }
+              }
             }
-          }
+          );
 
           return null;
         } else {
@@ -1735,26 +1734,25 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             undefined,
             undefined,
             () => {
-              // Cleanup callback - remove from InFlightManager and clear activity timeout
+              // Cleanup callback - remove from InFlightManager only; clearTimeout moved to preEnd
               if (streamingRequestId) {
                 getInFlightManager().removeStreamingRequest(streamingRequestId);
               }
-              activityController.clearTimeout();
             },
-            activityController
-          );
-
-          // Emit debug info for streaming per-server requests
-          const includeDebug = isDebugRequested(req);
-          if (includeDebug && !res.writableEnded) {
-            const debugInfo = getDebugInfo(routingContext, {
-              requestId: streamingRequestId,
-            });
-            if (debugInfo) {
-              setDebugResponseHeaders(res, debugInfo);
-              res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+            activityController,
+            // preEnd: clear activity timeout and write debug chunk before stream ends
+            () => {
+              activityController.clearTimeout();
+              if (isDebugRequested(req) && !res.writableEnded) {
+                const debugInfo = getDebugInfo(routingContext, {
+                  requestId: streamingRequestId,
+                });
+                if (debugInfo) {
+                  res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+                }
+              }
             }
-          }
+          );
 
           return null;
         } else {

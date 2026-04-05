@@ -385,7 +385,8 @@ async function passthroughSSEStream(
   ) => Promise<{ success: boolean; error?: string } | void>,
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number,
-  _onStreamEnd?: () => void
+  _onStreamEnd?: () => void,
+  preEnd?: (clientResponse: Response) => void
 ): Promise<void> {
   const startTime = Date.now();
   const effectiveStallThreshold = stallThresholdMs ?? 300000;
@@ -505,6 +506,7 @@ async function passthroughSSEStream(
         },
       });
     } else {
+      preEnd?.(clientResponse);
       clientResponse.end();
     }
   } finally {
@@ -767,7 +769,26 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                   if (requestId) {
                     getInFlightManager().removeStreamingRequest(requestId);
                   }
-                }
+                },
+                isDebugRequested(req)
+                  ? () => {
+                      const streamDuration = Date.now() - streamStartTime;
+                      const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
+                      const debugInfo = getDebugInfo(routingContext, {
+                        requestId,
+                        requestTimestamp: streamStartTime,
+                        timeToFirstToken: ttft,
+                        streamingDuration: streamDuration,
+                        stallDetected: openaiChatStallDetected,
+                        stallDurationMs: openaiChatStallStartTime
+                          ? Date.now() - openaiChatStallStartTime
+                          : undefined,
+                      });
+                      if (debugInfo) {
+                        res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+                      }
+                    }
+                  : undefined
               );
             } else {
               // REC-36: Server only speaks Ollama NDJSON — translate to OpenAI SSE
@@ -849,7 +870,6 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               });
               if (debugInfo) {
                 setDebugResponseHeaders(res, debugInfo);
-                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
             }
           } finally {
@@ -1005,7 +1025,6 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               });
               if (debugInfo) {
                 setDebugResponseHeaders(res, debugInfo);
-                res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
               }
             }
           } finally {
