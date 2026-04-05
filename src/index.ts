@@ -23,7 +23,13 @@ import {
   createInferenceRateLimiter,
 } from './middleware/rate-limiter.js';
 import { getOrchestratorInstance } from './orchestrator/orchestrator-instance.js';
-import { monitoringRouter, adminRouter, inferenceRouter, v1Router } from './routes/orchestrator.js';
+import {
+  monitoringRouter,
+  adminRouter,
+  inferenceRouter,
+  v1Router,
+  anthropicRouter,
+} from './routes/orchestrator.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { logger } from './utils/logger.js';
 
@@ -131,6 +137,7 @@ app.use('/api', inferenceRateLimiter, inferenceRouter);
 
 // OpenAI-compatible endpoints at /v1/*
 app.use('/v1', inferenceRateLimiter, v1Router);
+app.use('/v1', inferenceRateLimiter, anthropicRouter);
 
 // Prometheus metrics endpoint at root
 // Only allow access from localhost/internal IPs in production
@@ -259,6 +266,7 @@ const server = app.listen(PORT, () => {
   logger.info(`  - OpenAI compatible: POST   /v1/chat/completions`);
   logger.info(`  - OpenAI compatible: POST   /v1/completions`);
   logger.info(`  - OpenAI compatible: POST   /v1/embeddings`);
+  logger.info(`  - Anthropic compatible: POST /v1/messages`);
   logger.info(`  - Health check:      GET    /health`);
   logger.info(`  - Logging:           GET    /api/orchestrator/logs`);
   logger.info(`  - Logging:           POST   /api/orchestrator/logs/clear`);
