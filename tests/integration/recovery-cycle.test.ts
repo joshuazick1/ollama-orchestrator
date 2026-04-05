@@ -1,0 +1,180 @@
+import http from 'http';
+import { AddressInfo } from 'net';
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+import {
+  CircuitBreaker,
+  CircuitBreakerRegistry,
+} from '../../src/circuit-breaker/circuit-breaker.js';
+import {
+  RecoveryTestCoordinator,
+  resetRecoveryTestCoordinator,
+} from '../../src/recovery-test-coordinator.js';
+
+function createMockOllamaServer(failGenerateFor: number) {
+  let requestCount = 0;
+  const requestLog: string[] = [];
+
+  const server = http.createServer((req, res) => {
+    const path = req.url ?? '/';
+    requestLog.push(`${req.method} ${path}`);
+
+    if (path === '/api/tags') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ models: [] }));
+      return;
+    }
+
+    if (path === '/api/generate') {
+      requestCount++;
+      if (requestCount <= failGenerateFor) {
+        res.writeHead(503, { 'Content-Type': 'text/plain' });
+        res.end('Service Unavailable');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ response: 'test response', done: true }));
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+  });
+
+  return {
+    server,
+    getRequestLog: () => [...requestLog],
+    getRequestCount: () => requestCount,
+  };
+}
+
+async function startServer(
+  server: http.Server
+): Promise<{ port: number; close: () => Promise<void> }> {
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as AddressInfo;
+  return {
+    port: address.port,
+    close: () => new Promise<void>(resolve => server.close(() => resolve())),
+  };
+}
+
+describe('recovery-cycle integration – open→half-open→probe→close', () => {
+  let mockServer: ReturnType<typeof createMockOllamaServer>;
+  let serverPort: number;
+  let closeServer: () => Promise<void>;
+  let coordinator: RecoveryTestCoordinator;
+  let registry: CircuitBreakerRegistry;
+
+  beforeEach(async () => {
+    resetRecoveryTestCoordinator();
+    mockServer = createMockOllamaServer(0);
+    const started = await startServer(mockServer.server);
+    serverPort = started.port;
+    closeServer = started.close;
+
+    registry = new CircuitBreakerRegistry({
+      baseFailureThreshold: 1,
+      adaptiveThresholds: false,
+      openTimeout: 0,
+    });
+
+    coordinator = new RecoveryTestCoordinator({
+      serverCooldownMs: 0,
+      modelTestTimeoutMs: 5000,
+    });
+
+    const mockServerUrl = `http://127.0.0.1:${serverPort}`;
+    coordinator.setServerUrlProvider(() => mockServerUrl);
+    coordinator.setInFlightProvider(() => 0);
+    coordinator.setIncrementInFlight(() => {});
+    coordinator.setDecrementInFlight(() => {});
+  });
+
+  afterEach(async () => {
+    await closeServer();
+  });
+
+  it('transitions breaker from open to closed via performCoordinatedRecoveryTest on success', async () => {
+    const breaker = registry.getOrCreate('test-srv:llama3.1:8b', {
+      baseFailureThreshold: 1,
+      adaptiveThresholds: false,
+      openTimeout: 0,
+    });
+
+    breaker.forceOpen();
+    expect(breaker.getState()).toBe('open');
+
+    breaker.forceHalfOpen();
+    expect(breaker.getState()).toBe('half-open');
+
+    const result = await coordinator.performCoordinatedRecoveryTest(breaker);
+    expect(result).toBe(true);
+  });
+
+  it('returns false when server returns 503 for generate', async () => {
+    await closeServer();
+    mockServer = createMockOllamaServer(999);
+    const started = await startServer(mockServer.server);
+    serverPort = started.port;
+    closeServer = started.close;
+
+    const mockServerUrl = `http://127.0.0.1:${serverPort}`;
+    coordinator.setServerUrlProvider(() => mockServerUrl);
+
+    const breaker = registry.getOrCreate('test-fail-srv:llama3.1:8b', {
+      baseFailureThreshold: 1,
+      adaptiveThresholds: false,
+    });
+
+    (breaker as any).nextRetryAt = Date.now() - 1;
+
+    const result = await coordinator.performCoordinatedRecoveryTest(breaker);
+    expect(result).toBe(false);
+  });
+
+  it('server-level breaker transitions from open to half-open via /api/tags probe', async () => {
+    const serverBreaker = registry.getOrCreate('test-srv', {
+      baseFailureThreshold: 1,
+      adaptiveThresholds: false,
+      openTimeout: 0,
+    });
+
+    serverBreaker.forceOpen();
+    expect(serverBreaker.getState()).toBe('open');
+
+    serverBreaker.forceHalfOpen();
+    expect(serverBreaker.getState()).toBe('half-open');
+
+    const result = await coordinator.performCoordinatedRecoveryTest(serverBreaker);
+    expect(result).toBe(true);
+
+    const requestLog = mockServer.getRequestLog();
+    expect(requestLog.some(r => r.includes('/api/tags'))).toBe(true);
+  });
+
+  it('runActiveTests closes a half-open breaker on successful probe', async () => {
+    const breaker = registry.getOrCreate('probe-srv:llama3.1:8b', {
+      baseFailureThreshold: 1,
+      recoverySuccessThreshold: 1,
+      halfOpenMaxRequests: 1,
+      adaptiveThresholds: false,
+      openTimeout: 0,
+    });
+
+    breaker.forceOpen();
+    expect(breaker.getState()).toBe('open');
+
+    breaker.forceHalfOpen();
+    expect(breaker.getState()).toBe('half-open');
+
+    const results = await coordinator.runActiveTests('probe-srv', [
+      { breaker, model: 'llama3.1:8b' },
+    ]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].success).toBe(true);
+    expect(breaker.getState()).toBe('closed');
+  });
+}, 30000);

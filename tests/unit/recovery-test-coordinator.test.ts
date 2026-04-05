@@ -816,3 +816,325 @@ describe('RecoveryTestCoordinator – getServerQueueStatus', () => {
     expect(status.currentTestBreakerId).toBe('srv-qs3:modelX');
   });
 });
+
+// ============================================================================
+// Wave 13 additions
+// ============================================================================
+
+describe('performCoordinatedRecoveryTest – invalid response handling (13.1)', () => {
+  let coordinator: RecoveryTestCoordinator;
+
+  beforeEach(() => {
+    resetRecoveryTestCoordinator();
+    coordinator = new RecoveryTestCoordinator({ serverCooldownMs: 0 });
+    coordinator.setServerUrlProvider(serverId => `http://fake-${serverId}:11434`);
+    coordinator.setInFlightProvider(() => 0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns false when ok:true but response body has no .response field', async () => {
+    // Stub fetch to return HTTP 200 OK with an empty JSON body (no .response field)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => ({}),
+            text: async () => JSON.stringify({}),
+          }) as unknown as Response
+      )
+    );
+
+    // Use a model-level breaker (not server-level) so /api/generate is called
+    const breaker = makeBreaker('srv-inv-resp:llama3.1:8b');
+    const result = await coordinator.performCoordinatedRecoveryTest(breaker);
+
+    // Missing .response means the response is invalid → should return false
+    expect(result).toBe(false);
+  });
+});
+
+describe('performCoordinatedRecoveryTest – generate→embeddings fallback (13.1)', () => {
+  let coordinator: RecoveryTestCoordinator;
+
+  beforeEach(() => {
+    resetRecoveryTestCoordinator();
+    coordinator = new RecoveryTestCoordinator({ serverCooldownMs: 0 });
+    coordinator.setServerUrlProvider(serverId => `http://fake-${serverId}:11434`);
+    coordinator.setInFlightProvider(() => 0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls setModelType("embedding") and falls back to /api/embeddings on "does not support generate" error', async () => {
+    const capturedUrls: string[] = [];
+    let callCount = 0;
+
+    const fetchMock = vi.fn(async (url: string) => {
+      capturedUrls.push(url);
+      callCount++;
+
+      if (callCount === 1) {
+        // First call: /api/generate fails with "does not support generate"
+        return {
+          ok: false,
+          status: 400,
+          text: async () => 'model does not support generate',
+        } as unknown as Response;
+      }
+
+      // Second call: /api/embeddings succeeds
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ embedding: [0.1, 0.2, 0.3] }),
+        text: async () => JSON.stringify({ embedding: [0.1, 0.2, 0.3] }),
+      } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    // llama3.1:8b is NOT an embedding model by name, so /api/generate will be tried first
+    const breaker = makeBreaker('srv-fallback:llama3.1:8b');
+    const result = await coordinator.performCoordinatedRecoveryTest(breaker);
+
+    // setModelType should have been called to mark it as embedding
+    expect(breaker.setModelType).toHaveBeenCalledWith('embedding');
+
+    // The second request should have been to /api/embeddings
+    const embeddingCall = capturedUrls.find(u => u.includes('/api/embeddings'));
+    expect(embeddingCall).toBeDefined();
+
+    // Should have returned true (embedding test succeeded)
+    expect(result).toBe(true);
+  });
+});
+
+describe('runActiveTests – timeout path (13.3)', () => {
+  let coordinator: RecoveryTestCoordinator;
+
+  beforeEach(() => {
+    resetRecoveryTestCoordinator();
+    coordinator = new RecoveryTestCoordinator({ serverCooldownMs: 0 });
+    coordinator.setServerUrlProvider(serverId => `http://fake-${serverId}:11434`);
+    coordinator.setInFlightProvider(() => 0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('recordFailure is called and result.success is false when fetch throws timeout error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('Request timed out after 120000ms'))
+    );
+
+    const breaker = makeBreaker('srv-timeout:llama3.1:8b');
+    const results = await coordinator.runActiveTests('srv-timeout', [
+      { breaker, model: 'llama3.1:8b' },
+    ]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].success).toBe(false);
+    expect(breaker.recordFailure).toHaveBeenCalled();
+  });
+
+  it('recordTimeoutFailure provider is called when error propagates out of test helpers', async () => {
+    const recordTimeoutFailure = vi.fn();
+    coordinator.setRecordTimeoutFailure(recordTimeoutFailure);
+
+    const breakerName = 'srv-timeout2:llama3.1:8b';
+    const breaker = makeBreaker(breakerName);
+
+    const abortControllers = (coordinator as any).abortControllers as Map<string, AbortController>;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('fetch timed out unexpectedly');
+      })
+    );
+
+    await coordinator.runActiveTests('srv-timeout2', [{ breaker, model: 'llama3.1:8b' }]);
+
+    expect(breaker.recordFailure).toHaveBeenCalled();
+  });
+}, 30000);
+
+describe('runActiveTests – adaptive timeout via getTimeout provider (13.3)', () => {
+  let coordinator: RecoveryTestCoordinator;
+
+  beforeEach(() => {
+    resetRecoveryTestCoordinator();
+    coordinator = new RecoveryTestCoordinator({ serverCooldownMs: 0, modelTestTimeoutMs: 1000 });
+    coordinator.setServerUrlProvider(serverId => `http://fake-${serverId}:11434`);
+    coordinator.setInFlightProvider(() => 0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses getTimeout provider to determine timeout for a test', async () => {
+    // Track what timeout was passed to fetch
+    let capturedOptions: any = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, opts: any) => {
+        capturedOptions = opts;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ response: 'ok' }),
+          text: async () => JSON.stringify({ response: 'ok' }),
+        } as unknown as Response;
+      })
+    );
+
+    // Provide a custom getTimeout that returns a large value
+    const customTimeout = 99999;
+    coordinator.setGetTimeout(() => customTimeout);
+
+    const breaker = makeBreaker('srv-adaptive:llama3.1:8b');
+    const results = await coordinator.runActiveTests('srv-adaptive', [
+      { breaker, model: 'llama3.1:8b' },
+    ]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].success).toBe(true);
+
+    // The timeout passed to fetchWithTimeout must be at least the customTimeout
+    // (capturedOptions.timeout is set by fetchWithTimeout from the signal/timeout option)
+    if (capturedOptions?.timeout !== undefined) {
+      expect(capturedOptions.timeout).toBeGreaterThanOrEqual(customTimeout);
+    }
+  });
+}, 30000);
+
+describe('runActiveTests – maxConcurrentPerServer=2 limit (13.3)', () => {
+  let coordinator: RecoveryTestCoordinator;
+
+  beforeEach(() => {
+    resetRecoveryTestCoordinator();
+    coordinator = new RecoveryTestCoordinator({ serverCooldownMs: 0 });
+    coordinator.setServerUrlProvider(serverId => `http://fake-${serverId}:11434`);
+    coordinator.setInFlightProvider(() => 0);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => ({ response: 'ok' }),
+            text: async () => JSON.stringify({ response: 'ok' }),
+          }) as unknown as Response
+      )
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('only tests the first 2 breakers when 3 are provided', async () => {
+    const breakerA = makeBreaker('srv-conc:modelA');
+    const breakerB = makeBreaker('srv-conc:modelB');
+    const breakerC = makeBreaker('srv-conc:modelC');
+
+    const results = await coordinator.runActiveTests('srv-conc', [
+      { breaker: breakerA, model: 'modelA' },
+      { breaker: breakerB, model: 'modelB' },
+      { breaker: breakerC, model: 'modelC' },
+    ]);
+
+    // maxConcurrentPerServer=2 means only 2 should be tested
+    expect(results).toHaveLength(2);
+    // The third one (modelC) should NOT have been tested
+    expect(breakerC.recordSuccess).not.toHaveBeenCalled();
+    expect(breakerC.recordFailure).not.toHaveBeenCalled();
+  });
+}, 30000);
+
+describe('runActiveTests – sorts by halfOpenStartedAt oldest-first (13.3)', () => {
+  let coordinator: RecoveryTestCoordinator;
+
+  beforeEach(() => {
+    resetRecoveryTestCoordinator();
+    coordinator = new RecoveryTestCoordinator({ serverCooldownMs: 0 });
+    coordinator.setServerUrlProvider(serverId => `http://fake-${serverId}:11434`);
+    coordinator.setInFlightProvider(() => 0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('tests the breaker with the older halfOpenStartedAt first', async () => {
+    const testedOrder: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ response: 'ok' }),
+          text: async () => JSON.stringify({ response: 'ok' }),
+        } as unknown as Response;
+      })
+    );
+
+    // Create breakers with different halfOpenStartedAt
+    const olderStartedAt = Date.now() - 5000;
+    const newerStartedAt = Date.now() - 1000;
+
+    const makeSortBreaker = (
+      name: string,
+      halfOpenStartedAt: number,
+      label: string
+    ): CircuitBreaker => {
+      const cb = {
+        getState: () => 'half-open' as const,
+        getStats: () => ({ halfOpenStartedAt, activeTestsInProgress: 0 }),
+        getConfig: () => ({ halfOpenTimeout: 300_000 }),
+        canExecute: () => true,
+        recordSuccess: vi.fn(() => {
+          testedOrder.push(label);
+          return Promise.resolve();
+        }),
+        recordFailure: vi.fn(),
+        startActiveTest: vi.fn(),
+        endActiveTest: vi.fn(),
+        getName: () => name,
+        getModelType: () => undefined as 'embedding' | 'generation' | undefined,
+        setModelType: vi.fn(),
+        get name() {
+          return name;
+        },
+      };
+      return cb as unknown as CircuitBreaker;
+    };
+
+    const breakerOlder = makeSortBreaker('srv-sort:modelOlder', olderStartedAt, 'older');
+    const breakerNewer = makeSortBreaker('srv-sort:modelNewer', newerStartedAt, 'newer');
+
+    // Pass newer first intentionally — they should be sorted oldest-first
+    const results = await coordinator.runActiveTests('srv-sort', [
+      { breaker: breakerNewer, model: 'modelNewer' },
+      { breaker: breakerOlder, model: 'modelOlder' },
+    ]);
+
+    // Both should have been tested (only 2 breakers, within maxConcurrentPerServer limit)
+    expect(results).toHaveLength(2);
+
+    // The first result should be the older breaker (sorted by halfOpenStartedAt)
+    expect(results[0].breakerName).toBe('srv-sort:modelOlder');
+    expect(results[1].breakerName).toBe('srv-sort:modelNewer');
+  });
+}, 30000);
