@@ -217,12 +217,18 @@ export interface RequestContext {
   isRetry?: boolean;
   /** Whether this request is a health-check probe (not a user request) */
   isProbe?: boolean;
+  /** Protocol used for this request — used to interpret usage/duration fields */
+  protocol?: 'ollama' | 'openai' | 'anthropic';
   firstTokenTime?: number;
   endTime?: number;
   duration?: number;
   success: boolean;
   tokensGenerated?: number;
   tokensPrompt?: number;
+  /** OpenAI-style usage: prompt tokens (input) */
+  promptTokens?: number;
+  /** OpenAI-style usage: completion tokens (output) */
+  completionTokens?: number;
   error?: Error;
   // Streaming-specific metrics
   ttft?: number; // Time to first token in ms

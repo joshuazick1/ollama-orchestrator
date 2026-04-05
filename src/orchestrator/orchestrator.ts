@@ -1889,7 +1889,7 @@ export class AIOrchestrator {
     fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean = false,
     endpoint: 'generate' | 'embeddings' = 'generate',
-    requiredCapability?: 'ollama' | 'openai',
+    requiredCapability?: 'ollama' | 'openai' | 'anthropic',
     routingContext?: RoutingContext,
     signal?: AbortSignal,
     estimatedPromptTokens?: number
@@ -1913,9 +1913,15 @@ export class AIOrchestrator {
       if (requiredCapability === 'openai' && s.supportsV1 === false) {
         return false;
       }
+      if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) {
+        return false;
+      }
 
       // Get the appropriate model list for this capability
-      const availableModels = requiredCapability === 'openai' ? (s.v1Models ?? s.models) : s.models;
+      const availableModels =
+        requiredCapability === 'openai' || requiredCapability === 'anthropic'
+          ? (s.v1Models ?? s.models)
+          : s.models;
 
       // Resolve model name (try direct match, then :latest)
       const resolvedModel = this.resolveModelName(model, availableModels);
@@ -2034,6 +2040,9 @@ export class AIOrchestrator {
         if (requiredCapability === 'openai' && s.supportsV1 === false) {
           return false;
         }
+        if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) {
+          return false;
+        }
         return true;
       });
 
@@ -2043,7 +2052,9 @@ export class AIOrchestrator {
         // Check if no servers have the model
         const modelServers = capabilityServers.filter(s => {
           const availableModels =
-            requiredCapability === 'openai' ? (s.v1Models ?? s.models) : s.models;
+            requiredCapability === 'openai' || requiredCapability === 'anthropic'
+              ? (s.v1Models ?? s.models)
+              : s.models;
           const resolvedModel = this.resolveModelName(model, availableModels);
           return resolvedModel !== null;
         });
