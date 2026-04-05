@@ -573,6 +573,7 @@ export class OperationalStore {
       family?: string;
       quantization?: string;
       lastRequestAt?: number;
+      updatedAt?: number;
     }
   ): void {
     this.db
@@ -602,7 +603,7 @@ export class OperationalStore {
         data.family ?? null,
         data.quantization ?? null,
         data.lastRequestAt ?? null,
-        Date.now()
+        data.updatedAt ?? Date.now()
       );
   }
 
