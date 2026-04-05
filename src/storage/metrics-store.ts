@@ -52,6 +52,7 @@ import { DEFAULT_STORAGE_CONFIG } from './types.js';
 interface BufferedRequest {
   context: RequestContext;
   queueWaitMs?: number;
+  isProbe?: boolean;
 }
 
 interface BufferedDecision {
@@ -254,8 +255,13 @@ export class MetricsStore {
    * Buffer a completed request context for insertion.
    * Non-blocking — the actual INSERT happens on the next flush.
    */
-  recordRequest(context: RequestContext, queueWaitMs?: number): void {
-    this.requestBuffer.push({ context, queueWaitMs });
+  recordRequest(
+    context: RequestContext,
+    opts?: { queueWaitMs?: number; isProbe?: boolean } | number
+  ): void {
+    const queueWaitMs = typeof opts === 'number' ? opts : opts?.queueWaitMs;
+    const isProbe = typeof opts === 'number' ? undefined : opts?.isProbe;
+    this.requestBuffer.push({ context, queueWaitMs, isProbe });
     if (this.requestBuffer.length >= this.config.performance.batchSize) {
       this.flushBatch();
     }
@@ -305,6 +311,10 @@ export class MetricsStore {
     if (opts.isRetry !== undefined) {
       conditions.push('is_retry = ?');
       params.push(opts.isRetry ? 1 : 0);
+    }
+    if (opts.isProbe !== undefined) {
+      conditions.push('is_probe = ?');
+      params.push(opts.isProbe ? 1 : 0);
     }
     if (opts.startTime !== undefined) {
       conditions.push('timestamp >= ?');
@@ -598,7 +608,7 @@ export class MetricsStore {
           ttft_ms, streaming_duration_ms, chunk_count, total_bytes,
           max_chunk_gap_ms, avg_chunk_size,
           eval_duration, prompt_eval_duration, total_duration, load_duration,
-          is_cold_start, queue_wait_ms,
+          is_cold_start, queue_wait_ms, is_probe,
           hour_of_day, day_of_week, date_str
         ) VALUES (
           ?, ?, ?, ?,
@@ -608,7 +618,7 @@ export class MetricsStore {
           ?, ?, ?, ?,
           ?, ?,
           ?, ?, ?, ?,
-          ?, ?,
+          ?, ?, ?,
           ?, ?, ?
         )
       `),
@@ -686,7 +696,7 @@ export class MetricsStore {
 
     try {
       this.db.transaction(() => {
-        for (const { context: c, queueWaitMs } of requests) {
+        for (const { context: c, queueWaitMs, isProbe } of requests) {
           const ts = c.startTime;
           this.stmts.insertRequest.run(
             c.id,
@@ -716,6 +726,7 @@ export class MetricsStore {
             c.loadDuration ?? null,
             c.isColdStart ? 1 : 0,
             queueWaitMs ?? null,
+            (isProbe ?? c.isProbe) ? 1 : 0,
             utcHourOfDay(ts),
             utcDayOfWeek(ts),
             utcDateStr(ts)

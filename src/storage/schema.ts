@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /**
  * All DDL statements for schema version 1.
@@ -429,9 +429,12 @@ CREATE INDEX IF NOT EXISTS idx_summary_ts ON metrics_summary(timestamp);
 CREATE INDEX IF NOT EXISTS idx_summary_temporal ON metrics_summary(hour_of_day, day_of_week);
 `;
 
+export const SCHEMA_V3_MIGRATION = `ALTER TABLE requests ADD COLUMN is_probe INTEGER NOT NULL DEFAULT 0;`;
+
 export const MIGRATIONS: Record<number, string> = {
   // Version 1 is applied as a full schema creation on empty databases.
   2: SCHEMA_V2_MIGRATION,
+  3: SCHEMA_V3_MIGRATION,
 };
 
 /**

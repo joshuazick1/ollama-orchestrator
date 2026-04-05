@@ -1010,6 +1010,7 @@ export class AnalyticsEngine {
       success: false,
       startTime: range.start,
       endTime: range.end,
+      isProbe: false,
       limit: 5000,
     });
 

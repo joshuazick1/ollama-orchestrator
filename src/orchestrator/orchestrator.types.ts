@@ -194,6 +194,8 @@ export interface RequestContext {
   parentRequestId?: string;
   /** Whether this is a retry attempt (not the first try for this user request) */
   isRetry?: boolean;
+  /** Whether this request is a health-check probe (not a user request) */
+  isProbe?: boolean;
   firstTokenTime?: number;
   endTime?: number;
   duration?: number;

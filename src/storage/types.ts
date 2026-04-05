@@ -57,6 +57,8 @@ export interface RequestRow {
 
   queue_wait_ms: number | null;
 
+  is_probe: number; // 0 or 1
+
   hour_of_day: number;
   day_of_week: number;
   date_str: string;
@@ -223,6 +225,7 @@ export interface RequestQuery {
   startTime?: number;
   endTime?: number;
   isRetry?: boolean;
+  isProbe?: boolean;
   limit?: number;
   offset?: number;
 }
