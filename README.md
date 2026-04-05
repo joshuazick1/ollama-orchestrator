@@ -386,7 +386,8 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 
 ### Intelligent Load Balancing
 
-- Weighted scoring: latency (35%), success rate (30%), load (20%), capacity (15%)
+- Default algorithm: `fastest-response` — selects the server with the lowest predicted response time based on recent measurements. Also available: `weighted` (multi-factor scoring), `round-robin`, `least-connections`.
+- Weighted scoring (when `weighted` algorithm is selected): latency (17%), success rate (17%), load (17%), capacity (5%), plus circuitBreaker, timeout, throughput, VRAM, temporal, and context factors
 - Historical metrics with sliding windows (1m, 5m, 15m, 1h)
 - Circuit breakers prevent routing to failing servers
 - Considers in-flight requests, model availability, health
@@ -466,7 +467,7 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - Default fallback latency: 1000ms
 - Default max concurrency: 4
 - Streaming optimization: TTFT 60%, duration 40%
-- Algorithms: weighted, round-robin, least-connections
+- Algorithms: fastest-response, weighted, round-robin, least-connections
 
 ### Circuit Breaker
 

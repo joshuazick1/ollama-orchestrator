@@ -422,6 +422,18 @@ npm run test:performance
 watch curl http://localhost:5100/api/orchestrator/metrics
 ```
 
+### Temporal Scoring Cold Start
+
+The temporal scorer uses a 14-day historical window to predict server performance. During this cold-start period (or for brand-new servers with no 14-day history), the temporal scorer returns `null` and the load balancer falls back entirely to other scoring signals (latency, success rate, load, capacity).
+
+**Implications:**
+
+- New servers or servers returning after a long downtime may receive less optimal routing until 14 days of data accumulates
+- The load balancer still functions correctly during cold-start — it simply has less historical context to work with
+- If faster temporal learning is desired, consider shortening the temporal scorer's data window (configured in `persistence.metrics.historyWindowDays`)
+
+**Recommendation:** If you are operating a fleet with frequent server additions/removals, keep the default 14-day window to avoid noisy temporal signals from short-lived data. If your server fleet is stable and you want faster adaptation to changed patterns, consider reducing the history window (e.g., to 7 days).
+
 ### Configuration Tuning
 
 Based on load testing results:
