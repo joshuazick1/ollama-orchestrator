@@ -154,7 +154,7 @@ describe('HealthCheckScheduler', () => {
     it('should return failure for unhealthy server', async () => {
       const mockResponse = {
         ok: false,
-        status: 500,
+        status: 404,
       };
       (global.fetch as any).mockResolvedValue(mockResponse);
 
@@ -186,7 +186,7 @@ describe('HealthCheckScheduler', () => {
       const result = await fastScheduler.checkServerHealth(mockServer);
 
       expect(result.success).toBe(false);
-      expect(result.error).toMatch(/Aborted|timeout|Neither/i);
+      expect(result.error).toMatch(/Aborted|timeout|Neither|No inference/i);
     });
 
     it('should retry on retryable errors', async () => {

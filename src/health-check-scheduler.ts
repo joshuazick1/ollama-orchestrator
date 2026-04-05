@@ -12,6 +12,9 @@ import { logger } from './utils/logger.js';
 import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
 import { Timer } from './utils/timer.js';
 
+const PROBE_MODEL = '__probe_nonexistent_model_000000__';
+const PROBE_TIMEOUT_MS = 10_000;
+
 /**
  * Fetch with optional API key authentication
  */
@@ -51,8 +54,10 @@ export interface HealthCheckResult {
   // NEW: Endpoint capabilities
   supportsOllama?: boolean; // Whether server supports /api/* Ollama endpoints
   supportsV1?: boolean; // Whether server supports /v1/* OpenAI-compatible endpoints
+  supportsAnthropic?: boolean;
   // NEW: OpenAI-compatible models
   v1Models?: string[];
+  probedEndpoints?: AIServer['probedEndpoints'];
   // Loaded model information from /api/ps
   loadedModels?: {
     name: string;
@@ -336,9 +341,27 @@ export class HealthCheckScheduler {
 
       const responseTime = timer ? timer.elapsed() : Date.now() - startTime!;
 
-      // Check which endpoints are supported
-      const supportsOllama = tagsResponse?.ok ?? false;
-      const supportsV1 = v1Response?.ok ?? false;
+      // Run inference endpoint probes in parallel (all 7 inference endpoints)
+      const probedEndpoints = await this.runEndpointProbes(server);
+
+      // Apply forcedCapabilities overrides if present
+      const forced = server.forcedCapabilities ?? {};
+
+      const inferredOllama =
+        probedEndpoints.ollama_chat ||
+        probedEndpoints.ollama_generate ||
+        probedEndpoints.ollama_embeddings ||
+        false;
+      const inferredV1 =
+        probedEndpoints.openai_chat ||
+        probedEndpoints.openai_completions ||
+        probedEndpoints.openai_embeddings ||
+        false;
+      const inferredAnthropic = probedEndpoints.anthropic_messages || false;
+
+      const supportsOllama = forced.supportsOllama ?? (tagsResponse?.ok || inferredOllama);
+      const supportsV1 = forced.supportsV1 ?? (v1Response?.ok || inferredV1);
+      const supportsAnthropic = forced.supportsAnthropic ?? inferredAnthropic;
 
       // Update capability flags
       if (supportsOllama !== server.supportsOllama) {
@@ -350,9 +373,15 @@ export class HealthCheckScheduler {
         server.supportsV1 = supportsV1;
       }
 
+      server.probedEndpoints = probedEndpoints;
+      if (supportsAnthropic !== server.supportsAnthropic) {
+        logger.info(`Server ${server.id} Anthropic support changed: ${supportsAnthropic}`);
+        server.supportsAnthropic = supportsAnthropic;
+      }
+
       // Server is healthy if at least one endpoint works
-      if (!supportsOllama && !supportsV1) {
-        throw new Error('Neither /api/tags nor /v1/models responded');
+      if (!supportsOllama && !supportsV1 && !supportsAnthropic) {
+        throw new Error('No inference endpoints responded (Ollama, OpenAI, or Anthropic)');
       }
 
       // Extract Ollama models if available
@@ -417,6 +446,8 @@ export class HealthCheckScheduler {
         totalVramUsed,
         supportsOllama,
         supportsV1,
+        supportsAnthropic,
+        probedEndpoints,
       };
 
       this.updateMetrics(result);
@@ -500,6 +531,100 @@ export class HealthCheckScheduler {
     return details;
   }
 
+  private async probeInferenceEndpoint(
+    url: string,
+    method: string,
+    body: object,
+    apiKey?: string
+  ): Promise<boolean> {
+    try {
+      const resolvedKey = resolveApiKey(apiKey);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (resolvedKey) {
+        headers['Authorization'] = `Bearer ${resolvedKey}`;
+      }
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
+      return res.status !== 404;
+    } catch {
+      return false;
+    }
+  }
+
+  private async runEndpointProbes(
+    server: AIServer
+  ): Promise<NonNullable<AIServer['probedEndpoints']>> {
+    const base = server.url;
+    const key = server.apiKey;
+
+    const [
+      ollamaChat,
+      ollamaGenerate,
+      ollamaEmbeddings,
+      openaiChat,
+      openaiCompletions,
+      openaiEmbeddings,
+      anthropicMessages,
+    ] = await Promise.all([
+      this.probeInferenceEndpoint(
+        `${base}/api/chat`,
+        'POST',
+        { model: PROBE_MODEL, messages: [{ role: 'user', content: 'probe' }], stream: false },
+        key
+      ),
+      this.probeInferenceEndpoint(
+        `${base}/api/generate`,
+        'POST',
+        { model: PROBE_MODEL, prompt: 'probe', stream: false },
+        key
+      ),
+      this.probeInferenceEndpoint(
+        `${base}/api/embeddings`,
+        'POST',
+        { model: PROBE_MODEL, prompt: 'probe' },
+        key
+      ),
+      this.probeInferenceEndpoint(
+        `${base}/v1/chat/completions`,
+        'POST',
+        { model: PROBE_MODEL, messages: [{ role: 'user', content: 'probe' }], stream: false },
+        key
+      ),
+      this.probeInferenceEndpoint(
+        `${base}/v1/completions`,
+        'POST',
+        { model: PROBE_MODEL, prompt: 'probe', stream: false },
+        key
+      ),
+      this.probeInferenceEndpoint(
+        `${base}/v1/embeddings`,
+        'POST',
+        { model: PROBE_MODEL, input: 'probe' },
+        key
+      ),
+      this.probeInferenceEndpoint(
+        `${base}/v1/messages`,
+        'POST',
+        { model: PROBE_MODEL, max_tokens: 1, messages: [{ role: 'user', content: 'probe' }] },
+        key
+      ),
+    ]);
+
+    return {
+      ollama_chat: ollamaChat,
+      ollama_generate: ollamaGenerate,
+      ollama_embeddings: ollamaEmbeddings,
+      openai_chat: openaiChat,
+      openai_completions: openaiCompletions,
+      openai_embeddings: openaiEmbeddings,
+      anthropic_messages: anthropicMessages,
+    };
+  }
+
   /**
    * Check if an error should be retried
    */
@@ -513,6 +638,7 @@ export class HealthCheckScheduler {
       /network/i,
       /temporary/i,
       /neither.*responded/i, // Both probes returned null (connection failure)
+      /no inference endpoints responded/i,
     ];
 
     return retryablePatterns.some(pattern => pattern.test(errorMessage));
