@@ -35,6 +35,7 @@ export interface HandoffRequest {
 const OLLAMA_GENERATE_ENDPOINT = '/api/generate';
 const OLLAMA_CHAT_ENDPOINT = '/api/chat';
 const OPENAI_CHAT_ENDPOINT = '/v1/chat/completions';
+const ANTHROPIC_MESSAGES_ENDPOINT = '/v1/messages';
 
 export async function performStreamHandoff(handoffRequest: HandoffRequest): Promise<HandoffResult> {
   const {
@@ -261,7 +262,7 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
 }
 
 function checkSupportsContinuation(
-  protocol: 'ollama' | 'openai',
+  protocol: 'ollama' | 'openai' | 'anthropic',
   endpoint: 'generate' | 'chat'
 ): boolean {
   // Ollama supports true continuation via context array
@@ -273,12 +274,20 @@ function checkSupportsContinuation(
   if (protocol === 'openai' && endpoint === 'chat') {
     return true;
   }
+  // Anthropic: support pseudo-continuation for messages (chat) endpoint
+  // same strategy as OpenAI — append accumulated text as assistant message
+  if (protocol === 'anthropic' && endpoint === 'chat') {
+    return true;
+  }
   return false;
 }
 
 function getEndpointForRequest(request: StreamingRequestProgress): string {
   if (request.protocol === 'ollama') {
     return request.endpoint === 'chat' ? OLLAMA_CHAT_ENDPOINT : OLLAMA_GENERATE_ENDPOINT;
+  }
+  if (request.protocol === 'anthropic') {
+    return ANTHROPIC_MESSAGES_ENDPOINT;
   }
   return OPENAI_CHAT_ENDPOINT;
 }
@@ -295,6 +304,9 @@ function buildContinuationRequest(
   }
   if (request.protocol === 'openai' && request.endpoint === 'chat') {
     return buildOpenAIChatContinuation(request, originalBody);
+  }
+  if (request.protocol === 'anthropic' && request.endpoint === 'chat') {
+    return buildAnthropicMessagesContinuation(request, originalBody);
   }
   return originalBody;
 }
@@ -424,6 +436,54 @@ function buildOpenAIChatContinuation(
   }
   if (originalBody.response_format !== undefined) {
     continuation.response_format = originalBody.response_format;
+  }
+
+  return continuation;
+}
+
+function buildAnthropicMessagesContinuation(
+  request: StreamingRequestProgress,
+  originalBody: Record<string, unknown>
+): Record<string, unknown> {
+  const originalMessages = Array.isArray(originalBody.messages) ? originalBody.messages : [];
+
+  const messages = [
+    ...originalMessages,
+    {
+      role: 'assistant',
+      content: request.accumulatedText,
+    },
+  ];
+
+  const continuation: Record<string, unknown> = {
+    model: request.model,
+    messages,
+    stream: true,
+  };
+
+  if (originalBody.max_tokens !== undefined) {
+    continuation.max_tokens = originalBody.max_tokens;
+  }
+  if (originalBody.temperature !== undefined) {
+    continuation.temperature = originalBody.temperature;
+  }
+  if (originalBody.top_p !== undefined) {
+    continuation.top_p = originalBody.top_p;
+  }
+  if (originalBody.top_k !== undefined) {
+    continuation.top_k = originalBody.top_k;
+  }
+  if (originalBody.stop_sequences !== undefined) {
+    continuation.stop_sequences = originalBody.stop_sequences;
+  }
+  if (originalBody.system !== undefined) {
+    continuation.system = originalBody.system;
+  }
+  if (originalBody.tools !== undefined) {
+    continuation.tools = originalBody.tools;
+  }
+  if (originalBody.tool_choice !== undefined) {
+    continuation.tool_choice = originalBody.tool_choice;
   }
 
   return continuation;

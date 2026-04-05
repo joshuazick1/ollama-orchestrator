@@ -20,7 +20,7 @@ export interface StreamingRequestProgress {
   lastContext?: number[]; // Ollama context array for continuation
   originalPrompt?: string; // Original prompt for retry (generate endpoint)
   originalMessages?: unknown[]; // Original messages array for retry (chat endpoint)
-  protocol: 'ollama' | 'openai'; // Track protocol for handoff logic
+  protocol: 'ollama' | 'openai' | 'anthropic'; // Track protocol for handoff logic
   endpoint: 'generate' | 'chat'; // Track endpoint for handoff logic
   handoffCount: number; // Number of handoff attempts made
   hasReceivedFirstChunk: boolean; // Whether first chunk has been received (stall detection applies after this)
@@ -258,7 +258,7 @@ export class InFlightManager {
     requestId: string,
     serverId: string,
     model: string,
-    protocol: 'ollama' | 'openai' = 'ollama',
+    protocol: 'ollama' | 'openai' | 'anthropic' = 'ollama',
     endpoint: 'generate' | 'chat' = 'generate',
     originalPrompt?: string,
     originalMessages?: unknown[]
