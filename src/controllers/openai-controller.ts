@@ -13,7 +13,7 @@ import {
   type RoutingContext,
 } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
-import { type OllamaStreamChunk, type OllamaToolCall } from '../streaming.js';
+import { createStallDetector, type OllamaStreamChunk, type OllamaToolCall } from '../streaming.js';
 import type {
   OpenAIChatCompletionRequest,
   OpenAICompletionRequest,
@@ -92,18 +92,11 @@ async function streamOpenAIResponse(
   let totalTokens = 0;
   let promptTokens = 0;
   let completionTokens = 0;
-  let lastChunkTime = startTime;
-  let hasReceivedFirstChunk = false;
-  let hasEmittedRoleChunk = false; // Track whether role-only first chunk has been sent (REC-37)
-  let stallCheckInterval: ReturnType<typeof setInterval> | undefined;
-  let stallTriggered = false;
-  const effectiveStallThreshold = stallThresholdMs ?? 300000; // Default 5 minutes
-  const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000; // Default 10 seconds
-
-  const abortController = new AbortController();
+  let hasEmittedRoleChunk = false;
+  const effectiveStallThreshold = stallThresholdMs ?? 300000;
+  const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000;
 
   try {
-    // Set SSE headers for OpenAI-style streaming
     clientResponse.setHeader('Content-Type', 'text/event-stream');
     clientResponse.setHeader('Cache-Control', 'no-cache');
     clientResponse.setHeader('Connection', 'keep-alive');
@@ -116,88 +109,46 @@ async function streamOpenAIResponse(
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let stallDetector: ReturnType<typeof createStallDetector> | undefined;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const { done, value } = await reader.read();
 
       if (done) {
-        // Clear stall check interval on completion
-        if (stallCheckInterval) {
-          clearInterval(stallCheckInterval);
-          stallCheckInterval = undefined;
-        }
+        stallDetector?.stop();
         break;
       }
 
-      const now = Date.now();
-
-      // Start stall detection after first chunk
-      if (!hasReceivedFirstChunk && onStall) {
-        hasReceivedFirstChunk = true;
-
-        stallCheckInterval = setInterval(() => {
-          if (stallTriggered) {
-            return;
-          }
-
-          const timeSinceLastChunk = Date.now() - lastChunkTime;
-          if (timeSinceLastChunk > effectiveStallThreshold) {
+      if (stallDetector) {
+        stallDetector.onChunk();
+      } else if (onStall) {
+        stallDetector = createStallDetector(
+          async (abortController: AbortController, reqId: string | undefined) => {
             logger.warn('OpenAI stream stall detected', {
               responseId,
               model,
-              timeSinceLastChunk,
               stallThreshold: effectiveStallThreshold,
             });
-            stallTriggered = true;
-
-            // Clear the interval since we've triggered stall handling
-            if (stallCheckInterval) {
-              clearInterval(stallCheckInterval);
-              stallCheckInterval = undefined;
-            }
-
-            // Try to handle the stall - call the async handler
-            onStall(abortController, streamingRequestId)
-              .then(res => {
-                // Cancel the stalled reader regardless of handoff success/failure so the
-                // original read loop exits cleanly.  On success the handoff stream is
-                // already writing to clientResponse; leaving this reader open risks
-                // interleaving old-server chunks with the continuation.
-                try {
-                  void reader.cancel();
-                } catch (_e) {
-                  logger.debug('Reader cancel failed in stall handler', {
-                    responseId,
-                    error: String(_e),
-                  });
-                }
-                if (res?.success) {
-                  logger.info('OpenAI stall handled successfully via handoff', {
-                    responseId,
-                  });
-                }
-              })
-              .catch(stallError => {
-                logger.error('OpenAI stall handler threw error', {
-                  responseId,
-                  error: stallError instanceof Error ? stallError.message : String(stallError),
-                });
-
-                try {
-                  void reader.cancel();
-                } catch (_e) {
-                  logger.debug('Reader cancel failed in stall error handler', {
-                    responseId,
-                    error: String(_e),
-                  });
-                }
+            const res = await onStall(abortController, reqId);
+            try {
+              void reader.cancel();
+            } catch (_e) {
+              logger.debug('Reader cancel failed in stall handler', {
+                responseId,
+                error: String(_e),
               });
-          }
-        }, effectiveStallCheckInterval);
+            }
+            if (res?.success) {
+              logger.info('OpenAI stall handled successfully via handoff', { responseId });
+            }
+            return res;
+          },
+          effectiveStallThreshold,
+          effectiveStallCheckInterval,
+          streamingRequestId
+        );
       }
-
-      lastChunkTime = now;
 
       onChunk?.();
 
@@ -437,13 +388,9 @@ async function passthroughSSEStream(
   _onStreamEnd?: () => void
 ): Promise<void> {
   const startTime = Date.now();
-  let lastChunkTime = startTime;
-  let hasReceivedFirstChunk = false;
-  let stallCheckInterval: ReturnType<typeof setInterval> | undefined;
-  let stallTriggered = false;
   const effectiveStallThreshold = stallThresholdMs ?? 300000;
   const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000;
-  const abortController = new AbortController();
+  let stallDetector: ReturnType<typeof createStallDetector> | undefined;
 
   try {
     clientResponse.setHeader('Content-Type', 'text/event-stream');
@@ -464,72 +411,42 @@ async function passthroughSSEStream(
       const { done, value } = await reader.read();
 
       if (done) {
-        if (stallCheckInterval) {
-          clearInterval(stallCheckInterval);
-          stallCheckInterval = undefined;
-        }
+        stallDetector?.stop();
         break;
       }
 
-      const now = Date.now();
-
-      // Start stall detection after first chunk
-      if (!hasReceivedFirstChunk && onStall) {
-        hasReceivedFirstChunk = true;
-
-        stallCheckInterval = setInterval(() => {
-          if (stallTriggered) {
-            return;
-          }
-          const timeSinceLastChunk = Date.now() - lastChunkTime;
-          if (timeSinceLastChunk > effectiveStallThreshold) {
+      if (stallDetector) {
+        stallDetector.onChunk();
+      } else if (onStall) {
+        stallDetector = createStallDetector(
+          async (abortController: AbortController, reqId: string | undefined) => {
             logger.warn('SSE passthrough stall detected', {
               responseId,
               model,
-              timeSinceLastChunk,
               stallThreshold: effectiveStallThreshold,
             });
-            stallTriggered = true;
-            if (stallCheckInterval) {
-              clearInterval(stallCheckInterval);
-              stallCheckInterval = undefined;
-            }
-            onStall(abortController, streamingRequestId)
-              .then(res => {
-                // Cancel the stalled reader on both success and failure so the read loop
-                // exits cleanly.  On success the handoff stream is already writing to
-                // clientResponse; leaving this reader open would interleave content.
-                try {
-                  void reader.cancel();
-                } catch {
-                  // Ignore cancel errors
-                }
-                if (res?.success) {
-                  logger.info('SSE passthrough stall handled successfully via handoff', {
-                    responseId,
-                  });
-                }
-              })
-              .catch(stallError => {
-                logger.error('SSE passthrough stall handler threw error', {
-                  responseId,
-                  error: stallError instanceof Error ? stallError.message : String(stallError),
-                });
-                try {
-                  void reader.cancel();
-                } catch {
-                  // Ignore cancel errors
-                }
+            const res = await onStall(abortController, reqId);
+            try {
+              void reader.cancel();
+            } catch (cancelErr) {
+              logger.debug('Reader cancel failed in SSE passthrough stall handler', {
+                responseId,
+                error: String(cancelErr),
               });
-          }
-        }, effectiveStallCheckInterval);
+            }
+            if (res?.success) {
+              logger.info('SSE passthrough stall handled successfully via handoff', { responseId });
+            }
+            return res;
+          },
+          effectiveStallThreshold,
+          effectiveStallCheckInterval,
+          streamingRequestId
+        );
       }
-
-      lastChunkTime = now;
 
       onChunk?.();
 
-      // Decode and buffer the chunk
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
@@ -591,10 +508,7 @@ async function passthroughSSEStream(
       clientResponse.end();
     }
   } finally {
-    if (stallCheckInterval) {
-      clearInterval(stallCheckInterval);
-      stallCheckInterval = undefined;
-    }
+    stallDetector?.stop();
     _onStreamEnd?.();
   }
 }
