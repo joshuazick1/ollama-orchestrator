@@ -141,10 +141,25 @@ export class TimeoutManager {
     }
   }
 
-  reset(serverId: string, model: string): void {
-    const key = `${serverId}:${model}`;
-    this.timeouts.delete(key);
-    logger.debug(`Timeout reset for ${key}`);
+  reset(serverId: string, model?: string): void {
+    if (model) {
+      const key = `${serverId}:${model}`;
+      this.timeouts.delete(key);
+      logger.debug(`Timeout reset for ${key}`);
+    } else {
+      const keysToDelete: string[] = [];
+      for (const key of this.timeouts.keys()) {
+        if (key.startsWith(`${serverId}:`)) {
+          keysToDelete.push(key);
+        }
+      }
+      for (const key of keysToDelete) {
+        this.timeouts.delete(key);
+      }
+      logger.debug(
+        `Timeout reset for all models on server ${serverId} (${keysToDelete.length} entries)`
+      );
+    }
   }
 
   clearAll(): void {

@@ -280,17 +280,12 @@ export class AIOrchestrator {
   updateConfig(config: OrchestratorConfig): void {
     this.config = config;
 
-    // Update load balancer
     this.loadBalancer.updateConfig(config.loadBalancer);
-
-    // Update circuit breaker registry
     this.circuitBreakerRegistry.updateAllConfig(config.circuitBreaker);
-
-    // Update health check scheduler
     this.healthCheckScheduler.updateConfig(config.healthCheck);
-
     this.metricsAggregator.setDecayConfig(config.metrics.decay);
     getTemporalScorer().updateConfig(config.storage.temporal);
+    this.banManager.updateConfig({ failureCooldownMs: config.cooldown?.failureCooldownMs });
 
     logger.info('Orchestrator config updated at runtime');
   }
@@ -492,6 +487,8 @@ export class AIOrchestrator {
       server.healthy = false;
       server.models = []; // Clear models on failure
       this.recordFailure(server.id, result.error || 'Health check failed');
+
+      this.modelAggregator.removeServer(server.id);
 
       // Get circuit breaker state for tracking
       const serverCb = this.getCircuitBreaker(server.id);
@@ -863,6 +860,8 @@ export class AIOrchestrator {
       this.circuitBreakerRegistry.removeByPrefix(serverId);
 
       this.banManager.removeServerBans(serverId);
+      this.banManager.clearCooldown(serverId, '');
+      this.timeoutManager.reset(serverId);
       getModelManager().unregisterServer(serverId);
 
       // Persist servers to disk if enabled
@@ -3405,6 +3404,9 @@ export class AIOrchestrator {
 
       // Clear failure tracker on success
       this.banManager.recordSuccess(serverId, model);
+
+      // Record model-level success for aggregator tracking
+      this.modelAggregator.recordSuccess(model);
     }
 
     // Schedule persistence save
@@ -3478,6 +3480,9 @@ export class AIOrchestrator {
 
       // Use BanManager for failure tracking
       this.banManager.recordFailure(serverId, model);
+
+      // Record model-level failure for aggregator tracking
+      this.modelAggregator.recordFailure(model);
 
       // Category-specific ban thresholds
       const banThreshold = this.getBanThresholdForCategory(classification.category);
@@ -4580,6 +4585,14 @@ export class AIOrchestrator {
       const stats = this.getStats();
 
       if (stats.inFlightRequests === 0) {
+        const skippedServers = this.servers.filter(s => this.shouldSkipServer(s.id));
+        if (skippedServers.length > 0) {
+          logger.warn(
+            `Drain complete but ${skippedServers.length} server(s) still ineligible for traffic — keeping drain active: ${skippedServers.map(s => s.id).join(', ')}`
+          );
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
         logger.info('Drain complete - all requests finished');
         this.draining = false;
         return true;

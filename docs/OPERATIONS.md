@@ -486,6 +486,22 @@ curl -X POST http://localhost:5100/api/orchestrator/config \
 tar xzf metrics-backup.tar.gz
 ```
 
+## Streaming and Handoff Limitations
+
+### OpenAI Completions Streaming Handoff
+
+When a streaming request to an OpenAI completions endpoint (`/v1/completions`) stalls, the orchestrator cannot perform stream handoff to a different server. This is because the completions endpoint does not support continuation — there is no accumulated context (like the Ollama context array or the OpenAI chat message history) that can be replayed on another server.
+
+**Affected endpoint:** `POST /v1/completions` (streaming)
+
+**What happens:** If a streaming completions request stalls, the request fails with the stalled response rather than failover to another server.
+
+**Affected protocols:** OpenAI completions only. Chat completions (`/v1/chat/completions`) and Ollama endpoints (`/api/generate`, `/api/chat`) support full stream handoff.
+
+**Workaround:** Use `/v1/chat/completions` for streaming requests that require failover support, or implement client-side retry logic for completions streaming requests.
+
+If OpenAI completions streaming handoff is required, it can be implemented by adding a `buildOpenAICompletionsContinuation()` function that replays the accumulated text as a new completion request.
+
 ## Emergency Procedures
 
 ### Service Completely Down

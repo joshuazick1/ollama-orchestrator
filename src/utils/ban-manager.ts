@@ -122,6 +122,12 @@ export class BanManager {
     logger.info('All cooldowns cleared');
   }
 
+  updateConfig(config: Partial<BanManagerConfig>): void {
+    if (config.failureCooldownMs !== undefined) {
+      this.config.failureCooldownMs = config.failureCooldownMs;
+    }
+  }
+
   addBan(serverId: string, model: string): void {
     const key = `${serverId}:${model}`;
     this.permanentBan.add(key);

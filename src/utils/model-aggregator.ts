@@ -1,7 +1,15 @@
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
 
+export interface ModelStats {
+  successCount: number;
+  failureCount: number;
+  lastSuccess: number;
+  lastFailure: number;
+}
+
 export class ModelAggregator {
   private servers: AIServer[] = [];
+  private modelStats: Map<string, ModelStats> = new Map();
 
   constructor(servers?: AIServer[]) {
     if (servers) {
@@ -78,5 +86,37 @@ export class ModelAggregator {
 
   getServersForModel(model: string, healthyOnly: boolean = true): string[] {
     return this.getModelMap(healthyOnly)[model] ?? [];
+  }
+
+  recordSuccess(model: string): void {
+    let stats = this.modelStats.get(model);
+    if (!stats) {
+      stats = { successCount: 0, failureCount: 0, lastSuccess: 0, lastFailure: 0 };
+      this.modelStats.set(model, stats);
+    }
+    stats.successCount++;
+    stats.lastSuccess = Date.now();
+  }
+
+  recordFailure(model: string): void {
+    let stats = this.modelStats.get(model);
+    if (!stats) {
+      stats = { successCount: 0, failureCount: 0, lastSuccess: 0, lastFailure: 0 };
+      this.modelStats.set(model, stats);
+    }
+    stats.failureCount++;
+    stats.lastFailure = Date.now();
+  }
+
+  getModelStats(model: string): ModelStats | undefined {
+    return this.modelStats.get(model);
+  }
+
+  clearModelStats(model?: string): void {
+    if (model) {
+      this.modelStats.delete(model);
+    } else {
+      this.modelStats.clear();
+    }
   }
 }
