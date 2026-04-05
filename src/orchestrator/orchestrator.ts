@@ -98,6 +98,14 @@ export interface RoutingContext {
   failoverOccurred?: boolean;
 }
 
+function extractParameterSizeFromName(modelName: string): string | undefined {
+  const match = /:(\d+(?:\.\d+)?)[bB]/.exec(modelName);
+  if (match?.[1]) {
+    return `${match[1]}B`;
+  }
+  return undefined;
+}
+
 export class AIOrchestrator {
   private servers: AIServer[] = [];
   private inFlightManager: InFlightManager;
@@ -356,6 +364,37 @@ export class AIOrchestrator {
         for (const model of server.models) {
           // This will create the circuit breaker if it doesn't exist
           this.getModelCircuitBreaker(server.id, model);
+        }
+
+        if (result.modelDetails) {
+          for (const detail of result.modelDetails) {
+            const parameterSize = detail.parameterSize || extractParameterSizeFromName(detail.name);
+            const family = detail.family || undefined;
+            const quantization = detail.quantization || undefined;
+            if (parameterSize ?? family ?? quantization) {
+              this.metricsAggregator.updateModelMetadata(server.id, detail.name, {
+                parameterSize,
+                family,
+                quantization,
+              });
+            }
+          }
+        }
+
+        // Update model metadata from /api/tags details
+        if (result.modelDetails) {
+          for (const detail of result.modelDetails) {
+            const parameterSize = detail.parameterSize || extractParameterSizeFromName(detail.name);
+            const family = detail.family || undefined;
+            const quantization = detail.quantization || undefined;
+            if (parameterSize ?? family ?? quantization) {
+              this.metricsAggregator.updateModelMetadata(server.id, detail.name, {
+                parameterSize,
+                family,
+                quantization,
+              });
+            }
+          }
         }
 
         const modelCountChanged = server.models.length !== previousModelCount;
@@ -1011,6 +1050,31 @@ export class AIOrchestrator {
                 return null;
               })
               .filter(Boolean) as string[];
+
+            for (const m of models) {
+              if (typeof m !== 'object' || m === null) {
+                continue;
+              }
+              const rec = m as Record<string, unknown>;
+              const modelName =
+                (rec.model as string | undefined) ?? (rec.name as string | undefined);
+              if (!modelName) {
+                continue;
+              }
+              const det = rec.details as Record<string, unknown> | undefined;
+              const parameterSize =
+                (det?.parameter_size as string | undefined) ||
+                extractParameterSizeFromName(modelName);
+              const family = (det?.family as string | undefined) || undefined;
+              const quantization = (det?.quantization_level as string | undefined) || undefined;
+              if (parameterSize ?? family ?? quantization) {
+                this.metricsAggregator.updateModelMetadata(server.id, modelName, {
+                  parameterSize,
+                  family,
+                  quantization,
+                });
+              }
+            }
           }
         }
       }

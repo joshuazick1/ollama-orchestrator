@@ -33,6 +33,13 @@ async function fetchWithAuth(
   });
 }
 
+export interface HealthCheckModelDetail {
+  name: string;
+  parameterSize?: string;
+  family?: string;
+  quantization?: string;
+}
+
 export interface HealthCheckResult {
   serverId: string;
   success: boolean;
@@ -54,6 +61,8 @@ export interface HealthCheckResult {
     digest: string;
   }[];
   totalVramUsed?: number;
+  /** Per-model metadata extracted from /api/tags details */
+  modelDetails?: HealthCheckModelDetail[];
 }
 
 export interface HealthCheckMetrics {
@@ -348,10 +357,12 @@ export class HealthCheckScheduler {
 
       // Extract Ollama models if available
       let models: string[] = [];
+      let modelDetails: HealthCheckModelDetail[] = [];
       if (tagsResponse?.ok) {
         const data = (await tagsResponse.json()) as { models?: unknown };
         if (data && typeof data === 'object' && 'models' in data) {
           models = this.extractModels(data.models);
+          modelDetails = this.extractModelDetails(data.models);
         }
       }
 
@@ -400,6 +411,7 @@ export class HealthCheckScheduler {
         responseTime,
         timestamp: Date.now(),
         models,
+        modelDetails,
         v1Models,
         loadedModels,
         totalVramUsed,
@@ -460,6 +472,32 @@ export class HealthCheckScheduler {
         return null;
       })
       .filter((name): name is string => typeof name === 'string' && name.length > 0);
+  }
+
+  private extractModelDetails(models: unknown): HealthCheckModelDetail[] {
+    if (!Array.isArray(models)) {
+      return [];
+    }
+
+    const details: HealthCheckModelDetail[] = [];
+    for (const m of models) {
+      if (typeof m !== 'object' || m === null) {
+        continue;
+      }
+      const rec = m as Record<string, unknown>;
+      const name = (rec.model as string | undefined) ?? (rec.name as string | undefined);
+      if (!name) {
+        continue;
+      }
+      const det = rec.details as Record<string, unknown> | undefined;
+      details.push({
+        name,
+        parameterSize: (det?.parameter_size as string | undefined) || undefined,
+        family: (det?.family as string | undefined) || undefined,
+        quantization: (det?.quantization_level as string | undefined) || undefined,
+      });
+    }
+    return details;
   }
 
   /**
