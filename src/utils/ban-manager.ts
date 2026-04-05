@@ -66,7 +66,13 @@ export class BanManager {
     if (!lastFail) {
       return false;
     }
-    return Date.now() - lastFail < this.config.failureCooldownMs;
+    // Lazy cleanup: if the cooldown entry has expired, remove it now so the map
+    // doesn't grow stale over time (periodic cleanup still runs as a safety net).
+    if (Date.now() - lastFail >= this.config.failureCooldownMs) {
+      this.failureCooldown.delete(key);
+      return false;
+    }
+    return true;
   }
 
   markFailure(serverId: string, model: string): void {
@@ -284,6 +290,9 @@ export class BanManager {
     }
     if (state.modelFailureTracker) {
       this.modelFailureTracker = new Map(Object.entries(state.modelFailureTracker));
+    }
+    if (state.permanentBan) {
+      this.permanentBan = new Set(state.permanentBan);
     }
     logger.info('BanManager state loaded');
   }

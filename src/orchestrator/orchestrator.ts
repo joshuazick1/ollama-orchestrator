@@ -3684,6 +3684,9 @@ export class AIOrchestrator {
         this.circuitBreakerRegistry.loadPersistedState(persistedBreakerData.breakers);
       }
 
+      // Load permanent bans from SQLite so bans survive process restarts
+      this.banManager.loadBansFromStore();
+
       // Initialize recovery test coordinator with configurable timeouts
       const rtCfg = this.config.recoveryTest;
       setRecoveryTestCoordinator(

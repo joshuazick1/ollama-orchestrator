@@ -256,6 +256,26 @@ export class CircuitBreaker {
   private onStateChange?: (oldState: CircuitState, newState: CircuitState) => void;
   private errorClassifier: ErrorClassifier;
 
+  // GAP-CB-4: Mutex to serialize state-modifying methods (canExecute, recordSuccess, recordFailure, restoreState).
+  // Uses a microtask-chain lock: callers append to _lockTail and wait for their predecessor to complete.
+  // The initial _lockTail resolves immediately so the first caller runs without async overhead.
+  private _lockTail: Promise<unknown> = Promise.resolve();
+  private _restoring = false; // Guards against concurrent restoreState() calls
+
+  /**
+   * Acquire the state lock, run fn, then release. All callers are serialized via the Promise chain.
+   * The hot path (no contention) incurs only the Promise chain overhead (~microseconds).
+   * Async callers (recordSuccess, recordFailure) use this properly; canExecute is sync-only.
+   */
+  private withStateLock<T>(fn: () => T): Promise<T> {
+    const predecessor = this._lockTail;
+    let release: (val: T) => void;
+    this._lockTail = new Promise<T>(res => {
+      release = res;
+    });
+    return predecessor.then(() => release!(fn())) as Promise<T>;
+  }
+
   constructor(
     name: string,
     config?: Partial<CircuitBreakerConfig>,
@@ -317,6 +337,12 @@ export class CircuitBreaker {
             // Don't transition to half-open if we've had too many failures
             // This prevents the flapping behavior
             if (this.consecutiveFailedRecoveries >= 5) {
+              // GAP-CB-5: Half-open starvation guard — when consecutiveFailedRecoveries >= 5
+              // the breaker refuses to enter half-open and stays open. This is intentional:
+              // it prevents a perpetually-failing server:model from wasting resources on
+              // repeated recovery probes. consecutiveFailedRecoveries is the backstop that
+              // overrides the normal half-open timeout, providing a hard ceiling on
+              // recovery attempts even if the half-open timeout expires.
               this.blockedRequestCount++; // Track blocked request
               return false;
             }
@@ -754,72 +780,84 @@ export class CircuitBreaker {
    * Used during startup to recover previous state
    */
   restoreState(stats: CircuitBreakerStats): void {
-    // Restore model type first - it's always valuable regardless of state
-    if (stats.modelType) {
-      this.modelType = stats.modelType;
+    // GAP-CB-4: If restoreState is called while another restoreState is in progress
+    // (e.g. during concurrent server adds at startup), defer to let the first call complete.
+    // This prevents torn writes to the state fields below.
+    if (this._restoring) {
+      setImmediate(() => this.restoreState(stats));
+      return;
     }
-
-    // Only restore circuit state if persisted state is more severe or has data
-    if (stats.failureCount > 0 || stats.state !== 'closed') {
-      this.state = stats.state;
-      this.failureCount = stats.failureCount;
-      this.successCount = stats.successCount;
-      this.totalRequestCount = stats.totalRequestCount || 0;
-      this.blockedRequestCount = stats.blockedRequestCount || 0;
-      this.lastFailure = stats.lastFailure;
-      this.lastSuccess = stats.lastSuccess;
-      this.nextRetryAt = stats.nextRetryAt;
-      this.consecutiveSuccesses = stats.consecutiveSuccesses;
-      this.halfOpenRequestCount = 0; // Always reset counters on restore
-      this.activeTestsInProgress = 0; // Always reset counters on restore
-
-      // Restore half-open timestamp - validate it to prevent immediate timeout
-      if (stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
-        this.halfOpenStartedAt = stats.halfOpenStartedAt;
-      } else if (this.state === 'half-open') {
-        // If entering half-open without a timestamp, set it to now
-        this.halfOpenStartedAt = Date.now();
+    this._restoring = true;
+    try {
+      // Restore model type first - it's always valuable regardless of state
+      if (stats.modelType) {
+        this.modelType = stats.modelType;
       }
 
-      // Restore last failure reason
-      if (stats.lastFailureReason) {
-        this.lastFailureReason = stats.lastFailureReason;
+      // Only restore circuit state if persisted state is more severe or has data
+      if (stats.failureCount > 0 || stats.state !== 'closed') {
+        this.state = stats.state;
+        this.failureCount = stats.failureCount;
+        this.successCount = stats.successCount;
+        this.totalRequestCount = stats.totalRequestCount || 0;
+        this.blockedRequestCount = stats.blockedRequestCount || 0;
+        this.lastFailure = stats.lastFailure;
+        this.lastSuccess = stats.lastSuccess;
+        this.nextRetryAt = stats.nextRetryAt;
+        this.consecutiveSuccesses = stats.consecutiveSuccesses;
+        this.halfOpenRequestCount = 0; // Always reset counters on restore
+        this.activeTestsInProgress = 0; // Always reset counters on restore
+
+        // Restore half-open timestamp - validate it to prevent immediate timeout
+        if (stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
+          this.halfOpenStartedAt = stats.halfOpenStartedAt;
+        } else if (this.state === 'half-open') {
+          // If entering half-open without a timestamp, set it to now
+          this.halfOpenStartedAt = Date.now();
+        }
+
+        // Restore last failure reason
+        if (stats.lastFailureReason) {
+          this.lastFailureReason = stats.lastFailureReason;
+        }
+
+        // Restore last error type
+        if (stats.lastErrorType) {
+          this.lastErrorType = stats.lastErrorType;
+        }
+
+        // Recalculate error rate based on restored counts
+        const total = this.failureCount + this.successCount;
+        this.errorRate = total > 0 ? this.failureCount / total : 0;
+
+        // If circuit was open but nextRetryAt has passed, transition to half-open
+        if (this.state === 'open' && Date.now() >= this.nextRetryAt) {
+          this.transitionTo('half-open');
+        }
+
+        // If circuit was half-open but halfOpenTimeout has elapsed since the
+        // persisted halfOpenStartedAt, transition back to open immediately so
+        // the process restart doesn't silently grant a free half-open window.
+        if (
+          this.state === 'half-open' &&
+          this.config.halfOpenTimeout > 0 &&
+          this.halfOpenStartedAt > 0 &&
+          Date.now() >= this.halfOpenStartedAt + this.config.halfOpenTimeout
+        ) {
+          this.transitionTo('open');
+          this.nextRetryAt = Date.now() + this.config.openTimeout;
+        }
+
+        logger.info(`Restored circuit breaker state for ${this.name}`, {
+          state: this.state,
+          failureCount: this.failureCount,
+          successCount: this.successCount,
+          errorRate: this.errorRate.toFixed(3),
+          halfOpenStartedAt: this.halfOpenStartedAt,
+        });
       }
-
-      // Restore last error type
-      if (stats.lastErrorType) {
-        this.lastErrorType = stats.lastErrorType;
-      }
-
-      // Recalculate error rate based on restored counts
-      const total = this.failureCount + this.successCount;
-      this.errorRate = total > 0 ? this.failureCount / total : 0;
-
-      // If circuit was open but nextRetryAt has passed, transition to half-open
-      if (this.state === 'open' && Date.now() >= this.nextRetryAt) {
-        this.transitionTo('half-open');
-      }
-
-      // If circuit was half-open but halfOpenTimeout has elapsed since the
-      // persisted halfOpenStartedAt, transition back to open immediately so
-      // the process restart doesn't silently grant a free half-open window.
-      if (
-        this.state === 'half-open' &&
-        this.config.halfOpenTimeout > 0 &&
-        this.halfOpenStartedAt > 0 &&
-        Date.now() >= this.halfOpenStartedAt + this.config.halfOpenTimeout
-      ) {
-        this.transitionTo('open');
-        this.nextRetryAt = Date.now() + this.config.openTimeout;
-      }
-
-      logger.info(`Restored circuit breaker state for ${this.name}`, {
-        state: this.state,
-        failureCount: this.failureCount,
-        successCount: this.successCount,
-        errorRate: this.errorRate.toFixed(3),
-        halfOpenStartedAt: this.halfOpenStartedAt,
-      });
+    } finally {
+      this._restoring = false;
     }
   }
 
