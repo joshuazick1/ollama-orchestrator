@@ -187,6 +187,48 @@ export interface StallHandlerResult {
   error?: string;
 }
 
+export interface StallDetector {
+  onChunk: () => void;
+  stop: () => void;
+}
+
+export function createStallDetector(
+  onStall: (
+    abortController: AbortController,
+    streamingRequestId?: string
+  ) => Promise<StallHandlerResult | void>,
+  stallThresholdMs: number,
+  stallCheckIntervalMs: number,
+  streamingRequestId?: string,
+  onStallTriggered?: () => void
+): StallDetector {
+  let lastChunkTime = Date.now();
+  let stallTriggered = false;
+  const abortController = new AbortController();
+
+  const intervalId = setInterval(() => {
+    if (stallTriggered) {
+      return;
+    }
+    const timeSinceLastChunk = Date.now() - lastChunkTime;
+    if (timeSinceLastChunk > stallThresholdMs) {
+      stallTriggered = true;
+      clearInterval(intervalId);
+      onStallTriggered?.();
+      void onStall(abortController, streamingRequestId);
+    }
+  }, stallCheckIntervalMs);
+
+  return {
+    onChunk: () => {
+      lastChunkTime = Date.now();
+    },
+    stop: () => {
+      clearInterval(intervalId);
+    },
+  };
+}
+
 /**
  * Stream a response from upstream server to client
  */
@@ -820,4 +862,264 @@ export async function handleStreamWithRetry<T>(
   }
 
   throw lastError;
+}
+
+export interface AnthropicStreamChunk {
+  type: string;
+  index?: number;
+  delta?: {
+    type?: string;
+    text?: string;
+    stop_reason?: string;
+  };
+  message?: {
+    id?: string;
+    type?: string;
+    role?: string;
+    model?: string;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  content_block?: { type?: string; text?: string };
+  usage?: { output_tokens?: number };
+}
+
+export async function streamAnthropicResponse(
+  upstreamResponse: globalThis.Response,
+  clientResponse: Response,
+  onFirstToken?: () => void,
+  onComplete?: (duration: number, tokensGenerated: number, tokensPrompt: number) => void,
+  onChunk?: (chunkCount: number) => void,
+  streamingRequestId?: string,
+  onStall?: (
+    abortController: AbortController,
+    streamingRequestId?: string
+  ) => Promise<StallHandlerResult | void>,
+  stallThresholdMs?: number,
+  stallCheckIntervalMs?: number,
+  onStreamEnd?: () => void
+): Promise<void> {
+  const startTime = Date.now();
+  let chunkCount = 0;
+  let totalBytes = 0;
+  let lastChunkTime = startTime;
+  let stallCheckInterval: ReturnType<typeof setInterval> | undefined;
+  let stallTriggered = false;
+  let hasReceivedFirstChunk = false;
+  let accumulatedText = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const effectiveStallThreshold = stallThresholdMs ?? 300000;
+  const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000;
+  const MAX_ACCUMULATED_TEXT = 1_000_000;
+
+  const abortController = new AbortController();
+
+  try {
+    clientResponse.setHeader('Content-Type', 'text/event-stream');
+    clientResponse.setHeader('Cache-Control', 'no-cache');
+    clientResponse.setHeader('Connection', 'keep-alive');
+    clientResponse.setHeader('X-Accel-Buffering', 'no');
+
+    reader = upstreamResponse.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body to stream');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEventType = '';
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      if (!value) {
+        continue;
+      }
+
+      const now = Date.now();
+      lastChunkTime = now;
+      chunkCount++;
+      totalBytes += value.length;
+
+      if (!hasReceivedFirstChunk && onStall) {
+        hasReceivedFirstChunk = true;
+        onFirstToken?.();
+
+        logger.info('ANTHROPIC_STALL_DETECTION_STARTED', {
+          streamingRequestId,
+          stallThreshold: effectiveStallThreshold,
+          stallCheckInterval: effectiveStallCheckInterval,
+        });
+
+        stallCheckInterval = setInterval(() => {
+          if (stallTriggered) {
+            return;
+          }
+          const timeSinceLastChunk = Date.now() - lastChunkTime;
+          if (timeSinceLastChunk > effectiveStallThreshold) {
+            logger.warn('Anthropic stream stall detected', {
+              streamingRequestId,
+              timeSinceLastChunk,
+              stallThreshold: effectiveStallThreshold,
+              chunkCount,
+            });
+            stallTriggered = true;
+            if (stallCheckInterval) {
+              clearInterval(stallCheckInterval);
+              stallCheckInterval = undefined;
+            }
+            void onStall(abortController, streamingRequestId)
+              .then(result => {
+                if (result?.success) {
+                  logger.info('Anthropic stall handled via handoff, cancelling reader', {
+                    streamingRequestId,
+                  });
+                }
+                try {
+                  void reader?.cancel();
+                } catch (e) {
+                  logger.debug('Error cancelling Anthropic reader after stall', {
+                    streamingRequestId,
+                    error: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              })
+              .catch((stallError: unknown) => {
+                logger.error('Anthropic stall handler threw error', {
+                  streamingRequestId,
+                  error: stallError instanceof Error ? stallError.message : String(stallError),
+                });
+                try {
+                  void reader?.cancel();
+                } catch (_cancelErr) {
+                  void _cancelErr;
+                }
+              });
+          }
+        }, effectiveStallCheckInterval);
+      } else if (!hasReceivedFirstChunk) {
+        hasReceivedFirstChunk = true;
+        onFirstToken?.();
+      }
+
+      onChunk?.(chunkCount);
+
+      if (streamingRequestId) {
+        try {
+          getInFlightManager().updateChunkProgress(streamingRequestId, chunkCount, accumulatedText);
+        } catch (e) {
+          logger.error('Failed to update Anthropic chunk progress', { error: e });
+        }
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEventType = line.slice(7).trim();
+          continue;
+        }
+
+        if (!line.startsWith('data: ')) {
+          continue;
+        }
+
+        const data = line.slice(6).trim();
+        if (!data) {
+          continue;
+        }
+
+        try {
+          const parsed = safeJsonParse(data) as AnthropicStreamChunk;
+
+          if (
+            currentEventType === 'content_block_delta' &&
+            parsed.delta?.type === 'text_delta' &&
+            parsed.delta.text
+          ) {
+            const text = parsed.delta.text;
+            if (accumulatedText.length + text.length > MAX_ACCUMULATED_TEXT) {
+              accumulatedText = accumulatedText.slice(-MAX_ACCUMULATED_TEXT / 2) + text;
+            } else {
+              accumulatedText += text;
+            }
+          }
+
+          if (currentEventType === 'message_start' && parsed.message?.usage) {
+            inputTokens = parsed.message.usage.input_tokens ?? 0;
+          }
+
+          if (currentEventType === 'message_delta' && parsed.usage?.output_tokens !== undefined) {
+            outputTokens = parsed.usage.output_tokens;
+          }
+        } catch (_parseErr) {
+          void _parseErr;
+        }
+
+        const writeResult = clientResponse.write(
+          currentEventType ? `event: ${currentEventType}\ndata: ${data}\n\n` : `data: ${data}\n\n`
+        );
+        if (!writeResult) {
+          await new Promise<void>(r => clientResponse.once('drain', r));
+        }
+
+        currentEventType = '';
+      }
+
+      if (clientResponse.writableEnded) {
+        logger.info('Client disconnected from Anthropic stream', { streamingRequestId });
+        try {
+          void reader.cancel();
+        } catch (_cancelErr2) {
+          void _cancelErr2;
+        }
+        break;
+      }
+    }
+
+    clientResponse.end();
+
+    const duration = Date.now() - startTime;
+    logger.info('Anthropic stream completed', {
+      streamingRequestId,
+      chunkCount,
+      totalBytes,
+      duration,
+      inputTokens,
+      outputTokens,
+    });
+
+    onComplete?.(duration, outputTokens, inputTokens);
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    logger.error('Anthropic streaming error', {
+      error: error instanceof Error ? error.message : String(error),
+      chunkCount,
+      totalBytes,
+      duration,
+    });
+
+    if (!clientResponse.headersSent) {
+      clientResponse.status(500).json({
+        error: 'Streaming failed',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    } else {
+      clientResponse.end();
+    }
+  } finally {
+    if (stallCheckInterval) {
+      clearInterval(stallCheckInterval);
+      stallCheckInterval = undefined;
+    }
+    onStreamEnd?.();
+  }
 }
