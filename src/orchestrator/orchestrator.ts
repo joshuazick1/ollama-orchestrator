@@ -24,6 +24,7 @@ import { DEFAULT_CONFIG, getConfigManager } from '../config/config.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getDecisionHistory } from '../decision-history.js';
 import { HealthCheckScheduler, type HealthCheckResult } from '../health-check-scheduler.js';
+import { InferenceProbeScheduler } from '../inference-probe-scheduler.js';
 import {
   LoadBalancer,
   calculateServerScore,
@@ -117,6 +118,7 @@ export class AIOrchestrator {
   private loadBalancer: LoadBalancer;
   private healthCheckScheduler: HealthCheckScheduler;
   private activeTestScheduler: ActiveTestScheduler;
+  private probeScheduler: InferenceProbeScheduler;
   private draining = false;
   private config: OrchestratorConfig;
   private tagsCache?: {
@@ -226,6 +228,13 @@ export class AIOrchestrator {
       server => this.runActiveTestsForServer(server)
     );
 
+    this.probeScheduler = new InferenceProbeScheduler(
+      this.config.probeScheduler,
+      () => this.servers,
+      () => this.metricsAggregator,
+      () => getMetricsStore()
+    );
+
     // Initialize TimeoutManager with config default
     const currentConfig = getConfigManager().getConfig();
     this.timeoutManager = new TimeoutManager({
@@ -315,8 +324,14 @@ export class AIOrchestrator {
           result.models &&
           safeJsonStringify(result.models) !== safeJsonStringify(server.models)
         ) {
+          const previousModelSet = new Set(server.models);
           server.models = result.models;
           needsPersistence = true;
+          for (const model of result.models) {
+            if (!previousModelSet.has(model)) {
+              this.probeScheduler.onModelDiscovered(server.id, model);
+            }
+          }
         }
 
         // Update endpoint capability flags
@@ -816,6 +831,7 @@ export class AIOrchestrator {
     this.servers.push(newServer);
     this.modelAggregator.addServer(newServer);
     getModelManager().registerServer(newServer);
+    this.probeScheduler.onServerAdded(newServer.id);
     logger.info(`Added server ${server.id} at ${normalizedUrl}`);
 
     // Invalidate cache since we added a new server
@@ -2835,6 +2851,9 @@ export class AIOrchestrator {
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
       getMetricsStore().recordRequest(requestContext);
+      if (!requestContext.isProbe) {
+        this.probeScheduler.recordUserRequest(server.id);
+      }
 
       // Remove streaming request tracking
       if (isStreaming) {
@@ -3050,6 +3069,9 @@ export class AIOrchestrator {
         this.metricsAggregator.recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
         getMetricsStore().recordRequest(requestContext);
+        if (!requestContext.isProbe) {
+          this.probeScheduler.recordUserRequest(server.id);
+        }
 
         // Remove streaming request tracking
         if (isStreaming) {
@@ -3717,6 +3739,7 @@ export class AIOrchestrator {
       // Start health check scheduler
       this.healthCheckScheduler.start();
       this.activeTestScheduler.start();
+      this.probeScheduler.start();
 
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {
@@ -4607,6 +4630,7 @@ export class AIOrchestrator {
     // Stop health check scheduler
     this.healthCheckScheduler.stop();
     this.activeTestScheduler.stop();
+    this.probeScheduler.stop();
 
     // Clear escalation check interval
     if (this.escalationIntervalId) {
