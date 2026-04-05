@@ -261,8 +261,13 @@ export function calculateServerScore(
   // Fix §6.4: capacity can go negative - clamp to 0
   const capacityScore = Math.max(0, (availableCapacity / maxConcurrency) * 100);
 
-  // Circuit breaker score: heavily penalize open/half-open circuits
-  // closed = 100, half-open = 20 (unstable), open = 5 (broken)
+  // Circuit breaker score: penalize unstable or recently-failing circuits.
+  // NOTE (GAP-CB-1): Servers with open or half-open (with zero successes) circuit breakers
+  // are pre-filtered out by shouldSkipServerModel() before scoring runs, so the open=5 and
+  // half-open=20 branches below are only reached in edge cases (e.g. direct scoreCandidates()
+  // calls) or for the debug UI score breakdown. The primary routing guard is the pre-filter,
+  // not this score. The closed-state penalty (failureCount * 5) does affect routing for
+  // servers that are still passing requests but accumulating failures.
   let circuitBreakerScore = 100;
   if (circuitBreakerHealth) {
     if (circuitBreakerHealth.state === 'open') {

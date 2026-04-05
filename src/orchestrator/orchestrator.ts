@@ -4429,7 +4429,9 @@ export class AIOrchestrator {
       return;
     }
 
-    const openModelBreakers = modelBreakers.filter(cb => !cb.canExecute());
+    // Use getState() instead of canExecute() to avoid mutating totalRequestCount
+    // or triggering open→half-open transitions as a side-effect of this check.
+    const openModelBreakers = modelBreakers.filter(cb => cb.getState() === 'open');
     const openRatio = openModelBreakers.length / modelBreakers.length;
 
     // Check ratio threshold

@@ -800,9 +800,17 @@ export class CircuitBreaker {
         this.transitionTo('half-open');
       }
 
-      // If circuit was half-open but halfOpenTimeout has passed, transition back to open
-      if (this.state === 'half-open' && this.config.halfOpenTimeout > 0) {
-        // We'll let the next canExecute() handle this
+      // If circuit was half-open but halfOpenTimeout has elapsed since the
+      // persisted halfOpenStartedAt, transition back to open immediately so
+      // the process restart doesn't silently grant a free half-open window.
+      if (
+        this.state === 'half-open' &&
+        this.config.halfOpenTimeout > 0 &&
+        this.halfOpenStartedAt > 0 &&
+        Date.now() >= this.halfOpenStartedAt + this.config.halfOpenTimeout
+      ) {
+        this.transitionTo('open');
+        this.nextRetryAt = Date.now() + this.config.openTimeout;
       }
 
       logger.info(`Restored circuit breaker state for ${this.name}`, {
