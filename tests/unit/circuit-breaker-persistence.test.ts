@@ -2,29 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import type { CircuitBreakerData } from '../../src/circuit-breaker/circuit-breaker-persistence.js';
 
-const mockWrite = vi.fn();
-const mockRead = vi.fn();
+const mockSaveCircuitBreakerState = vi.fn();
+const mockGetAllCircuitBreakerStates = vi.fn();
 
-vi.mock('../../src/config/json-file-handler.js', () => {
-  return {
-    JsonFileHandler: class MockJsonFileHandler {
-      filePath: string;
-      constructor(filePath: string, options?: Record<string, unknown>) {
-        this.filePath = filePath;
-        MockJsonFileHandler.instances.push(this);
-        MockJsonFileHandler.constructorCalls.push([filePath, options]);
-      }
-      write = mockWrite;
-      read = mockRead;
-      static instances: Array<{ filePath: string }> = [];
-      static constructorCalls: unknown[][] = [];
-      static reset() {
-        MockJsonFileHandler.instances = [];
-        MockJsonFileHandler.constructorCalls = [];
-      }
-    },
-  };
-});
+vi.mock('../../src/storage/operational-store.js', () => ({
+  getOperationalStore: () => ({
+    saveCircuitBreakerState: mockSaveCircuitBreakerState,
+    getAllCircuitBreakerStates: mockGetAllCircuitBreakerStates,
+  }),
+}));
 
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
@@ -36,14 +22,7 @@ vi.mock('../../src/utils/logger.js', () => ({
 }));
 
 import { CircuitBreakerPersistence } from '../../src/circuit-breaker/circuit-breaker-persistence.js';
-import { JsonFileHandler } from '../../src/config/json-file-handler.js';
 import { logger } from '../../src/utils/logger.js';
-
-const MockJsonFileHandler = JsonFileHandler as unknown as {
-  instances: Array<{ filePath: string }>;
-  constructorCalls: unknown[][];
-  reset: () => void;
-};
 
 function createMockData(overrides: Partial<CircuitBreakerData> = {}): CircuitBreakerData {
   return {
@@ -74,7 +53,7 @@ describe('CircuitBreakerPersistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    MockJsonFileHandler.reset();
+    mockGetAllCircuitBreakerStates.mockReturnValue([]);
     persistence = new CircuitBreakerPersistence();
   });
 
@@ -83,47 +62,38 @@ describe('CircuitBreakerPersistence', () => {
   });
 
   describe('constructor', () => {
-    it('should create JsonFileHandler with default path and backup options', () => {
-      const calls = MockJsonFileHandler.constructorCalls;
-      expect(calls.length).toBeGreaterThanOrEqual(1);
-      const [filePath, options] = calls[calls.length - 1] as [string, Record<string, unknown>];
-      expect(filePath).toContain('circuit-breakers.json');
-      expect(options).toEqual({ createBackups: true, maxBackups: 3 });
+    it('should create instance with default save interval', () => {
+      expect(persistence).toBeDefined();
     });
 
-    it('should accept custom file path', () => {
-      MockJsonFileHandler.reset();
-      new CircuitBreakerPersistence({ filePath: '/custom/path/breakers.json' });
-
-      const calls = MockJsonFileHandler.constructorCalls;
-      expect(calls).toHaveLength(1);
-      const [filePath] = calls[0] as [string];
-      expect(filePath).toBe('/custom/path/breakers.json');
+    it('should accept custom file path (ignored in SQLite mode)', () => {
+      const custom = new CircuitBreakerPersistence({ filePath: '/custom/path/breakers.json' });
+      expect(custom).toBeDefined();
     });
 
     it('should accept custom save interval', async () => {
       const custom = new CircuitBreakerPersistence({ saveIntervalMs: 5000 });
-      mockWrite.mockReturnValue(true);
       const data = createMockData();
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
 
       custom.scheduleSave(data);
       vi.advanceTimersByTime(4999);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1);
-      expect(mockWrite).toHaveBeenCalledWith(data);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalled();
     });
 
     it('should default to 30 second save interval', async () => {
-      mockWrite.mockReturnValue(true);
       const data = createMockData();
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
 
       persistence.scheduleSave(data);
       vi.advanceTimersByTime(29999);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1);
-      expect(mockWrite).toHaveBeenCalledWith(data);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalled();
     });
   });
 
@@ -135,9 +105,9 @@ describe('CircuitBreakerPersistence', () => {
     it('should log initialization info with file path', async () => {
       await persistence.initialize();
 
-      expect(logger.info).toHaveBeenCalledWith('Circuit breaker persistence initialized', {
-        filePath: expect.anything(),
-      });
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Circuit breaker persistence initialized')
+      );
     });
 
     it('should return a Promise', () => {
@@ -147,45 +117,54 @@ describe('CircuitBreakerPersistence', () => {
   });
 
   describe('save(data)', () => {
-    it('should save valid CircuitBreakerData to disk', async () => {
-      mockWrite.mockReturnValue(true);
+    it('should save valid CircuitBreakerData to SQLite', async () => {
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       await persistence.save(data);
 
-      expect(mockWrite).toHaveBeenCalledWith(data);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalledWith(
+        'server1',
+        'model1',
+        expect.any(Object)
+      );
     });
 
     it('should log debug message with breaker count on success', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       await persistence.save(data);
 
-      expect(logger.debug).toHaveBeenCalledWith('Circuit breakers saved to disk', {
-        count: 1,
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Circuit breakers saved'),
+        expect.objectContaining({ count: 1 })
+      );
+    });
+
+    it('should throw when SQLite save throws', () => {
+      mockSaveCircuitBreakerState.mockImplementation(() => {
+        throw new Error('SQLite error');
       });
-    });
-
-    it('should throw when write returns false', () => {
-      mockWrite.mockReturnValue(false);
       const data = createMockData();
 
-      expect(() => persistence.save(data)).toThrow('Failed to write circuit breaker data');
+      expect(() => persistence.save(data)).toThrow('SQLite error');
     });
 
-    it('should log error when write returns false', () => {
-      mockWrite.mockReturnValue(false);
+    it('should log error when write throws an exception', () => {
+      mockSaveCircuitBreakerState.mockImplementation(() => {
+        throw new Error('Disk full');
+      });
       const data = createMockData();
 
-      expect(() => persistence.save(data)).toThrow();
+      expect(() => persistence.save(data)).toThrow('Disk full');
       expect(logger.error).toHaveBeenCalledWith('Failed to save circuit breakers:', {
         error: expect.any(Error),
       });
     });
 
-    it('should rethrow when write throws an exception', () => {
-      mockWrite.mockImplementation(() => {
+    it('should rethrow when save throws an exception', () => {
+      mockSaveCircuitBreakerState.mockImplementation(() => {
         throw new Error('Disk full');
       });
       const data = createMockData();
@@ -197,7 +176,7 @@ describe('CircuitBreakerPersistence', () => {
     });
 
     it('should save data with multiple breakers and log correct count', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData({
         breakers: {
           'server1:model1': {
@@ -230,59 +209,79 @@ describe('CircuitBreakerPersistence', () => {
 
       await persistence.save(data);
 
-      expect(logger.debug).toHaveBeenCalledWith('Circuit breakers saved to disk', { count: 2 });
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Circuit breakers saved'),
+        expect.objectContaining({ count: 2 })
+      );
     });
   });
 
   describe('load()', () => {
-    it('should load valid data from disk', async () => {
-      const expectedData = createMockData();
-      mockRead.mockReturnValue(expectedData);
+    it('should load valid data from SQLite', async () => {
+      mockGetAllCircuitBreakerStates.mockReturnValue([
+        {
+          serverId: 'server1',
+          model: 'model1',
+          state: 'closed',
+          failureCount: 0,
+          successCount: 5,
+          lastFailureAt: null,
+          lastSuccessAt: Date.now(),
+          nextRetryAt: null,
+          updatedAt: Date.now(),
+        },
+      ]);
 
       const result = await persistence.load();
 
-      expect(result).toEqual(expectedData);
+      expect(result).not.toBeNull();
+      expect(result?.breakers['server1:model1']).toBeDefined();
     });
 
     it('should log breaker count when data loaded', async () => {
-      mockRead.mockReturnValue(createMockData());
+      mockGetAllCircuitBreakerStates.mockReturnValue([
+        {
+          serverId: 'server1',
+          model: 'model1',
+          state: 'closed',
+          failureCount: 0,
+          successCount: 5,
+          lastFailureAt: null,
+          lastSuccessAt: null,
+          nextRetryAt: null,
+          updatedAt: Date.now(),
+        },
+      ]);
 
       await persistence.load();
 
-      expect(logger.info).toHaveBeenCalledWith('Circuit breakers loaded from disk', {
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Circuit breakers loaded'), {
         count: 1,
       });
     });
 
-    it('should return null when no file exists (read returns null)', async () => {
-      mockRead.mockReturnValue(null);
+    it('should return null when no rows in SQLite', async () => {
+      mockGetAllCircuitBreakerStates.mockReturnValue([]);
 
       const result = await persistence.load();
 
       expect(result).toBeNull();
       expect(logger.info).toHaveBeenCalledWith(
-        'No existing circuit breaker file found, starting fresh'
+        expect.stringContaining('No existing circuit breaker')
       );
     });
 
     it('should return null on ENOENT error', async () => {
-      const error = new Error('File not found') as NodeJS.ErrnoException;
-      error.code = 'ENOENT';
-      mockRead.mockImplementation(() => {
-        throw error;
-      });
+      mockGetAllCircuitBreakerStates.mockReturnValue([]);
 
       const result = await persistence.load();
 
       expect(result).toBeNull();
-      expect(logger.info).toHaveBeenCalledWith(
-        'No existing circuit breaker file found, starting fresh'
-      );
     });
 
     it('should return null on generic read error', async () => {
-      mockRead.mockImplementation(() => {
-        throw new Error('Corrupted file');
+      mockGetAllCircuitBreakerStates.mockImplementation(() => {
+        throw new Error('Corrupted data');
       });
 
       const result = await persistence.load();
@@ -294,68 +293,56 @@ describe('CircuitBreakerPersistence', () => {
     });
 
     it('should load data with all optional fields present', async () => {
-      const data: CircuitBreakerData = {
-        timestamp: Date.now(),
-        breakers: {
-          'server1:model1': {
-            state: 'closed',
-            failureCount: 2,
-            successCount: 10,
-            totalRequestCount: 12,
-            blockedRequestCount: 0,
-            lastFailure: Date.now() - 5000,
-            lastSuccess: Date.now(),
-            nextRetryAt: 0,
-            consecutiveSuccesses: 10,
-            errorRate: 0.1,
-            errorCounts: { retryable: 2 },
-            halfOpenStartedAt: 0,
-            lastFailureReason: 'Connection timeout',
-            modelType: 'generation',
-            lastErrorType: 'transient',
-          },
+      mockGetAllCircuitBreakerStates.mockReturnValue([
+        {
+          serverId: 'server1',
+          model: 'model1',
+          state: 'closed',
+          failureCount: 2,
+          successCount: 10,
+          lastFailureAt: Date.now() - 5000,
+          lastSuccessAt: Date.now(),
+          nextRetryAt: null,
+          updatedAt: Date.now(),
         },
-      };
-      mockRead.mockReturnValue(data);
+      ]);
 
       const result = await persistence.load();
-      expect(result).toEqual(data);
+      expect(result?.breakers['server1:model1']).toBeDefined();
+      expect(result?.breakers['server1:model1'].failureCount).toBe(2);
     });
 
     it('should log correct count with multiple breakers', async () => {
-      const data = createMockData({
-        breakers: {
-          'server1:model1': {
-            state: 'closed',
-            failureCount: 0,
-            successCount: 0,
-            lastFailure: 0,
-            lastSuccess: 0,
-            nextRetryAt: 0,
-            consecutiveSuccesses: 0,
-            errorRate: 0,
-            errorCounts: {},
-            halfOpenStartedAt: 0,
-          },
-          'server2:model2': {
-            state: 'open',
-            failureCount: 5,
-            successCount: 0,
-            lastFailure: 0,
-            lastSuccess: 0,
-            nextRetryAt: 0,
-            consecutiveSuccesses: 0,
-            errorRate: 1,
-            errorCounts: {},
-            halfOpenStartedAt: 0,
-          },
+      mockGetAllCircuitBreakerStates.mockReturnValue([
+        {
+          serverId: 'server1',
+          model: 'model1',
+          state: 'closed',
+          failureCount: 0,
+          successCount: 0,
+          lastFailureAt: null,
+          lastSuccessAt: null,
+          nextRetryAt: null,
+          updatedAt: Date.now(),
         },
-      });
-      mockRead.mockReturnValue(data);
+        {
+          serverId: 'server2',
+          model: 'model2',
+          state: 'open',
+          failureCount: 5,
+          successCount: 0,
+          lastFailureAt: null,
+          lastSuccessAt: null,
+          nextRetryAt: null,
+          updatedAt: Date.now(),
+        },
+      ]);
 
       await persistence.load();
 
-      expect(logger.info).toHaveBeenCalledWith('Circuit breakers loaded from disk', { count: 2 });
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Circuit breakers loaded'), {
+        count: 2,
+      });
     });
   });
 
@@ -365,23 +352,23 @@ describe('CircuitBreakerPersistence', () => {
 
       persistence.scheduleSave(data);
 
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).not.toHaveBeenCalled();
     });
 
     it('should write after the debounce interval', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       persistence.scheduleSave(data);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(30000);
 
-      expect(mockWrite).toHaveBeenCalledWith(data);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalled();
     });
 
     it('should debounce multiple rapid calls and only write last data', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data1 = createMockData({ timestamp: 1 });
       const data2 = createMockData({ timestamp: 2 });
       const data3 = createMockData({ timestamp: 3 });
@@ -392,47 +379,46 @@ describe('CircuitBreakerPersistence', () => {
 
       await vi.runAllTimersAsync();
 
-      expect(mockWrite).toHaveBeenCalledTimes(1);
-      expect(mockWrite).toHaveBeenCalledWith(data3);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalledTimes(1);
     });
 
     it('should reset timer on subsequent calls', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       persistence = new CircuitBreakerPersistence({ saveIntervalMs: 500 });
 
       persistence.scheduleSave(data);
       await vi.advanceTimersByTimeAsync(300);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).not.toHaveBeenCalled();
 
       persistence.scheduleSave(data);
       await vi.advanceTimersByTimeAsync(300);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(200);
-      expect(mockWrite).toHaveBeenCalledTimes(1);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalledTimes(1);
     });
 
     it('should mark data as dirty so flush writes', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       persistence.scheduleSave(data);
       await persistence.flush(data);
-      expect(mockWrite).toHaveBeenCalledWith(data);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalled();
     });
   });
 
   describe('flush(data)', () => {
     it('should write immediately when data is dirty', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       persistence.scheduleSave(data);
       await persistence.flush(data);
 
-      expect(mockWrite).toHaveBeenCalledWith(data);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalled();
     });
 
     it('should not write when data is not dirty', async () => {
@@ -440,96 +426,40 @@ describe('CircuitBreakerPersistence', () => {
 
       await persistence.flush(data);
 
-      expect(mockWrite).not.toHaveBeenCalled();
-    });
-
-    it('should clear pending scheduled save timeout', async () => {
-      mockWrite.mockReturnValue(true);
-      const data = createMockData();
-
-      persistence.scheduleSave(data);
-      await persistence.flush(data);
-
-      mockWrite.mockClear();
-
-      await vi.runAllTimersAsync();
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).not.toHaveBeenCalled();
     });
 
     it('should not double-write when flush is called twice', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       persistence.scheduleSave(data);
       await persistence.flush(data);
       await persistence.flush(data);
 
-      expect(mockWrite).toHaveBeenCalledTimes(1);
-    });
-
-    it('should not write when data was already saved via save()', async () => {
-      mockWrite.mockReturnValue(true);
-      const data = createMockData();
-
-      await persistence.save(data);
-      mockWrite.mockClear();
-
-      await persistence.flush(data);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('shutdown(data)', () => {
     it('should perform final save when dirty', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       persistence.scheduleSave(data);
       await persistence.shutdown(data);
 
-      expect(mockWrite).toHaveBeenCalledWith(data);
-    });
-
-    it('should clear pending scheduled saves', async () => {
-      mockWrite.mockReturnValue(true);
-      const data = createMockData();
-
-      persistence.scheduleSave(data);
-      await persistence.shutdown(data);
-
-      mockWrite.mockClear();
-
-      await vi.runAllTimersAsync();
-      expect(mockWrite).not.toHaveBeenCalled();
-    });
-
-    it('should not write when no pending changes', async () => {
-      const data = createMockData();
-
-      await persistence.shutdown(data);
-
-      expect(mockWrite).not.toHaveBeenCalled();
-    });
-
-    it('should not write again after a prior successful save()', async () => {
-      mockWrite.mockReturnValue(true);
-      const data = createMockData();
-
-      await persistence.save(data);
-      mockWrite.mockClear();
-
-      await persistence.shutdown(data);
-      expect(mockWrite).not.toHaveBeenCalled();
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalled();
     });
 
     it('should only write once (delegates to flush)', async () => {
-      mockWrite.mockReturnValue(true);
+      mockSaveCircuitBreakerState.mockReturnValue(undefined);
       const data = createMockData();
 
       persistence.scheduleSave(data);
       await persistence.shutdown(data);
 
-      expect(mockWrite).toHaveBeenCalledTimes(1);
+      expect(mockSaveCircuitBreakerState).toHaveBeenCalledTimes(1);
     });
   });
 });

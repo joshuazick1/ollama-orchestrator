@@ -150,6 +150,9 @@ export class AIOrchestrator {
     config?: OrchestratorConfig
   ) {
     this.config = config ?? { ...DEFAULT_CONFIG };
+
+    getOperationalStore().runStartupMigrations();
+
     this.metricsAggregator = new MetricsAggregator();
     this.loadBalancer = new LoadBalancer(loadBalancerConfig ?? this.config.loadBalancer);
 

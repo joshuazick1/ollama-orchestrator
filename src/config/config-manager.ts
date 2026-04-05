@@ -8,7 +8,6 @@ import { fileURLToPath } from 'url';
 
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
-import type { TimeoutState } from '../utils/timeout-manager.js';
 
 import { JsonFileHandler, JsonFileHandlerOptions } from './json-file-handler.js';
 
@@ -132,21 +131,5 @@ export const serversConfig = createConfigManager<AIServer[]>({
   relativePath: '../../data',
   defaults: [],
   validator: validateServers,
-  maxBackups: 3,
-});
-
-// Bans configuration manager
-export const bansConfig = createConfigManager<string[]>({
-  fileName: 'bans.json',
-  relativePath: '../../data',
-  defaults: [],
-  maxBackups: 3,
-});
-
-// Timeouts configuration manager
-export const timeoutsConfig = createConfigManager<Record<string, TimeoutState>>({
-  fileName: 'timeouts.json',
-  relativePath: '../../data',
-  defaults: {},
   maxBackups: 3,
 });

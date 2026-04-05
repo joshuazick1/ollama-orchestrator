@@ -1,12 +1,10 @@
 /**
  * metrics-persistence.ts
- * Persistent storage for metrics data
+ * Persistent storage for metrics data using SQLite via OperationalStore
  */
 
-import path from 'path';
-
-import { JsonFileHandler } from '../config/json-file-handler.js';
 import type { ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 
 export interface MetricsData {
@@ -21,55 +19,53 @@ export interface MetricsPersistenceOptions {
 }
 
 export class MetricsPersistence {
-  private fileHandler: JsonFileHandler;
   private retentionHours: number;
   private saveIntervalMs: number;
   private saveTimeout?: NodeJS.Timeout;
   private isDirty = false;
 
   constructor(options: MetricsPersistenceOptions = {}) {
-    const filePath = options.filePath ?? path.join(process.cwd(), 'data', 'metrics.json');
-    this.fileHandler = new JsonFileHandler(filePath, {
-      createBackups: true,
-      maxBackups: 3,
-    });
     this.retentionHours = options.retentionHours ?? 24;
-    this.saveIntervalMs = options.saveIntervalMs ?? 30000; // 30 seconds
+    this.saveIntervalMs = options.saveIntervalMs ?? 30000;
   }
 
-  /**
-   * Initialize persistence - ensure directory exists
-   */
   initialize(): Promise<void> {
-    try {
-      // JsonFileHandler constructor already ensures directory exists
-      logger.info('Metrics persistence initialized');
-      return Promise.resolve();
-    } catch (error) {
-      logger.error('Failed to initialize metrics persistence:', { error });
-      throw error;
-    }
+    logger.info('Metrics persistence initialized (SQLite backend)');
+    return Promise.resolve();
   }
 
-  /**
-   * Save metrics data to disk
-   */
   save(data: MetricsData): Promise<void> {
     try {
-      // Clean old data based on retention policy
-      const cleanedData = this.cleanOldData(data);
-      // Preserve the original timestamp supplied by the caller when saving.
-      // Some callers expect the saved file to retain the provided timestamp.
-      cleanedData.timestamp = data.timestamp;
+      const store = getOperationalStore();
+      const cutoff = Date.now() - this.retentionHours * 60 * 60 * 1000;
+      for (const [key, metrics] of Object.entries(data.servers)) {
+        if (metrics.lastUpdated < cutoff && metrics.inFlight === 0) {
+          continue;
+        }
+        const colonIdx = key.indexOf(':');
+        const serverId = colonIdx !== -1 ? key.slice(0, colonIdx) : key;
+        const model = colonIdx !== -1 ? key.slice(colonIdx + 1) : key;
 
-      const success = this.fileHandler.write(cleanedData);
+        const window1h = metrics.windows?.['1h'];
+        const totalRequests = window1h?.count ?? 0;
 
-      if (!success) {
-        throw new Error('Failed to write metrics data');
+        store.saveMetricsSnapshot(serverId, model, {
+          latencyAvg: metrics.percentiles?.p50 ?? undefined,
+          latencyP95: metrics.percentiles?.p95 ?? undefined,
+          latencyP99: metrics.percentiles?.p99 ?? undefined,
+          successRate: metrics.successRate,
+          throughput: metrics.throughput,
+          tokensPerSecond: metrics.avgTokensPerSecond,
+          inFlight: metrics.inFlight,
+          totalRequests,
+          parameterSize: metrics.parameterSize,
+          family: metrics.family,
+          quantization: metrics.quantization,
+          lastRequestAt: metrics.lastUpdated,
+        });
       }
-
       this.isDirty = false;
-      logger.debug('Metrics saved to disk');
+      logger.debug('Metrics saved to SQLite');
       return Promise.resolve();
     } catch (error) {
       logger.error('Failed to save metrics:', { error });
@@ -77,33 +73,119 @@ export class MetricsPersistence {
     }
   }
 
-  /**
-   * Load metrics data from disk
-   */
   load(): Promise<MetricsData | null> {
     try {
-      const data = this.fileHandler.read<MetricsData>();
-
-      if (!data) {
-        logger.info('No existing metrics file found, starting fresh');
+      const store = getOperationalStore();
+      const rows = store.getAllMetricsSnapshots();
+      if (rows.length === 0) {
+        logger.info('No existing metrics found in SQLite, starting fresh');
         return Promise.resolve(null);
       }
 
-      logger.info('Metrics loaded from disk');
-      return Promise.resolve(data);
+      const servers: Record<string, ServerModelMetrics> = {};
+      const now = Date.now();
+      for (const row of rows) {
+        const key = `${row.serverId}:${row.model}`;
+        const baseMetrics: ServerModelMetrics = {
+          serverId: row.serverId,
+          model: row.model,
+          inFlight: row.inFlight ?? 0,
+          queued: 0,
+          windows: {
+            '1m': {
+              startTime: now,
+              endTime: now,
+              count: 0,
+              userRequests: 0,
+              latencySum: 0,
+              latencySquaredSum: 0,
+              minLatency: 0,
+              maxLatency: 0,
+              errors: 0,
+              tokensGenerated: 0,
+              tokensPrompt: 0,
+            },
+            '5m': {
+              startTime: now,
+              endTime: now,
+              count: 0,
+              userRequests: 0,
+              latencySum: 0,
+              latencySquaredSum: 0,
+              minLatency: 0,
+              maxLatency: 0,
+              errors: 0,
+              tokensGenerated: 0,
+              tokensPrompt: 0,
+            },
+            '15m': {
+              startTime: now,
+              endTime: now,
+              count: 0,
+              userRequests: 0,
+              latencySum: 0,
+              latencySquaredSum: 0,
+              minLatency: 0,
+              maxLatency: 0,
+              errors: 0,
+              tokensGenerated: 0,
+              tokensPrompt: 0,
+            },
+            '1h': {
+              startTime: now,
+              endTime: now,
+              count: row.totalRequests ?? 0,
+              userRequests: 0,
+              latencySum: 0,
+              latencySquaredSum: 0,
+              minLatency: 0,
+              maxLatency: 0,
+              errors: row.recentErrors ?? 0,
+              tokensGenerated: 0,
+              tokensPrompt: 0,
+            },
+            '24h': {
+              startTime: now,
+              endTime: now,
+              count: 0,
+              userRequests: 0,
+              latencySum: 0,
+              latencySquaredSum: 0,
+              minLatency: 0,
+              maxLatency: 0,
+              errors: 0,
+              tokensGenerated: 0,
+              tokensPrompt: 0,
+            },
+          },
+          percentiles: {
+            p50: row.latencyAvg ?? 0,
+            p95: row.latencyP95 ?? 0,
+            p99: row.latencyP99 ?? 0,
+          },
+          successRate: row.successRate ?? 1,
+          throughput: row.throughput ?? 0,
+          avgTokensPerRequest: 0,
+          avgPromptTokens: 0,
+          avgTokensPerSecond: row.tokensPerSecond ?? 0,
+          coldStartCount: 0,
+          parameterSize: row.parameterSize ?? undefined,
+          family: row.family ?? undefined,
+          quantization: row.quantization ?? undefined,
+          lastUpdated: row.lastRequestAt ?? row.updatedAt,
+          recentLatencies: [],
+        };
+        servers[key] = baseMetrics;
+      }
+
+      logger.info('Metrics loaded from SQLite', { count: rows.length });
+      return Promise.resolve({ timestamp: Date.now(), servers });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        logger.info('No existing metrics file found, starting fresh');
-        return Promise.resolve(null);
-      }
       logger.error('Failed to load metrics:', { error });
       return Promise.resolve(null);
     }
   }
 
-  /**
-   * Schedule a save operation (debounced)
-   */
   scheduleSave(data: MetricsData): void {
     if (this.saveTimeout) {
       clearTimeout(this.saveTimeout);
@@ -116,9 +198,6 @@ export class MetricsPersistence {
     this.isDirty = true;
   }
 
-  /**
-   * Force immediate save if data is dirty
-   */
   async flush(data: MetricsData): Promise<void> {
     if (this.saveTimeout) {
       clearTimeout(this.saveTimeout);
@@ -129,35 +208,6 @@ export class MetricsPersistence {
     }
   }
 
-  private cleanOldData(data: MetricsData): MetricsData {
-    const cleanedServers: Record<string, ServerModelMetrics> = {};
-    const cutoff = Date.now() - this.retentionHours * 60 * 60 * 1000;
-    let pruned = 0;
-
-    for (const [serverModelKey, serverData] of Object.entries(data.servers)) {
-      if (serverData.lastUpdated >= cutoff || serverData.inFlight > 0) {
-        cleanedServers[serverModelKey] = serverData;
-      } else {
-        pruned++;
-      }
-    }
-
-    if (pruned > 0) {
-      logger.info(
-        `MetricsPersistence: Pruned ${pruned} stale entries older than ${this.retentionHours}h`
-      );
-    }
-
-    return {
-      ...data,
-      servers: cleanedServers,
-      timestamp: Date.now(),
-    };
-  }
-
-  /**
-   * Shutdown - ensure final save
-   */
   async shutdown(data: MetricsData): Promise<void> {
     await this.flush(data);
   }

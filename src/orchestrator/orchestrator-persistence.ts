@@ -3,7 +3,8 @@
  * Server registration persistence utilities
  */
 
-import { serversConfig, bansConfig, timeoutsConfig } from '../config/config-manager.js';
+import { serversConfig } from '../config/config-manager.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 import type { TimeoutState } from '../utils/timeout-manager.js';
 
@@ -29,18 +30,8 @@ export function saveServersToDisk(servers: AIServer[]): void {
 /**
  * Save bans to disk
  */
-export function saveBansToDisk(bans: Set<string>): void {
-  try {
-    const bansArray = Array.from(bans);
-    const success = bansConfig.set(bansArray);
-    if (!success) {
-      logger.error('Failed to save bans to disk');
-    } else {
-      logger.debug(`Saved ${bansArray.length} bans to disk`);
-    }
-  } catch (err) {
-    logger.error('Exception while saving bans:', { error: err });
-  }
+export function saveBansToDisk(_bans: Set<string>): void {
+  logger.debug('Bans are now persisted in SQLite via OperationalStore — saveBansToDisk is a no-op');
 }
 
 /**
@@ -65,14 +56,10 @@ export function loadServersFromDisk(): AIServer[] {
  * @throws {Error} if the data file exists but cannot be read or parsed
  */
 export function loadBansFromDisk(): Set<string> {
-  const bans = bansConfig.get();
-  if (bans && Array.isArray(bans)) {
-    logger.info(`Loaded ${bans.length} bans from disk`);
-    return new Set(bans);
-  } else {
-    logger.warn('No valid bans found on disk, returning empty set');
-    return new Set();
-  }
+  const activeBans = getOperationalStore().getActiveBans();
+  const banSet = new Set(activeBans.map(b => `${b.serverId}:${b.model}`));
+  logger.info(`Loaded ${banSet.size} active bans from SQLite`);
+  return banSet;
 }
 
 /**
@@ -80,52 +67,29 @@ export function loadBansFromDisk(): Set<string> {
  */
 export function saveTimeoutsToDisk(timeouts: Record<string, TimeoutState>): void {
   try {
-    logger.debug(
-      `Saving ${Object.keys(timeouts).length} timeouts to disk at ${timeoutsConfig.getPath()}...`
-    );
-    const success = timeoutsConfig.set(timeouts);
-    if (!success) {
-      logger.error('Failed to save timeouts to disk - configManager.set() returned false');
-    } else {
-      logger.debug(`Successfully saved ${Object.keys(timeouts).length} timeouts to disk`);
+    const store = getOperationalStore();
+    for (const [key, state] of Object.entries(timeouts)) {
+      store.saveTimeout(key, state);
     }
+    logger.debug(`Saved ${Object.keys(timeouts).length} timeouts to SQLite`);
   } catch (err) {
     logger.error('Exception while saving timeouts:', { error: err });
   }
 }
 
 export function loadTimeoutsFromDisk(defaultTimeout: number): Record<string, TimeoutState> {
-  const filePath = timeoutsConfig.getPath();
-  logger.debug(`Loading timeouts from disk at ${filePath}...`);
-  const raw = timeoutsConfig.get();
-  if (!raw || typeof raw !== 'object') {
-    logger.debug(`No valid timeouts found on disk at ${filePath}, returning empty object`);
-    return {};
-  }
+  logger.debug('Loading timeouts from SQLite...');
+  const raw = getOperationalStore().getAllTimeouts();
 
   const result: Record<string, TimeoutState> = {};
-  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof value === 'number') {
-      result[key] = {
-        baseTimeout: defaultTimeout,
-        currentTimeout: value,
-        lastUpdated: Date.now(),
-      };
-    } else if (
-      value !== null &&
-      typeof value === 'object' &&
-      'currentTimeout' in value &&
-      typeof (value as Record<string, unknown>).currentTimeout === 'number'
-    ) {
-      const v = value as Partial<TimeoutState>;
-      result[key] = {
-        baseTimeout: typeof v.baseTimeout === 'number' ? v.baseTimeout : defaultTimeout,
-        currentTimeout: v.currentTimeout as number,
-        lastUpdated: typeof v.lastUpdated === 'number' ? v.lastUpdated : Date.now(),
-      };
-    }
+  for (const [key, state] of Object.entries(raw)) {
+    result[key] = {
+      baseTimeout: typeof state.baseTimeout === 'number' ? state.baseTimeout : defaultTimeout,
+      currentTimeout: state.currentTimeout,
+      lastUpdated: typeof state.lastUpdated === 'number' ? state.lastUpdated : Date.now(),
+    };
   }
 
-  logger.debug(`Successfully loaded ${Object.keys(result).length} timeouts from disk`);
+  logger.debug(`Successfully loaded ${Object.keys(result).length} timeouts from SQLite`);
   return result;
 }

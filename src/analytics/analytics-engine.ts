@@ -3,9 +3,6 @@
  * Analytics and reporting engine for historical metrics
  */
 
-import path from 'path';
-
-import { JsonFileHandler } from '../config/json-file-handler.js';
 import {
   getDecisionHistory,
   type DecisionEvent,
@@ -19,6 +16,7 @@ import type {
 } from '../orchestrator/orchestrator.types.js';
 import { getRequestHistory, type RequestRecord, type RequestStats } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
 
@@ -117,14 +115,6 @@ export interface MetricsSummarySnapshot {
 }
 
 /**
- * Shape of the persisted metrics summary JSON file
- */
-interface PersistedMetricsSummary {
-  timestamp: number;
-  snapshots: MetricsSummarySnapshot[];
-}
-
-/**
  * Analytics engine for querying and aggregating historical metrics
  */
 export class AnalyticsEngine {
@@ -143,19 +133,10 @@ export class AnalyticsEngine {
   // REC-33: Hourly summary snapshots for long-term trends
   private summarySnapshots: MetricsSummarySnapshot[] = [];
   private summaryTimer?: NodeJS.Timeout;
-  private summaryFileHandler: JsonFileHandler;
-  private readonly summaryIntervalMs = 60 * 60 * 1000; // 1 hour
-  private readonly summaryRetentionMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+  private readonly summaryIntervalMs = 60 * 60 * 1000;
+  private readonly summaryRetentionMs = 30 * 24 * 60 * 60 * 1000;
 
   constructor() {
-    // Phase 4: Data is now persisted in SQLite via MetricsStore
-    // No need to load from JSON file
-    // Keep in-memory arrays for hot-path access within current session
-    const summaryFilePath = path.join(process.cwd(), 'data', 'metrics-summary.json');
-    this.summaryFileHandler = new JsonFileHandler(summaryFilePath, {
-      createBackups: true,
-      maxBackups: 3,
-    });
     this.loadSummaryFromDisk();
     this.startSummaryTimer();
   }
@@ -1158,36 +1139,39 @@ export class AnalyticsEngine {
    */
   persistSummary(): Promise<void> {
     try {
-      const data: PersistedMetricsSummary = {
-        timestamp: Date.now(),
-        snapshots: this.summarySnapshots,
-      };
-      const success = this.summaryFileHandler.write(data);
-      if (!success) {
-        logger.error('Failed to persist metrics summary');
-      } else {
-        logger.debug('Metrics summary persisted', { snapshotCount: this.summarySnapshots.length });
+      const store = getOperationalStore();
+      const now = Date.now();
+      const d = new Date(now);
+      for (const snapshot of this.summarySnapshots) {
+        store.recordMetricsSummary({
+          timestamp: snapshot.timestamp,
+          snapshotData: JSON.stringify(snapshot),
+          hourOfDay: d.getUTCHours(),
+          dayOfWeek: d.getUTCDay(),
+        });
       }
+      store.pruneOldMetricsSummaries();
+      logger.debug('Metrics summary persisted to SQLite', {
+        snapshotCount: this.summarySnapshots.length,
+      });
     } catch (error) {
       logger.error('Failed to persist metrics summary:', { error });
     }
     return Promise.resolve();
   }
 
-  /**
-   * Load summary snapshots from disk
-   */
   private loadSummaryFromDisk(): void {
     try {
-      const data = this.summaryFileHandler.read<PersistedMetricsSummary>();
-      if (data?.snapshots && Array.isArray(data.snapshots)) {
-        // Prune stale snapshots on load (30-day retention)
-        const cutoff = Date.now() - this.summaryRetentionMs;
-        this.summarySnapshots = data.snapshots.filter(s => s.timestamp >= cutoff);
-        logger.info('Metrics summary loaded from disk', {
-          snapshotCount: this.summarySnapshots.length,
-        });
-      }
+      const store = getOperationalStore();
+      const rows = store.getMetricsSummaries(720);
+      const cutoff = Date.now() - this.summaryRetentionMs;
+      this.summarySnapshots = rows
+        .filter(r => r.timestamp >= cutoff && r.snapshotData !== null)
+        .map(r => JSON.parse(r.snapshotData!) as MetricsSummarySnapshot)
+        .filter((s): s is MetricsSummarySnapshot => s !== null && typeof s === 'object');
+      logger.info('Metrics summary loaded from SQLite', {
+        snapshotCount: this.summarySnapshots.length,
+      });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         logger.error('Failed to load metrics summary:', { error });

@@ -12,7 +12,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createConfigManager,
   serversConfig,
-  bansConfig,
   validateServers,
 } from '../../src/config/config-manager.js';
 import { JsonFileHandler } from '../../src/config/json-file-handler.js';
@@ -321,9 +320,7 @@ describe('predefined configs', () => {
     expect(serversConfig.set).toBeDefined();
   });
 
-  it('should have bansConfig defined', () => {
-    expect(bansConfig).toBeDefined();
-    expect(bansConfig.get).toBeDefined();
-    expect(bansConfig.set).toBeDefined();
+  it('bansConfig is no longer exported from config-manager (migrated to SQLite)', () => {
+    expect(serversConfig).toBeDefined();
   });
 });

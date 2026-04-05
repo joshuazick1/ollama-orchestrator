@@ -4,7 +4,7 @@
  * Includes circuit breaker state transition tracking
  */
 
-import { JsonFileHandler } from '../config/json-file-handler.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 
 export interface RecoveryFailureRecord {
@@ -101,18 +101,9 @@ export class RecoveryFailureTracker {
   private config: typeof DEFAULT_CONFIG;
   private lastPersistenceTime = 0;
   private persistenceDirty = false;
-  private fileHandler?: JsonFileHandler;
 
   constructor(config?: RecoveryFailureTrackerConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config };
-
-    if (this.config.persistenceEnabled) {
-      this.fileHandler = new JsonFileHandler(this.config.persistencePath, {
-        createBackups: true,
-        maxBackups: 3,
-      });
-    }
-
     void this.loadFromDisk();
   }
 
@@ -702,56 +693,68 @@ export class RecoveryFailureTracker {
     this.lastPersistenceTime = now;
     this.persistenceDirty = false;
 
-    const data: PersistenceData = {
-      version: 1,
-      timestamp: now,
-      records: this.records.slice(-this.config.maxRecordsPerServer * 10),
-      serverStats: Object.fromEntries(
-        Array.from(this.serverStats.entries()).map(([id, stats]) => [id, stats])
-      ),
-      circuitBreakerTransitions: this.circuitBreakerTransitions.slice(-5000),
-    };
-
     try {
-      const success = this.fileHandler?.write(data);
-
-      if (!success) {
-        logger.error('Failed to persist recovery failure data');
-      } else {
-        logger.debug(`Persisted recovery failure data to ${this.config.persistencePath}`);
+      const store = getOperationalStore();
+      const recentRecords = this.records.slice(-this.config.maxRecordsPerServer * 10);
+      for (const record of recentRecords) {
+        store.recordRecoveryFailure({
+          serverId: record.serverId,
+          model: record.model,
+          errorType: record.errorType,
+          errorMessage: record.error,
+          phase: record.source,
+          recoveryAttempted: false,
+          timestamp: record.timestamp,
+        });
       }
+      const recentTransitions = this.circuitBreakerTransitions.slice(-5000);
+      for (const transition of recentTransitions) {
+        store.recordCBTransition(
+          transition.serverId,
+          transition.model ?? 'unknown',
+          transition.previousState,
+          transition.newState,
+          transition.reason
+        );
+      }
+      logger.debug(`Persisted recovery failure data to SQLite`);
     } catch (error) {
       logger.error('Failed to persist recovery failure data', { error });
     }
   }
 
-  /**
-   * Load data from disk
-   */
   private async loadFromDisk(): Promise<void> {
-    if (!this.config.persistenceEnabled || !this.fileHandler) {
+    if (!this.config.persistenceEnabled) {
       return Promise.resolve();
     }
 
     try {
-      const data = this.fileHandler.read<PersistenceData>();
+      const store = getOperationalStore();
+      const rows = store.getRecoveryFailures();
+      this.records = rows.map(r => ({
+        timestamp: r.timestamp,
+        serverId: r.serverId,
+        error: r.errorMessage ?? r.errorType,
+        errorType: r.errorType as RecoveryFailureRecord['errorType'],
+        attemptNumber: 1,
+        consecutiveFailures: 1,
+        source: (r.phase as RecoveryFailureRecord['source']) ?? 'health_check',
+        model: r.model ?? undefined,
+      }));
 
-      if (data?.records) {
-        this.records = data.records;
-      }
-      if (data?.serverStats) {
-        for (const [id, stats] of Object.entries(data.serverStats)) {
-          this.serverStats.set(id, stats as ServerRecoveryStats);
-        }
-      }
-      if (data?.circuitBreakerTransitions) {
-        this.circuitBreakerTransitions = data.circuitBreakerTransitions;
-      }
+      const cbRows = store.getCBTransitions();
+      this.circuitBreakerTransitions = cbRows.map(r => ({
+        timestamp: r.timestamp,
+        serverId: r.serverId,
+        model: r.model,
+        previousState: r.fromState as CircuitBreakerTransitionRecord['previousState'],
+        newState: r.toState as CircuitBreakerTransitionRecord['newState'],
+        reason: r.reason ?? '',
+      }));
 
-      // Prune stale records immediately after load
       this.pruneOldRecords();
 
-      logger.info(`Loaded ${this.records.length} recovery failure records from disk`);
+      logger.info(`Loaded ${this.records.length} recovery failure records from SQLite`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
         logger.error('Failed to load recovery failure data', { error });

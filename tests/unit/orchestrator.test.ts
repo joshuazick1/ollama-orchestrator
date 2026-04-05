@@ -1,5 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+vi.mock('../../src/storage/operational-store.js', () => ({
+  getOperationalStore: () => ({
+    addBan: vi.fn(),
+    removeBan: vi.fn(),
+    removeServerBans: vi.fn().mockReturnValue(0),
+    removeModelBans: vi.fn().mockReturnValue(0),
+    clearAllBans: vi.fn(),
+    getActiveBans: vi.fn().mockReturnValue([]),
+    runStartupMigrations: vi.fn(),
+    close: vi.fn(),
+  }),
+  initOperationalStore: vi.fn(),
+}));
+
 import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
 import { classifyError } from '../../src/utils/error-classifier.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';

@@ -1,4 +1,5 @@
 import { getConfigManager } from '../config/config.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 
 import { logger } from './logger.js';
 
@@ -85,6 +86,7 @@ export class BanManager {
     if (currentCount >= 10) {
       // Threshold for permanent ban
       this.permanentBan.add(ban);
+      getOperationalStore().addBan(serverId, model, 'auto: repeated failures');
       logger.warn(
         `Server ${serverId} permanently banned for model ${model} after repeated failures`
       );
@@ -117,6 +119,7 @@ export class BanManager {
   addBan(serverId: string, model: string): void {
     const key = `${serverId}:${model}`;
     this.permanentBan.add(key);
+    getOperationalStore().addBan(serverId, model);
     logger.info(`Server ${serverId} banned for model ${model}`);
   }
 
@@ -125,6 +128,7 @@ export class BanManager {
     const existed = this.permanentBan.has(key);
     if (existed) {
       this.permanentBan.delete(key);
+      getOperationalStore().removeBan(serverId, model);
       logger.info(`Removed ban for ${key}`);
     }
     return existed;
@@ -142,6 +146,7 @@ export class BanManager {
       this.permanentBan.delete(ban);
       removed++;
     }
+    getOperationalStore().removeServerBans(serverId);
     logger.info(`Removed ${removed} bans for server ${serverId}`);
     return removed;
   }
@@ -159,6 +164,7 @@ export class BanManager {
       this.permanentBan.delete(ban);
       removed++;
     }
+    getOperationalStore().removeModelBans(model);
     logger.info(`Removed ${removed} bans for model ${model}`);
     return removed;
   }
@@ -166,6 +172,7 @@ export class BanManager {
   clearAllBans(): void {
     const count = this.permanentBan.size;
     this.permanentBan.clear();
+    getOperationalStore().clearAllBans();
     logger.info(`Cleared ${count} permanent bans`);
   }
 
@@ -272,9 +279,6 @@ export class BanManager {
     if (state.failureCooldown) {
       this.failureCooldown = new Map(Object.entries(state.failureCooldown));
     }
-    if (state.permanentBan) {
-      this.permanentBan = new Set(state.permanentBan);
-    }
     if (state.serverFailureCount) {
       this.serverFailureCount = new Map(Object.entries(state.serverFailureCount));
     }
@@ -282,6 +286,12 @@ export class BanManager {
       this.modelFailureTracker = new Map(Object.entries(state.modelFailureTracker));
     }
     logger.info('BanManager state loaded');
+  }
+
+  loadBansFromStore(): void {
+    const activeBans = getOperationalStore().getActiveBans();
+    this.permanentBan = new Set(activeBans.map(b => `${b.serverId}:${b.model}`));
+    logger.info(`Loaded ${activeBans.length} active bans from SQLite`);
   }
 
   getState(): BanManagerState {
