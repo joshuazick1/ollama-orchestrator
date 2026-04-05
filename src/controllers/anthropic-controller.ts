@@ -254,7 +254,8 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
       const isNoServers =
         (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
         errorMessage.includes('circuit breaker') ||
-        errorMessage.includes('does not support Anthropic');
+        errorMessage.includes('does not support Anthropic') ||
+        (errorMessage.includes('not found on any') && errorMessage.includes('server'));
 
       res.status(isNoServers ? 503 : 500).json({
         type: 'error',
