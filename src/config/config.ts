@@ -150,6 +150,18 @@ export interface StorageConfig {
   temporal: StorageTemporalConfig;
 }
 
+export interface ProbeSchedulerConfig {
+  enabled: boolean;
+  intervalMs: number;
+  maxConcurrentProbes: number;
+  maxProbesPerServer: number;
+  probeTimeoutMs: number;
+  cooldownAfterUserRequestMs: number;
+  minSamplesForCoverage: number;
+  onlyDuringLowTraffic: boolean;
+  lowTrafficThreshold: number;
+}
+
 export interface OrchestratorConfig {
   // Server settings
   port: number;
@@ -176,6 +188,7 @@ export interface OrchestratorConfig {
   modelManager: ModelManagerConfig;
   recoveryTest: RecoveryTestConfig;
   storage: StorageConfig;
+  probeScheduler: ProbeSchedulerConfig;
 
   // Ollama servers
   servers: ServerConfig[];
@@ -419,6 +432,18 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       modelFallbackConfidence: 0.6,
       serverFallbackConfidence: 0.4,
     },
+  },
+
+  probeScheduler: {
+    enabled: true,
+    intervalMs: 3600000,
+    maxConcurrentProbes: 2,
+    maxProbesPerServer: 1,
+    probeTimeoutMs: 30000,
+    cooldownAfterUserRequestMs: 300000,
+    minSamplesForCoverage: 5,
+    onlyDuringLowTraffic: true,
+    lowTrafficThreshold: 0.3,
   },
 
   servers: [],
@@ -845,6 +870,7 @@ export class ConfigManager {
             temporal: { ...DEFAULT_CONFIG.storage.temporal, ...partial.storage.temporal },
           }
         : DEFAULT_CONFIG.storage,
+      probeScheduler: { ...DEFAULT_CONFIG.probeScheduler, ...partial.probeScheduler },
       servers: partial.servers ?? DEFAULT_CONFIG.servers,
       persistencePath: partial.persistencePath ?? DEFAULT_CONFIG.persistencePath,
       configReloadIntervalMs:

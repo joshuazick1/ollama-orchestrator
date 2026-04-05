@@ -385,6 +385,21 @@ export const storageConfigSchema = z.object({
 });
 
 /**
+ * Probe scheduler configuration schema
+ */
+export const probeSchedulerConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  intervalMs: z.number().int().min(60000).default(3600000),
+  maxConcurrentProbes: z.number().int().min(1).max(10).default(2),
+  maxProbesPerServer: z.number().int().min(1).max(5).default(1),
+  probeTimeoutMs: z.number().int().min(5000).max(300000).default(30000),
+  cooldownAfterUserRequestMs: z.number().int().min(0).default(300000),
+  minSamplesForCoverage: z.number().int().min(1).default(5),
+  onlyDuringLowTraffic: z.boolean().default(true),
+  lowTrafficThreshold: z.number().min(0).max(1).default(0.3),
+});
+
+/**
  * Main orchestrator configuration schema
  */
 export const orchestratorConfigSchema = z.object({
@@ -413,6 +428,7 @@ export const orchestratorConfigSchema = z.object({
   modelManager: modelManagerConfigSchema,
   recoveryTest: recoveryTestConfigSchema,
   storage: storageConfigSchema,
+  probeScheduler: probeSchedulerConfigSchema,
 
   // Ollama servers
   servers: z.array(serverConfigSchema).default([]),
@@ -441,6 +457,7 @@ export type StorageRetentionConfig = z.infer<typeof storageRetentionConfigSchema
 export type StoragePerformanceConfig = z.infer<typeof storagePerformanceConfigSchema>;
 export type StorageTemporalConfig = z.infer<typeof storageTemporalConfigSchema>;
 export type StorageConfig = z.infer<typeof storageConfigSchema>;
+export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
 
 /**
