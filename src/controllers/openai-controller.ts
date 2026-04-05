@@ -77,16 +77,18 @@ async function streamOpenAIResponse(
   isChat: boolean,
   includeUsage: boolean = false,
   onChunk?: () => void,
-  // Optional streamingRequestId to pass through to onStall
   streamingRequestId?: string,
-  // Accept optional streamingRequestId to match streaming.ts onStall signature
   onStall?: (
     abortController: AbortController,
     streamingRequestId?: string
   ) => Promise<{ success: boolean; error?: string } | void>,
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number,
-  _onStreamEnd?: () => void
+  _onStreamEnd?: () => void,
+  preEnd?: (
+    clientResponse: Response,
+    tokenData?: { promptTokens: number; completionTokens: number }
+  ) => void
 ): Promise<void> {
   const startTime = Date.now();
   let totalTokens = 0;
@@ -339,6 +341,7 @@ async function streamOpenAIResponse(
       }
     }
 
+    preEnd?.(clientResponse, { promptTokens, completionTokens });
     clientResponse.end();
 
     logger.info('OpenAI stream completed', {
@@ -841,7 +844,26 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                   if (requestId) {
                     getInFlightManager().removeStreamingRequest(requestId);
                   }
-                }
+                },
+                isDebugRequested(req)
+                  ? clientResponse => {
+                      const streamDuration = Date.now() - streamStartTime;
+                      const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
+                      const debugInfo = getDebugInfo(routingContext, {
+                        requestId: requestId,
+                        requestTimestamp: streamStartTime,
+                        timeToFirstToken: ttft,
+                        streamingDuration: streamDuration,
+                        stallDetected: openaiChatStallDetected,
+                        stallDurationMs: openaiChatStallStartTime
+                          ? Date.now() - openaiChatStallStartTime
+                          : undefined,
+                      });
+                      if (debugInfo) {
+                        clientResponse.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+                      }
+                    }
+                  : undefined
               );
             }
 
@@ -853,25 +875,6 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               duration: Date.now() - streamStartTime,
               chunkCount,
             });
-
-            const includeDebug = isDebugRequested(req);
-            if (includeDebug) {
-              const streamDuration = Date.now() - streamStartTime;
-              const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
-              const debugInfo = getDebugInfo(routingContext, {
-                requestId: requestId,
-                requestTimestamp: streamStartTime,
-                timeToFirstToken: ttft,
-                streamingDuration: streamDuration,
-                stallDetected: openaiChatStallDetected,
-                stallDurationMs: openaiChatStallStartTime
-                  ? Date.now() - openaiChatStallStartTime
-                  : undefined,
-              });
-              if (debugInfo) {
-                setDebugResponseHeaders(res, debugInfo);
-              }
-            }
           } finally {
             activityController.clearTimeout();
           }
@@ -1015,18 +1018,25 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               body.stream_options?.include_usage,
               () => {
                 activityController.resetTimeout();
-              }
+              },
+              undefined, // streamingRequestId
+              undefined, // onStall
+              undefined, // stallThresholdMs
+              undefined, // stallCheckIntervalMs
+              undefined, // _onStreamEnd
+              isDebugRequested(req)
+                ? (clientResponse, tokenData) => {
+                    const debugInfo = getDebugInfo(routingContext, {
+                      streamingDuration: Date.now() - completionStreamStart,
+                      tokensGenerated: tokenData?.completionTokens,
+                      tokensPrompt: tokenData?.promptTokens,
+                    });
+                    if (debugInfo) {
+                      clientResponse.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+                    }
+                  }
+                : undefined
             );
-
-            const includeDebug = isDebugRequested(req);
-            if (includeDebug) {
-              const debugInfo = getDebugInfo(routingContext, {
-                streamingDuration: Date.now() - completionStreamStart,
-              });
-              if (debugInfo) {
-                setDebugResponseHeaders(res, debugInfo);
-              }
-            }
           } finally {
             activityController.clearTimeout();
           }
@@ -1405,7 +1415,26 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
                 if (requestId) {
                   getInFlightManager().removeStreamingRequest(requestId);
                 }
-              }
+              },
+              isDebugRequested(req)
+                ? clientResponse => {
+                    const streamDuration = Date.now() - streamStartTime;
+                    const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
+                    const debugInfo = getDebugInfo(routingContext, {
+                      requestId: requestId,
+                      requestTimestamp: streamStartTime,
+                      timeToFirstToken: ttft,
+                      streamingDuration: streamDuration,
+                      stallDetected: openaiCompStallDetected,
+                      stallDurationMs: openaiCompStallStartTime
+                        ? Date.now() - openaiCompStallStartTime
+                        : undefined,
+                    });
+                    if (debugInfo) {
+                      clientResponse.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
+                    }
+                  }
+                : undefined
             );
 
             logger.info('STREAM_COMPLETE', {
@@ -1416,28 +1445,6 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               duration: Date.now() - streamStartTime,
               chunkCount,
             });
-
-            const includeDebug = isDebugRequested(req);
-            if (includeDebug) {
-              const streamDuration = Date.now() - streamStartTime;
-              const ttft = firstChunkTime ? firstChunkTime - streamStartTime : undefined;
-              const debugInfo = getDebugInfo(routingContext, {
-                requestId: requestId,
-                requestTimestamp: streamStartTime,
-                timeToFirstToken: ttft,
-                streamingDuration: streamDuration,
-                stallDetected: openaiCompStallDetected,
-                stallDurationMs: openaiCompStallStartTime
-                  ? Date.now() - openaiCompStallStartTime
-                  : undefined,
-              });
-              if (debugInfo) {
-                setDebugResponseHeaders(res, debugInfo);
-                if (!res.writableEnded) {
-                  res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
-                }
-              }
-            }
           } finally {
             activityController.clearTimeout();
           }
