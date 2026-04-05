@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 /**
  * All DDL statements for schema version 1.
@@ -300,15 +300,138 @@ CREATE INDEX IF NOT EXISTS idx_profiles_server_temporal
   WHERE model IS NULL;
 `;
 
-/**
- * Migration map: version -> SQL to upgrade from (version-1) to version.
- * Version 1 is handled by SCHEMA_V1 on fresh databases.
- * Future migrations are added here, e.g.:
- *   2: 'ALTER TABLE requests ADD COLUMN new_col TEXT;'
- */
+export const SCHEMA_V2_MIGRATION = `
+-- ============================================================
+-- bans: permanent ban tracking with history (F-DB-1)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS bans (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id     TEXT NOT NULL,
+  model         TEXT NOT NULL,
+  reason        TEXT,
+  banned_at     INTEGER NOT NULL,
+  unbanned_at   INTEGER,
+  UNIQUE(server_id, model, banned_at)
+);
+CREATE INDEX IF NOT EXISTS idx_bans_active ON bans(server_id, model) WHERE unbanned_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_bans_ts ON bans(banned_at);
+
+-- ============================================================
+-- adaptive_timeouts: full TimeoutState persistence (F-DB-2, F-TO-8)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS adaptive_timeouts (
+  key              TEXT PRIMARY KEY,
+  server_id        TEXT NOT NULL,
+  model            TEXT,
+  base_timeout_ms  REAL NOT NULL,
+  current_timeout  REAL NOT NULL,
+  ema_latency      REAL,
+  sample_count     INTEGER DEFAULT 0,
+  last_updated     INTEGER NOT NULL,
+  created_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_timeouts_server ON adaptive_timeouts(server_id);
+
+-- ============================================================
+-- circuit_breaker_state: operational CB state (F-DB-3)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+  server_id          TEXT NOT NULL,
+  model              TEXT NOT NULL,
+  state              TEXT NOT NULL,
+  failure_count      INTEGER DEFAULT 0,
+  success_count      INTEGER DEFAULT 0,
+  last_failure_at    INTEGER,
+  last_success_at    INTEGER,
+  opened_at          INTEGER,
+  next_retry_at      INTEGER,
+  error_window       TEXT,
+  adaptive_threshold INTEGER,
+  updated_at         INTEGER NOT NULL,
+  PRIMARY KEY (server_id, model)
+);
+
+-- circuit_breaker_transitions: state transition log
+CREATE TABLE IF NOT EXISTS circuit_breaker_transitions (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id   TEXT NOT NULL,
+  model       TEXT NOT NULL,
+  from_state  TEXT NOT NULL,
+  to_state    TEXT NOT NULL,
+  reason      TEXT,
+  timestamp   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cb_transitions_ts ON circuit_breaker_transitions(timestamp);
+CREATE INDEX IF NOT EXISTS idx_cb_transitions_server ON circuit_breaker_transitions(server_id, model, timestamp);
+
+-- ============================================================
+-- server_metrics_snapshot: hot operational metrics (F-DB-4)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS server_metrics_snapshot (
+  server_id         TEXT NOT NULL,
+  model             TEXT NOT NULL,
+  latency_avg       REAL,
+  latency_p95       REAL,
+  latency_p99       REAL,
+  success_rate      REAL,
+  throughput        REAL,
+  tokens_per_second REAL,
+  ttft_avg          REAL,
+  in_flight         INTEGER DEFAULT 0,
+  total_requests    INTEGER DEFAULT 0,
+  recent_errors     INTEGER DEFAULT 0,
+  parameter_size    TEXT,
+  family            TEXT,
+  quantization      TEXT,
+  last_request_at   INTEGER,
+  updated_at        INTEGER NOT NULL,
+  PRIMARY KEY (server_id, model)
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_snap_updated ON server_metrics_snapshot(updated_at);
+
+-- ============================================================
+-- recovery_failures: per-server recovery tracking (F-DB-5)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS recovery_failures (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id          TEXT NOT NULL,
+  model              TEXT,
+  error_type         TEXT NOT NULL,
+  error_message      TEXT,
+  phase              TEXT,
+  recovery_attempted INTEGER DEFAULT 0,
+  recovery_success   INTEGER,
+  latency_ms         REAL,
+  timestamp          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recovery_server_ts ON recovery_failures(server_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_recovery_ts ON recovery_failures(timestamp);
+CREATE INDEX IF NOT EXISTS idx_recovery_error ON recovery_failures(error_type, timestamp);
+
+-- ============================================================
+-- metrics_summary: hourly analytics snapshots (F-DB-6)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS metrics_summary (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp            INTEGER NOT NULL,
+  total_servers        INTEGER,
+  healthy_servers      INTEGER,
+  total_models         INTEGER,
+  total_requests_1h    INTEGER,
+  avg_latency_ms       REAL,
+  overall_success_rate REAL,
+  total_in_flight      INTEGER,
+  snapshot_data        TEXT,
+  hour_of_day          INTEGER,
+  day_of_week          INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_summary_ts ON metrics_summary(timestamp);
+CREATE INDEX IF NOT EXISTS idx_summary_temporal ON metrics_summary(hour_of_day, day_of_week);
+`;
+
 export const MIGRATIONS: Record<number, string> = {
   // Version 1 is applied as a full schema creation on empty databases.
-  // Future: 2: 'ALTER TABLE ...;'
+  2: SCHEMA_V2_MIGRATION,
 };
 
 /**
@@ -318,28 +441,27 @@ export const MIGRATIONS: Record<number, string> = {
 export function applySchema(db: Database.Database): void {
   const currentVersion = (db.pragma('user_version', { simple: true }) as number) ?? 0;
 
-  if (currentVersion === 0) {
-    // Fresh database — apply full schema in one transaction
-    db.transaction(() => {
-      db.exec(SCHEMA_V1);
-      db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
-    })();
-    return;
-  }
-
   if (currentVersion === CURRENT_SCHEMA_VERSION) {
-    // Already up to date
     return;
   }
 
-  // Apply incremental migrations
   db.transaction(() => {
-    for (let v = currentVersion + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
-      const sql = MIGRATIONS[v];
-      if (!sql) {
-        throw new Error(`Missing migration for schema version ${v}`);
+    if (currentVersion === 0) {
+      db.exec(SCHEMA_V1);
+      for (let v = 2; v <= CURRENT_SCHEMA_VERSION; v++) {
+        const sql = MIGRATIONS[v];
+        if (sql) {
+          db.exec(sql);
+        }
       }
-      db.exec(sql);
+    } else {
+      for (let v = currentVersion + 1; v <= CURRENT_SCHEMA_VERSION; v++) {
+        const sql = MIGRATIONS[v];
+        if (!sql) {
+          throw new Error(`Missing migration for schema version ${v}`);
+        }
+        db.exec(sql);
+      }
     }
     db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
   })();
