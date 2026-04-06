@@ -853,6 +853,9 @@ export class MetricsAggregator {
         throughput: metrics.throughput,
         avgTokensPerRequest: metrics.avgTokensPerRequest,
         avgPromptTokens: metrics.avgPromptTokens,
+        avgTokensPerSecond: metrics.avgTokensPerSecond,
+        coldStartCount: metrics.coldStartCount,
+        avgNetworkOverheadMs: metrics.avgNetworkOverheadMs,
         streamingMetrics: metrics.streamingMetrics,
       };
     }

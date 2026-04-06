@@ -302,6 +302,9 @@ export interface ModelMetricsExport {
   throughput: number;
   avgTokensPerRequest: number;
   avgPromptTokens: number;
+  avgTokensPerSecond: number;
+  coldStartCount: number;
+  avgNetworkOverheadMs?: number;
   streamingMetrics?: StreamingMetrics;
 }
 
