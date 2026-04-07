@@ -115,6 +115,16 @@ export const embeddingsRequestSchema = z.object({
   prompt: z.string().min(1, 'Prompt is required').max(100000, 'Prompt too long'),
 });
 
+export const embedRequestSchema = z.object({
+  model: modelNameSchema.optional(),
+  input: z.union([z.string(), z.array(z.string())]).optional(),
+  prompt: z.string().optional(),
+  truncate: z.boolean().optional(),
+  options: z.record(z.string(), z.unknown()).optional(),
+  keep_alive: z.number().optional(),
+  dimensions: z.number().int().min(1).optional(),
+});
+
 // Config validation schemas
 export const configUpdateSchema = z.object({
   queue: z

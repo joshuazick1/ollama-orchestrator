@@ -1,3 +1,4 @@
+import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import type { ProbeSchedulerConfig } from './config/config.js';
 import { MetricsAggregator } from './metrics/index.js';
 import type { AIServer, RequestContext } from './orchestrator/orchestrator.types.js';
@@ -30,6 +31,7 @@ export class InferenceProbeScheduler {
   private getServers: () => AIServer[];
   private getMetricsAggregator: () => MetricsAggregator;
   private getMetricsStore: () => MetricsStore;
+  private getCircuitBreakerRegistry: () => CircuitBreakerRegistry;
 
   private intervalTimer?: NodeJS.Timeout;
   private drainTimer?: NodeJS.Timeout;
@@ -45,12 +47,14 @@ export class InferenceProbeScheduler {
     config: ProbeSchedulerConfig,
     getServers: () => AIServer[],
     getMetricsAggregator: () => MetricsAggregator,
-    getMetricsStore: () => MetricsStore
+    getMetricsStore: () => MetricsStore,
+    getCircuitBreakerRegistry: () => CircuitBreakerRegistry
   ) {
     this.config = config;
     this.getServers = getServers;
     this.getMetricsAggregator = getMetricsAggregator;
     this.getMetricsStore = getMetricsStore;
+    this.getCircuitBreakerRegistry = getCircuitBreakerRegistry;
   }
 
   start(): void {
@@ -385,6 +389,7 @@ export class InferenceProbeScheduler {
         const text = await response.text().catch(() => '');
         requestContext.error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
         this.recordProbeFailure(key);
+        this.getCircuitBreakerRegistry().getOrCreate(key).recordFailure(new Error(`Probe failed: HTTP ${response.status}`), 'transient');
         logger.warn(`InferenceProbeScheduler: probe failed for ${key}`, {
           status: response.status,
           duration: requestContext.duration,
@@ -392,6 +397,7 @@ export class InferenceProbeScheduler {
       } else {
         this.failureCount.delete(key);
         this.failureBackoff.delete(key);
+        this.getCircuitBreakerRegistry().getOrCreate(key).recordSuccess();
         logger.info(`InferenceProbeScheduler: probe succeeded for ${key}`, {
           duration: requestContext.duration,
         });
@@ -402,6 +408,7 @@ export class InferenceProbeScheduler {
       requestContext.success = false;
       requestContext.error = err instanceof Error ? err : new Error(String(err));
       this.recordProbeFailure(key);
+      this.getCircuitBreakerRegistry().getOrCreate(key).recordFailure(err instanceof Error ? err : new Error(String(err)), 'transient');
       logger.warn(`InferenceProbeScheduler: probe error for ${key}`, { error: err });
     }
 

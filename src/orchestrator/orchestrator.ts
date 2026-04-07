@@ -232,17 +232,19 @@ export class AIOrchestrator {
       this.config.probeScheduler,
       () => this.servers,
       () => this.metricsAggregator,
-      () => getMetricsStore()
+      () => getMetricsStore(),
+      () => this.circuitBreakerRegistry
     );
 
-    // Initialize TimeoutManager with config default
+    // Initialize TimeoutManager with config defaults
     const currentConfig = getConfigManager().getConfig();
     this.timeoutManager = new TimeoutManager({
-      defaultTimeout: currentConfig.circuitBreaker.activeTestTimeout,
-      minTimeout: 15000,
-      maxTimeout: 600000,
-      activeTestMultiplier: 3,
-      slowRequestMultiplier: 2,
+      defaultTimeout: currentConfig.timeout.defaultTimeoutMs,
+      minTimeout: currentConfig.timeout.minTimeoutMs,
+      maxTimeout: currentConfig.timeout.maxTimeoutMs,
+      recoveryTestMultiplier: currentConfig.timeout.recoveryTestMultiplier,
+      normalRequestMultiplier: currentConfig.timeout.normalRequestMultiplier,
+      decayRatePerMs: currentConfig.timeout.decayRatePerMs,
     });
 
     // Load timeouts from persistence
@@ -544,262 +546,6 @@ export class AIOrchestrator {
 
     // Auto-persist server states if persistence is enabled
     // This will be handled by the existing persistence patches
-  }
-
-  /**
-   * Execute an active test request to a specific server:model
-   * Tests both inference (/api/generate) and embeddings (/api/embeddings)
-   */
-  private async executeActiveTest(
-    serverId: string,
-    model: string,
-    timeoutMs: number
-  ): Promise<{
-    success: boolean;
-    duration: number;
-    error?: string;
-    detectedModelType?: 'embedding' | 'generation';
-    nonCircuitBreaking?: boolean; // Special flag for failures that shouldn't trigger circuit breaker
-  }> {
-    const server = this.getServer(serverId);
-    if (!server) {
-      return {
-        success: false,
-        duration: 0,
-        error: ERROR_MESSAGES.SERVER_NOT_FOUND_COLON(serverId),
-      };
-    }
-
-    const modelCb = this.getModelCircuitBreaker(serverId, model);
-    const storedModelType = modelCb.getModelType();
-
-    // First, check model name patterns - these are definitive indicators
-    // This takes precedence over stored type because stored type may be wrong
-    const modelNameLower = model.toLowerCase();
-    const isEmbeddingModelByName =
-      modelNameLower.includes('embed') ||
-      modelNameLower.includes('pygmalion') ||
-      modelNameLower.includes('nomic-embed') ||
-      modelNameLower.includes('text-embedding') ||
-      modelNameLower.includes('sentence') ||
-      modelNameLower.includes('bge-') ||
-      modelNameLower.includes('gte-') ||
-      modelNameLower.includes('e5-') ||
-      modelNameLower.includes('all-minilm') ||
-      modelNameLower.includes('all-mpnet');
-
-    if (isEmbeddingModelByName) {
-      // Model name indicates it's embedding-only, use embedding test
-      if (storedModelType !== 'embedding') {
-        // Update stored type if it was wrong
-        modelCb.setModelType('embedding');
-        this.scheduleCircuitBreakerSave();
-        logger.info(`Corrected model type for ${model} to embedding based on name pattern`);
-      }
-      return this.executeEmbeddingActiveTest(server, model, timeoutMs);
-    }
-
-    // If we have a stored model type and name doesn't indicate embedding, use stored type
-    if (storedModelType === 'embedding') {
-      return this.executeEmbeddingActiveTest(server, model, timeoutMs);
-    } else if (storedModelType === 'generation') {
-      return this.executeInferenceActiveTest(server, model, timeoutMs);
-    }
-
-    // No stored type - need to detect
-    // Try inference first (most models are generation)
-    const inferenceResult = await this.executeInferenceActiveTest(server, model, 10000); // Short timeout for detection
-
-    if (inferenceResult.success) {
-      // It's a generation model
-      modelCb.setModelType('generation');
-      this.scheduleCircuitBreakerSave(); // Persist the model type
-      return { ...inferenceResult, detectedModelType: 'generation' };
-    }
-
-    // Inference failed - check if it's because it's an embedding model
-    const errorLower = (inferenceResult.error || '').toLowerCase();
-    const isEmbeddingError =
-      errorLower.includes('embed') ||
-      errorLower.includes('not supported') ||
-      errorLower.includes('cannot generate') ||
-      errorLower.includes('model does not support');
-
-    if (isEmbeddingError) {
-      // Try embedding endpoint
-      logger.info(`Model ${model} appears to be embedding-only, trying embeddings endpoint`);
-      const embeddingResult = await this.executeEmbeddingActiveTest(server, model, timeoutMs);
-
-      // Mark as embedding model regardless of embedding test result
-      // The generate failure indicates it's not a generation model
-      modelCb.setModelType('embedding');
-      this.scheduleCircuitBreakerSave(); // Persist the model type
-      logger.info(`Model ${model} detected as embedding-only, model type persisted`);
-
-      if (embeddingResult.success) {
-        return { ...embeddingResult, detectedModelType: 'embedding' };
-      } else {
-        // Embedding test failed, but this is not a circuit-breaking error
-        // The model is still valid as an embedding model, server just may be temporarily unavailable
-        logger.warn(
-          `Model ${model} embedding test failed on ${server.id}: ${embeddingResult.error}. This indicates the embedding endpoint is temporarily unavailable, not that the model is broken. Model type has been set to 'embedding' for future requests.`
-        );
-        // Return a special result that doesn't trigger circuit breaker failure recording
-        return {
-          success: false, // Test failed
-          duration: embeddingResult.duration,
-          error: embeddingResult.error,
-          detectedModelType: 'embedding',
-          nonCircuitBreaking: true, // Special flag to indicate this is not circuit-breaking
-        };
-      }
-    }
-
-    // Return the inference error (original failure)
-    return inferenceResult;
-  }
-
-  /**
-   * Execute an active test for inference models (/api/generate)
-   * Uses requestToServer with bypassCircuitBreaker to test half-open circuits
-   */
-  private async executeInferenceActiveTest(
-    server: AIServer,
-    model: string,
-    timeoutMs: number
-  ): Promise<{ success: boolean; duration: number; error?: string }> {
-    const startTime = Date.now();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      // Use requestToServer with bypassCircuitBreaker to test half-open circuits
-      await this.requestToServer(
-        server.id,
-        model,
-        async targetServer => {
-          const response = await fetch(`${targetServer.url}/api/generate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: safeJsonStringify({
-              model: model,
-              prompt: 'Hi', // Minimal prompt for quick response
-              stream: false,
-              options: {
-                num_predict: 1, // Only generate 1 token for speed
-              },
-            }),
-            signal: controller.signal,
-          });
-
-          if (!response.ok) {
-            const errorText = await response
-              .text()
-              .catch(
-                (e: unknown) =>
-                  `Failed to read error body: ${e instanceof Error ? e.message : String(e)}`
-              );
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-          }
-
-          // Parse response to verify it worked
-          const data = await parseResponse(response);
-          if (!data) {
-            throw new Error('Invalid response');
-          }
-
-          return data;
-        },
-        { bypassCircuitBreaker: true, signal: controller.signal }
-      );
-
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-      return { success: true, duration };
-    } catch (error) {
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          return { success: false, duration, error: `Timeout after ${timeoutMs}ms` };
-        }
-        return { success: false, duration, error: error.message };
-      }
-
-      return { success: false, duration, error: 'Unknown error' };
-    }
-  }
-
-  /**
-   * Execute an active test for embedding models (/api/embeddings)
-   */
-  /**
-   * Execute an active test for embedding models (/api/embeddings)
-   * Uses requestToServer with bypassCircuitBreaker to test half-open circuits
-   */
-  private async executeEmbeddingActiveTest(
-    server: AIServer,
-    model: string,
-    timeoutMs: number
-  ): Promise<{ success: boolean; duration: number; error?: string }> {
-    const startTime = Date.now();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      // Use requestToServer with bypassCircuitBreaker to test half-open circuits
-      await this.requestToServer(
-        server.id,
-        model,
-        async targetServer => {
-          const response = await fetch(`${targetServer.url}/api/embeddings`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: safeJsonStringify({
-              model: model,
-              prompt: 'test', // Minimal text for embedding
-            }),
-            signal: controller.signal,
-          });
-
-          if (!response.ok) {
-            const errorText = await response
-              .text()
-              .catch(
-                (e: unknown) =>
-                  `Failed to read error body: ${e instanceof Error ? e.message : String(e)}`
-              );
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-          }
-
-          // Parse response to verify it worked
-          const data = await parseResponse(response);
-          if (!data?.embedding) {
-            throw new Error('Invalid response - no embedding');
-          }
-
-          return data;
-        },
-        { bypassCircuitBreaker: true, signal: controller.signal }
-      );
-
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-      return { success: true, duration };
-    } catch (error) {
-      clearTimeout(timeoutId);
-      const duration = Date.now() - startTime;
-
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          return { success: false, duration, error: `Timeout after ${timeoutMs}ms` };
-        }
-        return { success: false, duration, error: error.message };
-      }
-
-      return { success: false, duration, error: 'Unknown error' };
-    }
   }
 
   /**
@@ -2715,7 +2461,10 @@ export class AIOrchestrator {
             if (!recoveryResults[i]) {
               const failedBreaker = breakersToTest[i];
               const errorMsg = `Circuit breaker recovery failed for ${server.id}:${model}`;
-              failedBreaker.recordFailure(new Error(errorMsg), 'transient');
+              // Use stored lastErrorType to preserve original error classification
+              // This ensures proper backoff (e.g., 48h for auth errors, 2min for transient)
+              const errorType = failedBreaker.getLastErrorType() || 'transient';
+              failedBreaker.recordFailure(new Error(errorMsg), errorType);
               logger.warn(`Recovery test failed for breaker, transitioning back to open`);
             }
           }
@@ -3737,6 +3486,12 @@ export class AIOrchestrator {
           `Active test timeout: escalated timeout for ${serverId}:${model} to ${this.timeoutManager.getTimeout(serverId, model)}ms`
         );
       });
+      coordinator.setRecordActiveTestTimeout((serverId: string, model: string, testTimeoutMs: number) => {
+        this.timeoutManager.recordActiveTestTimeout(serverId, model, testTimeoutMs);
+        logger.debug(
+          `Active test timeout recorded for ${serverId}:${model} (${testTimeoutMs}ms) - no escalation`
+        );
+      });
       coordinator.setOnTestsInvalidated((serverId: string) => {
         logger.info(
           `Active tests invalidated for server ${serverId} due to concurrent real request`
@@ -3763,6 +3518,8 @@ export class AIOrchestrator {
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {
         this.timeoutManager.applyDecay();
+        // Reset timeouts for server:models that have been idle for 10+ minutes
+        this.timeoutManager.resetAllAfterIdle(600000);
       }, DECAY_INTERVAL_MS);
 
       logger.info(
@@ -3896,25 +3653,12 @@ export class AIOrchestrator {
     }
 
     // Check for any HALF-OPEN breakers whose halfOpenTimeout has passed and transition them back to open
+    // Use the circuit breaker's self-contained timeout check which doesn't rely on activeTestsInProgress
     for (const [breakerName, stats] of Object.entries(allStats)) {
-      if (stats.state === 'half-open' && stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
+      if (stats.state === 'half-open') {
         const breaker = this.circuitBreakerRegistry.get(breakerName);
         if (breaker) {
-          const config = breaker.getConfig();
-          const timeInHalfOpen = now - stats.halfOpenStartedAt;
-          if (timeInHalfOpen > config.halfOpenTimeout) {
-            if (stats.activeTestsInProgress && stats.activeTestsInProgress > 0) {
-              logger.debug(
-                `Half-open breaker ${breakerName} timed out but has ${stats.activeTestsInProgress} active tests in progress, skipping timeout`
-              );
-              continue;
-            }
-
-            logger.warn(
-              `Half-open breaker ${breakerName} timed out after ${timeInHalfOpen}ms (limit: ${config.halfOpenTimeout}ms), transitioning back to open`
-            );
-            breaker.forceOpen();
-          }
+          breaker.checkHalfOpenTimeout();
         }
       }
     }
@@ -4513,6 +4257,7 @@ export class AIOrchestrator {
    * Initialize the orchestrator (load persisted metrics)
    */
   getStats(): {
+    uptime: number;
     totalServers: number;
     healthyServers: number;
     totalModels: number;
@@ -4539,6 +4284,7 @@ export class AIOrchestrator {
     }
 
     return {
+      uptime: process.uptime(),
       totalServers: this.servers.length,
       healthyServers,
       totalModels: this.getAllModels().length,
