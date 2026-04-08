@@ -17,6 +17,7 @@ import {
   generateRequestSchema,
   chatRequestSchema,
   embeddingsRequestSchema,
+  embedRequestSchema,
   configUpdateSchema,
   configPathSchema,
   queueActionSchema,
@@ -196,6 +197,75 @@ describe('validation middleware', () => {
         prompt: 'Hello world',
       });
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('embedRequestSchema', () => {
+    it('should validate valid embed request with string input', () => {
+      const result = embedRequestSchema.safeParse({
+        input: 'hello world',
+        model: 'llama2',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate valid embed request with array input', () => {
+      const result = embedRequestSchema.safeParse({
+        input: ['hello', 'world'],
+        model: 'llama2',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate valid embed request with prompt instead of input', () => {
+      const result = embedRequestSchema.safeParse({
+        prompt: 'hello world',
+        model: 'llama2',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate embed request with all optional fields', () => {
+      const result = embedRequestSchema.safeParse({
+        input: 'hello world',
+        model: 'llama2',
+        truncate: true,
+        keep_alive: 300,
+        dimensions: 512,
+        options: { temperature: 0.7 },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate embed request with no model', () => {
+      const result = embedRequestSchema.safeParse({
+        input: 'hello world',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should validate embed request with empty input', () => {
+      const result = embedRequestSchema.safeParse({
+        input: '',
+        model: 'llama2',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject invalid input type (number)', () => {
+      const result = embedRequestSchema.safeParse({
+        input: 123,
+        model: 'llama2',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject invalid dimensions (negative)', () => {
+      const result = embedRequestSchema.safeParse({
+        input: 'hello',
+        dimensions: -1,
+      });
+      expect(result.success).toBe(false);
     });
   });
 
