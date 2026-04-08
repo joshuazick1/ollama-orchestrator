@@ -28,6 +28,8 @@ export interface CircuitBreakerData {
       lastFailureReason?: string;
       modelType?: 'embedding' | 'generation';
       lastErrorType?: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
+      consecutiveFailedRecoveries?: number;
+      halfOpenAttempts?: number;
     }
   >;
 }
@@ -65,6 +67,8 @@ export class CircuitBreakerPersistence {
           lastFailureAt: breaker.lastFailure || undefined,
           lastSuccessAt: breaker.lastSuccess || undefined,
           nextRetryAt: breaker.nextRetryAt || undefined,
+          consecutiveFailedRecoveries: breaker.consecutiveFailedRecoveries,
+          halfOpenAttempts: breaker.halfOpenAttempts,
         });
       }
       this.isDirty = false;
@@ -101,6 +105,8 @@ export class CircuitBreakerPersistence {
           errorRate: 0,
           errorCounts: {},
           halfOpenStartedAt: 0,
+          consecutiveFailedRecoveries: row.consecutiveFailedRecoveries ?? 0,
+          halfOpenAttempts: row.halfOpenAttempts ?? 0,
         };
       }
 

@@ -55,6 +55,7 @@ export interface CircuitBreakerConfig {
   recoverySuccessThreshold: number; // Consecutive successes needed to close
   activeTestTimeout: number; // Timeout for active tests in half-open state (ms)
   maxHalfOpenPerServer: number; // Max concurrent half-open circuits per server
+  maxConsecutiveFailedRecoveries: number; // Starvation guard: max recovery attempts before staying open (GAP-CB-5)
 
   // Error rate calculation
   errorRateWindow: number; // Time window for error rate calculation (ms)
@@ -119,6 +120,7 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
   recoverySuccessThreshold: 5, // Increased from 3 for more reliable recovery
   activeTestTimeout: 300000, // 5 minutes
   maxHalfOpenPerServer: 3,
+  maxConsecutiveFailedRecoveries: 5, // Starvation guard threshold (GAP-CB-5)
   errorRateWindow: 60000, // 1 minute
   // Keep errorRateThreshold permissive in tests/legacy usage to avoid opening
   // circuit on small sample windows (tests expect opening by failure count only)
@@ -261,6 +263,7 @@ export class CircuitBreaker {
   // The initial _lockTail resolves immediately so the first caller runs without async overhead.
   private _lockTail: Promise<unknown> = Promise.resolve();
   private _restoring = false; // Guards against concurrent restoreState() calls
+  private _transitioning = false; // Guards against concurrent canExecute() transitions
 
   /**
    * Acquire the state lock, run fn, then release. All callers are serialized via the Promise chain.
@@ -306,54 +309,58 @@ export class CircuitBreaker {
 
       case 'open':
         if (now >= this.nextRetryAt) {
-          // Limit recovery attempts - after 3 failed recoveries, extend backoff based on error type
-          // Permanent/non-retryable errors get much longer extensions to prevent resource waste
-          if (this.consecutiveFailedRecoveries >= 3) {
-            let baseTimeout = this.config.openTimeout;
-            if (this.lastErrorType === 'permanent' || this.lastErrorType === 'non-retryable') {
-              baseTimeout = Math.max(baseTimeout, 3600000); // At least 1 hour for permanent errors
-            }
+          if (this._transitioning) {
+            this.blockedRequestCount++;
+            return false;
+          }
+          this._transitioning = true;
+          try {
+            if (this.consecutiveFailedRecoveries >= 3) {
+              let baseTimeout = this.config.openTimeout;
+              if (this.lastErrorType === 'permanent' || this.lastErrorType === 'non-retryable') {
+                baseTimeout = Math.max(baseTimeout, 3600000);
+              }
 
-            const backoffMultiplier = Math.min(
-              this.lastErrorType === 'permanent' || this.lastErrorType === 'non-retryable' ? 5 : 10,
-              Math.pow(2, this.consecutiveFailedRecoveries - 3)
-            );
-            const extendedTimeout = baseTimeout * backoffMultiplier;
-            this.nextRetryAt = now + extendedTimeout;
-
-            // If we've failed 5+ times with zero successes, log warning
-            if (this.consecutiveFailedRecoveries >= 5 && this.successCount === 0) {
-              logger.warn(
-                `Circuit breaker ${this.name} has failed ${this.consecutiveFailedRecoveries} recovery attempts with 0% success rate. Extending timeout to ${extendedTimeout}ms.`,
-                {
-                  halfOpenAttempts: this.halfOpenAttempts,
-                  consecutiveFailedRecoveries: this.consecutiveFailedRecoveries,
-                  successCount: this.successCount,
-                  extendedTimeout,
-                }
+              const backoffMultiplier = Math.min(
+                this.lastErrorType === 'permanent' || this.lastErrorType === 'non-retryable' ? 5 : 10,
+                Math.pow(2, this.consecutiveFailedRecoveries - 3)
               );
+              const extendedTimeout = baseTimeout * backoffMultiplier;
+              this.nextRetryAt = now + extendedTimeout;
+
+              if (
+                this.consecutiveFailedRecoveries >= this.config.maxConsecutiveFailedRecoveries &&
+                this.successCount === 0
+              ) {
+                logger.warn(
+                  `Circuit breaker ${this.name} has failed ${this.consecutiveFailedRecoveries} recovery attempts with 0% success rate. Extending timeout to ${extendedTimeout}ms.`,
+                  {
+                    halfOpenAttempts: this.halfOpenAttempts,
+                    consecutiveFailedRecoveries: this.consecutiveFailedRecoveries,
+                    successCount: this.successCount,
+                    extendedTimeout,
+                  }
+                );
+              }
+
+              if (this.consecutiveFailedRecoveries >= this.config.maxConsecutiveFailedRecoveries) {
+                this.blockedRequestCount++;
+                return false;
+              }
             }
 
-            // Don't transition to half-open if we've had too many failures
-            // This prevents the flapping behavior
-            if (this.consecutiveFailedRecoveries >= 5) {
-              // GAP-CB-5: Half-open starvation guard — when consecutiveFailedRecoveries >= 5
-              // the breaker refuses to enter half-open and stays open. This is intentional:
-              // it prevents a perpetually-failing server:model from wasting resources on
-              // repeated recovery probes. consecutiveFailedRecoveries is the backstop that
-              // overrides the normal half-open timeout, providing a hard ceiling on
-              // recovery attempts even if the half-open timeout expires.
-              this.blockedRequestCount++; // Track blocked request
+            this.halfOpenAttempts++;
+            if (this.state !== 'open') {
               return false;
             }
+            this.transitionTo('half-open');
+            this.halfOpenRequestCount = 0;
+            return true;
+          } finally {
+            this._transitioning = false;
           }
-
-          this.halfOpenAttempts++;
-          this.transitionTo('half-open');
-          this.halfOpenRequestCount = 0;
-          return true;
         }
-        this.blockedRequestCount++; // Track blocked request when circuit is open
+        this.blockedRequestCount++;
         return false;
 
       case 'half-open': {
@@ -385,7 +392,10 @@ export class CircuitBreaker {
         if (now >= this.nextRetryAt) {
           // Don't transition to half-open - just check if we CAN attempt
           // The actual transition happens in canExecute() during execution
-          if (this.consecutiveFailedRecoveries >= 5 && this.successCount === 0) {
+          if (
+            this.consecutiveFailedRecoveries >= this.config.maxConsecutiveFailedRecoveries &&
+            this.successCount === 0
+          ) {
             return false;
           }
           return true;
@@ -495,11 +505,6 @@ export class CircuitBreaker {
       this.lastFailureReason = error instanceof Error ? error.message : String(error);
       this.lastErrorType = classifiedType;
 
-      // Track rate limit failures for adaptive backoff
-      if (classifiedType === 'rateLimited') {
-        this.rateLimitConsecutiveFailures++;
-      }
-
       return;
     }
 
@@ -528,7 +533,8 @@ export class CircuitBreaker {
       );
       this.transitionTo('open');
       // Apply error-type-specific backoff (48h for non-retryable, 24h for permanent, etc.)
-      this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType, retryAfterMs);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType, retryAfterMs, errorMsg);
       logger.warn(
         `Circuit breaker opened due to failure in half-open state (recovery attempt ${this.consecutiveFailedRecoveries} failed)`,
         {
@@ -546,10 +552,12 @@ export class CircuitBreaker {
         this.errorRate > this.config.errorRateThreshold
       ) {
         // Store failure reason and type before transitioning
-        this.lastFailureReason = error instanceof Error ? error.message : String(error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.lastFailureReason = errorMsg;
         this.lastErrorType = classifiedType;
         this.transitionTo('open');
-        this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType, retryAfterMs);
+        this.nextRetryAt =
+          now + this.getBackoffForErrorType(classifiedType, retryAfterMs, errorMsg);
         logger.warn(
           `Circuit breaker opened: ${this.failureCount} failures, ${(this.errorRate * 100).toFixed(1)}% error rate`,
           {
@@ -776,6 +784,46 @@ export class CircuitBreaker {
   }
 
   /**
+   * Check if the half-open timeout has expired and transition back to open if so.
+   * This provides a self-contained timeout mechanism that doesn't rely on external
+   * callers to properly tracking active tests via startActiveTest/endActiveTest.
+   *
+   * @returns true if the timeout expired and breaker was transitioned to open,
+   *          false if not applicable (not in half-open state or timeout not expired)
+   */
+  checkHalfOpenTimeout(): boolean {
+    if (this.state !== 'half-open') {
+      return false;
+    }
+
+    if (this.halfOpenStartedAt <= 0) {
+      return false;
+    }
+
+    const now = Date.now();
+    const timeInHalfOpen = now - this.halfOpenStartedAt;
+
+    if (timeInHalfOpen > this.config.halfOpenTimeout) {
+      logger.warn(
+        `Circuit breaker ${this.name} half-open timeout expired after ${timeInHalfOpen}ms (limit: ${this.config.halfOpenTimeout}ms), transitioning to open`,
+        {
+          halfOpenStartedAt: this.halfOpenStartedAt,
+          timeInHalfOpen,
+          halfOpenTimeout: this.config.halfOpenTimeout,
+        }
+      );
+
+      // Record failure to increment consecutiveFailedRecoveries and apply proper backoff
+      // This enables the starvation guard (GAP-CB-5) to eventually prevent infinite retry cycles
+      this.recordFailure(new Error(`Half-open timeout after ${timeInHalfOpen}ms`), 'transient');
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Restore circuit breaker state from persistence
    * Used during startup to recover previous state
    */
@@ -807,6 +855,9 @@ export class CircuitBreaker {
         this.consecutiveSuccesses = stats.consecutiveSuccesses;
         this.halfOpenRequestCount = 0; // Always reset counters on restore
         this.activeTestsInProgress = 0; // Always reset counters on restore
+        // Restore recovery tracking for starvation guard (GAP-CB-5)
+        this.consecutiveFailedRecoveries = stats.consecutiveFailedRecoveries || 0;
+        this.halfOpenAttempts = stats.halfOpenAttempts || 0;
 
         // Restore half-open timestamp - validate it to prevent immediate timeout
         if (stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
@@ -886,10 +937,14 @@ export class CircuitBreaker {
    * Calculate backoff timeout based on error type
    * Uses unified backoff from recovery-backoff.ts, with configurable delays when set
    */
-  private getBackoffForErrorType(errorType: ErrorType, retryAfterMs?: number): number {
+  private getBackoffForErrorType(
+    errorType: ErrorType,
+    retryAfterMs?: number,
+    failureReason?: string
+  ): number {
     return calculateCircuitBreakerBackoff(
       errorType,
-      undefined,
+      failureReason ?? this.lastFailureReason,
       this.consecutiveFailedRecoveries,
       retryAfterMs,
       this.config.backoff

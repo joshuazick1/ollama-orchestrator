@@ -6,6 +6,7 @@
 import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
+import { sleep } from './utils/async-helpers.js';
 import { getErrorClassifier } from './utils/error-classifier.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
@@ -615,7 +616,7 @@ export class ModelManager {
         );
 
         // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await sleep(delay);
 
         // Retry
         return this.executeWarmupWithRetry(job, serverUrl, attempt + 1);
@@ -1174,9 +1175,11 @@ export class ModelManager {
       while (running.length < concurrency && index < models.length) {
         const p = startNext();
         running.push(p);
-        p.then(() => {
+        void p.then(() => {
           const idx = running.indexOf(p);
-          if (idx !== -1) running.splice(idx, 1);
+          if (idx !== -1) {
+            void running.splice(idx, 1);
+          }
         });
       }
     };

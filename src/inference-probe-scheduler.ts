@@ -389,7 +389,9 @@ export class InferenceProbeScheduler {
         const text = await response.text().catch(() => '');
         requestContext.error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
         this.recordProbeFailure(key);
-        this.getCircuitBreakerRegistry().getOrCreate(key).recordFailure(new Error(`Probe failed: HTTP ${response.status}`), 'transient');
+        this.getCircuitBreakerRegistry()
+          .getOrCreate(key)
+          .recordFailure(new Error(`Probe failed: HTTP ${response.status}`), 'transient');
         logger.warn(`InferenceProbeScheduler: probe failed for ${key}`, {
           status: response.status,
           duration: requestContext.duration,
@@ -408,7 +410,9 @@ export class InferenceProbeScheduler {
       requestContext.success = false;
       requestContext.error = err instanceof Error ? err : new Error(String(err));
       this.recordProbeFailure(key);
-      this.getCircuitBreakerRegistry().getOrCreate(key).recordFailure(err instanceof Error ? err : new Error(String(err)), 'transient');
+      this.getCircuitBreakerRegistry()
+        .getOrCreate(key)
+        .recordFailure(err instanceof Error ? err : new Error(String(err)), 'transient');
       logger.warn(`InferenceProbeScheduler: probe error for ${key}`, { error: err });
     }
 

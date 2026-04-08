@@ -41,9 +41,10 @@ import {
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
+import { sleep } from '../utils/async-helpers.js';
 import { BanManager } from '../utils/ban-manager.js';
 import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
-import { fetchWithTimeout, parseResponse } from '../utils/fetch-with-timeout.js';
+import { fetchWithTimeout } from '../utils/fetch-with-timeout.js';
 import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -378,22 +379,6 @@ export class AIOrchestrator {
           this.getModelCircuitBreaker(server.id, model);
         }
 
-        if (result.modelDetails) {
-          for (const detail of result.modelDetails) {
-            const parameterSize = detail.parameterSize || extractParameterSizeFromName(detail.name);
-            const family = detail.family || undefined;
-            const quantization = detail.quantization || undefined;
-            if (parameterSize ?? family ?? quantization) {
-              this.metricsAggregator.updateModelMetadata(server.id, detail.name, {
-                parameterSize,
-                family,
-                quantization,
-              });
-            }
-          }
-        }
-
-        // Update model metadata from /api/tags details
         if (result.modelDetails) {
           for (const detail of result.modelDetails) {
             const parameterSize = detail.parameterSize || extractParameterSizeFromName(detail.name);
@@ -971,7 +956,7 @@ export class AIOrchestrator {
 
       // Small delay between batches to avoid overwhelming servers
       if (i + maxConcurrent < healthyServers.length) {
-        await new Promise(resolve => setTimeout(resolve, batchDelayMs));
+        await sleep(batchDelayMs);
       }
     }
 
@@ -3486,12 +3471,14 @@ export class AIOrchestrator {
           `Active test timeout: escalated timeout for ${serverId}:${model} to ${this.timeoutManager.getTimeout(serverId, model)}ms`
         );
       });
-      coordinator.setRecordActiveTestTimeout((serverId: string, model: string, testTimeoutMs: number) => {
-        this.timeoutManager.recordActiveTestTimeout(serverId, model, testTimeoutMs);
-        logger.debug(
-          `Active test timeout recorded for ${serverId}:${model} (${testTimeoutMs}ms) - no escalation`
-        );
-      });
+      coordinator.setRecordActiveTestTimeout(
+        (serverId: string, model: string, testTimeoutMs: number) => {
+          this.timeoutManager.recordActiveTestTimeout(serverId, model, testTimeoutMs);
+          logger.debug(
+            `Active test timeout recorded for ${serverId}:${model} (${testTimeoutMs}ms) - no escalation`
+          );
+        }
+      );
       coordinator.setOnTestsInvalidated((serverId: string) => {
         logger.info(
           `Active tests invalidated for server ${serverId} due to concurrent real request`
@@ -4347,7 +4334,7 @@ export class AIOrchestrator {
           logger.warn(
             `Drain complete but ${skippedServers.length} server(s) still ineligible for traffic — keeping drain active: ${skippedServers.map(s => s.id).join(', ')}`
           );
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await sleep(1000);
           continue;
         }
         logger.info('Drain complete - all requests finished');
@@ -4356,7 +4343,7 @@ export class AIOrchestrator {
       }
 
       logger.debug(`Draining: ${stats.inFlightRequests} in-flight`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await sleep(1000);
     }
 
     logger.warn(
