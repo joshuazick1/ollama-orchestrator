@@ -1,29 +1,23 @@
 import { logger } from './logger.js';
+import { recordTimeoutAdapted } from './timeout-telemetry.js';
 
 export interface TimeoutConfig {
   defaultTimeout: number;
   minTimeout: number;
   maxTimeout: number;
-  activeTestMultiplier: number;
-  slowRequestMultiplier: number;
-  /**
-   * Decay rate per millisecond toward baseTimeout.
-   * Applied by applyDecay() on a periodic timer.
-   * Default: 5% reduction every 5 minutes ≈ 1.67e-7 per ms.
-   * Set to 0 to disable decay.
-   */
+  recoveryTestMultiplier: number;
+  normalRequestMultiplier: number;
   decayRatePerMs: number;
 }
 
-/** 5% reduction per 5-minute decay tick expressed as a per-ms rate */
 const DEFAULT_DECAY_RATE_PER_MS = 1 - Math.pow(0.95, 1 / (5 * 60 * 1000));
 
 export const DEFAULT_TIMEOUT_CONFIG: TimeoutConfig = {
   defaultTimeout: 120000,
   minTimeout: 15000,
   maxTimeout: 600000,
-  activeTestMultiplier: 3,
-  slowRequestMultiplier: 2,
+  recoveryTestMultiplier: 3,
+  normalRequestMultiplier: 2,
   decayRatePerMs: DEFAULT_DECAY_RATE_PER_MS,
 };
 
@@ -102,8 +96,8 @@ export class TimeoutManager {
     }
 
     const multiplier = isActiveTest
-      ? this.config.activeTestMultiplier
-      : this.config.slowRequestMultiplier;
+      ? this.config.recoveryTestMultiplier
+      : this.config.normalRequestMultiplier;
 
     const newTimeout = TimeoutManager.calculateAdaptiveTimeout(
       responseTimeMs,
@@ -113,6 +107,7 @@ export class TimeoutManager {
     );
 
     const alpha = 0.3;
+    const previousTimeout = state.currentTimeout;
     state.currentTimeout = alpha * newTimeout + (1 - alpha) * state.currentTimeout;
     state.currentTimeout = Math.max(state.currentTimeout, this.config.minTimeout);
     state.lastUpdated = Date.now();
@@ -120,6 +115,18 @@ export class TimeoutManager {
     logger.info(
       `Timeout updated for ${key}: ${state.currentTimeout}ms (${multiplier}x ${responseTimeMs}ms, isActiveTest: ${isActiveTest})`
     );
+
+    recordTimeoutAdapted({
+      serverId,
+      model,
+      previousTimeoutMs: previousTimeout,
+      newTimeoutMs: state.currentTimeout,
+      baseTimeoutMs: state.baseTimeout,
+      trigger: 'response_time',
+      observedResponseTimeMs: responseTimeMs,
+      isActiveTest,
+      multiplier,
+    });
   }
 
   recordFailure(serverId: string, model: string, errorType?: string): void {
@@ -136,8 +143,79 @@ export class TimeoutManager {
     }
 
     if (errorType === 'timeout') {
+      const previousTimeout = state.currentTimeout;
       state.currentTimeout = Math.min(state.currentTimeout * 1.5, this.config.maxTimeout);
       logger.info(`Timeout escalated for ${key}: ${state.currentTimeout}ms`);
+      recordTimeoutAdapted({
+        serverId,
+        model,
+        previousTimeoutMs: previousTimeout,
+        newTimeoutMs: state.currentTimeout,
+        baseTimeoutMs: state.baseTimeout,
+        trigger: 'failure_escalation',
+        isActiveTest: false,
+        multiplier: 1.5,
+      });
+    }
+  }
+
+  recordActiveTestTimeout(serverId: string, model: string, testTimeoutMs: number): void {
+    const key = `${serverId}:${model}`;
+    const state = this.timeouts.get(key);
+
+    if (!state) {
+      return;
+    }
+
+    logger.debug(
+      `Active test timeout for ${key}: ${testTimeoutMs}ms - not escalating adaptive timeout`
+    );
+    recordTimeoutAdapted({
+      serverId,
+      model,
+      previousTimeoutMs: state.currentTimeout,
+      newTimeoutMs: state.currentTimeout,
+      baseTimeoutMs: state.baseTimeout,
+      trigger: 'active_test_timeout',
+      isActiveTest: true,
+      multiplier: 1,
+    });
+  }
+
+  resetAfterIdle(serverId: string, model: string, idleThresholdMs: number = 600000): void {
+    const key = `${serverId}:${model}`;
+    const state = this.timeouts.get(key);
+
+    if (
+      state &&
+      Date.now() - state.lastUpdated > idleThresholdMs &&
+      state.currentTimeout > state.baseTimeout
+    ) {
+      const previousTimeout = state.currentTimeout;
+      state.currentTimeout = state.baseTimeout;
+      state.lastUpdated = Date.now();
+
+      logger.info(
+        `Timeout reset after idle for ${key}: ${previousTimeout}ms → ${state.baseTimeout}ms`
+      );
+      recordTimeoutAdapted({
+        serverId,
+        model,
+        previousTimeoutMs: previousTimeout,
+        newTimeoutMs: state.baseTimeout,
+        baseTimeoutMs: state.baseTimeout,
+        trigger: 'idle_reset',
+        isActiveTest: false,
+        multiplier: 1,
+      });
+    }
+  }
+
+  resetAllAfterIdle(idleThresholdMs: number = 600000): void {
+    const keysToProcess = Array.from(this.timeouts.keys());
+    for (const key of keysToProcess) {
+      const [serverId, model] = key.split(':');
+      this.resetAfterIdle(serverId, model, idleThresholdMs);
     }
   }
 
@@ -188,11 +266,23 @@ export class TimeoutManager {
       const elapsedMs = now - state.lastUpdated;
       const decayFactor = Math.pow(1 - this.config.decayRatePerMs, elapsedMs);
       const decayed = state.baseTimeout + (state.currentTimeout - state.baseTimeout) * decayFactor;
-
+      const previousTimeout = state.currentTimeout;
       state.currentTimeout = Math.max(state.baseTimeout, decayed);
       state.lastUpdated = now;
 
       logger.debug(`Timeout decayed for ${key}: ${Math.round(state.currentTimeout)}ms`);
+
+      const [decayServerId, decayModel] = key.split(':');
+      recordTimeoutAdapted({
+        serverId: decayServerId,
+        model: decayModel,
+        previousTimeoutMs: previousTimeout,
+        newTimeoutMs: state.currentTimeout,
+        baseTimeoutMs: state.baseTimeout,
+        trigger: 'decay',
+        isActiveTest: false,
+        multiplier: 1,
+      });
     }
   }
 
@@ -207,6 +297,16 @@ export class TimeoutManager {
     }
 
     logger.info('TimeoutManager default updated', { newDefault: newDefaultMs });
+    recordTimeoutAdapted({
+      serverId: '*',
+      model: '*',
+      previousTimeoutMs: 0,
+      newTimeoutMs: newDefaultMs,
+      baseTimeoutMs: newDefaultMs,
+      trigger: 'default_update',
+      isActiveTest: false,
+      multiplier: 1,
+    });
   }
 
   static calculateAdaptiveTimeout(
