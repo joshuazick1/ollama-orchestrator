@@ -106,10 +106,10 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           );
           const requestId = context?.requestId;
 
-          // Use dynamic timeout as stall threshold
-          // Multiplier of 1.5x gives enough buffer for slow responses but detects true stalls
-          // Minimum 10 seconds, max 60 seconds to keep detection timely
-          const stallThreshold = Math.min(Math.max(timeoutMs * 1.5, 10000), 60000);
+          const stallThreshold = Math.min(
+            Math.max(timeoutMs * _config.timeout.stallThresholdMultiplier, 10000),
+            _config.timeout.stallThresholdCapMs
+          );
           const stallCheckInterval = Math.min(timeoutMs / 8, 3000);
 
           logger.info('STREAM_REQUEST_START', {
@@ -137,8 +137,15 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 stream: true,
               }),
               connectionTimeout: timeoutMs,
-              activityTimeout: timeoutMs, // Use same dynamic timeout for activity (between chunks)
+              activityTimeout: timeoutMs,
               requestId: requestId,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'ollama',
+                endpoint: 'generate',
+                isStreaming: true,
+              },
             }
           );
 
@@ -439,7 +446,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                       res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                     }
                   }
-                : undefined
+                : undefined,
+              {
+                serverId: server.id,
+                model,
+                protocol: 'ollama',
+                endpoint: 'generate',
+              }
             );
           } finally {
             activityController.clearTimeout();
@@ -474,6 +487,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             stream: false,
           }),
           timeout: timeoutMs,
+          telemetryMeta: {
+            serverId: server.id,
+            model,
+            protocol: 'ollama',
+            endpoint: 'generate',
+            isStreaming: false,
+          },
         });
 
         if (!response.ok) {
@@ -593,10 +613,10 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
-          // Use dynamic timeout as stall threshold
-          // Multiplier of 1.5x gives enough buffer for slow responses but detects true stalls
-          // Minimum 10 seconds, max 60 seconds to keep detection timely
-          const stallThreshold = Math.min(Math.max(timeoutMs * 1.5, 10000), 60000);
+          const stallThreshold = Math.min(
+            Math.max(timeoutMs * _config.timeout.stallThresholdMultiplier, 10000),
+            _config.timeout.stallThresholdCapMs
+          );
           const stallCheckInterval = Math.min(timeoutMs / 8, 3000);
 
           logger.info('STREAM_REQUEST_START', {
@@ -636,8 +656,15 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 stream: true,
               }),
               connectionTimeout: timeoutMs,
-              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
+              activityTimeout: timeoutMs,
               requestId,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'ollama',
+                endpoint: 'chat',
+                isStreaming: true,
+              },
             }
           );
 
@@ -881,7 +908,13 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                       res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                     }
                   }
-                : undefined
+                : undefined,
+              {
+                serverId: server.id,
+                model,
+                protocol: 'ollama',
+                endpoint: 'chat',
+              }
             );
           } finally {
             activityController.clearTimeout();
@@ -916,6 +949,13 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             stream: false,
           }),
           timeout: timeoutMs,
+          telemetryMeta: {
+            serverId: server.id,
+            model,
+            protocol: 'ollama',
+            endpoint: 'chat',
+            isStreaming: false,
+          },
         });
 
         if (!response.ok) {
@@ -1277,10 +1317,19 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
       embedBody.dimensions = body.dimensions;
     }
 
-    const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.EMBED}`, {
+    const timeoutMs = resolveRequestTimeout(req.headers, orchestrator.getTimeout(server.id, model));
+    const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBED}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: safeJsonStringify(embedBody),
+      timeout: timeoutMs,
+      telemetryMeta: {
+        serverId: server.id,
+        model,
+        protocol: 'ollama',
+        endpoint: 'embed',
+        isStreaming: false,
+      },
     });
 
     if (!response.ok) {
@@ -1362,7 +1411,14 @@ export async function handleStreamingGenerate(
             options,
           }),
           connectionTimeout: timeoutMs,
-          activityTimeout: timeoutMs, // Use same dynamic timeout for activity
+          activityTimeout: timeoutMs,
+          telemetryMeta: {
+            serverId: server.id,
+            model,
+            protocol: 'ollama',
+            endpoint: 'generate',
+            isStreaming: true,
+          },
         }
       );
 
@@ -1427,7 +1483,19 @@ export async function handleStreamingGenerate(
           // Pass streaming request ID for InFlightManager tracking
           requestId,
           // Pass the TTFTTracker instance so streaming.ts uses the same tracker
-          ttftTracker
+          ttftTracker,
+          undefined, // onStall
+          undefined, // stallThresholdMs
+          undefined, // stallCheckIntervalMs
+          undefined, // onStreamEnd
+          undefined, // activityController
+          undefined, // preEnd
+          {
+            serverId: server.id,
+            model,
+            protocol: 'ollama',
+            endpoint: 'generate',
+          }
         );
       } finally {
         activityController.clearTimeout();
@@ -1494,6 +1562,13 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
               body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'ollama',
+                endpoint: 'generate',
+                isStreaming: true,
+              },
             }
           );
 
@@ -1569,6 +1644,12 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
                   res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                 }
               }
+            },
+            {
+              serverId: server.id,
+              model,
+              protocol: 'ollama',
+              endpoint: 'generate',
             }
           );
 
@@ -1675,6 +1756,13 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
               body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'ollama',
+                endpoint: 'chat',
+                isStreaming: true,
+              },
             }
           );
 
@@ -1751,6 +1839,12 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
                   res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                 }
               }
+            },
+            {
+              serverId: server.id,
+              model,
+              protocol: 'ollama',
+              endpoint: 'chat',
             }
           );
 

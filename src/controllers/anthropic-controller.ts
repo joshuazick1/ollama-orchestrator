@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { API_ENDPOINTS } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
+import type { StreamingTelemetryMeta } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
@@ -34,7 +35,8 @@ async function passthroughAnthropicSSE(
   upstreamResponse: globalThis.Response,
   clientResponse: Response,
   serverId: string,
-  model: string
+  model: string,
+  _streamingTelemetryMeta?: StreamingTelemetryMeta
 ): Promise<void> {
   const startTime = Date.now();
 
@@ -195,6 +197,13 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
             body: JSON.stringify({ ...rawBody, stream: true }),
             connectionTimeout: timeoutMs,
             activityTimeout: timeoutMs,
+            telemetryMeta: {
+              serverId: server.id,
+              model,
+              protocol: 'anthropic',
+              endpoint: 'messages',
+              isStreaming: true,
+            },
           });
 
           if (!response.ok) {
@@ -204,7 +213,12 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           }
 
           try {
-            await passthroughAnthropicSSE(response, res, server.id, model);
+            await passthroughAnthropicSSE(response, res, server.id, model, {
+              serverId: server.id,
+              model,
+              protocol: 'anthropic',
+              endpoint: 'messages',
+            });
           } finally {
             activityController.clearTimeout();
           }
@@ -222,6 +236,13 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           headers,
           body: JSON.stringify(rawBody),
           timeout: timeoutMs,
+          telemetryMeta: {
+            serverId: server.id,
+            model,
+            protocol: 'anthropic',
+            endpoint: 'messages',
+            isStreaming: false,
+          },
         });
 
         if (!response.ok) {
