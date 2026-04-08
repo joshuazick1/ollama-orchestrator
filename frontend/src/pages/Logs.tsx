@@ -1,15 +1,44 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getLogs, clearLogs } from '../api';
-import { Trash2, RefreshCw, FileText } from 'lucide-react';
+import { Trash2, RefreshCw, FileText, ArrowDown, ArrowUp } from 'lucide-react';
 import { toastSuccess, toastError } from '../utils/toast';
 import { SkeletonTable } from '../components/skeletons';
 import { ErrorState } from '../components/EmptyState';
 import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
 
+type LogLevel = 'ALL' | 'ERROR' | 'WARN' | 'INFO';
+
+const getLogLevel = (content: string): LogLevel => {
+  if (content.includes('ERROR') || content.includes('[E]') || content.toLowerCase().includes('error')) {
+    return 'ERROR';
+  }
+  if (content.includes('WARN') || content.includes('[W]')) {
+    return 'WARN';
+  }
+  return 'INFO';
+};
+
+const getLogLevelColor = (level: LogLevel): string => {
+  switch (level) {
+    case 'ERROR':
+      return 'text-red-400';
+    case 'WARN':
+      return 'text-yellow-400';
+    case 'INFO':
+      return 'text-blue-400';
+    default:
+      return 'text-gray-300';
+  }
+};
+
 export const Logs = () => {
   const queryClient = useQueryClient();
+  const [levelFilter, setLevelFilter] = useState<LogLevel>('ALL');
+  const [autoScroll, setAutoScroll] = useState(true);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+
   const {
     data: logs,
     isLoading,
@@ -31,25 +60,28 @@ export const Logs = () => {
   const logEntries = useMemo(() => {
     if (!logs) return [];
 
-    // Normalize string logs (split by newline)
+    let entries: Array<{ id: number; content: string; level: LogLevel }>;
+
     if (typeof logs === 'string') {
-      return logs
+      entries = logs
         .split('\n')
         .filter(line => line.trim().length > 0)
-        .map((line, i) => ({ id: i, content: line }));
+        .map((line, i) => ({ id: i, content: line, level: getLogLevel(line) }));
+    } else if (Array.isArray(logs)) {
+      entries = logs.map((log, i) => {
+        const content = typeof log === 'string' ? log : JSON.stringify(log);
+        return { id: i, content, level: getLogLevel(content) };
+      });
+    } else {
+      entries = [{ id: 0, content: JSON.stringify(logs), level: getLogLevel(JSON.stringify(logs)) }];
     }
 
-    // Normalize array logs (handle strings or objects)
-    if (Array.isArray(logs)) {
-      return logs.map((log, i) => ({
-        id: i,
-        content: typeof log === 'string' ? log : JSON.stringify(log),
-      }));
+    if (levelFilter !== 'ALL') {
+      entries = entries.filter(entry => entry.level === levelFilter);
     }
 
-    // Fallback
-    return [{ id: 0, content: JSON.stringify(logs) }];
-  }, [logs]);
+    return entries;
+  }, [logs, levelFilter]);
 
   const {
     searchQuery,
@@ -59,6 +91,12 @@ export const Logs = () => {
     data: logEntries,
     searchKeys: ['content'],
   });
+
+  useEffect(() => {
+    if (autoScroll && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [filteredLogs, autoScroll]);
 
   if (isLoading) {
     return (
@@ -104,6 +142,28 @@ export const Logs = () => {
         onSearchChange={setSearchQuery}
         searchPlaceholder="Search logs..."
       >
+        <select
+          value={levelFilter}
+          onChange={e => setLevelFilter(e.target.value as LogLevel)}
+          className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
+        >
+          <option value="ALL">All Levels</option>
+          <option value="ERROR">ERROR</option>
+          <option value="WARN">WARN</option>
+          <option value="INFO">INFO</option>
+        </select>
+        <button
+          onClick={() => setAutoScroll(!autoScroll)}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+            autoScroll
+              ? 'bg-blue-600 hover:bg-blue-700 text-white'
+              : 'bg-gray-700 hover:bg-gray-600 text-white'
+          }`}
+          title={autoScroll ? 'Auto-scroll enabled' : 'Auto-scroll disabled'}
+        >
+          {autoScroll ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />}
+          <span>{autoScroll ? 'Auto-scroll On' : 'Auto-scroll Off'}</span>
+        </button>
         <button
           onClick={() => refetch()}
           className="flex items-center space-x-2 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium"
@@ -120,13 +180,16 @@ export const Logs = () => {
         </button>
       </DataToolbar>
 
-      <div className="bg-gray-950 rounded-xl border border-gray-800 font-mono text-sm h-[600px] overflow-auto flex flex-col">
+      <div
+        ref={logContainerRef}
+        className="bg-gray-950 rounded-xl border border-gray-800 font-mono text-sm h-[600px] overflow-auto flex flex-col"
+      >
         {filteredLogs.length > 0 ? (
           <div className="divide-y divide-gray-800/50">
             {filteredLogs.map(entry => (
               <div
                 key={entry.id}
-                className="py-2 px-4 hover:bg-gray-900/50 text-gray-300 break-all whitespace-pre-wrap"
+                className={`py-2 px-4 hover:bg-gray-900/50 break-all whitespace-pre-wrap ${getLogLevelColor(entry.level)}`}
               >
                 {entry.content}
               </div>

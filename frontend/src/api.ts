@@ -150,7 +150,7 @@ export const getServerModelMetrics = async (
 
 export const getHealth = async () => {
   return apiCall(async () => {
-    const response = await axios.get('/health');
+    const response = await api.get('/health');
     return response.data;
   });
 };

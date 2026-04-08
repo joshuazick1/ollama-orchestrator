@@ -26,6 +26,27 @@ export interface AIServer {
   supportsV1?: boolean; // Whether server supports /v1/* OpenAI-compatible endpoints
   // NEW: OpenAI-compatible models (from /v1/models)
   v1Models?: string[];
+  // NEW: Anthropic capability
+  supportsAnthropic?: boolean; // Whether server supports /v1/messages Anthropic endpoints
+
+  // NEW: Endpoint-level probe results — which specific endpoints respond
+  probedEndpoints?: {
+    ollama_chat?: boolean;
+    ollama_generate?: boolean;
+    ollama_embeddings?: boolean;
+    openai_chat?: boolean;
+    openai_completions?: boolean;
+    openai_embeddings?: boolean;
+    anthropic_messages?: boolean;
+  };
+
+  // NEW: Admin override for servers behind opaque proxies that block all probes
+  forcedCapabilities?: {
+    supportsOllama?: boolean;
+    supportsV1?: boolean;
+    supportsAnthropic?: boolean;
+  };
+
   // NEW: Optional API key for authentication
   apiKey?: string;
   // Operational state
@@ -169,6 +190,8 @@ export interface ServerModelMetrics {
   coldStartCount: number;
   /** Average network overhead in ms (client latency - server total_duration) */
   avgNetworkOverheadMs?: number;
+  /** Average queue/routing wait time in ms before server selection completes */
+  avgQueueWaitTimeMs?: number;
 
   // Streaming-specific metrics
   streamingMetrics?: StreamingMetrics;
@@ -194,12 +217,20 @@ export interface RequestContext {
   parentRequestId?: string;
   /** Whether this is a retry attempt (not the first try for this user request) */
   isRetry?: boolean;
+  /** Whether this request is a health-check probe (not a user request) */
+  isProbe?: boolean;
+  /** Protocol used for this request — used to interpret usage/duration fields */
+  protocol?: 'ollama' | 'openai' | 'anthropic';
   firstTokenTime?: number;
   endTime?: number;
   duration?: number;
   success: boolean;
   tokensGenerated?: number;
   tokensPrompt?: number;
+  /** OpenAI-style usage: prompt tokens (input) */
+  promptTokens?: number;
+  /** OpenAI-style usage: completion tokens (output) */
+  completionTokens?: number;
   error?: Error;
   // Streaming-specific metrics
   ttft?: number; // Time to first token in ms
@@ -217,6 +248,8 @@ export interface RequestContext {
   // Derived from Ollama fields
   tokensPerSecond?: number; // eval_count / (eval_duration / 1e9)
   isColdStart?: boolean; // true when load_duration > cold-start threshold
+  /** Queue/routing wait time in ms (time from request receipt to server selection) */
+  queueWaitTime?: number;
 }
 
 /**
@@ -271,6 +304,9 @@ export interface ModelMetricsExport {
   throughput: number;
   avgTokensPerRequest: number;
   avgPromptTokens: number;
+  avgTokensPerSecond: number;
+  coldStartCount: number;
+  avgNetworkOverheadMs?: number;
   streamingMetrics?: StreamingMetrics;
 }
 

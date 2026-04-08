@@ -298,9 +298,12 @@ export const Models = () => {
   // Create lookup maps for efficient access
   const circuitBreakerMap = useMemo(() => {
     const map = new Map<string, CircuitBreakerInfo>();
-    circuitBreakersData?.circuitBreakers?.forEach((cb: CircuitBreakerInfo) => {
-      map.set(cb.serverId, cb);
-    });
+    const breakers = circuitBreakersData?.circuitBreakers;
+    if (Array.isArray(breakers)) {
+      breakers.forEach((cb: CircuitBreakerInfo) => {
+        map.set(cb.serverId, cb);
+      });
+    }
     return map;
   }, [circuitBreakersData]);
 

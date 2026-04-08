@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getConfig,
@@ -30,7 +30,7 @@ interface ConfigSectionProps {
   description?: string;
 }
 
-const ConfigSection = ({ title, icon: Icon, children, description }: ConfigSectionProps) => (
+const ConfigSection = memo(({ title, icon: Icon, children, description }: ConfigSectionProps) => (
   <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
     <div className="flex items-center space-x-3 mb-4">
       <div className="p-2 bg-blue-600/20 rounded-lg">
@@ -43,7 +43,7 @@ const ConfigSection = ({ title, icon: Icon, children, description }: ConfigSecti
     </div>
     <div className="space-y-4">{children}</div>
   </div>
-);
+));
 
 interface ToggleProps {
   label: string;
@@ -52,7 +52,7 @@ interface ToggleProps {
   description?: string;
 }
 
-const Toggle = ({ label, checked, onChange, description }: ToggleProps) => (
+const Toggle = memo(({ label, checked, onChange, description }: ToggleProps) => (
   <div className="flex items-center justify-between">
     <div>
       <label className="text-sm font-medium text-gray-300">{label}</label>
@@ -74,7 +74,7 @@ const Toggle = ({ label, checked, onChange, description }: ToggleProps) => (
       />
     </button>
   </div>
-);
+));
 
 interface NumberInputProps {
   label: string;
@@ -88,7 +88,7 @@ interface NumberInputProps {
   error?: string;
 }
 
-const NumberInput = ({
+const NumberInput = memo(({
   label,
   value,
   onChange,
@@ -121,7 +121,7 @@ const NumberInput = ({
     </div>
     {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
   </div>
-);
+));
 
 interface SelectInputProps {
   label: string;
@@ -132,7 +132,7 @@ interface SelectInputProps {
   error?: string;
 }
 
-const SelectInput = ({ label, value, onChange, options, description, error }: SelectInputProps) => (
+const SelectInput = memo(({ label, value, onChange, options, description, error }: SelectInputProps) => (
   <div>
     <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
     {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
@@ -154,7 +154,7 @@ const SelectInput = ({ label, value, onChange, options, description, error }: Se
     </select>
     {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
   </div>
-);
+));
 
 interface TextInputProps {
   label: string;
@@ -165,7 +165,7 @@ interface TextInputProps {
   error?: string;
 }
 
-const TextInput = ({ label, value, onChange, description, placeholder, error }: TextInputProps) => (
+const TextInput = memo(({ label, value, onChange, description, placeholder, error }: TextInputProps) => (
   <div>
     <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
     {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
@@ -183,7 +183,7 @@ const TextInput = ({ label, value, onChange, description, placeholder, error }: 
     />
     {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
   </div>
-);
+));
 
 export const Settings = () => {
   const queryClient = useQueryClient();
@@ -224,7 +224,7 @@ export const Settings = () => {
     },
   });
 
-  const updateField = <K extends keyof OrchestratorConfig>(
+  const updateField = useCallback(<K extends keyof OrchestratorConfig>(
     section: K,
     field: keyof OrchestratorConfig[K] | null,
     value: unknown
@@ -243,7 +243,7 @@ export const Settings = () => {
         };
       }
     });
-  };
+  }, [config]);
 
   const handleSave = () => {
     if (editedConfig) {
@@ -277,6 +277,7 @@ export const Settings = () => {
     { id: 'general', label: 'General', icon: Settings2 },
     { id: 'features', label: 'Features', icon: Zap },
     { id: 'loadbalancer', label: 'Load Balancer', icon: Activity },
+    { id: 'crossmodel', label: 'Cross-Model', icon: BarChart3 },
     { id: 'circuitbreaker', label: 'Circuit Breaker', icon: Shield },
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'metrics', label: 'Metrics', icon: BarChart3 },
@@ -1018,7 +1019,7 @@ export const Settings = () => {
         )}
 
         {/* Cross-Model Inference Settings */}
-        {activeTab === 'loadbalancer' && (
+        {activeTab === 'crossmodel' && (
           <ConfigSection
             title="Cross-Model Inference"
             icon={BarChart3}

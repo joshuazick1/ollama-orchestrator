@@ -41,14 +41,22 @@ interface GroupedBreakers {
   totalFailures: number;
 }
 
+const parseBreakerKey = (breakerKey: string): { serverId: string; model: string | undefined } => {
+  const lastColonIndex = breakerKey.lastIndexOf(':');
+  if (lastColonIndex === -1) {
+    return { serverId: breakerKey, model: undefined };
+  }
+  return {
+    serverId: breakerKey.substring(0, lastColonIndex),
+    model: breakerKey.substring(lastColonIndex + 1),
+  };
+};
+
 const groupBreakersByServer = (breakers: CircuitBreakerInfo[]): GroupedBreakers[] => {
   const groups = new Map<string, GroupedBreakers>();
 
   for (const breaker of breakers) {
-    // Parse serverId - could be "server1" or "server1:model"
-    const parts = breaker.serverId.split(':');
-    const serverId = parts[0];
-    const model = parts.length > 1 ? parts.slice(1).join(':') : null;
+    const { serverId, model } = parseBreakerKey(breaker.serverId);
 
     if (!groups.has(serverId)) {
       groups.set(serverId, {
@@ -99,7 +107,7 @@ const CircuitBreakerCard = ({
   onClose?: () => void;
   isPending?: boolean;
 }) => {
-  const modelName = isModel ? breaker.serverId.split(':').slice(1).join(':') : null;
+  const modelName = isModel ? parseBreakerKey(breaker.serverId).model : undefined;
 
   return (
     <div
@@ -675,7 +683,7 @@ export const CircuitBreakers = () => {
                                 return b.failureCount - a.failureCount;
                               })
                               .map(breaker => {
-                                const modelName = breaker.serverId.split(':').slice(1).join(':');
+                                const modelName = parseBreakerKey(breaker.serverId).model;
                                 return (
                                   <CircuitBreakerCard
                                     key={breaker.serverId}

@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import {
   PieChart,
   Pie,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -11,6 +10,7 @@ import {
   AreaChart,
   Area,
   Legend,
+  Cell,
 } from 'recharts';
 import { GitBranch, Target } from 'lucide-react';
 

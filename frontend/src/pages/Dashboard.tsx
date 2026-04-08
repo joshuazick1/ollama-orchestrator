@@ -1,16 +1,16 @@
 import { useQuery } from '@tanstack/react-query';
-import { getHealth, getAnalyticsSummary, getMetrics } from '../api';
+import { getStats, getAnalyticsSummary, getMetrics } from '../api';
 import { Activity, Zap, AlertCircle, CheckCircle, XCircle, Radio } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 
 export const Dashboard = () => {
   const {
-    data: health,
-    isLoading: healthLoading,
-    error: healthError,
+    data: statsData,
+    isLoading: statsLoading,
+    error: statsError,
   } = useQuery({
-    queryKey: ['health'],
-    queryFn: getHealth,
+    queryKey: ['stats'],
+    queryFn: getStats,
     refetchInterval: 5000,
   });
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
@@ -23,17 +23,18 @@ export const Dashboard = () => {
     refetchInterval: 30000,
   });
 
-  const activeServers = health?.orchestrator?.healthyServers || 0;
-  const totalServers = health?.orchestrator?.totalServers || 0;
-  const totalModels = health?.orchestrator?.totalModels || 0;
-  const inFlightRequests = health?.orchestrator?.inFlightRequests || 0;
-  const circuitBreakers = health?.orchestrator?.circuitBreakers || {};
+  const stats = statsData?.stats;
+  const activeServers = stats?.healthyServers || 0;
+  const totalServers = stats?.totalServers || 0;
+  const totalModels = stats?.totalModels || 0;
+  const inFlightRequests = stats?.inFlightRequests || 0;
+  const circuitBreakers = stats?.circuitBreakers || {};
   const openCircuitBreakers = Object.values(circuitBreakers).filter(
     (cb: unknown) => (cb as { state: string }).state === 'open'
   ).length;
 
   // Show loading state if any critical data is loading
-  if (healthLoading) {
+  if (statsLoading) {
     return (
       <div className="space-y-8">
         <div>
@@ -62,7 +63,7 @@ export const Dashboard = () => {
   }
 
   // Show error state if health check fails
-  if (healthError) {
+  if (statsError) {
     return (
       <div className="space-y-8">
         <div>
@@ -98,16 +99,16 @@ export const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           title="Active Servers"
-          value={healthLoading ? '...' : `${activeServers}/${totalServers}`}
+          value={statsLoading ? '...' : `${activeServers}/${totalServers}`}
           subtext={
-            healthLoading
+            statsLoading
               ? 'Loading...'
               : activeServers === totalServers
                 ? 'All nodes healthy'
                 : `${totalServers - activeServers} nodes unhealthy`
           }
           icon={
-            healthLoading
+            statsLoading
               ? Activity
               : activeServers === totalServers
                 ? CheckCircle
@@ -116,7 +117,7 @@ export const Dashboard = () => {
                   : XCircle
           }
           color={
-            healthLoading
+            statsLoading
               ? 'text-gray-400'
               : activeServers === totalServers
                 ? 'text-green-400'
@@ -127,11 +128,11 @@ export const Dashboard = () => {
         />
         <StatCard
           title="In-Flight Requests"
-          value={healthLoading ? '...' : inFlightRequests}
-          subtext={healthLoading ? 'Loading...' : 'Active requests'}
+          value={statsLoading ? '...' : inFlightRequests}
+          subtext={statsLoading ? 'Loading...' : 'Active requests'}
           icon={Zap}
           color={
-            healthLoading
+            statsLoading
               ? 'text-gray-400'
               : inFlightRequests > 100
                 ? 'text-yellow-400'
@@ -210,8 +211,8 @@ export const Dashboard = () => {
             <div className="flex justify-between items-center p-3 bg-gray-900 rounded-lg">
               <span className="text-gray-300">Orchestrator Uptime</span>
               <span className="text-white font-mono">
-                {Math.floor((health?.uptime || 0) / 3600)}h{' '}
-                {Math.floor(((health?.uptime || 0) % 3600) / 60)}m
+                {Math.floor((stats?.uptime || 0) / 3600)}h{' '}
+                {Math.floor(((stats?.uptime || 0) % 3600) / 60)}m
               </span>
             </div>
             <div className="flex justify-between items-center p-3 bg-gray-900 rounded-lg">
