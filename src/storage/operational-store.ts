@@ -46,6 +46,8 @@ interface CBStateRow {
   next_retry_at: number | null;
   error_window: string | null;
   adaptive_threshold: number | null;
+  consecutive_failed_recoveries: number | null;
+  half_open_attempts: number | null;
   updated_at: number;
 }
 
@@ -380,6 +382,8 @@ export class OperationalStore {
       nextRetryAt?: number;
       errorWindow?: string;
       adaptiveThreshold?: number;
+      consecutiveFailedRecoveries?: number;
+      halfOpenAttempts?: number;
     }
   ): void {
     this.db
@@ -387,8 +391,9 @@ export class OperationalStore {
         `INSERT OR REPLACE INTO circuit_breaker_state
            (server_id, model, state, failure_count, success_count,
             last_failure_at, last_success_at, opened_at, next_retry_at,
-            error_window, adaptive_threshold, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            error_window, adaptive_threshold, consecutive_failed_recoveries,
+            half_open_attempts, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         serverId,
@@ -402,6 +407,8 @@ export class OperationalStore {
         data.nextRetryAt ?? null,
         data.errorWindow ?? null,
         data.adaptiveThreshold ?? null,
+        data.consecutiveFailedRecoveries ?? null,
+        data.halfOpenAttempts ?? null,
         Date.now()
       );
   }
@@ -420,6 +427,8 @@ export class OperationalStore {
         nextRetryAt: number | null;
         errorWindow: string | null;
         adaptiveThreshold: number | null;
+        consecutiveFailedRecoveries: number | null;
+        halfOpenAttempts: number | null;
         updatedAt: number;
       }
     | undefined {
@@ -439,6 +448,8 @@ export class OperationalStore {
       nextRetryAt: row.next_retry_at,
       errorWindow: row.error_window,
       adaptiveThreshold: row.adaptive_threshold,
+      consecutiveFailedRecoveries: row.consecutive_failed_recoveries,
+      halfOpenAttempts: row.half_open_attempts,
       updatedAt: row.updated_at,
     };
   }
@@ -455,6 +466,8 @@ export class OperationalStore {
     nextRetryAt: number | null;
     errorWindow: string | null;
     adaptiveThreshold: number | null;
+    consecutiveFailedRecoveries: number | null;
+    halfOpenAttempts: number | null;
     updatedAt: number;
   }> {
     const rows = this.db.prepare(`SELECT * FROM circuit_breaker_state`).all() as CBStateRow[];
@@ -470,6 +483,8 @@ export class OperationalStore {
       nextRetryAt: r.next_retry_at,
       errorWindow: r.error_window,
       adaptiveThreshold: r.adaptive_threshold,
+      consecutiveFailedRecoveries: r.consecutive_failed_recoveries,
+      halfOpenAttempts: r.half_open_attempts,
       updatedAt: r.updated_at,
     }));
   }

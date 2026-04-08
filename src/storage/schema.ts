@@ -336,18 +336,20 @@ CREATE INDEX IF NOT EXISTS idx_timeouts_server ON adaptive_timeouts(server_id);
 -- circuit_breaker_state: operational CB state (F-DB-3)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS circuit_breaker_state (
-  server_id          TEXT NOT NULL,
-  model              TEXT NOT NULL,
-  state              TEXT NOT NULL,
-  failure_count      INTEGER DEFAULT 0,
-  success_count      INTEGER DEFAULT 0,
-  last_failure_at    INTEGER,
-  last_success_at    INTEGER,
-  opened_at          INTEGER,
-  next_retry_at      INTEGER,
-  error_window       TEXT,
-  adaptive_threshold INTEGER,
-  updated_at         INTEGER NOT NULL,
+  server_id                    TEXT NOT NULL,
+  model                        TEXT NOT NULL,
+  state                        TEXT NOT NULL,
+  failure_count                INTEGER DEFAULT 0,
+  success_count                INTEGER DEFAULT 0,
+  last_failure_at              INTEGER,
+  last_success_at              INTEGER,
+  opened_at                    INTEGER,
+  next_retry_at                INTEGER,
+  error_window                 TEXT,
+  adaptive_threshold           INTEGER,
+  consecutive_failed_recoveries INTEGER DEFAULT 0,
+  half_open_attempts           INTEGER DEFAULT 0,
+  updated_at                   INTEGER NOT NULL,
   PRIMARY KEY (server_id, model)
 );
 

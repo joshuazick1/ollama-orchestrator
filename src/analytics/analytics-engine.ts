@@ -20,7 +20,16 @@ import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
 
-export type AnalyticsTimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'custom';
+export type AnalyticsTimeRange =
+  | '1m'
+  | '5m'
+  | '15m'
+  | '1h'
+  | '6h'
+  | '24h'
+  | '7d'
+  | '30d'
+  | 'custom';
 
 export interface TimeRange {
   start: number;
@@ -323,9 +332,9 @@ export class AnalyticsEngine {
     // Shorter time ranges benefit from shorter windows for higher resolution;
     // longer time ranges use the 1h window since that's the longest we have.
     const windowMap: Record<AnalyticsTimeRange, TimeWindow> = {
-      // For a 1-hour query we should use the 1h window (tests expect the 1h
-      // bucket to be used when callers request '1h'). Longer ranges use the
-      // 1h window as well since that's the largest in-memory window available.
+      '1m': '1m',
+      '5m': '5m',
+      '15m': '15m',
       '1h': '1h',
       '6h': '1h',
       '24h': '1h',

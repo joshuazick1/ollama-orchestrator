@@ -52,6 +52,15 @@ export class PrometheusExporter {
     lines.push(`orchestrator_error_rate ${globalMetrics.errorRate.toFixed(4)}`);
 
     // Per-server:model metrics
+    lines.push('# HELP orchestrator_in_flight_requests Current in-flight requests');
+    lines.push('# TYPE orchestrator_in_flight_requests gauge');
+    lines.push('# HELP orchestrator_success_rate Success rate (0-1)');
+    lines.push('# TYPE orchestrator_success_rate gauge');
+    lines.push('# HELP orchestrator_throughput_per_min Throughput (requests per minute)');
+    lines.push('# TYPE orchestrator_throughput_per_min gauge');
+    lines.push('# HELP orchestrator_avg_tokens_per_request Average tokens per request');
+    lines.push('# TYPE orchestrator_avg_tokens_per_request gauge');
+
     for (const [, metric] of metrics.entries()) {
       const labels = `server="${metric.serverId}",model="${metric.model}"`;
 
@@ -83,19 +92,6 @@ export class PrometheusExporter {
         `orchestrator_avg_tokens_per_request{${labels}} ${metric.avgTokensPerRequest.toFixed(2)}`
       );
     }
-
-    // Define metric types and helps for per-server metrics
-    lines.unshift('# HELP orchestrator_in_flight_requests Current in-flight requests');
-    lines.unshift('# TYPE orchestrator_in_flight_requests gauge');
-
-    lines.unshift('# HELP orchestrator_success_rate Success rate (0-1)');
-    lines.unshift('# TYPE orchestrator_success_rate gauge');
-
-    lines.unshift('# HELP orchestrator_throughput_per_min Throughput (requests per minute)');
-    lines.unshift('# TYPE orchestrator_throughput_per_min gauge');
-
-    lines.unshift('# HELP orchestrator_avg_tokens_per_request Average tokens per request');
-    lines.unshift('# TYPE orchestrator_avg_tokens_per_request gauge');
 
     return lines.join('\n');
   }

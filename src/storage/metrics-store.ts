@@ -282,6 +282,9 @@ export class MetricsStore {
    */
   recordFailover(attempt: BufferedFailover): void {
     this.failoverBuffer.push(attempt);
+    if (this.failoverBuffer.length >= this.config.performance.batchSize) {
+      this.flushBatch();
+    }
   }
 
   // ============================================================
@@ -1214,8 +1217,10 @@ export class MetricsStore {
     }, this.config.performance.profileRebuildIntervalMs);
 
     // Hourly rollup scheduling: check once per minute whether a new hour
-    // has started and schedule a rollup for the previous hour
-    let lastScheduledHour = truncateToHour(Date.now());
+    // has started and schedule a rollup for the previous hour.
+    // Initialize to the PREVIOUS hour so the first interval check schedules
+    // the rollup for the hour that just completed before we started.
+    let lastScheduledHour = truncateToHour(Date.now() - 3_600_000);
     this.rollupCheckTimer = setInterval(() => {
       const currentHour = truncateToHour(Date.now());
       if (currentHour > lastScheduledHour) {
