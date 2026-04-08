@@ -3,10 +3,11 @@
  * Auto-adjusts load balancer scoring weights based on observed performance outcomes.
  */
 
-import type { LoadBalancerConfig } from './load-balancer.js';
 import type { DecisionHistory, DecisionEvent, FailoverAttempt } from '../decision-history.js';
-import type { LoadBalancer } from './load-balancer.js';
 import { logger } from '../utils/logger.js';
+
+import type { LoadBalancerConfig } from './load-balancer.js';
+import type { LoadBalancer } from './load-balancer.js';
 
 export interface AdaptiveWeightTunerConfig {
   enabled: boolean;
@@ -71,7 +72,9 @@ export class AdaptiveWeightTuner {
   }
 
   start(): void {
-    if (this.intervalHandle) return;
+    if (this.intervalHandle) {
+      return;
+    }
     logger.info('[AdaptiveWeightTuner] Starting', {
       tuningIntervalMs: this.config.tuningIntervalMs,
     });
@@ -81,7 +84,9 @@ export class AdaptiveWeightTuner {
   }
 
   stop(): void {
-    if (!this.intervalHandle) return;
+    if (!this.intervalHandle) {
+      return;
+    }
     clearInterval(this.intervalHandle);
     this.intervalHandle = undefined;
     logger.info('[AdaptiveWeightTuner] Stopped');
@@ -130,7 +135,9 @@ export class AdaptiveWeightTuner {
       const selectedCandidate = decision.candidates.find(
         c => c.serverId === decision.selectedServerId
       );
-      if (!selectedCandidate) continue;
+      if (!selectedCandidate) {
+        continue;
+      }
 
       const matchingFailover = findMatchingFailover(decision, failovers, CORRELATION_WINDOW_MS);
 
@@ -259,7 +266,9 @@ function breakdownToRecord(
 }
 
 function average(values: number[]): number {
-  if (values.length === 0) return 0;
+  if (values.length === 0) {
+    return 0;
+  }
   return values.reduce((acc, v) => acc + v, 0) / values.length;
 }
 

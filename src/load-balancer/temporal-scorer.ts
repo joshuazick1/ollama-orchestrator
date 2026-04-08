@@ -318,8 +318,12 @@ export class TemporalScorer {
     const timeStr = `${dayNames[dayOfWeek]} ${hourOfDay}:00 UTC`;
 
     let typeStr = 'exact';
-    if (profile.profile_type === 'model') {typeStr = 'model-wide';}
-    if (profile.profile_type === 'server') {typeStr = 'server-wide';}
+    if (profile.profile_type === 'model') {
+      typeStr = 'model-wide';
+    }
+    if (profile.profile_type === 'server') {
+      typeStr = 'server-wide';
+    }
 
     return `${typeStr} profile at ${timeStr}, confidence ${effectiveConfidence.toFixed(2)}, ${profile.sample_count} samples`;
   }

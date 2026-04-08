@@ -530,8 +530,11 @@ export class LoadBalancer {
     // Cleanup every TTL/2 to ensure timely removal
     this.stickySessionCleanupInterval = setInterval(() => {
       const now = Date.now();
-      for (const [clientId, entry] of this.stickySessions) {
-        if (now - entry.lastUsed > ttl) {
+      // Snapshot keys to avoid iterator issues during concurrent modification
+      const clientIds = Array.from(this.stickySessions.keys());
+      for (const clientId of clientIds) {
+        const entry = this.stickySessions.get(clientId);
+        if (entry && now - entry.lastUsed > ttl) {
           this.stickySessions.delete(clientId);
         }
       }
@@ -640,7 +643,12 @@ export class LoadBalancer {
     estimatedPromptTokens?: number,
     getContextLimit?: (serverId: string, model: string) => number
   ): AIServer | undefined {
-    const scores = candidates.map(server => {
+    // Filter out unhealthy servers if skipUnhealthy is enabled
+    const filtered = this.config.roundRobin.skipUnhealthy
+      ? candidates.filter(s => s.healthy !== false)
+      : candidates;
+
+    const scores = filtered.map(server => {
       const currentLoad = getLoad(server.id, model);
       const totalLoad = getTotalLoad(server.id);
       const metrics = getMetrics(server.id, model);
@@ -730,8 +738,9 @@ export class LoadBalancer {
     }
 
     // Select using round-robin from eligible servers
-    const selected = eligibleServers[this.roundRobinIndex % eligibleServers.length];
-    this.roundRobinIndex++;
+    const currentIndex = this.roundRobinIndex;
+    this.roundRobinIndex = currentIndex + 1;
+    const selected = eligibleServers[currentIndex % eligibleServers.length];
 
     // Store sticky session if enabled
     if (roundRobin.stickySessionsTtlMs > 0 && clientId && selected) {
@@ -865,7 +874,7 @@ export class LoadBalancer {
       if (metrics && metrics.percentiles.p95 > 0) {
         // Blend last response time with P95 (configurable weights)
         latency =
-          server.lastResponseTime * this.config.latencyBlendRecent +
+          latency * this.config.latencyBlendRecent +
           metrics.percentiles.p95 * this.config.latencyBlendHistorical;
       }
 
