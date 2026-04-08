@@ -38,6 +38,7 @@ import {
   getRecoveryTestMetrics,
   getBreakerRecoveryMetrics,
   getInFlight,
+  streamMetrics,
 } from '../controllers/metrics-controller.js';
 import {
   getAllModelsStatus,
@@ -76,6 +77,7 @@ monitoringRouter.get('/models', getModels);
 monitoringRouter.get('/health', getHealth);
 monitoringRouter.post('/health-check', asyncHandler(healthCheck));
 monitoringRouter.get('/stats', getStats);
+monitoringRouter.get('/events', streamMetrics);
 monitoringRouter.get('/circuit-breakers', getCircuitBreakers);
 
 // Metrics

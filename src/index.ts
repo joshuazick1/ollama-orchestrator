@@ -16,7 +16,7 @@ import helmet from 'helmet';
 import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metrics-controller.js';
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth, requireAdmin } from './middleware/auth.js';
 import {
   createMonitoringRateLimiter,
   createAdminRateLimiter,
@@ -58,7 +58,7 @@ app.use((req, res, next) => {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", `'nonce-${nonce}'`],
-        styleSrc: ["'self'", `'nonce-${nonce}'`],
+        styleSrc: ["'self'", `'unsafe-inline'`],
         imgSrc: ["'self'", 'data:', 'blob:', 'http:', 'https:'],
         fontSrc: ["'self'"],
         connectSrc: ["'self'"],
@@ -129,8 +129,8 @@ if (process.env.ENABLE_AUTH === 'false' || process.env.ORCHESTRATOR_ENABLE_AUTH 
 // Monitoring routes (permissive rate limiting, require auth)
 app.use('/api/orchestrator', monitoringRateLimiter, requireAuthentication, monitoringRouter);
 
-// Admin routes (restrictive rate limiting, require auth)
-app.use('/api/orchestrator', adminRateLimiter, requireAuthentication, adminRouter);
+// Admin routes (restrictive rate limiting, require auth + admin)
+app.use('/api/orchestrator', adminRateLimiter, requireAuthentication, requireAdmin(), adminRouter);
 
 // Inference routes (rate limited, optional auth) - Ollama-compatible endpoints
 app.use('/api', inferenceRateLimiter, inferenceRouter);

@@ -3,7 +3,7 @@
  * Consolidates logic from circuit-breaker.ts and health-check-scheduler.ts
  */
 
-export type ErrorType = 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
+import type { ErrorType } from './error-classifier.js';
 
 export interface BackoffOptions {
   /** Current attempt number (0-indexed) */
@@ -138,10 +138,10 @@ export function calculateActiveTestTimeout(
   }
 
   // For all other errors (including "unable to load model", memory issues, etc.)
-  // use progressive timeout doubling to allow time for model loading
-  // Progressive timeout doubling
-  const multiplier = Math.pow(2, Math.min(attempt, 10));
-  const maxTimeout = 15 * 60 * 1000; // 15 minutes
+  // use gentle progressive increase to allow time for model loading
+  // Gentle curve: 1x → 1.5x → 2x → 2.5x → 3x (capped)
+  const multiplier = Math.min(1 + 0.5 * attempt, 3);
+  const maxTimeout = 5 * 60 * 1000; // 5 minutes
   return Math.min(baseTimeout * multiplier, maxTimeout);
 }
 

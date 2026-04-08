@@ -36,10 +36,11 @@ export const safeJsonStringify = (
   try {
     return JSON.stringify(value, replacer as any, space as any);
   } catch (error) {
-    // Only log errors in DEBUG mode to avoid noisy test output
     if (process.env.DEBUG === 'true') {
       logger.error('Failed to stringify value:', { error });
     }
-    return '';
+    throw new Error(
+      `safeJsonStringify failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 };
