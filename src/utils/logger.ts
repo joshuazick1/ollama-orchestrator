@@ -9,7 +9,7 @@ interface LogEntry {
   meta?: unknown;
 }
 
-const MAX_LOG_ENTRIES = parseInt(process.env.MAX_LOG_ENTRIES ?? '1000', 10);
+const MAX_LOG_ENTRIES = parseInt(process.env.MAX_LOG_ENTRIES ?? '1000', 10) || 1000;
 const LOG_DIR = process.env.LOG_DIR ?? './logs';
 const logBuffer: LogEntry[] = [];
 

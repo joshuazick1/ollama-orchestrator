@@ -136,7 +136,7 @@ async function streamOpenAIResponse(
             try {
               void reader.cancel();
             } catch (_e) {
-              logger.debug('Reader cancel failed in stall handler', {
+              logger.error('Reader cancel failed in stall handler', {
                 responseId,
                 error: String(_e),
               });
@@ -589,9 +589,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
-          // Use same dynamic stall threshold formula as the Ollama path:
-          // 1.5× the request timeout, clamped to [10s, 60s].
-          const stallThreshold = Math.min(Math.max(timeoutMs * 1.5, 10_000), 60_000);
+          const stallThreshold = Math.min(
+            Math.max(timeoutMs * _config.timeout.stallThresholdMultiplier, 10_000),
+            _config.timeout.stallThresholdCapMs
+          );
           const stallCheckInterval = Math.min(timeoutMs / 8, 3_000);
 
           logger.info('STREAM_REQUEST_START', {
@@ -622,7 +623,14 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 ...(body.tools && { tools: body.tools }),
               }),
               connectionTimeout: timeoutMs,
-              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
+              activityTimeout: timeoutMs,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'openai',
+                endpoint: 'chat',
+                isStreaming: true,
+              },
             }
           );
 
@@ -900,6 +908,13 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               ...(body.tools && { tools: body.tools }),
             }),
             timeout: timeoutMs,
+            telemetryMeta: {
+              serverId: server.id,
+              model,
+              protocol: 'openai',
+              endpoint: 'chat',
+              isStreaming: false,
+            },
           }
         );
 
@@ -995,8 +1010,15 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               method: 'POST',
               headers,
               body: safeJsonStringify({ ...body, stream: true }),
-              connectionTimeout: timeoutMs, // Use dynamic timeout
-              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
+              connectionTimeout: timeoutMs,
+              activityTimeout: timeoutMs,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'openai',
+                endpoint: 'completions',
+                isStreaming: true,
+              },
             }
           );
 
@@ -1055,6 +1077,13 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             headers,
             body: safeJsonStringify(body),
             timeout: timeoutMs,
+            telemetryMeta: {
+              serverId: server.id,
+              model,
+              protocol: 'openai',
+              endpoint: 'completions',
+              isStreaming: false,
+            },
           }
         );
 
@@ -1141,7 +1170,14 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
           method: 'POST',
           headers,
           body: safeJsonStringify(body),
-          timeout: timeoutMs, // Use dynamic timeout
+          timeout: timeoutMs,
+          telemetryMeta: {
+            serverId: server.id,
+            model,
+            protocol: 'openai',
+            endpoint: 'embeddings',
+            isStreaming: false,
+          },
         });
 
         if (!response.ok) {
@@ -1326,8 +1362,15 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...requestBody, stream: true }),
-              connectionTimeout: timeoutMs, // Use dynamic timeout
-              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
+              connectionTimeout: timeoutMs,
+              activityTimeout: timeoutMs,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'openai',
+                endpoint: 'chat',
+                isStreaming: true,
+              },
             }
           );
 
@@ -1463,6 +1506,13 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
             headers: { 'Content-Type': 'application/json' },
             body: safeJsonStringify(requestBody),
             timeout: timeoutMs,
+            telemetryMeta: {
+              serverId: server.id,
+              model,
+              protocol: 'openai',
+              endpoint: 'chat',
+              isStreaming: false,
+            },
           }
         );
 
@@ -1558,8 +1608,15 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: safeJsonStringify({ ...requestBody, stream: true }),
-              connectionTimeout: timeoutMs, // Use dynamic timeout
-              activityTimeout: timeoutMs, // Use same dynamic timeout for activity
+              connectionTimeout: timeoutMs,
+              activityTimeout: timeoutMs,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'openai',
+                endpoint: 'completions',
+                isStreaming: true,
+              },
             }
           );
 
@@ -1616,6 +1673,13 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
             headers: { 'Content-Type': 'application/json' },
             body: safeJsonStringify(requestBody),
             timeout: timeoutMs,
+            telemetryMeta: {
+              serverId: server.id,
+              model,
+              protocol: 'openai',
+              endpoint: 'completions',
+              isStreaming: false,
+            },
           }
         );
 
@@ -1708,7 +1772,14 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: safeJsonStringify(body),
-          timeout: timeoutMs, // Use dynamic timeout
+          timeout: timeoutMs,
+          telemetryMeta: {
+            serverId: server.id,
+            model,
+            protocol: 'openai',
+            endpoint: 'embeddings',
+            isStreaming: false,
+          },
         });
 
         if (!response.ok) {

@@ -217,3 +217,45 @@ export function getInFlight(req: Request, res: Response): void {
     });
   }
 }
+
+export function streamMetrics(req: Request, res: Response): void {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  const orchestrator = getOrchestratorInstance();
+  let isClosed = false;
+
+  const sendUpdate = () => {
+    if (isClosed) {
+      return;
+    }
+
+    try {
+      const stats = orchestrator.getStats();
+      const metrics = orchestrator.exportMetrics();
+      const circuitBreakers = orchestrator.getCircuitBreakerStats();
+
+      const data = JSON.stringify({
+        type: 'metrics',
+        timestamp: Date.now(),
+        stats,
+        metrics: { timestamp: metrics.timestamp, global: metrics.global },
+        circuitBreakers: Object.keys(circuitBreakers).length,
+      });
+
+      res.write(`data: ${data}\n\n`);
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to get metrics' })}\n\n`);
+    }
+  };
+
+  const interval = setInterval(sendUpdate, 5000);
+  sendUpdate();
+
+  req.on('close', () => {
+    isClosed = true;
+    clearInterval(interval);
+  });
+}

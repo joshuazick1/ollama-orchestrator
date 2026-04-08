@@ -44,3 +44,21 @@ export const clearLogs = (req: Request, res: Response): void => {
     res.status(500).json({ error: 'Failed to clear logs' });
   }
 };
+
+export const logClientError = (req: Request, res: Response): void => {
+  try {
+    const { message, stack, componentStack, timestamp } = req.body;
+
+    logger.error('Client Error:', {
+      message,
+      stack,
+      componentStack,
+      clientTimestamp: timestamp,
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to log client error' });
+  }
+};
