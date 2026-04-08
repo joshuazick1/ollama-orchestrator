@@ -99,6 +99,23 @@ jobs:
           retention-days: 14
 
   # ──────────────────────────────────────────────
+  # Flaky test isolation — run specific test in isolation to avoid async pollution
+  # ──────────────────────────────────────────────
+  flaky-test:
+    name: Flaky Test Isolation
+    needs: [lint, format, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run flaky test in isolation
+        run: npm test -- tests/unit/orchestrator.test.ts -t "should try all servers in phase 1"
+
+  # ──────────────────────────────────────────────
   # Build — run after quality checks pass
   # ──────────────────────────────────────────────
   build:
