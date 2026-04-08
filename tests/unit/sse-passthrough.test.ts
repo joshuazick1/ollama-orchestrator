@@ -173,6 +173,16 @@ function makeConfig() {
         stallThresholdMs: 300000,
         stallCheckIntervalMs: 10000,
       },
+      timeout: {
+        defaultTimeoutMs: 120000,
+        minTimeoutMs: 15000,
+        maxTimeoutMs: 600000,
+        recoveryTestMultiplier: 3,
+        normalRequestMultiplier: 2,
+        decayRatePerMs: 1 - Math.pow(0.95, 1 / (5 * 60 * 1000)),
+        stallThresholdMultiplier: 1.5,
+        stallThresholdCapMs: 120000,
+      },
     }),
   };
 }

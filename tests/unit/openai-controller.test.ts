@@ -1769,6 +1769,27 @@ describe('OpenAI Controller', () => {
         },
         activityController: mockActivityController,
       });
+
+      // Re-setup mockConfigManager with full config including timeout for stall threshold computation
+      mockConfigManager = {
+        getConfig: vi.fn().mockReturnValue({
+          streaming: {
+            activityTimeoutMs: 30000,
+          },
+          timeout: {
+            defaultTimeoutMs: 120000,
+            minTimeoutMs: 15000,
+            maxTimeoutMs: 600000,
+            recoveryTestMultiplier: 3,
+            normalRequestMultiplier: 2,
+            decayRatePerMs: 0.0001,
+            stallThresholdMultiplier: 1.5,
+            stallThresholdCapMs: 120000,
+          },
+        }),
+      };
+
+      (getConfigManager as any).mockReturnValue(mockConfigManager);
     });
 
     it('should handle streaming chat completions', async () => {

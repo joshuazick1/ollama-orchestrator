@@ -6,13 +6,13 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
+import type { DecisionEvent, FailoverAttempt } from '../../src/decision-history.js';
 import {
   AdaptiveWeightTuner,
   getAdaptiveWeightTuner,
   resetAdaptiveWeightTuner,
 } from '../../src/load-balancer/adaptive-weight-tuner.js';
 import type { AdaptiveWeightTunerConfig } from '../../src/load-balancer/adaptive-weight-tuner.js';
-import type { DecisionEvent, FailoverAttempt } from '../../src/decision-history.js';
 
 /* ---------- helpers ---------- */
 

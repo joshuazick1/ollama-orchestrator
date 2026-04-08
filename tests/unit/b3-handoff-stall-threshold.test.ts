@@ -48,6 +48,16 @@ vi.mock('../../src/utils/config-manager.js', () => ({
         stallCheckIntervalMs: 2000,
         maxHandoffAttempts: 3,
       },
+      timeout: {
+        defaultTimeoutMs: 120000,
+        minTimeoutMs: 15000,
+        maxTimeoutMs: 600000,
+        recoveryTestMultiplier: 3,
+        normalRequestMultiplier: 2,
+        decayRatePerMs: 1 - Math.pow(0.95, 1 / (5 * 60 * 1000)),
+        stallThresholdMultiplier: 1.5,
+        stallThresholdCapMs: 120000,
+      },
     })),
   })),
 }));
@@ -327,7 +337,7 @@ describe('B-3: Handoff stall threshold inheritance', () => {
         await capturedOnStallCallback(new AbortController(), 'chat-large-timeout');
 
         const handoffRequest = (performStreamHandoff as any).mock.calls[0][0];
-        expect(handoffRequest.stallThresholdMs).toBe(60000); // clamped to 60s ceiling
+        expect(handoffRequest.stallThresholdMs).toBe(120000); // clamped to new cap (stallThresholdCapMs)
         expect(handoffRequest.stallCheckIntervalMs).toBe(3000); // capped at 3s
       }
     });

@@ -1017,7 +1017,7 @@ describe('runActiveTests – adaptive timeout via getTimeout provider (13.3)', (
   });
 }, 30000);
 
-describe('runActiveTests – maxConcurrentPerServer=2 limit (13.3)', () => {
+describe('runActiveTests – maxConcurrentPerServer=1 limit (13.3)', () => {
   let coordinator: RecoveryTestCoordinator;
 
   beforeEach(() => {
@@ -1043,7 +1043,7 @@ describe('runActiveTests – maxConcurrentPerServer=2 limit (13.3)', () => {
     vi.restoreAllMocks();
   });
 
-  it('only tests the first 2 breakers when 3 are provided', async () => {
+  it('only tests the first breaker when 3 are provided', async () => {
     const breakerA = makeBreaker('srv-conc:modelA');
     const breakerB = makeBreaker('srv-conc:modelB');
     const breakerC = makeBreaker('srv-conc:modelC');
@@ -1054,9 +1054,11 @@ describe('runActiveTests – maxConcurrentPerServer=2 limit (13.3)', () => {
       { breaker: breakerC, model: 'modelC' },
     ]);
 
-    // maxConcurrentPerServer=2 means only 2 should be tested
-    expect(results).toHaveLength(2);
-    // The third one (modelC) should NOT have been tested
+    // maxConcurrentPerServer=1 means only 1 should be tested
+    expect(results).toHaveLength(1);
+    // The other breakers should NOT have been tested
+    expect(breakerB.recordSuccess).not.toHaveBeenCalled();
+    expect(breakerB.recordFailure).not.toHaveBeenCalled();
     expect(breakerC.recordSuccess).not.toHaveBeenCalled();
     expect(breakerC.recordFailure).not.toHaveBeenCalled();
   });
@@ -1130,11 +1132,64 @@ describe('runActiveTests – sorts by halfOpenStartedAt oldest-first (13.3)', ()
       { breaker: breakerOlder, model: 'modelOlder' },
     ]);
 
-    // Both should have been tested (only 2 breakers, within maxConcurrentPerServer limit)
-    expect(results).toHaveLength(2);
+    // With maxConcurrentPerServer=1, only the oldest breaker should be tested
+    expect(results).toHaveLength(1);
 
     // The first result should be the older breaker (sorted by halfOpenStartedAt)
     expect(results[0].breakerName).toBe('srv-sort:modelOlder');
-    expect(results[1].breakerName).toBe('srv-sort:modelNewer');
   });
 }, 30000);
+
+describe('breakerTestAttempt counter reset after 10 failures', () => {
+  let coordinator: RecoveryTestCoordinator;
+
+  beforeEach(() => {
+    resetRecoveryTestCoordinator();
+    coordinator = new RecoveryTestCoordinator({ serverCooldownMs: 0 });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should reset attempt counter after 10 consecutive failures', async () => {
+    const breaker = makeBreaker('srv-test:modelA');
+
+    // Simulate 9 failures (counter goes 0 -> 9)
+    for (let i = 0; i < 9; i++) {
+      const attempt = coordinator['incrementBreakerTestAttempt']('srv-test:modelA');
+      expect(attempt).toBe(i + 1);
+    }
+
+    // 10th failure should reset to 0
+    const attemptAfterReset = coordinator['incrementBreakerTestAttempt']('srv-test:modelA');
+    expect(attemptAfterReset).toBe(0);
+  });
+
+  it('should not reset before 10 failures', () => {
+    const breakerName = 'srv-test:modelA';
+
+    // 9 failures - counter should be at 9
+    for (let i = 0; i < 9; i++) {
+      coordinator['incrementBreakerTestAttempt'](breakerName);
+    }
+    expect(coordinator['getBreakerTestAttempt'](breakerName)).toBe(9);
+
+    // 10th failure - reset to 0
+    coordinator['incrementBreakerTestAttempt'](breakerName);
+    expect(coordinator['getBreakerTestAttempt'](breakerName)).toBe(0);
+  });
+
+  it('should resetBreakerTestAttempt on success', () => {
+    const breakerName = 'srv-test:modelA';
+
+    // Increment a few times
+    coordinator['incrementBreakerTestAttempt'](breakerName);
+    coordinator['incrementBreakerTestAttempt'](breakerName);
+    expect(coordinator['getBreakerTestAttempt'](breakerName)).toBe(2);
+
+    // Reset on success
+    coordinator.resetBreakerTestAttempt(breakerName);
+    expect(coordinator['getBreakerTestAttempt'](breakerName)).toBe(0);
+  });
+});

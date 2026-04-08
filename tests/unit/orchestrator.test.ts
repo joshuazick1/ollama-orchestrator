@@ -1650,45 +1650,6 @@ describe('AIOrchestrator', () => {
     });
   });
 
-  describe('executeActiveTest methods', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.healthy = true;
-        s1.models = ['llama2', 'nomic-embed-text'];
-      }
-    });
-
-    it('should execute inference active test', async () => {
-      // Mock fetch to simulate successful inference
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ response: 'test' }),
-      });
-
-      const result = await orchestrator['executeInferenceActiveTest'](
-        { id: 'server-1', url: 'http://localhost:11434', type: 'ollama' } as any,
-        'llama2',
-        10000
-      );
-      // Will fail due to network but should handle gracefully
-    });
-
-    it('should execute embedding active test', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ embedding: [0.1, 0.2, 0.3] }),
-      });
-
-      const result = await orchestrator['executeEmbeddingActiveTest'](
-        { id: 'server-1', url: 'http://localhost:11434', type: 'ollama' } as any,
-        'nomic-embed-text',
-        10000
-      );
-    });
-  });
-
   describe('shutdown', () => {
     it('should shutdown gracefully', async () => {
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
@@ -2554,35 +2515,29 @@ describe('AIOrchestrator', () => {
     });
   });
 
-  describe('executeActiveTest - model type detection', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.healthy = true;
-        s1.models = ['llama2', 'nomic-embed-text'];
-      }
-    });
-
-    it('should detect embedding model by name pattern', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ embedding: [0.1] }),
-      });
-
-      const result = await orchestrator['executeActiveTest']('server-1', 'nomic-embed-text', 10000);
-      expect(result).toBeDefined();
-    });
-
-    it('should handle server not found', async () => {
-      const result = await orchestrator['executeActiveTest']('nonexistent', 'llama2', 10000);
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Server not found: nonexistent');
-    });
-  });
-
   describe('Complex failover scenarios', () => {
     beforeEach(() => {
+      orchestrator['probeScheduler'].stop();
+
+      ['server-1', 'server-2', 'server-3'].forEach(id => {
+        const serverCb = orchestrator['getCircuitBreaker'](id);
+        if (serverCb) {
+          serverCb.forceClose();
+        }
+        const modelCb = orchestrator['getModelCircuitBreaker'](id, 'llama2');
+        if (modelCb) {
+          modelCb.forceClose();
+        }
+        orchestrator['banManager'].clearCooldown(id, 'llama2');
+        orchestrator['banManager'].clearCooldown(id, '');
+        const details = orchestrator['banManager'].getBanDetails();
+        details.forEach(ban => {
+          if (ban.serverId === id || ban.serverId.startsWith(`${id}:`)) {
+            orchestrator['banManager'].removeBan(id, ban.model || '');
+          }
+        });
+      });
+
       orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
       orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
       orchestrator.addServer({ id: 'server-3', url: 'http://localhost:11436', type: 'ollama' });
@@ -2594,6 +2549,10 @@ describe('AIOrchestrator', () => {
           s.models = ['llama2'];
         }
       });
+    });
+
+    afterEach(() => {
+      orchestrator['probeScheduler'].start();
     });
 
     it('should try all servers in phase 1 before moving to phase 2', async () => {
@@ -2634,57 +2593,6 @@ describe('AIOrchestrator', () => {
 
       // Context should be populated even on failure
       expect(context).toBeDefined();
-    });
-  });
-
-  describe('Active test with model type detection', () => {
-    beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.healthy = true;
-        s1.models = ['llama2', 'nomic-embed-text'];
-      }
-    });
-
-    it('should detect generation model through inference test', async () => {
-      global.fetch = vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/generate')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ response: 'test' }),
-          });
-        }
-        return Promise.reject(new Error('Not found'));
-      });
-
-      const result = await orchestrator['executeActiveTest']('server-1', 'llama2', 10000);
-      expect(result.detectedModelType || result.success).toBeDefined();
-    });
-
-    it('should handle embedding model detection', async () => {
-      global.fetch = vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/generate')) {
-          return Promise.reject(new Error('embedding model does not support generate'));
-        }
-        if (url.includes('/api/embeddings')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ embedding: [0.1] }),
-          });
-        }
-        return Promise.reject(new Error('Not found'));
-      });
-
-      const result = await orchestrator['executeActiveTest']('server-1', 'nomic-embed-text', 10000);
-      expect(result).toBeDefined();
-    });
-
-    it('should handle non-circuit-breaking failures', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('temporary network error'));
-
-      const result = await orchestrator['executeActiveTest']('server-1', 'llama2', 10000);
-      expect(result.success).toBe(false);
     });
   });
 

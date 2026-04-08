@@ -177,4 +177,44 @@ describe('recovery-cycle integration – open→half-open→probe→close', () =
     expect(results[0].success).toBe(true);
     expect(breaker.getState()).toBe('closed');
   });
+
+  it('runActiveTests with maxConcurrentPerServer=1 tests only one breaker at a time', async () => {
+    const breakerA = registry.getOrCreate('seq-srv:modelA', {
+      baseFailureThreshold: 1,
+      recoverySuccessThreshold: 1,
+      halfOpenMaxRequests: 1,
+      adaptiveThresholds: false,
+      openTimeout: 0,
+    });
+    const breakerB = registry.getOrCreate('seq-srv:modelB', {
+      baseFailureThreshold: 1,
+      recoverySuccessThreshold: 1,
+      halfOpenMaxRequests: 1,
+      adaptiveThresholds: false,
+      openTimeout: 0,
+    });
+    const breakerC = registry.getOrCreate('seq-srv:modelC', {
+      baseFailureThreshold: 1,
+      recoverySuccessThreshold: 1,
+      halfOpenMaxRequests: 1,
+      adaptiveThresholds: false,
+      openTimeout: 0,
+    });
+
+    breakerA.forceHalfOpen();
+    breakerB.forceHalfOpen();
+    breakerC.forceHalfOpen();
+
+    // With maxConcurrentPerServer=1, only one should be tested in this batch
+    const results = await coordinator.runActiveTests('seq-srv', [
+      { breaker: breakerA, model: 'modelA' },
+      { breaker: breakerB, model: 'modelB' },
+      { breaker: breakerC, model: 'modelC' },
+    ]);
+
+    expect(results).toHaveLength(1);
+    // The others should NOT have been tested
+    expect(breakerB.getState()).toBe('half-open');
+    expect(breakerC.getState()).toBe('half-open');
+  });
 }, 30000);

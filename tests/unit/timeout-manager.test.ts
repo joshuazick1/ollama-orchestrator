@@ -83,16 +83,14 @@ describe('TimeoutManager', () => {
       expect(manager.getTimeout('server-1', 'llama3:latest')).toBeDefined();
     });
 
-    it('should use slowRequestMultiplier for regular requests', () => {
+    it('should use normalRequestMultiplier for regular requests', () => {
       manager.updateFromResponseTime('server-1', 'llama3:latest', 50000, false);
-      // 50000 * 2 = 100000, clamped to maxTimeout
       const timeout = manager.getTimeout('server-1', 'llama3:latest');
       expect(timeout).toBeLessThanOrEqual(DEFAULT_TIMEOUT_CONFIG.maxTimeout);
     });
 
-    it('should use activeTestMultiplier for active test requests', () => {
+    it('should use recoveryTestMultiplier for active test requests', () => {
       manager.updateFromResponseTime('server-1', 'llama3:latest', 10000, true);
-      // 10000 * 3 = 30000
       const timeout = manager.getTimeout('server-1', 'llama3:latest');
       expect(timeout).toBeGreaterThanOrEqual(30000);
     });
@@ -110,6 +108,67 @@ describe('TimeoutManager', () => {
       const state = manager.getTimeoutState('server-1', 'llama3:latest');
       expect(state).toBeDefined();
       expect(state?.currentTimeout).toBe(DEFAULT_TIMEOUT_CONFIG.defaultTimeout);
+    });
+
+    it('should escalate timeout on timeout failure', () => {
+      manager.setTimeout('server-1', 'llama3:latest', 60000);
+      manager.recordFailure('server-1', 'llama3:latest', 'timeout');
+      expect(manager.getTimeout('server-1', 'llama3:latest')).toBe(90000); // 1.5x
+    });
+
+    it('should not escalate on non-timeout errors', () => {
+      manager.setTimeout('server-1', 'llama3:latest', 60000);
+      manager.recordFailure('server-1', 'llama3:latest', 'error');
+      expect(manager.getTimeout('server-1', 'llama3:latest')).toBe(60000); // unchanged
+    });
+  });
+
+  describe('recordActiveTestTimeout', () => {
+    it('should not escalate adaptive timeout for active test timeouts', () => {
+      manager.setTimeout('server-1', 'llama3:latest', 60000);
+      manager.recordActiveTestTimeout('server-1', 'llama3:latest', 300000);
+      // Timeout should remain unchanged - active test timeouts don't affect real request timeouts
+      expect(manager.getTimeout('server-1', 'llama3:latest')).toBe(60000);
+    });
+
+    it('should handle unknown server:model gracefully', () => {
+      expect(() => manager.recordActiveTestTimeout('server-1', 'llama3:latest', 300000)).not.toThrow();
+    });
+  });
+
+  describe('resetAfterIdle', () => {
+    it('should reset timeout to base after idle threshold exceeded', () => {
+      // Set a high timeout
+      manager.setTimeout('server-1', 'llama3:latest', 300000);
+      // Simulate old lastUpdated by directly manipulating state
+      const state = manager.getTimeoutState('server-1', 'llama3:latest');
+      if (state) {
+        state.lastUpdated = Date.now() - 700000; // 11 minutes ago
+      }
+      manager.resetAfterIdle('server-1', 'llama3:latest', 600000); // 10 min threshold
+      expect(manager.getTimeout('server-1', 'llama3:latest')).toBe(state?.baseTimeout);
+    });
+
+    it('should not reset if within idle threshold', () => {
+      manager.setTimeout('server-1', 'llama3:latest', 300000);
+      manager.resetAfterIdle('server-1', 'llama3:latest', 600000); // 10 min threshold
+      // Should still be 300000 since not idle long enough
+      expect(manager.getTimeout('server-1', 'llama3:latest')).toBe(300000);
+    });
+
+    it('should not reset if timeout is at base', () => {
+      manager.setTimeout('server-1', 'llama3:latest', 120000); // base
+      const state = manager.getTimeoutState('server-1', 'llama3:latest');
+      if (state) {
+        state.lastUpdated = Date.now() - 700000;
+      }
+      manager.resetAfterIdle('server-1', 'llama3:latest', 600000);
+      // Should remain at base (120000)
+      expect(manager.getTimeout('server-1', 'llama3:latest')).toBe(120000);
+    });
+
+    it('should handle unknown server:model gracefully', () => {
+      expect(() => manager.resetAfterIdle('server-1', 'llama3:latest', 600000)).not.toThrow();
     });
   });
 

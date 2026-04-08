@@ -238,19 +238,24 @@ describe('calculateActiveTestTimeout', () => {
   });
 
   describe('progressive timeouts', () => {
-    it('should double timeout for each attempt', () => {
+    it('should use gentle curve for each attempt (1x, 1.5x, 2x, 2.5x, 3x)', () => {
       const t0 = calculateActiveTestTimeout(0, 60000);
       const t1 = calculateActiveTestTimeout(1, 60000);
       const t2 = calculateActiveTestTimeout(2, 60000);
+      const t3 = calculateActiveTestTimeout(3, 60000);
+      const t4 = calculateActiveTestTimeout(4, 60000);
 
-      expect(t0).toBe(60000);
-      expect(t1).toBe(120000);
-      expect(t2).toBe(240000);
+      expect(t0).toBe(60000); // 1x
+      expect(t1).toBe(90000); // 1.5x
+      expect(t2).toBe(120000); // 2x
+      expect(t3).toBe(150000); // 2.5x
+      expect(t4).toBe(180000); // 3x
     });
 
-    it('should cap at 15 minutes', () => {
+    it('should cap at 3x multiplier (not 5 minutes)', () => {
       const result = calculateActiveTestTimeout(100, 1000);
-      expect(result).toBe(15 * 60 * 1000);
+      // multiplier = min(1 + 0.5 * 100, 3) = 3, so 1000 * 3 = 3000
+      expect(result).toBe(3000);
     });
 
     it('should handle attempt 0 correctly', () => {
@@ -258,10 +263,10 @@ describe('calculateActiveTestTimeout', () => {
       expect(result).toBe(120000);
     });
 
-    it('should handle attempt 10+ correctly (capped)', () => {
+    it('should handle attempt 4+ correctly (capped at 3x)', () => {
       const result = calculateActiveTestTimeout(10, 1000);
-      // 2^10 = 1024, but capped at 15min
-      expect(result).toBe(15 * 60 * 1000);
+      // 1 + 0.5 * 10 = 6, but capped at 3x
+      expect(result).toBe(3000);
     });
   });
 });

@@ -21,8 +21,8 @@ describe('REC-67: Timeout EMA (Exponential Moving Average)', () => {
       defaultTimeout: 60000,
       minTimeout: 10000,
       maxTimeout: 300000,
-      slowRequestMultiplier: 1.5,
-      activeTestMultiplier: 0.8,
+      normalRequestMultiplier: 1.5,
+      recoveryTestMultiplier: 0.8,
     });
   });
 
