@@ -19,7 +19,13 @@ import {
   handleChatToServer,
   handleEmbeddingsToServer,
 } from '../controllers/ollama-controller.js';
-import { validateRequest, generateRequestSchema, chatRequestSchema, embeddingsRequestSchema, embedRequestSchema } from '../middleware/validation.js';
+import {
+  validateRequest,
+  generateRequestSchema,
+  chatRequestSchema,
+  embeddingsRequestSchema,
+  embedRequestSchema,
+} from '../middleware/validation.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =
@@ -33,9 +39,17 @@ const asyncHandler =
 export const inferenceRouter = Router();
 
 inferenceRouter.get('/tags', asyncHandler(handleTags));
-inferenceRouter.post('/generate', validateRequest(generateRequestSchema), asyncHandler(handleGenerate));
+inferenceRouter.post(
+  '/generate',
+  validateRequest(generateRequestSchema),
+  asyncHandler(handleGenerate)
+);
 inferenceRouter.post('/chat', validateRequest(chatRequestSchema), asyncHandler(handleChat));
-inferenceRouter.post('/embeddings', validateRequest(embeddingsRequestSchema), asyncHandler(handleEmbeddings));
+inferenceRouter.post(
+  '/embeddings',
+  validateRequest(embeddingsRequestSchema),
+  asyncHandler(handleEmbeddings)
+);
 inferenceRouter.get('/ps', asyncHandler(handlePs));
 inferenceRouter.get('/version', handleVersion);
 

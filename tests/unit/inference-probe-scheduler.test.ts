@@ -740,7 +740,7 @@ describe('exponential backoff on probe failure', () => {
 
     // intervalMs well beyond our test window so no re-queue from the periodic check
 const scheduler = new InferenceProbeScheduler(
-      makeConfig({ enabled: false }),
+      makeConfig({ enabled: true, onlyDuringLowTraffic: false }),
       () => [server],
       () => aggregator as never,
       () => store as never,

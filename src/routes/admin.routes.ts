@@ -7,7 +7,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
 import { resetBreaker, getBreakerDetails } from '../controllers/circuit-breaker-controller.js';
-import { validateRequest, addServerSchema, updateServerSchema, pullModelSchema, warmupModelSchema, unloadModelSchema } from '../middleware/validation.js';
 import {
   getConfig,
   updateConfig,
@@ -51,6 +50,14 @@ import {
   forceCloseBreaker,
   forceHalfOpenBreaker,
 } from '../controllers/servers-controller.js';
+import {
+  validateRequest,
+  addServerSchema,
+  updateServerSchema,
+  pullModelSchema,
+  warmupModelSchema,
+  unloadModelSchema,
+} from '../middleware/validation.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =
@@ -70,13 +77,25 @@ adminRouter.patch('/servers/:id', validateRequest(updateServerSchema), asyncHand
 
 // Per-server model management
 adminRouter.get('/servers/:id/models', asyncHandler(listServerModels));
-adminRouter.post('/servers/:id/models/pull', validateRequest(pullModelSchema), asyncHandler(pullModelToServer));
+adminRouter.post(
+  '/servers/:id/models/pull',
+  validateRequest(pullModelSchema),
+  asyncHandler(pullModelToServer)
+);
 adminRouter.delete('/servers/:id/models/:model', asyncHandler(deleteModelFromServer));
 adminRouter.post('/servers/:id/models/copy', asyncHandler(copyModelToServer));
 
 // Model management actions
-adminRouter.post('/models/:model/warmup', validateRequest(warmupModelSchema), asyncHandler(warmupModel));
-adminRouter.post('/models/:model/unload', validateRequest(unloadModelSchema), asyncHandler(unloadModel));
+adminRouter.post(
+  '/models/:model/warmup',
+  validateRequest(warmupModelSchema),
+  asyncHandler(warmupModel)
+);
+adminRouter.post(
+  '/models/:model/unload',
+  validateRequest(unloadModelSchema),
+  asyncHandler(unloadModel)
+);
 adminRouter.post('/models/:model/cancel', cancelWarmup);
 
 // Configuration

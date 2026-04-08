@@ -3,9 +3,9 @@
  * Model warmup and cold start management system
  */
 
+import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
-import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import { getErrorClassifier } from './utils/error-classifier.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
