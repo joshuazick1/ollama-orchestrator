@@ -19,6 +19,7 @@ import {
   handleChatToServer,
   handleEmbeddingsToServer,
 } from '../controllers/ollama-controller.js';
+import { validateRequest, generateRequestSchema, chatRequestSchema, embeddingsRequestSchema, embedRequestSchema } from '../middleware/validation.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =
@@ -32,14 +33,14 @@ const asyncHandler =
 export const inferenceRouter = Router();
 
 inferenceRouter.get('/tags', asyncHandler(handleTags));
-inferenceRouter.post('/generate', asyncHandler(handleGenerate));
-inferenceRouter.post('/chat', asyncHandler(handleChat));
-inferenceRouter.post('/embeddings', asyncHandler(handleEmbeddings));
+inferenceRouter.post('/generate', validateRequest(generateRequestSchema), asyncHandler(handleGenerate));
+inferenceRouter.post('/chat', validateRequest(chatRequestSchema), asyncHandler(handleChat));
+inferenceRouter.post('/embeddings', validateRequest(embeddingsRequestSchema), asyncHandler(handleEmbeddings));
 inferenceRouter.get('/ps', asyncHandler(handlePs));
 inferenceRouter.get('/version', handleVersion);
 
 inferenceRouter.post('/show', asyncHandler(handleShow));
-inferenceRouter.post('/embed', asyncHandler(handleEmbed));
+inferenceRouter.post('/embed', validateRequest(embedRequestSchema), asyncHandler(handleEmbed));
 
 // Multi-node incompatible endpoints - always reject with helpful message
 inferenceRouter.post('/pull', handleUnsupported);

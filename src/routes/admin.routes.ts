@@ -7,6 +7,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
 import { resetBreaker, getBreakerDetails } from '../controllers/circuit-breaker-controller.js';
+import { validateRequest, addServerSchema, updateServerSchema, pullModelSchema, warmupModelSchema, unloadModelSchema } from '../middleware/validation.js';
 import {
   getConfig,
   updateConfig,
@@ -15,7 +16,7 @@ import {
   saveConfig,
   getConfigSchema,
 } from '../controllers/config-controller.js';
-import { getLogs, clearLogs } from '../controllers/logs-controller.js';
+import { getLogs, clearLogs, logClientError } from '../controllers/logs-controller.js';
 import { warmupModel, unloadModel, cancelWarmup } from '../controllers/model-controller.js';
 import {
   getRecoveryFailuresSummary,
@@ -63,19 +64,19 @@ const asyncHandler =
 export const adminRouter = Router();
 
 // Server management
-adminRouter.post('/servers/add', addServer);
+adminRouter.post('/servers/add', validateRequest(addServerSchema), asyncHandler(addServer));
 adminRouter.delete('/servers/:id', removeServer);
-adminRouter.patch('/servers/:id', updateServer);
+adminRouter.patch('/servers/:id', validateRequest(updateServerSchema), asyncHandler(updateServer));
 
 // Per-server model management
 adminRouter.get('/servers/:id/models', asyncHandler(listServerModels));
-adminRouter.post('/servers/:id/models/pull', asyncHandler(pullModelToServer));
+adminRouter.post('/servers/:id/models/pull', validateRequest(pullModelSchema), asyncHandler(pullModelToServer));
 adminRouter.delete('/servers/:id/models/:model', asyncHandler(deleteModelFromServer));
 adminRouter.post('/servers/:id/models/copy', asyncHandler(copyModelToServer));
 
 // Model management actions
-adminRouter.post('/models/:model/warmup', asyncHandler(warmupModel));
-adminRouter.post('/models/:model/unload', unloadModel);
+adminRouter.post('/models/:model/warmup', validateRequest(warmupModelSchema), asyncHandler(warmupModel));
+adminRouter.post('/models/:model/unload', validateRequest(unloadModelSchema), asyncHandler(unloadModel));
 adminRouter.post('/models/:model/cancel', cancelWarmup);
 
 // Configuration
@@ -128,3 +129,4 @@ adminRouter.post('/recovery-failures/:serverId/reset', resetServerRecoveryStats)
 // Logging
 adminRouter.get('/logs', getLogs);
 adminRouter.post('/logs/clear', clearLogs);
+adminRouter.post('/logs/client-error', logClientError);

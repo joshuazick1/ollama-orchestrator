@@ -5,6 +5,7 @@
 
 import { ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
+import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import { getErrorClassifier } from './utils/error-classifier.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
@@ -155,9 +156,14 @@ export class ModelManager {
   private warmupJobs: Map<string, WarmupJob> = new Map();
   private jobCounter = 0;
   private config: ModelManagerConfig;
+  private circuitBreakerRegistry: CircuitBreakerRegistry | undefined;
 
   constructor(config: Partial<ModelManagerConfig> = {}) {
     this.config = { ...DEFAULT_MODEL_MANAGER_CONFIG, ...config };
+  }
+
+  setCircuitBreakerRegistry(registry: CircuitBreakerRegistry): void {
+    this.circuitBreakerRegistry = registry;
   }
 
   /**
@@ -539,6 +545,11 @@ export class ModelManager {
       });
 
       logger.error(`Warmup failed for ${job.model} on ${job.serverId}: ${errorMessage}`);
+
+      if (this.circuitBreakerRegistry) {
+        const cb = this.circuitBreakerRegistry.getOrCreate(`${job.serverId}:${job.model}`);
+        cb.recordFailure(errorMessage, 'retryable');
+      }
     }
   }
 
@@ -1013,17 +1024,28 @@ export class ModelManager {
       });
 
       if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
         logger.warn(
           `Failed to unload model ${model} from server ${serverId}: ${response.statusText}`
         );
+        state.errorCount = (state.errorCount ?? 0) + 1;
+        state.lastError = `Unload failed: ${response.status} - ${errorText}`;
+        serverState.models.set(model, state);
         return false;
       }
+
+      // Capture memory before updating state
+      const memoryToFree = state.gpuMemory ?? 0;
 
       // Update state to not loaded
       state.loaded = false;
       state.loading = false;
       state.lastUsed = 0;
       state.gpuMemory = 0;
+
+      // Decrement loaded memory accounting
+      serverState.loadedModelsMemory = Math.max(0, serverState.loadedModelsMemory - memoryToFree);
+      serverState.availableGpuMemory = serverState.totalGpuMemory - serverState.loadedModelsMemory;
 
       serverState.models.set(model, state);
       serverState.lastUpdated = Date.now();
@@ -1120,43 +1142,51 @@ export class ModelManager {
 
     logger.info(`Starting batch warmup for ${models.length} models (concurrency: ${concurrency})`);
 
-    // Process models in parallel with concurrency limit
-    const executing: Promise<void>[] = [];
+    const running: Promise<void>[] = [];
     let index = 0;
 
-    const processNext = async (): Promise<void> => {
+    const startNext = async (): Promise<void> => {
       if (index >= models.length) {
         return;
       }
-
-      const model = models[index++];
+      const currentIndex = index++;
+      const model = models[currentIndex];
       try {
         const result = await this.warmupModel(model, options);
-        results.push(result);
+        results[currentIndex] = result;
       } catch (error) {
         logger.error(`Batch warmup failed for ${model}:`, error);
-        // Push a failed result
-        results.push({
+        results[currentIndex] = {
           model,
           jobs: [],
           totalServers: 0,
           loadedOn: 0,
           loadingOn: 0,
           failedOn: 0,
-        });
+        };
       }
-
-      // Process next model
-      await processNext();
     };
 
-    // Start initial batch of concurrent warmups
-    for (let i = 0; i < Math.min(concurrency, models.length); i++) {
-      executing.push(processNext());
-    }
+    const drainAndStart = async (): Promise<void> => {
+      while (running.length >= concurrency && index < models.length) {
+        await Promise.race(running);
+      }
+      while (running.length < concurrency && index < models.length) {
+        const p = startNext();
+        running.push(p);
+        p.then(() => {
+          const idx = running.indexOf(p);
+          if (idx !== -1) running.splice(idx, 1);
+        });
+      }
+    };
 
-    // Wait for all to complete
-    await Promise.all(executing);
+    await drainAndStart();
+
+    while (running.length > 0) {
+      await Promise.race(running);
+      await drainAndStart();
+    }
 
     logger.info(`Batch warmup complete: ${results.length} models processed`);
     return results;
