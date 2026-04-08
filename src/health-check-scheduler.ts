@@ -7,6 +7,7 @@ import type { HealthCheckConfig } from './config/config.js';
 import { featureFlags } from './config/feature-flags.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
 import { resolveApiKey } from './utils/api-keys.js';
+import { sleep } from './utils/async-helpers.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { logger } from './utils/logger.js';
 import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
@@ -221,7 +222,7 @@ export class HealthCheckScheduler {
 
         // Small delay between batches to avoid overwhelming the network
         if (i + this.config.maxConcurrentChecks < servers.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await sleep(100);
         }
       }
 
@@ -265,7 +266,7 @@ export class HealthCheckScheduler {
 
         // Longer delay between recovery batches
         if (i + maxConcurrentRecovery < unhealthyServers.length) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await sleep(500);
         }
       }
 
@@ -464,7 +465,7 @@ export class HealthCheckScheduler {
         // Exponential backoff
         const delay =
           this.config.retryDelayMs * Math.pow(this.config.backoffMultiplier, retryCount);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await sleep(delay);
 
         return this.checkServerHealth(server, retryCount + 1);
       }
@@ -804,7 +805,7 @@ export class HealthCheckScheduler {
       }
 
       // Small delay between tests to avoid overwhelming the server
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await sleep(1000);
     }
 
     return results;
