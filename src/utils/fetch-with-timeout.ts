@@ -4,18 +4,26 @@
  */
 
 import { logger } from './logger.js';
+import { recordTimeoutFired } from './timeout-telemetry.js';
 
 export interface FetchWithTimeoutOptions extends RequestInit {
   timeout?: number;
 }
 
 export interface FetchWithActivityTimeoutOptions extends RequestInit {
-  /** Initial timeout for the connection (ms) */
   connectionTimeout?: number;
-  /** Timeout between chunks during streaming - resets on each chunk (ms) */
   activityTimeout?: number;
-  /** Optional request ID for logging */
   requestId?: string;
+}
+
+export interface FetchTelemetryMeta {
+  serverId?: string;
+  model?: string;
+  protocol?: 'ollama' | 'openai' | 'anthropic';
+  endpoint?: string;
+  isStreaming?: boolean;
+  retryAttempt?: number;
+  circuitBreakerState?: string;
 }
 
 export interface ActivityTimeoutController {
@@ -36,9 +44,10 @@ export interface ActivityTimeoutController {
  */
 export async function fetchWithTimeout(
   url: string,
-  options: FetchWithTimeoutOptions = {}
+  options: FetchWithTimeoutOptions & { telemetryMeta?: FetchTelemetryMeta } = {}
 ): Promise<Response> {
-  const { timeout = 30000, ...fetchOptions } = options;
+  const { timeout = 30000, telemetryMeta, ...fetchOptions } = options;
+  const startTime = Date.now();
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
@@ -52,10 +61,23 @@ export async function fetchWithTimeout(
     });
     return response;
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      const elapsed = Date.now() - startTime;
+      recordTimeoutFired({
+        serverId: telemetryMeta?.serverId ?? 'unknown',
+        model: telemetryMeta?.model ?? 'unknown',
+        protocol: telemetryMeta?.protocol ?? 'ollama',
+        endpoint: telemetryMeta?.endpoint ?? url,
+        isStreaming: telemetryMeta?.isStreaming ?? false,
+        timeoutType: 'non_streaming',
+        configuredTimeoutMs: timeout,
+        elapsedMs: elapsed,
+        retryAttempt: telemetryMeta?.retryAttempt ?? 0,
+        circuitBreakerState: telemetryMeta?.circuitBreakerState,
+      });
+      throw new Error(`Request timeout after ${timeout}ms: ${url}`);
+    }
     if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        throw new Error(`Request timeout after ${timeout}ms: ${url}`);
-      }
       throw new Error(`Fetch failed: ${error.message}`);
     }
     throw error;
@@ -136,14 +158,16 @@ export function createActivityTimeoutController(
  */
 export async function fetchWithActivityTimeout(
   url: string,
-  options: FetchWithActivityTimeoutOptions = {}
+  options: FetchWithActivityTimeoutOptions & { telemetryMeta?: FetchTelemetryMeta } = {}
 ): Promise<{ response: Response; activityController: ActivityTimeoutController }> {
   const {
     connectionTimeout = 30000,
     activityTimeout = 60000,
     requestId,
+    telemetryMeta,
     ...fetchOptions
   } = options;
+  const connectionStartTime = Date.now();
 
   logger.debug('Starting fetch with activity timeout', {
     requestId,
@@ -152,7 +176,6 @@ export async function fetchWithActivityTimeout(
     activityTimeout,
   });
 
-  // Use a regular timeout for the initial connection
   const connectionController = new AbortController();
   const connectionTimeoutId = setTimeout(() => {
     logger.warn('Connection timeout fired', {
@@ -177,16 +200,28 @@ export async function fetchWithActivityTimeout(
       activityTimeout,
     });
 
-    // Create activity timeout controller for streaming phase
     const activityController = createActivityTimeoutController(activityTimeout, url, requestId);
 
     return { response, activityController };
   } catch (error) {
     clearTimeout(connectionTimeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      const elapsed = Date.now() - connectionStartTime;
+      recordTimeoutFired({
+        serverId: telemetryMeta?.serverId ?? 'unknown',
+        model: telemetryMeta?.model ?? 'unknown',
+        protocol: telemetryMeta?.protocol ?? 'ollama',
+        endpoint: telemetryMeta?.endpoint ?? url,
+        isStreaming: telemetryMeta?.isStreaming ?? true,
+        timeoutType: 'connection',
+        configuredTimeoutMs: connectionTimeout,
+        elapsedMs: elapsed,
+        retryAttempt: telemetryMeta?.retryAttempt ?? 0,
+        circuitBreakerState: telemetryMeta?.circuitBreakerState,
+      });
+      throw new Error(`Connection timeout after ${connectionTimeout}ms: ${url}`);
+    }
     if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        throw new Error(`Connection timeout after ${connectionTimeout}ms: ${url}`);
-      }
       throw new Error(`Fetch failed: ${error.message}`);
     }
     throw error;

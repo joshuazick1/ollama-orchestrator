@@ -12,6 +12,7 @@
 
 import { CircuitBreaker } from './circuit-breaker/circuit-breaker.js';
 import { featureFlags } from './config/feature-flags.js';
+import { sleep } from './utils/async-helpers.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
@@ -42,7 +43,7 @@ interface TestCoordinatorConfig {
 }
 
 const DEFAULT_CONFIG: TestCoordinatorConfig = {
-  serverCooldownMs: 10000, // 10 seconds between tests
+  serverCooldownMs: 2000, // 2 seconds between tests (reduced from 10s for faster sequential recovery)
   maxWaitForInFlightMs: 5000, // Wait up to 5 seconds for in-flight to clear
   modelTestTimeoutMs: 120000, // 120 seconds for model test (increased from 60s)
   tagsTestTimeoutMs: 5000, // 5 seconds for /api/tags probe
@@ -125,6 +126,12 @@ export class RecoveryTestCoordinator {
   private getTimeout?: (serverId: string, model: string) => number;
   /** Callback to record timeout failure and escalate timeout */
   private recordTimeoutFailure?: (serverId: string, model: string) => void;
+  /** Callback to record active test timeout without escalating adaptive timeout */
+  private recordActiveTestTimeout?: (
+    serverId: string,
+    model: string,
+    testTimeoutMs: number
+  ) => void;
   /** Track test attempts per breaker for progressive timeout doubling */
   private breakerTestAttempts = new Map<string, number>();
   /** Track which servers have tests invalidated by real requests during testing */
@@ -249,6 +256,17 @@ export class RecoveryTestCoordinator {
   }
 
   /**
+   * Set the record active test timeout callback
+   * Called when an active test times out but does NOT escalate adaptive timeout
+   */
+  setRecordActiveTestTimeout(
+    callback: (serverId: string, model: string, testTimeoutMs: number) => void
+  ): void {
+    this.recordActiveTestTimeout = callback;
+    logger.debug('RecoveryTestCoordinator: setRecordActiveTestTimeout configured');
+  }
+
+  /**
    * Set the callback to notify when tests are invalidated
    * The orchestrator can use this to re-schedule testing when the server becomes idle
    */
@@ -298,6 +316,16 @@ export class RecoveryTestCoordinator {
   private incrementBreakerTestAttempt(breakerName: string): number {
     const current = this.getBreakerTestAttempt(breakerName);
     const next = current + 1;
+
+    // Reset after 10 failures to prevent permanent max timeout
+    if (next >= 10) {
+      logger.warn(
+        `Resetting test attempt counter for ${breakerName} after ${next} consecutive failures`
+      );
+      this.breakerTestAttempts.set(breakerName, 0);
+      return 0;
+    }
+
     this.breakerTestAttempts.set(breakerName, next);
     return next;
   }
@@ -1145,8 +1173,8 @@ export class RecoveryTestCoordinator {
 
     const results: ActiveTestResult[] = [];
 
-    // Limit concurrent tests per server
-    const maxConcurrentPerServer = 2;
+    // Limit concurrent tests per server - 1 for sequential model recovery
+    const maxConcurrentPerServer = 1;
 
     // Sort by halfOpenStartedAt (oldest first)
     breakers.sort((a, b) => {
@@ -1329,9 +1357,10 @@ export class RecoveryTestCoordinator {
           breaker.recordFailure(new Error(errorMsg), 'transient');
           this.incrementBreakerTestAttempt(breakerName);
 
-          // If test timed out, record failure to escalate adaptive timeout
-          if (isTimeout && model && this.recordTimeoutFailure) {
-            this.recordTimeoutFailure(serverId, model);
+          // If test timed out, record it without escalating adaptive timeout
+          // Active test timeouts don't affect real request timeouts
+          if (isTimeout && model && this.recordActiveTestTimeout) {
+            this.recordActiveTestTimeout(serverId, model, calculatedTimeout);
           }
         } else {
           logger.info(
@@ -1344,7 +1373,7 @@ export class RecoveryTestCoordinator {
       }
 
       // Small delay between tests
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await sleep(1000);
     }
 
     // REC-13: release the server lock now that the batch is complete

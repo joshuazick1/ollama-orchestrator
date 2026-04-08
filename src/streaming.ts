@@ -6,9 +6,18 @@
 import type { Response } from 'express';
 
 import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
+import { sleep } from './utils/async-helpers.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
+import { recordStallDetected, recordStreamingChunkGap } from './utils/timeout-telemetry.js';
+
+export interface StreamingTelemetryMeta {
+  serverId: string;
+  model: string;
+  protocol: 'ollama' | 'openai' | 'anthropic';
+  endpoint: string;
+}
 
 interface AbortSignalCompat extends AbortSignal {
   onabort: ((this: AbortSignal, ev: Event) => unknown) | null;
@@ -260,7 +269,8 @@ export async function streamResponse(
     resetTimeout: () => void;
     controller: AbortController;
   },
-  preEnd?: (clientResponse: Response) => void | Promise<void>
+  preEnd?: (clientResponse: Response) => void | Promise<void>,
+  streamingTelemetryMeta?: StreamingTelemetryMeta
 ): Promise<void> {
   const ttftTracker = existingTtftTracker ?? new TTFTTracker(ttftOptions);
   const startTime = Date.now();
@@ -281,12 +291,14 @@ export async function streamResponse(
   let abortHandler: (() => void) | undefined;
   let accumulatedText = '';
   let lastContext: number[] | undefined;
-  const LOG_INTERVAL = 30000; // Log progress every 30 seconds
-  const MAX_ACCUMULATED_TEXT = 1_000_000; // 1MB limit to prevent memory issues
+  const LOG_INTERVAL = 30000;
+  const MAX_ACCUMULATED_TEXT = 1_000_000;
   const effectiveStallThreshold = stallThresholdMs ?? 300000; // Default 5 minutes
   const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000; // Default 10 seconds
 
   const abortController = new AbortController();
+
+  let stallHandoffResult: { success: boolean; error?: string; targetServer?: string } | undefined;
 
   try {
     // Set SSE headers
@@ -410,7 +422,6 @@ export async function streamResponse(
       // Parse chunk to extract content and context
       const chunkText = extractChunkText(value);
       if (chunkText) {
-        // Prevent unbounded memory growth by truncating old text if limit exceeded
         if (accumulatedText.length + chunkText.length > MAX_ACCUMULATED_TEXT) {
           accumulatedText = accumulatedText.slice(-MAX_ACCUMULATED_TEXT / 2) + chunkText;
         } else {
@@ -501,6 +512,7 @@ export async function streamResponse(
             const timeSinceLastChunk = Date.now() - lastChunkTime;
 
             if (timeSinceLastChunk > effectiveStallThreshold) {
+              const stallTime = Date.now();
               logger.warn('Stream stall detected - attempting handoff', {
                 streamingRequestId,
                 timeSinceLastChunk,
@@ -515,34 +527,76 @@ export async function streamResponse(
                 stallCheckInterval = undefined;
               }
 
+              /**
+               * Helper: Record stall detection telemetry
+               */
+              const recordStallTelemetry = (stallTime: number, handoffSuccess: boolean): void => {
+                if (streamingTelemetryMeta) {
+                  recordStallDetected({
+                    serverId: streamingTelemetryMeta.serverId,
+                    model: streamingTelemetryMeta.model,
+                    protocol: streamingTelemetryMeta.protocol,
+                    stallThresholdMs: effectiveStallThreshold,
+                    timeSinceLastChunkMs: timeSinceLastChunk,
+                    timeToFirstTokenMs: firstTokenTime ? firstTokenTime - startTime : 0,
+                    totalTokensBeforeStall: tokenCount,
+                    totalDurationMs: stallTime - startTime,
+                    handoffAttempted: true,
+                    handoffSuccess,
+                    handoffTargetServer: stallHandoffResult?.targetServer,
+                  });
+                }
+              };
+
+              /**
+               * Helper: Handle successful stall handoff
+               */
+              const handleStallHandoffSuccess = (result: StallHandlerResult | void): void => {
+                stallHandoffResult = { success: result?.success ?? false, error: result?.error };
+                logger.info('Stall handled successfully via handoff, cancelling stalled reader', {
+                  streamingRequestId,
+                  handoffError: result?.error,
+                });
+                try {
+                  void reader?.cancel();
+                } catch (e) {
+                  logger.debug('Error cancelling stalled reader after handoff', {
+                    streamingRequestId,
+                    error: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              };
+
+              /**
+               * Helper: Handle failed stall handoff
+               */
+              const handleStallHandoffFailure = (stallError: unknown, stallTime: number): void => {
+                stallHandoffResult = { success: false, error: 'handler_threw' };
+                recordStallTelemetry(stallTime, false);
+                logger.error('Stall handler threw error', {
+                  streamingRequestId,
+                  error: stallError instanceof Error ? stallError.message : String(stallError),
+                });
+                logger.warn('Handoff did not succeed, cancelling reader to abort stream', {
+                  streamingRequestId,
+                  chunkCount,
+                });
+                void reader?.cancel();
+              };
+
+              /**
+               * Execute stall handoff with telemetry
+               */
               void onStall(abortController, streamingRequestId)
                 .then(result => {
-                  // If handler says it handled the handoff successfully, cancel the stalled
-                  // reader so the original stream loop exits cleanly and no further chunks
-                  // from the old upstream reach clientResponse (which would interleave with
-                  // the already-started handoff stream).
-                  // NOTE: do NOT call onStreamEnd() here — the finally block does it after
-                  // the loop exits from the cancelled read, preventing a double-call.
+                  stallHandoffResult = { success: result?.success ?? false, error: result?.error };
+                  if (streamingTelemetryMeta) {
+                    recordStallTelemetry(stallTime, result?.success ?? false);
+                  }
                   if (result?.success) {
-                    logger.info(
-                      'Stall handled successfully via handoff, cancelling stalled reader',
-                      {
-                        streamingRequestId,
-                        handoffError: result.error,
-                      }
-                    );
-                    try {
-                      void reader?.cancel();
-                    } catch (e) {
-                      logger.debug('Error cancelling stalled reader after handoff', {
-                        streamingRequestId,
-                        error: e instanceof Error ? e.message : String(e),
-                      });
-                    }
+                    handleStallHandoffSuccess(result);
                     return;
                   }
-
-                  // If we get here, handoff didn't work - abort the stream
                   logger.warn('Handoff did not succeed, cancelling reader to abort stream', {
                     streamingRequestId,
                     chunkCount,
@@ -550,17 +604,7 @@ export async function streamResponse(
                   void reader?.cancel();
                 })
                 .catch((stallError: unknown) => {
-                  logger.error('Stall handler threw error', {
-                    streamingRequestId,
-                    error: stallError instanceof Error ? stallError.message : String(stallError),
-                  });
-
-                  // Handoff failed with error - abort the stream
-                  logger.warn('Handoff did not succeed, cancelling reader to abort stream', {
-                    streamingRequestId,
-                    chunkCount,
-                  });
-                  void reader?.cancel();
+                  handleStallHandoffFailure(stallError, stallTime);
                 });
             }
           }, effectiveStallCheckInterval);
@@ -593,6 +637,26 @@ export async function streamResponse(
           maxChunkGap,
           clientConnected: !clientResponse.writableEnded,
         });
+
+        if (streamingTelemetryMeta) {
+          const timeSinceFirstToken = firstTokenTime ? now - firstTokenTime : 0;
+          const avgChunkGap = chunkCount > 0 ? (now - startTime) / chunkCount : 0;
+          const activityTimeoutMs = effectiveStallThreshold / 1.5;
+          recordStreamingChunkGap({
+            serverId: streamingTelemetryMeta.serverId,
+            model: streamingTelemetryMeta.model,
+            protocol: streamingTelemetryMeta.protocol,
+            chunkCount,
+            totalTokensSoFar: tokenCount,
+            timeSinceFirstTokenMs: timeSinceFirstToken,
+            timeSinceLastChunkMs: now - lastChunkTime,
+            maxChunkGapMs: maxChunkGap,
+            avgChunkGapMs: Math.round(avgChunkGap),
+            effectiveTimeoutMs: effectiveStallThreshold,
+            activityTimeoutMs,
+            approachingTimeout: now - lastChunkTime > activityTimeoutMs * 0.5,
+          });
+        }
         lastLogTime = now;
       }
 
@@ -754,7 +818,11 @@ export async function streamResponse(
         details: error instanceof Error ? error.message : String(error),
       });
     } else {
-      // Otherwise just end the stream
+      const errorPayload = JSON.stringify({
+        error: 'Streaming failed',
+        details: error instanceof Error ? error.message : String(error),
+      });
+      clientResponse.write(`${errorPayload}\n`);
       clientResponse.end();
     }
   } finally {
@@ -859,7 +927,7 @@ export async function handleStreamWithRetry<T>(
       if (attempt < maxRetries) {
         onRetry?.(attempt, lastError);
         // Exponential backoff
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
+        await sleep(Math.pow(2, attempt) * 100);
       }
     }
   }
@@ -900,7 +968,8 @@ export async function streamAnthropicResponse(
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number,
   onStreamEnd?: () => void,
-  preEnd?: (clientResponse: Response) => void | Promise<void>
+  preEnd?: (clientResponse: Response) => void | Promise<void>,
+  streamingTelemetryMeta?: StreamingTelemetryMeta
 ): Promise<void> {
   const startTime = Date.now();
   let chunkCount = 0;
@@ -913,6 +982,7 @@ export async function streamAnthropicResponse(
   let inputTokens = 0;
   let outputTokens = 0;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let stallTime: number | undefined;
   const effectiveStallThreshold = stallThresholdMs ?? 300000;
   const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000;
   const MAX_ACCUMULATED_TEXT = 1_000_000;
@@ -967,6 +1037,7 @@ export async function streamAnthropicResponse(
           }
           const timeSinceLastChunk = Date.now() - lastChunkTime;
           if (timeSinceLastChunk > effectiveStallThreshold) {
+            stallTime = Date.now();
             logger.warn('Anthropic stream stall detected', {
               streamingRequestId,
               timeSinceLastChunk,
@@ -977,6 +1048,20 @@ export async function streamAnthropicResponse(
             if (stallCheckInterval) {
               clearInterval(stallCheckInterval);
               stallCheckInterval = undefined;
+            }
+            if (streamingTelemetryMeta) {
+              recordStallDetected({
+                serverId: streamingTelemetryMeta.serverId,
+                model: streamingTelemetryMeta.model,
+                protocol: streamingTelemetryMeta.protocol,
+                stallThresholdMs: effectiveStallThreshold,
+                timeSinceLastChunkMs: timeSinceLastChunk,
+                timeToFirstTokenMs: 0,
+                totalTokensBeforeStall: chunkCount,
+                totalDurationMs: stallTime - startTime,
+                handoffAttempted: true,
+                handoffSuccess: false,
+              });
             }
             void onStall(abortController, streamingRequestId)
               .then(result => {
