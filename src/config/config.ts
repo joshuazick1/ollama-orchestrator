@@ -10,8 +10,11 @@ import type { CircuitBreakerConfig } from '../circuit-breaker/circuit-breaker.js
 import type { LoadBalancerConfig } from '../load-balancer/load-balancer.js';
 import { refreshAuthConfig } from '../middleware/auth.js';
 import type { ModelManagerConfig } from '../model-manager.js';
+import { deepMerge } from '../utils/deep-merge.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
+
+import { validatePartialConfig } from './schema.js';
 
 // Configuration types
 export interface ServerConfig {
@@ -98,6 +101,17 @@ export interface RecoveryTestConfig {
   tagsTestTimeoutMs: number;
   /** Number of tokens to use in active test prompts (default: 256) */
   testPromptTokens: number;
+}
+
+export interface TimeoutConfig {
+  defaultTimeoutMs: number;
+  minTimeoutMs: number;
+  maxTimeoutMs: number;
+  recoveryTestMultiplier: number;
+  normalRequestMultiplier: number;
+  decayRatePerMs: number;
+  stallThresholdMultiplier: number;
+  stallThresholdCapMs: number;
 }
 
 export interface StorageRetentionConfig {
@@ -193,6 +207,7 @@ export interface OrchestratorConfig {
   cooldown: CooldownConfig;
   modelManager: ModelManagerConfig;
   recoveryTest: RecoveryTestConfig;
+  timeout: TimeoutConfig;
   storage: StorageConfig;
   probeScheduler: ProbeSchedulerConfig;
   anthropic: AnthropicConfig;
@@ -279,7 +294,8 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     halfOpenMaxRequests: 5,
     recoverySuccessThreshold: 3,
     activeTestTimeout: 300000, // 5 minutes
-    maxHalfOpenPerServer: 3,
+    maxHalfOpenPerServer: 1, // Sequential recovery - one model at a time per server
+    maxConsecutiveFailedRecoveries: 5, // Starvation guard threshold (GAP-CB-5)
     errorRateWindow: 60000,
     errorRateThreshold: 0.5,
     adaptiveThresholds: true,
@@ -395,6 +411,17 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     modelTestTimeoutMs: 120000, // 120 seconds for model inference test
     tagsTestTimeoutMs: 5000, // 5 seconds for /api/tags probe
     testPromptTokens: 256, // ~1KB of context for active tests
+  },
+
+  timeout: {
+    defaultTimeoutMs: 120000, // 2 minutes
+    minTimeoutMs: 15000, // 15 seconds
+    maxTimeoutMs: 600000, // 10 minutes
+    recoveryTestMultiplier: 3,
+    normalRequestMultiplier: 2,
+    decayRatePerMs: 1 - Math.pow(0.95, 1 / (5 * 60 * 1000)),
+    stallThresholdMultiplier: 1.5,
+    stallThresholdCapMs: 120000, // 2 minutes
   },
 
   modelManager: {
@@ -677,10 +704,7 @@ export class ConfigManager {
     const currentSection = this.config[section] as unknown as Record<string, unknown>;
     this.config = {
       ...this.config,
-      [section]: {
-        ...currentSection,
-        ...updates,
-      },
+      [section]: deepMerge(currentSection, updates) as unknown as OrchestratorConfig[K],
     };
 
     logger.info(`Configuration section '${section}' updated`);
@@ -870,6 +894,7 @@ export class ConfigManager {
       retry: { ...DEFAULT_CONFIG.retry, ...partial.retry },
       cooldown: { ...DEFAULT_CONFIG.cooldown, ...partial.cooldown },
       recoveryTest: { ...DEFAULT_CONFIG.recoveryTest, ...partial.recoveryTest },
+      timeout: { ...DEFAULT_CONFIG.timeout, ...partial.timeout },
       modelManager: { ...DEFAULT_CONFIG.modelManager, ...partial.modelManager },
       storage: partial.storage
         ? {
@@ -895,115 +920,35 @@ export class ConfigManager {
    * Validate configuration values
    */
   private validateConfig(config: Partial<OrchestratorConfig>): ValidationError[] {
-    const errors: ValidationError[] = [];
-
-    // Validate port
-    if (config.port !== undefined) {
-      if (typeof config.port !== 'number' || config.port < 1 || config.port > 65535) {
-        errors.push({
-          path: 'port',
-          message: 'Port must be a number between 1 and 65535',
-          value: config.port,
-        });
-      }
-    }
-
-    // Validate log level
-    if (config.logLevel !== undefined) {
-      const validLevels = ['debug', 'info', 'warn', 'error'];
-      if (!validLevels.includes(config.logLevel)) {
-        errors.push({
-          path: 'logLevel',
-          message: `Log level must be one of: ${validLevels.join(', ')}`,
-          value: config.logLevel,
-        });
-      }
-    }
-
-    // Validate health check config
-    if (config.healthCheck) {
-      if (
-        config.healthCheck.intervalMs !== undefined &&
-        (typeof config.healthCheck.intervalMs !== 'number' || config.healthCheck.intervalMs < 1000)
-      ) {
-        errors.push({
-          path: 'healthCheck.intervalMs',
-          message: 'Health check interval must be at least 1000ms',
-          value: config.healthCheck.intervalMs,
-        });
-      }
-
-      if (
-        config.healthCheck.timeoutMs !== undefined &&
-        (typeof config.healthCheck.timeoutMs !== 'number' || config.healthCheck.timeoutMs < 500)
-      ) {
-        errors.push({
-          path: 'healthCheck.timeoutMs',
-          message: 'Health check timeout must be at least 500ms',
-          value: config.healthCheck.timeoutMs,
-        });
-      }
-
-      if (
-        config.healthCheck.maxConcurrentChecks !== undefined &&
-        (typeof config.healthCheck.maxConcurrentChecks !== 'number' ||
-          config.healthCheck.maxConcurrentChecks < 1)
-      ) {
-        errors.push({
-          path: 'healthCheck.maxConcurrentChecks',
-          message: 'Max concurrent checks must be at least 1',
-          value: config.healthCheck.maxConcurrentChecks,
-        });
-      }
-    }
-
-    // Validate servers
-    if (config.servers) {
-      if (!Array.isArray(config.servers)) {
-        errors.push({
-          path: 'servers',
-          message: 'Servers must be an array',
-          value: config.servers,
-        });
-      } else {
-        config.servers.forEach((server, index) => {
-          if (!server.id) {
-            errors.push({
-              path: `servers[${index}].id`,
-              message: 'Server ID is required',
-              value: server.id,
-            });
-          }
-          if (!server.url) {
-            errors.push({
-              path: `servers[${index}].url`,
-              message: 'Server URL is required',
-              value: server.url,
-            });
-          }
-          if (server.url && !this.isValidUrl(server.url)) {
-            errors.push({
-              path: `servers[${index}].url`,
-              message: 'Server URL must be a valid URL',
-              value: server.url,
-            });
-          }
-        });
-      }
-    }
-
-    return errors;
-  }
-
-  /**
-   * Check if string is a valid URL
-   */
-  private isValidUrl(url: string): boolean {
     try {
-      new URL(url);
-      return true;
-    } catch {
-      return false;
+      validatePartialConfig(config);
+      return [];
+    } catch (error) {
+      if (error instanceof Error) {
+        const lines = error.message.split('\n').filter(line => line.startsWith('  '));
+        return lines.map(line => {
+          const match = line.trim().match(/^(\S+?):\s+(.+)$/);
+          if (match) {
+            return {
+              path: match[1],
+              message: match[2],
+              value: undefined,
+            };
+          }
+          return {
+            path: 'unknown',
+            message: line.trim(),
+            value: undefined,
+          };
+        });
+      }
+      return [
+        {
+          path: 'unknown',
+          message: 'Unknown validation error',
+          value: undefined,
+        },
+      ];
     }
   }
 

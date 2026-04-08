@@ -310,6 +310,41 @@ export const modelManagerConfigSchema = z.object({
 });
 
 /**
+ * TimeoutManager configuration schema
+ */
+export const timeoutConfigSchema = z.object({
+  /** Default timeout for new server:model pairs (ms) */
+  defaultTimeoutMs: z.number().int().min(1000).default(120000), // 2 minutes
+  /** Minimum allowed timeout (ms) */
+  minTimeoutMs: z.number().int().min(1000).default(15000), // 15 seconds
+  /** Maximum allowed timeout (ms) */
+  maxTimeoutMs: z.number().int().min(1000).default(600000), // 10 minutes
+  /** Timeout multiplier for recovery/active-test requests */
+  recoveryTestMultiplier: z.number().min(1).default(3),
+  /** Timeout multiplier for normal (non-test) requests */
+  normalRequestMultiplier: z.number().min(1).default(2),
+  /**
+   * Decay rate per millisecond toward baseTimeout.
+   * Default: 5% reduction every 5 minutes ≈ 1.67e-7 per ms.
+   * Set to 0 to disable decay.
+   */
+  decayRatePerMs: z.number().min(0).default(1.67e-7),
+  /**
+   * Stall detection threshold multiplier applied to the effective timeout.
+   * A stream is considered stalled when no chunks arrive for
+   * `effectiveTimeout * stallThresholdMultiplier` milliseconds.
+   * Default: 1.5x (stream stalled after 1.5x the timeout gap)
+   */
+  stallThresholdMultiplier: z.number().min(1).default(1.5),
+  /**
+   * Cap for stall threshold in milliseconds.
+   * Prevents excessively long stall detection windows.
+   * Default: 120000 (2 minutes)
+   */
+  stallThresholdCapMs: z.number().int().min(1000).default(120000),
+});
+
+/**
  * Recovery test configuration schema
  */
 export const recoveryTestConfigSchema = z.object({
@@ -436,6 +471,7 @@ export const orchestratorConfigSchema = z.object({
   cooldown: cooldownConfigSchema,
   modelManager: modelManagerConfigSchema,
   recoveryTest: recoveryTestConfigSchema,
+  timeout: timeoutConfigSchema,
   storage: storageConfigSchema,
   probeScheduler: probeSchedulerConfigSchema,
   anthropic: anthropicConfigSchema,
@@ -469,6 +505,7 @@ export type StorageTemporalConfig = z.infer<typeof storageTemporalConfigSchema>;
 export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
+export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
 
 /**

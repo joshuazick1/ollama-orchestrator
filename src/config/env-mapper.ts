@@ -103,6 +103,16 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_RETRY_MAX_DELAY: 'retry.maxRetryDelayMs',
   ORCHESTRATOR_RETRY_STATUS_CODES: 'retry.retryableStatusCodes',
 
+  // Timeout settings
+  ORCHESTRATOR_TIMEOUT_DEFAULT_MS: 'timeout.defaultTimeoutMs',
+  ORCHESTRATOR_TIMEOUT_MIN_MS: 'timeout.minTimeoutMs',
+  ORCHESTRATOR_TIMEOUT_MAX_MS: 'timeout.maxTimeoutMs',
+  ORCHESTRATOR_TIMEOUT_RECOVERY_MULTIPLIER: 'timeout.recoveryTestMultiplier',
+  ORCHESTRATOR_TIMEOUT_NORMAL_MULTIPLIER: 'timeout.normalRequestMultiplier',
+  ORCHESTRATOR_TIMEOUT_DECAY_RATE: 'timeout.decayRatePerMs',
+  ORCHESTRATOR_TIMEOUT_STALL_MULTIPLIER: 'timeout.stallThresholdMultiplier',
+  ORCHESTRATOR_TIMEOUT_STALL_CAP_MS: 'timeout.stallThresholdCapMs',
+
   // Model manager settings
   ORCHESTRATOR_MM_MAX_RETRIES: 'modelManager.maxRetries',
   ORCHESTRATOR_MM_RETRY_DELAY_BASE: 'modelManager.retryDelayBaseMs',
