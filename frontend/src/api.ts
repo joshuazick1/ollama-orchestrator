@@ -20,26 +20,46 @@ export interface ApiErrorInfo {
 
 export const api = axios.create({
   baseURL: '/api/orchestrator',
-  timeout: 30000, // 30 second timeout
+  timeout: 30000,
 });
 
-// Add request interceptor for auth if needed
+type LogoutFn = () => void;
+let authLogoutCallback: LogoutFn | null = null;
+
+let csrfToken: string | null = null;
+
+function getCsrfFromCookies(): string | null {
+  const match = document.cookie.match(/csrf-token=([^;]+)/);
+  return match ? match[1] : null;
+}
+
+export const setAuthLogoutCallback = (fn: LogoutFn) => {
+  authLogoutCallback = fn;
+};
+
 api.interceptors.request.use(
   config => {
-    // Add auth headers if needed
+    if (csrfToken) {
+      config.headers['X-CSRF-Token'] = csrfToken;
+    }
     return config;
   },
   error => Promise.reject(error)
 );
 
-// Add response interceptor for error handling
 api.interceptors.response.use(
-  response => response,
+  response => {
+    csrfToken = getCsrfFromCookies();
+    return response;
+  },
   (error: AxiosError) => {
     if (error.response) {
-      // Server responded with error status
       const status = error.response.status;
       const data = error.response.data as { error?: string; details?: unknown };
+
+      if (status === 401 && authLogoutCallback) {
+        authLogoutCallback();
+      }
 
       let message = 'An error occurred';
       if (data?.error) {
@@ -54,14 +74,12 @@ api.interceptors.response.use(
 
       throw new ApiError(message, status, data?.details);
     } else if (error.request) {
-      // Network error
       throw new ApiError(
         'Network error - please check your connection',
         undefined,
         'NETWORK_ERROR'
       );
     } else {
-      // Other error
       throw new ApiError(error.message || 'Unknown error', undefined, error.code);
     }
   }
@@ -388,6 +406,38 @@ export const saveConfig = async () => {
 export const reloadConfig = async () => {
   return apiCall(async () => {
     const response = await api.post('/config/reload');
+    return response.data;
+  });
+};
+
+export interface ConfigExport {
+  exportedAt: string;
+  version: number;
+  config: OrchestratorConfig;
+}
+
+export const exportConfig = async (): Promise<ConfigExport> => {
+  return apiCall(async () => {
+    const response = await api.get('/config/export');
+    return response.data;
+  });
+};
+
+export interface ImportConfigResult {
+  success: boolean;
+  message: string;
+  config: OrchestratorConfig;
+  mode: 'merge' | 'replace';
+}
+
+export const importConfig = async (
+  config: Partial<OrchestratorConfig>,
+  mode: 'merge' | 'replace' = 'merge'
+): Promise<ImportConfigResult> => {
+  return apiCall(async () => {
+    const response = await api.post('/config/import', { config, version: 1 }, {
+      params: { mode },
+    });
     return response.data;
   });
 };
@@ -793,6 +843,135 @@ export const getIdleModels = async () => {
 export const triggerHealthCheck = async () => {
   return apiCall(async () => {
     const response = await api.post('/health-check');
+    return response.data;
+  });
+};
+
+export interface ErrorEvent {
+  id: string;
+  serverId: string;
+  circuitId: string;
+  errorType: 'retryable' | 'non_retryable' | 'transient' | 'permanent' | 'rate_limited';
+  errorMessage: string;
+  timestamp: string;
+  retryable: boolean;
+  category: 'resource' | 'compatibility' | 'network' | 'auth' | 'config' | 'unknown';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  matchedPattern: string | null;
+}
+
+export interface ErrorEventsResponse {
+  success: boolean;
+  count: number;
+  errors: ErrorEvent[];
+}
+
+export const getErrors = async (queryParams?: string): Promise<ErrorEvent[]> => {
+  return apiCall(async () => {
+    const response = await api.get<ErrorEventsResponse>(`/errors${queryParams || ''}`);
+    return response.data.errors;
+  });
+};
+
+// === User Management API ===
+
+export interface UserResponse {
+  id: string;
+  username: string;
+  email: string;
+  role: 'admin' | 'user';
+  isActive: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface UserAccess {
+  serverAccess: string[];
+  modelAccess: Array<{ serverId: string; model: string }>;
+}
+
+export interface CreateUserData {
+  username: string;
+  email: string;
+  password: string;
+  role?: 'user' | 'admin';
+}
+
+export interface UpdateUserData {
+  username?: string;
+  email?: string;
+  password?: string;
+  role?: 'user' | 'admin';
+}
+
+export const getUsers = async (): Promise<UserResponse[]> => {
+  return apiCall(async () => {
+    const response = await api.get('/users');
+    return response.data.users;
+  });
+};
+
+export const createUser = async (data: CreateUserData) => {
+  return apiCall(async () => {
+    const response = await api.post('/users', data);
+    return response.data;
+  });
+};
+
+export const updateUser = async (id: string, data: UpdateUserData) => {
+  return apiCall(async () => {
+    const response = await api.put(`/users/${id}`, data);
+    return response.data;
+  });
+};
+
+export const deleteUser = async (id: string) => {
+  return apiCall(async () => {
+    const response = await api.delete(`/users/${id}`);
+    return response.data;
+  });
+};
+
+export const grantServerAccess = async (userId: string, serverId: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/users/${userId}/access/server`, { serverId });
+    return response.data;
+  });
+};
+
+export const revokeServerAccess = async (userId: string, serverId: string) => {
+  return apiCall(async () => {
+    const response = await api.delete(`/users/${userId}/access/server/${serverId}`);
+    return response.data;
+  });
+};
+
+export const grantModelAccess = async (userId: string, serverId: string, model: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/users/${userId}/access/model`, { serverId, model });
+    return response.data;
+  });
+};
+
+export const revokeModelAccess = async (userId: string, serverId: string, model: string) => {
+  return apiCall(async () => {
+    const response = await api.delete(
+      `/users/${userId}/access/model/${encodeURIComponent(serverId)}/${encodeURIComponent(model)}`
+    );
+    return response.data;
+  });
+};
+
+export const getUserAccess = async (userId: string): Promise<UserAccess> => {
+  return apiCall(async () => {
+    const response = await api.get(`/users/${userId}/access`);
+    return response.data;
+  });
+};
+
+export const rotateApiKey = async (userId: string): Promise<{ apiKey: string; message: string }> => {
+  return apiCall(async () => {
+    const response = await api.post(`/users/${userId}/rotate-api-key`);
     return response.data;
   });
 };

@@ -90,6 +90,12 @@ export interface CooldownConfig {
   defaultMaxConcurrency: number; // Default max concurrency for servers
 }
 
+export interface RateLimitConfig {
+  defaultRetryAfterMs: number; // Default retry delay when no Retry-After header
+  maxRetryAfterMs: number; // Maximum retry delay cap
+  enableRetryAfterHeader: boolean; // Whether to respect Retry-After header
+}
+
 export interface RecoveryTestConfig {
   /** Minimum ms between recovery tests on the same server */
   serverCooldownMs: number;
@@ -205,6 +211,7 @@ export interface OrchestratorConfig {
   tags: TagsConfig;
   retry: RetryConfig;
   cooldown: CooldownConfig;
+  rateLimit: RateLimitConfig;
   modelManager: ModelManagerConfig;
   recoveryTest: RecoveryTestConfig;
   timeout: TimeoutConfig;
@@ -405,6 +412,12 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     defaultMaxConcurrency: 4,
   },
 
+  rateLimit: {
+    defaultRetryAfterMs: 60000,
+    maxRetryAfterMs: 300000,
+    enableRetryAfterHeader: true,
+  },
+
   recoveryTest: {
     serverCooldownMs: 10000, // 10 seconds between tests on same server
     maxWaitForInFlightMs: 5000, // Wait up to 5 seconds for in-flight to clear
@@ -453,7 +466,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     },
     performance: {
       batchSize: 100,
-      batchFlushIntervalMs: 1000,
+      batchFlushIntervalMs: 100,
       rollupDeadlineMinutes: 10,
       profileRebuildIntervalMs: 86_400_000,
       retentionCheckIntervalMs: 3_600_000,
@@ -893,6 +906,7 @@ export class ConfigManager {
       tags: { ...DEFAULT_CONFIG.tags, ...partial.tags },
       retry: { ...DEFAULT_CONFIG.retry, ...partial.retry },
       cooldown: { ...DEFAULT_CONFIG.cooldown, ...partial.cooldown },
+      rateLimit: { ...DEFAULT_CONFIG.rateLimit, ...partial.rateLimit },
       recoveryTest: { ...DEFAULT_CONFIG.recoveryTest, ...partial.recoveryTest },
       timeout: { ...DEFAULT_CONFIG.timeout, ...partial.timeout },
       modelManager: { ...DEFAULT_CONFIG.modelManager, ...partial.modelManager },

@@ -35,6 +35,8 @@ describe('AIOrchestrator', () => {
       successThreshold: 2,
       backoffMultiplier: 1.5,
     });
+    orchestrator['healthCheckScheduler'].stop();
+    orchestrator['probeScheduler'].stop();
   });
 
   describe('Server Management', () => {
@@ -2516,10 +2518,14 @@ describe('AIOrchestrator', () => {
   });
 
   describe('Complex failover scenarios', () => {
+    // Use unique server IDs per test to avoid circuit breaker state collision
+    const testServerIds = ['failover-s1', 'failover-s2', 'failover-s3'];
+
     beforeEach(() => {
       orchestrator['probeScheduler'].stop();
+      orchestrator['healthCheckScheduler'].stop();
 
-      ['server-1', 'server-2', 'server-3'].forEach(id => {
+      testServerIds.forEach(id => {
         const serverCb = orchestrator['getCircuitBreaker'](id);
         if (serverCb) {
           serverCb.forceClose();
@@ -2538,11 +2544,11 @@ describe('AIOrchestrator', () => {
         });
       });
 
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-3', url: 'http://localhost:11436', type: 'ollama' });
+      testServerIds.forEach((id, idx) => {
+        orchestrator.addServer({ id, url: `http://localhost:${11434 + idx}`, type: 'ollama' });
+      });
 
-      ['server-1', 'server-2', 'server-3'].forEach(id => {
+      testServerIds.forEach(id => {
         const s = orchestrator.getServer(id);
         if (s) {
           s.healthy = true;
@@ -2558,6 +2564,9 @@ describe('AIOrchestrator', () => {
     it('should try all servers in phase 1 before moving to phase 2', async () => {
       const serverAttempts: string[] = [];
 
+      const servers = orchestrator.getServers();
+      console.log('SERVERS AT TEST START:', servers.map(s => ({ id: s.id, healthy: s.healthy, models: s.models })));
+
       try {
         await orchestrator.tryRequestWithFailover('llama2', async server => {
           serverAttempts.push(server.id);
@@ -2567,6 +2576,7 @@ describe('AIOrchestrator', () => {
         // Expected to fail
       }
 
+      console.log('ATTEMPTS:', serverAttempts);
       // Should have attempted all 3 servers at least twice (phase 1 + phase 2)
       expect(serverAttempts.length).toBeGreaterThanOrEqual(3);
     });
@@ -3022,8 +3032,7 @@ describe('AIOrchestrator', () => {
       const server = orchestrator.getServer('server-1');
       expect(server?.healthy).toBe(false);
       expect(server?.models).toEqual([]);
-      // Cache may or may not be invalidated depending on previous state
-      expect(orchestrator['tagsCache']).toBeDefined();
+      expect(orchestrator['tagsCache']).toBeUndefined();
     });
 
     it('should handle success with loaded models and VRAM', () => {

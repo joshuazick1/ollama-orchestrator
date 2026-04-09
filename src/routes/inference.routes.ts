@@ -26,6 +26,7 @@ import {
   embeddingsRequestSchema,
   embedRequestSchema,
 } from '../middleware/validation.js';
+import { requireAuth, optionalAuth } from '../middleware/auth.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =
@@ -38,23 +39,25 @@ const asyncHandler =
 
 export const inferenceRouter = Router();
 
-inferenceRouter.get('/tags', asyncHandler(handleTags));
+inferenceRouter.get('/tags', optionalAuth(), asyncHandler(handleTags));
 inferenceRouter.post(
   '/generate',
+  requireAuth(),
   validateRequest(generateRequestSchema),
   asyncHandler(handleGenerate)
 );
-inferenceRouter.post('/chat', validateRequest(chatRequestSchema), asyncHandler(handleChat));
+inferenceRouter.post('/chat', requireAuth(), validateRequest(chatRequestSchema), asyncHandler(handleChat));
 inferenceRouter.post(
   '/embeddings',
+  requireAuth(),
   validateRequest(embeddingsRequestSchema),
   asyncHandler(handleEmbeddings)
 );
-inferenceRouter.get('/ps', asyncHandler(handlePs));
-inferenceRouter.get('/version', handleVersion);
+inferenceRouter.get('/ps', optionalAuth(), asyncHandler(handlePs));
+inferenceRouter.get('/version', optionalAuth(), handleVersion);
 
-inferenceRouter.post('/show', asyncHandler(handleShow));
-inferenceRouter.post('/embed', validateRequest(embedRequestSchema), asyncHandler(handleEmbed));
+inferenceRouter.post('/show', requireAuth(), asyncHandler(handleShow));
+inferenceRouter.post('/embed', requireAuth(), validateRequest(embedRequestSchema), asyncHandler(handleEmbed));
 
 // Multi-node incompatible endpoints - always reject with helpful message
 inferenceRouter.post('/pull', handleUnsupported);
@@ -66,6 +69,6 @@ inferenceRouter.post('/blobs/:digest', handleUnsupported);
 inferenceRouter.post('/push', handleUnsupported);
 
 // Server-specific routes (/:endpoint--$serverid) for testing/debugging
-inferenceRouter.post('/generate--:serverId', asyncHandler(handleGenerateToServer));
-inferenceRouter.post('/chat--:serverId', asyncHandler(handleChatToServer));
-inferenceRouter.post('/embeddings--:serverId', asyncHandler(handleEmbeddingsToServer));
+inferenceRouter.post('/generate--:serverId', requireAuth(), asyncHandler(handleGenerateToServer));
+inferenceRouter.post('/chat--:serverId', requireAuth(), asyncHandler(handleChatToServer));
+inferenceRouter.post('/embeddings--:serverId', requireAuth(), asyncHandler(handleEmbeddingsToServer));

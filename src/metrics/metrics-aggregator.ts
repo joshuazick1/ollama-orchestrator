@@ -90,6 +90,14 @@ export class MetricsAggregator {
    * Record a request completion
    */
   recordRequest(context: RequestContext): void {
+    // Skip sliding window updates for probe requests - they should still be recorded to SQLite
+    // but should not affect analytics metrics
+    if (context.isProbe) {
+      // Still schedule persistence save to persist any non-probe metrics changes
+      this.persistence.scheduleSave(this.getMetricsData());
+      return;
+    }
+
     const key = `${context.serverId}:${context.model}`;
     const now = Date.now();
 

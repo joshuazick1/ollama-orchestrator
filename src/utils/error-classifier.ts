@@ -3,7 +3,11 @@
  * Centralized error classification for consistent handling across the system
  */
 
+import crypto from 'crypto';
+
 import { logger } from './logger.js';
+import { getErrorEventStore } from '../storage/error-event-store.js';
+import type { ErrorEvent } from '../types/error-event.js';
 
 /**
  * Error classification types
@@ -223,6 +227,51 @@ const DEFAULT_RETRY_STRATEGIES: Record<ErrorCategory, RetryStrategy> = {
 };
 
 /**
+ * Map ErrorClassifier ErrorType to ErrorEvent ErrorType
+ * ErrorClassifier uses: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited'
+ * ErrorEvent uses: 'retryable' | 'non_retryable' | 'transient' | 'permanent' | 'rate_limited'
+ */
+function mapErrorTypeToEvent(type: ErrorType): import('../types/error-event.js').ErrorType {
+  switch (type) {
+    case 'non-retryable':
+      return 'non_retryable';
+    case 'rateLimited':
+      return 'rate_limited';
+    default:
+      return type as import('../types/error-event.js').ErrorType;
+  }
+}
+
+/**
+ * Fire-and-forget error event recording
+ * Records error to ErrorEventStore without blocking classification
+ */
+function recordErrorEvent(
+  errorMessage: string,
+  classification: ErrorClassification
+): void {
+  const event: ErrorEvent = {
+    id: crypto.randomUUID(),
+    serverId: 'unknown',
+    circuitId: 'unknown',
+    errorType: mapErrorTypeToEvent(classification.type),
+    errorMessage,
+    timestamp: new Date().toISOString(),
+    category: classification.category,
+    severity: classification.severity,
+    retryable: classification.isRetryable,
+    matchedPattern: classification.matchedPattern ?? null,
+  };
+
+  // Fire-and-forget - do not await
+  getErrorEventStore()
+    .recordError(event)
+    .catch((err) => {
+      logger.warn('[ErrorClassifier] Failed to record error event', { error: err, eventId: event.id });
+    });
+}
+
+/**
  * HTTP status code ranges
  */
 const HTTP_STATUS_PATTERNS = {
@@ -348,17 +397,19 @@ export class ErrorClassifier {
     // Check for ignore patterns first - these shouldn't trigger circuit breakers
     for (let i = 0; i < this.compiledPatterns.ignore.length; i++) {
       if (this.compiledPatterns.ignore[i].test(errorLower)) {
-        return {
-          type: 'non-retryable',
+        const result = {
+          type: 'non-retryable' as const,
           isRetryable: false,
           isTransient: false,
           isPermanent: true,
-          shouldCircuitBreak: false, // Don't open circuit for wrong model type
+          shouldCircuitBreak: false,
           category: ErrorCategory.COMPATIBILITY,
           severity: ErrorSeverity.LOW,
           retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.COMPATIBILITY],
           matchedPattern: this.patterns.ignore[i],
         };
+        recordErrorEvent(errorMessage, result);
+        return result;
       }
     }
 
@@ -369,8 +420,8 @@ export class ErrorClassifier {
           'nonRetryable',
           this.patterns.nonRetryable[i]
         );
-        return {
-          type: 'non-retryable',
+        const result = {
+          type: 'non-retryable' as const,
           isRetryable: false,
           isTransient: false,
           isPermanent: true,
@@ -380,6 +431,8 @@ export class ErrorClassifier {
           retryStrategy: DEFAULT_RETRY_STRATEGIES[category],
           matchedPattern: this.patterns.nonRetryable[i],
         };
+        recordErrorEvent(errorMessage, result);
+        return result;
       }
     }
 
@@ -387,48 +440,52 @@ export class ErrorClassifier {
     const rateLimitPatterns = ['rate limit', 'too many requests', 'throttled', '429'];
     for (const pattern of rateLimitPatterns) {
       if (errorLower.includes(pattern)) {
-        return {
-          type: 'rateLimited',
+        const result = {
+          type: 'rateLimited' as const,
           isRetryable: true,
           isTransient: true,
           isPermanent: false,
-          shouldCircuitBreak: true, // Rate limits should open circuit to stop traffic
+          shouldCircuitBreak: true,
           category: ErrorCategory.NETWORK,
           severity: ErrorSeverity.MEDIUM,
           retryStrategy: {
-            initialDelay: 300000, // 5 minutes
+            initialDelay: 300000,
             backoffMultiplier: 3,
             maxAttempts: 5,
-            testType: 'lightweight',
+            testType: 'lightweight' as const,
             successThreshold: 1,
           },
           matchedPattern: pattern,
         };
+        recordErrorEvent(errorMessage, result);
+        return result;
       }
     }
 
     // Check for transient patterns
     for (let i = 0; i < this.compiledPatterns.transient.length; i++) {
       if (this.compiledPatterns.transient[i].test(errorLower)) {
-        return {
-          type: 'transient',
+        const result = {
+          type: 'transient' as const,
           isRetryable: true,
           isTransient: true,
           isPermanent: false,
-          shouldCircuitBreak: false, // Transient errors shouldn't trigger circuit breaker
+          shouldCircuitBreak: false,
           category: ErrorCategory.NETWORK,
           severity: ErrorSeverity.MEDIUM,
           retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.NETWORK],
           matchedPattern: this.patterns.transient[i],
         };
+        recordErrorEvent(errorMessage, result);
+        return result;
       }
     }
 
     // Check for network patterns
     for (let i = 0; i < this.compiledPatterns.network.length; i++) {
       if (this.compiledPatterns.network[i].test(errorLower)) {
-        return {
-          type: 'transient',
+        const result = {
+          type: 'transient' as const,
           isRetryable: true,
           isTransient: true,
           isPermanent: false,
@@ -438,14 +495,16 @@ export class ErrorClassifier {
           retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.NETWORK],
           matchedPattern: this.patterns.network[i],
         };
+        recordErrorEvent(errorMessage, result);
+        return result;
       }
     }
 
     // Check for resource patterns
     for (let i = 0; i < this.compiledPatterns.resource.length; i++) {
       if (this.compiledPatterns.resource[i].test(errorLower)) {
-        return {
-          type: 'retryable',
+        const result = {
+          type: 'retryable' as const,
           isRetryable: true,
           isTransient: false,
           isPermanent: false,
@@ -455,26 +514,31 @@ export class ErrorClassifier {
           retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.RESOURCE],
           matchedPattern: this.patterns.resource[i],
         };
+        recordErrorEvent(errorMessage, result);
+        return result;
       }
     }
 
     // Check HTTP status codes
     const httpClassification = this.classifyHttpStatus(errorMessage);
     if (httpClassification) {
+      recordErrorEvent(errorMessage, httpClassification);
       return httpClassification;
     }
 
     // Default: treat unknown errors as retryable but potentially circuit-breaking
-    return {
-      type: 'retryable',
+    const defaultResult = {
+      type: 'retryable' as const,
       isRetryable: true,
       isTransient: false,
       isPermanent: false,
-      shouldCircuitBreak: true, // Unknown errors should still count towards circuit breaker
+      shouldCircuitBreak: true,
       category: ErrorCategory.UNKNOWN,
       severity: ErrorSeverity.HIGH,
       retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.UNKNOWN],
     };
+    recordErrorEvent(errorMessage, defaultResult);
+    return defaultResult;
   }
 
   /**

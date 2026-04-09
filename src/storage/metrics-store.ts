@@ -247,6 +247,14 @@ export class MetricsStore {
     logger.info('[MetricsStore] Database closed');
   }
 
+  /**
+   * Synchronously flush buffered writes.
+   * For use during graceful shutdown before the event loop closes.
+   */
+  flushSync(): void {
+    this.flushBatch();
+  }
+
   // ============================================================
   // Write API
   // ============================================================
@@ -894,7 +902,7 @@ export class MetricsStore {
               :hourOfDay,
               :dayOfWeek
             FROM requests
-            WHERE timestamp >= :hourStart AND timestamp < :hourEnd
+            WHERE timestamp >= :hourStart AND timestamp < :hourEnd AND is_probe = 0
             GROUP BY server_id, model`
           )
           .run({ hourStart, hourEnd, hourOfDay, dayOfWeek });

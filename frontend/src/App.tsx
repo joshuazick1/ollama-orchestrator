@@ -5,6 +5,8 @@ import { Layout } from './components/Layout';
 import { Toaster } from './components/Toaster';
 import { ModelPullsProvider } from './hooks/useModelPulls';
 import { useServerEvents } from './hooks/useServerEvents';
+import { AuthProvider } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { Dashboard } from './pages/Dashboard';
 import { Servers } from './pages/Servers';
 import { Models } from './pages/Models';
@@ -13,6 +15,7 @@ import { CircuitBreakers } from './pages/CircuitBreakers';
 import { Logs } from './pages/Logs';
 import Settings from './pages/settings';
 import { InFlight } from './pages/InFlight';
+import { Login } from './pages/Login';
 import { ApiError } from './api';
 
 // Create a client
@@ -41,7 +44,15 @@ function AppContent() {
     <>
       <Toaster />
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<Dashboard />} />
           <Route path="servers" element={<Servers />} />
           <Route path="models" element={<Models />} />
@@ -61,11 +72,13 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ModelPullsProvider>
-          <BrowserRouter>
-            <AppContent />
-          </BrowserRouter>
-        </ModelPullsProvider>
+        <AuthProvider>
+          <ModelPullsProvider>
+            <BrowserRouter>
+              <AppContent />
+            </BrowserRouter>
+          </ModelPullsProvider>
+        </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );

@@ -52,6 +52,7 @@ export const metricsConfigSchema = z.object({
   enabled: z.boolean().default(true),
   prometheusEnabled: z.boolean().default(true),
   prometheusPort: z.number().int().min(1).max(65535).default(9090),
+  batchFlushIntervalMs: z.number().int().min(100).default(100),
   decay: metricsDecayConfigSchema,
 });
 
@@ -114,6 +115,15 @@ export const retryConfigSchema = z.object({
 export const cooldownConfigSchema = z.object({
   failureCooldownMs: z.number().int().min(1000).default(120000), // 2 minutes
   defaultMaxConcurrency: z.number().int().min(1).max(100).default(4),
+});
+
+/**
+ * Rate limit configuration schema
+ */
+export const rateLimitConfigSchema = z.object({
+  defaultRetryAfterMs: z.number().int().min(0).default(60000), // Default retry delay when no Retry-After header
+  maxRetryAfterMs: z.number().int().min(0).default(300000), // Maximum retry delay cap
+  enableRetryAfterHeader: z.boolean().default(true), // Whether to respect Retry-After header
 });
 
 /**
@@ -199,6 +209,19 @@ export const loadBalancerConfigSchema = z.object({
     minSamplesForExact: z.number().int().min(1).default(5), // Min samples before preferring exact
     fallbackWeight: z.number().min(0).max(1).default(0.5), // How much to trust inferred vs actual
   }),
+});
+
+/**
+ * Circuit breaker thresholds configuration schema
+ * Simplified threshold values for circuit breaker behavior
+ */
+export const circuitBreakerThresholdsConfigSchema = z.object({
+  failureThreshold: z.number().int().min(1).default(5), // Number of failures before opening
+  openTimeout: z.number().int().min(1000).default(120000), // Time to stay open before trying half-open (ms)
+  halfOpenTimeout: z.number().int().min(1000).default(300000), // Time to stay in half-open before reverting (ms)
+  recoverySuccessThreshold: z.number().int().min(1).default(5), // Consecutive successes needed to close
+  errorWindow: z.number().int().min(1000).default(60000), // Time window for error rate calculation (ms)
+  errorRateThreshold: z.number().min(0).max(1).default(0.3), // Error rate (0-1) that triggers open state
 });
 
 /**
@@ -381,7 +404,7 @@ export const storagePerformanceConfigSchema = z.object({
   /** Max requests buffered before forced flush */
   batchSize: z.number().int().min(1).default(100),
   /** Max ms between forced flushes */
-  batchFlushIntervalMs: z.number().int().min(100).default(1000),
+  batchFlushIntervalMs: z.number().int().min(100).default(100),
   /** Minutes past the hour before rollup runs regardless of in-flight count */
   rollupDeadlineMinutes: z.number().int().min(1).default(10),
   /** Ms between daily profile rebuild jobs */
@@ -469,6 +492,7 @@ export const orchestratorConfigSchema = z.object({
   tags: tagsConfigSchema,
   retry: retryConfigSchema,
   cooldown: cooldownConfigSchema,
+  rateLimit: rateLimitConfigSchema,
   modelManager: modelManagerConfigSchema,
   recoveryTest: recoveryTestConfigSchema,
   timeout: timeoutConfigSchema,
@@ -494,8 +518,10 @@ export type HealthCheckConfig = z.infer<typeof healthCheckConfigSchema>;
 export type TagsConfig = z.infer<typeof tagsConfigSchema>;
 export type RetryConfig = z.infer<typeof retryConfigSchema>;
 export type CooldownConfig = z.infer<typeof cooldownConfigSchema>;
+export type RateLimitConfig = z.infer<typeof rateLimitConfigSchema>;
 export type LoadBalancerConfig = z.infer<typeof loadBalancerConfigSchema>;
 export type CircuitBreakerConfig = z.infer<typeof circuitBreakerConfigSchema>;
+export type CircuitBreakerThresholdsConfig = z.infer<typeof circuitBreakerThresholdsConfigSchema>;
 export type QueueConfig = z.infer<typeof queueConfigSchema>;
 export type ModelManagerConfig = z.infer<typeof modelManagerConfigSchema>;
 export type RecoveryTestConfig = z.infer<typeof recoveryTestConfigSchema>;

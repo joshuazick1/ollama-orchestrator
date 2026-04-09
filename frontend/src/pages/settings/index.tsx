@@ -1,13 +1,17 @@
-import { useState, useCallback, memo } from 'react';
+import { useState, useCallback, memo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getConfig,
   updateConfig,
   saveConfig,
   reloadConfig,
+  exportConfig,
+  importConfig,
   type OrchestratorConfig,
+  type ConfigExport,
 } from '../../api';
 import { toastSuccess, toastError } from '../../utils/toast';
+import { UsersTab } from './UsersTab';
 import {
   Save,
   RefreshCw,
@@ -21,6 +25,9 @@ import {
   Tag,
   Clock,
   Cpu,
+  Users,
+  Download,
+  Upload,
 } from 'lucide-react';
 
 interface ConfigSectionProps {
@@ -187,8 +194,15 @@ const TextInput = memo(({ label, value, onChange, description, placeholder, erro
 
 export const Settings = () => {
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [editedConfig, setEditedConfig] = useState<Partial<OrchestratorConfig> | null>(null);
   const [activeTab, setActiveTab] = useState('general');
+  const [importPreview, setImportPreview] = useState<{
+    show: boolean;
+    config: Partial<OrchestratorConfig> | null;
+    mode: 'merge' | 'replace';
+    validationErrors: string[];
+  }>({ show: false, config: null, mode: 'merge', validationErrors: [] });
 
   const { data: config, isLoading } = useQuery({
     queryKey: ['config'],
@@ -224,6 +238,38 @@ export const Settings = () => {
     },
   });
 
+  const exportMutation = useMutation({
+    mutationFn: exportConfig,
+    onSuccess: (data: ConfigExport) => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `orchestrator-config-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toastSuccess('Configuration exported successfully');
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to export configuration');
+    },
+  });
+
+  const importMutation = useMutation({
+    mutationFn: ({ cfg, mode }: { cfg: Partial<OrchestratorConfig>; mode: 'merge' | 'replace' }) =>
+      importConfig(cfg, mode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config'] });
+      setImportPreview({ show: false, config: null, mode: 'merge', validationErrors: [] });
+      toastSuccess('Configuration imported successfully');
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to import configuration');
+    },
+  });
+
   const updateField = useCallback(<K extends keyof OrchestratorConfig>(
     section: K,
     field: keyof OrchestratorConfig[K] | null,
@@ -249,6 +295,54 @@ export const Settings = () => {
     if (editedConfig) {
       updateMutation.mutate(editedConfig);
     }
+  };
+
+  const handleDownloadConfig = () => {
+    exportMutation.mutate();
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const json = JSON.parse(e.target?.result as string);
+        if (!json.config || typeof json.config !== 'object') {
+          toastError('Invalid config file: missing config object');
+          return;
+        }
+        setImportPreview({
+          show: true,
+          config: json.config as Partial<OrchestratorConfig>,
+          mode: 'merge',
+          validationErrors: [],
+        });
+      } catch {
+        toastError('Invalid JSON file');
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const handleImportModeChange = (mode: 'merge' | 'replace') => {
+    setImportPreview(prev => ({ ...prev, mode }));
+  };
+
+  const handleImportConfirm = () => {
+    if (importPreview.config) {
+      importMutation.mutate({ cfg: importPreview.config, mode: importPreview.mode });
+    }
+  };
+
+  const handleImportCancel = () => {
+    setImportPreview({ show: false, config: null, mode: 'merge', validationErrors: [] });
   };
 
   const hasChanges = editedConfig !== null && Object.keys(editedConfig).length > 0;
@@ -287,6 +381,7 @@ export const Settings = () => {
     { id: 'retry', label: 'Retry', icon: RefreshCw },
     { id: 'cooldown', label: 'Cooldown', icon: Clock },
     { id: 'modelmanager', label: 'Model Manager', icon: Cpu },
+    { id: 'users', label: 'Users', icon: Users },
   ];
 
   return (
@@ -298,6 +393,28 @@ export const Settings = () => {
           <p className="text-gray-400 mt-1">Configure orchestrator behavior and features</p>
         </div>
         <div className="flex items-center space-x-3">
+          <button
+            onClick={handleDownloadConfig}
+            disabled={exportMutation.isPending}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
+          >
+            <Download className={`w-4 h-4 ${exportMutation.isPending ? 'animate-spin' : ''}`} />
+            <span>Download Config</span>
+          </button>
+          <button
+            onClick={handleUploadClick}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            <span>Upload Config</span>
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept=".json"
+            className="hidden"
+          />
           <button
             onClick={() => reloadMutation.mutate()}
             disabled={reloadMutation.isPending}
@@ -316,6 +433,85 @@ export const Settings = () => {
           </button>
         </div>
       </div>
+
+      {/* Import Preview Modal */}
+      {importPreview.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto border border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-white">Import Configuration</h3>
+              <button
+                onClick={handleImportCancel}
+                className="text-gray-400 hover:text-white"
+              >
+                <AlertCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {importPreview.validationErrors.length > 0 && (
+              <div className="mb-4 p-4 bg-red-900/20 border border-red-700 rounded-lg">
+                <h4 className="text-red-400 font-medium mb-2">Validation Errors:</h4>
+                <ul className="text-red-300 text-sm space-y-1">
+                  {importPreview.validationErrors.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="mb-4">
+              <h4 className="text-gray-300 font-medium mb-2">Import Mode</h4>
+              <div className="flex space-x-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="merge"
+                    checked={importPreview.mode === 'merge'}
+                    onChange={() => handleImportModeChange('merge')}
+                    className="text-blue-500"
+                  />
+                  <span className="text-gray-300">Merge with existing config</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="replace"
+                    checked={importPreview.mode === 'replace'}
+                    onChange={() => handleImportModeChange('replace')}
+                    className="text-blue-500"
+                  />
+                  <span className="text-gray-300">Replace entire config</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <h4 className="text-gray-300 font-medium mb-2">Preview</h4>
+              <pre className="bg-gray-900 p-4 rounded-lg text-sm text-gray-300 overflow-x-auto max-h-64">
+                {JSON.stringify(importPreview.config, null, 2)}
+              </pre>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={handleImportCancel}
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleImportConfirm}
+                disabled={importMutation.isPending}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                {importMutation.isPending ? 'Importing...' : 'Import Configuration'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-700">
@@ -1422,6 +1618,8 @@ export const Settings = () => {
             </div>
           </ConfigSection>
         )}
+
+        {activeTab === 'users' && <UsersTab />}
       </div>
 
       {/* Footer Actions */}

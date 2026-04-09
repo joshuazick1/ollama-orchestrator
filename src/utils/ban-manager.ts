@@ -4,7 +4,7 @@ import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from './logger.js';
 
 export interface FailureTracker {
-  count: number;
+  timestamps: number[];
   lastSuccess: number;
 }
 
@@ -25,6 +25,8 @@ export interface BanManagerState {
 
 export interface BanManagerConfig {
   failureCooldownMs: number;
+  decayIntervalMs: number;
+  decayFactor: number;
 }
 
 let managerInstance: BanManager | undefined;
@@ -41,6 +43,8 @@ export class BanManager {
     const defaultConfig = getConfigManager().getConfig();
     this.config = {
       failureCooldownMs: defaultConfig.cooldown?.failureCooldownMs ?? 120000,
+      decayIntervalMs: 60000,
+      decayFactor: 0.5,
       ...config,
     };
   }
@@ -87,9 +91,9 @@ export class BanManager {
       return;
     }
 
-    // Track failures for permanent ban logic
-    const currentCount = this.modelFailureTracker.get(key)?.count ?? 0;
-    if (currentCount >= 10) {
+    // Calculate decayed failure count for permanent ban logic
+    const decayedCount = this.calculateDecayedFailureCount(key);
+    if (decayedCount >= 10) {
       // Threshold for permanent ban
       this.permanentBan.add(ban);
       getOperationalStore().addBan(serverId, model, 'auto: repeated failures');
@@ -97,6 +101,38 @@ export class BanManager {
         `Server ${serverId} permanently banned for model ${model} after repeated failures`
       );
     }
+  }
+
+  /**
+   * Calculate effective failure count with decay.
+   * Failures in the last 15 minutes are counted with exponential decay based on age.
+   * Rapid failures (within minutes) accumulate quickly.
+   * Spread-out failures (over 30 minutes) decay and won't trigger permanent ban.
+   */
+  private calculateDecayedFailureCount(key: string): number {
+    const windowMs = 15 * 60 * 1000; // 15 minutes
+    const now = Date.now();
+
+    // Get existing timestamps
+    const tracker = this.modelFailureTracker.get(key);
+    if (!tracker || !tracker.timestamps || tracker.timestamps.length === 0) {
+      return 0;
+    }
+
+    // Filter to only failures within the 15-minute window
+    const recentFailures = tracker.timestamps.filter(t => now - t < windowMs);
+
+    // Calculate decayed count
+    const decayIntervalMs = this.config.decayIntervalMs;
+    const decayFactor = this.config.decayFactor;
+
+    let decayedCount = 0;
+    for (const timestamp of recentFailures) {
+      const ageIntervals = (now - timestamp) / decayIntervalMs;
+      decayedCount += Math.pow(decayFactor, ageIntervals);
+    }
+
+    return decayedCount;
   }
 
   clearCooldown(serverId: string, model: string): void {
@@ -125,6 +161,12 @@ export class BanManager {
   updateConfig(config: Partial<BanManagerConfig>): void {
     if (config.failureCooldownMs !== undefined) {
       this.config.failureCooldownMs = config.failureCooldownMs;
+    }
+    if (config.decayIntervalMs !== undefined) {
+      this.config.decayIntervalMs = config.decayIntervalMs;
+    }
+    if (config.decayFactor !== undefined) {
+      this.config.decayFactor = config.decayFactor;
     }
   }
 
@@ -232,8 +274,8 @@ export class BanManager {
     this.serverFailureCount.set(serverId, count);
     if (model) {
       const key = `${serverId}:${model}`;
-      const tracker = this.modelFailureTracker.get(key) || { count: 0, lastSuccess: 0 };
-      tracker.count++;
+      const tracker = this.modelFailureTracker.get(key) || { timestamps: [], lastSuccess: 0 };
+      tracker.timestamps.push(Date.now());
       this.modelFailureTracker.set(key, tracker);
     }
   }
@@ -248,7 +290,7 @@ export class BanManager {
 
   getModelFailureCount(serverId: string, model: string): number {
     const key = `${serverId}:${model}`;
-    return this.modelFailureTracker.get(key)?.count ?? 0;
+    return this.calculateDecayedFailureCount(key);
   }
 
   getCooldownStatus(serverId: string, model: string): { inCooldown: boolean; remainingMs: number } {

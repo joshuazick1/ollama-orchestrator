@@ -84,6 +84,7 @@ export class HealthCheckScheduler {
   private intervalId?: NodeJS.Timeout;
   private recoveryIntervalId?: NodeJS.Timeout;
   private activeTestIntervalId?: NodeJS.Timeout;
+  private initialTimeoutId?: NodeJS.Timeout;
   private isRunning = false;
   private metrics: HealthCheckMetrics = {
     totalChecks: 0,
@@ -166,7 +167,10 @@ export class HealthCheckScheduler {
     }, this.config.recoveryIntervalMs);
 
     // Run initial health checks
-    setTimeout(() => void this.runHealthChecks(), 1000);
+    this.initialTimeoutId = setTimeout(() => {
+      this.initialTimeoutId = undefined;
+      void this.runHealthChecks();
+    }, 1000);
   }
 
   /**
@@ -187,6 +191,11 @@ export class HealthCheckScheduler {
     if (this.recoveryIntervalId) {
       clearInterval(this.recoveryIntervalId);
       this.recoveryIntervalId = undefined;
+    }
+
+    if (this.initialTimeoutId) {
+      clearTimeout(this.initialTimeoutId);
+      this.initialTimeoutId = undefined;
     }
 
     logger.info('Health check scheduler stopped');

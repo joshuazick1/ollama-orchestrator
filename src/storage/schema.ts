@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 /**
  * All DDL statements for schema version 1.
@@ -433,10 +433,59 @@ CREATE INDEX IF NOT EXISTS idx_summary_temporal ON metrics_summary(hour_of_day, 
 
 export const SCHEMA_V3_MIGRATION = `ALTER TABLE requests ADD COLUMN is_probe INTEGER NOT NULL DEFAULT 0;`;
 
+export const SCHEMA_V4_MIGRATION = `
+-- ============================================================
+-- users: user accounts for access control
+-- ============================================================
+CREATE TABLE IF NOT EXISTS users (
+  id                  TEXT PRIMARY KEY,
+  username            TEXT NOT NULL UNIQUE,
+  email               TEXT NOT NULL UNIQUE,
+  password_hash       TEXT NOT NULL,
+  role                TEXT NOT NULL DEFAULT 'user',
+  is_active           INTEGER NOT NULL DEFAULT 1,
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL,
+  api_key             TEXT UNIQUE,
+  api_key_created_at  INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+
+-- ============================================================
+-- user_server_access: servers each user can access
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_server_access (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  server_id          TEXT NOT NULL,
+  granted_at         INTEGER NOT NULL,
+  UNIQUE(user_id, server_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_server_access_user ON user_server_access(user_id);
+
+-- ============================================================
+-- user_model_access: models each user can access
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_model_access (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  server_id          TEXT NOT NULL,
+  model              TEXT NOT NULL,
+  granted_at         INTEGER NOT NULL,
+  UNIQUE(user_id, server_id, model)
+);
+CREATE INDEX IF NOT EXISTS idx_user_model_access_user ON user_model_access(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_model_access_server ON user_model_access(server_id);
+`;
+
 export const MIGRATIONS: Record<number, string> = {
   // Version 1 is applied as a full schema creation on empty databases.
   2: SCHEMA_V2_MIGRATION,
   3: SCHEMA_V3_MIGRATION,
+  4: SCHEMA_V4_MIGRATION,
 };
 
 /**

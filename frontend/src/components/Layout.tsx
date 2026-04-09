@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Menu, X, Search, Sun, Moon } from 'lucide-react';
+import { Menu, X, Search, Sun, Moon, LogOut } from 'lucide-react';
 import clsx from 'clsx';
 import { GlobalSearch } from './GlobalSearch';
 import { PageTransition } from './PageTransition';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useTheme } from '../hooks/useTheme';
+import { useAuth } from '../contexts/AuthContext';
 import { APP_VERSION } from '../constants/app';
 import { NAV_ITEMS } from '../constants/navigation';
 
@@ -65,6 +66,7 @@ export const Layout = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isSearchOpen, openSearch, closeSearch } = useGlobalSearch();
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
   const location = useLocation();
 
   const closeMobileMenu = () => setIsMobileMenuOpen(false);
@@ -101,9 +103,26 @@ export const Layout = () => {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-800 flex items-center justify-between">
-          <span className="text-xs text-gray-500">{APP_VERSION}</span>
-          <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
+        <div className="p-4 border-t border-gray-800 flex flex-col gap-3">
+          {user && (
+            <div className="text-xs text-gray-400 px-2">
+              <span className="font-medium text-gray-300">{user.username}</span>
+              <span className="ml-1 text-gray-500">({user.role})</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-500">{APP_VERSION}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => logout()}
+                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+                aria-label="Logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+              <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -157,9 +176,26 @@ export const Layout = () => {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-800 flex items-center justify-between">
-          <span className="text-xs text-gray-500">{APP_VERSION}</span>
-          <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
+        <div className="p-4 border-t border-gray-800 flex flex-col gap-3">
+          {user && (
+            <div className="text-xs text-gray-400 px-2">
+              <span className="font-medium text-gray-300">{user.username}</span>
+              <span className="ml-1 text-gray-500">({user.role})</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-500">{APP_VERSION}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => logout()}
+                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+                aria-label="Logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+              <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
+            </div>
+          </div>
         </div>
       </aside>
 

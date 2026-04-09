@@ -32,6 +32,8 @@ import {
 } from './routes/orchestrator.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { logger } from './utils/logger.js';
+import { getUserStore } from './storage/user-store.js';
+import { getMetricsStore } from './storage/metrics-store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,6 +111,30 @@ app.use((req, _res, next) => {
 // Initialize orchestrator
 const orchestrator = getOrchestratorInstance();
 logger.info('Orchestrator initialized');
+
+const adminUsername = process.env.ADMIN_USERNAME;
+const adminPassword = process.env.ADMIN_PASSWORD;
+const userStore = getUserStore();
+
+if (userStore.listUsersByRole('admin').length === 0) {
+  if (adminUsername && adminPassword) {
+    if (adminUsername.trim().length === 0) {
+      logger.error('ADMIN_USERNAME is set but empty. Cannot start.');
+      process.exit(1);
+    }
+
+    if (adminPassword.length < 8) {
+      logger.error('ADMIN_PASSWORD must be at least 8 characters long. Cannot start.');
+      process.exit(1);
+    }
+
+    await userStore.createUser(adminUsername.trim(), `${adminUsername.trim()}@local`, adminPassword, 'admin');
+    logger.info('Default admin user created from ADMIN_USERNAME env var');
+  } else {
+    logger.error('No admin users exist and ADMIN_USERNAME/ADMIN_PASSWORD not set. Cannot start.');
+    process.exit(1);
+  }
+}
 
 // Rate limiting middleware
 const monitoringRateLimiter = createMonitoringRateLimiter();
@@ -287,6 +313,10 @@ process.on('uncaughtException', (error: Error) => {
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully...');
 
+  // Flush metrics synchronously
+  const metricsStore = getMetricsStore();
+  metricsStore.flushSync();
+
   // Stop accepting new connections
   server.close(() => {
     logger.info('HTTP server closed');
@@ -312,6 +342,10 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   logger.info('SIGINT received, shutting down gracefully...');
+
+  // Flush metrics synchronously
+  const metricsStore = getMetricsStore();
+  metricsStore.flushSync();
 
   // Stop accepting new connections
   server.close(() => {

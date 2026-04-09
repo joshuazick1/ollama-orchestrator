@@ -390,6 +390,108 @@ export function getConfigSchema(req: Request, res: Response): void {
 }
 
 /**
+ * Export configuration
+ * GET /api/orchestrator/config/export
+ */
+export function exportConfig(req: Request, res: Response): void {
+  try {
+    const manager = getConfigManager();
+    const config = manager.getConfig();
+
+    // Export format with metadata
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      version: 1,
+      config: config,
+    };
+
+    res.status(200).json(exportData);
+  } catch (error) {
+    logger.error('Failed to export configuration:', { error });
+    res.status(500).json({
+      error: 'Failed to export configuration',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Import configuration
+ * POST /api/orchestrator/config/import
+ * Query params: mode=merge|replace (default: merge)
+ */
+export function importConfig(req: Request, res: Response): void {
+  try {
+    const manager = getConfigManager();
+    const { config: importedConfig, version } = req.body as {
+      config: Partial<OrchestratorConfig>;
+      version?: number;
+    };
+
+    if (!importedConfig || typeof importedConfig !== 'object') {
+      res.status(400).json({
+        error: 'Invalid request body',
+        details: 'Configuration must be a valid object',
+      });
+      return;
+    }
+
+    // Validate version if provided
+    if (version !== undefined && version !== 1) {
+      res.status(400).json({
+        error: 'Unsupported configuration version',
+        details: `Version ${version} is not supported. Only version 1 is supported.`,
+      });
+      return;
+    }
+
+    const mode = req.query.mode as string;
+    const isReplace = mode === 'replace';
+
+    // Validate the imported config against schema
+    try {
+      if (isReplace) {
+        manager.updateConfig(importedConfig);
+      } else {
+        // Merge mode: update each section
+        for (const [key, value] of Object.entries(importedConfig)) {
+          if (value !== undefined && typeof value === 'object' && !Array.isArray(value)) {
+            manager.updateSection(key as keyof OrchestratorConfig, value as unknown as Record<string, unknown>);
+          }
+        }
+      }
+    } catch (validationError) {
+      res.status(400).json({
+        error: 'Configuration validation failed',
+        details: validationError instanceof Error ? validationError.message : String(validationError),
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: isReplace ? 'Configuration replaced successfully' : 'Configuration merged successfully',
+      config: sanitizeConfig(manager.getConfig()),
+      mode: isReplace ? 'replace' : 'merge',
+    });
+  } catch (error) {
+    logger.error('Failed to import configuration:', { error });
+
+    if (error instanceof Error && error.name === 'ConfigValidationError') {
+      res.status(400).json({
+        error: 'Configuration validation failed',
+        details: error.message,
+      });
+    } else {
+      res.status(500).json({
+        error: 'Failed to import configuration',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+/**
  * Sanitize configuration for API response (remove sensitive data)
  */
 function sanitizeConfig(config: OrchestratorConfig): Partial<OrchestratorConfig> {

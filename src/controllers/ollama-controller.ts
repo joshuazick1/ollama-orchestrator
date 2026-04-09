@@ -94,6 +94,10 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
   const routingContext: RoutingContext = {};
 
   try {
+    // Extract user info for access control scoping
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+
     const result = await orchestrator.tryRequestWithFailover(
       model,
       async (server, context) => {
@@ -508,7 +512,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       'ollama',
       routingContext,
       undefined,
-      estimatePromptTokens(prompt || '')
+      estimatePromptTokens(prompt || ''),
+      userId,
+      isAdmin
     );
 
     // Only send JSON response if not streaming
@@ -542,13 +548,21 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
       const isNoServersError =
         errorMessage.includes('No') && errorMessage.includes('servers available');
       const isConcurrencySaturated = errorMessage.includes('at max concurrency');
+      const isAccessDenied =
+        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
 
       // Include routing context in error responses when debug is requested
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
-      if (isNoServersError || isConcurrencySaturated) {
+      if (isAccessDenied) {
+        res.status(403).json({
+          error: errorMessage,
+          model,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isNoServersError || isConcurrencySaturated) {
         res.status(503).json({
           error: isConcurrencySaturated
             ? 'All servers at max concurrency'
@@ -603,6 +617,10 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   const routingContext: RoutingContext = {};
 
   try {
+    // Extract user info for access control scoping
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+
     const result = await orchestrator.tryRequestWithFailover(
       model,
       async (server, context) => {
@@ -970,7 +988,9 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       'ollama',
       routingContext,
       undefined,
-      estimateChatTokens((messages || []) as Array<{ role?: string; content?: string }>)
+      estimateChatTokens((messages || []) as Array<{ role?: string; content?: string }>),
+      userId,
+      isAdmin
     );
 
     // Only send JSON response if not streaming
@@ -1004,12 +1024,20 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       const isNoServersError =
         errorMessage.includes('No') && errorMessage.includes('servers available');
       const isConcurrencySaturated = errorMessage.includes('at max concurrency');
+      const isAccessDenied =
+        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
 
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
-      if (isNoServersError || isConcurrencySaturated) {
+      if (isAccessDenied) {
+        res.status(403).json({
+          error: errorMessage,
+          model,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isNoServersError || isConcurrencySaturated) {
         res.status(503).json({
           error: isConcurrencySaturated
             ? 'All servers at max concurrency'
@@ -1050,6 +1078,10 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
   const routingContext: RoutingContext = {};
 
   try {
+    // Extract user info for access control scoping
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+
     const result = await orchestrator.tryRequestWithFailover(
       model,
       async (server, _context) => {
@@ -1076,7 +1108,9 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
       'ollama',
       routingContext,
       undefined,
-      estimatePromptTokens(prompt || '')
+      estimatePromptTokens(prompt || ''),
+      userId,
+      isAdmin
     );
 
     // Send response with optional debug info (?debug=true or X-Include-Debug-Info: true)
@@ -1096,12 +1130,20 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     const isNoServersError =
       errorMessage.includes('No') && errorMessage.includes('servers available');
     const isConcurrencySaturated = errorMessage.includes('at max concurrency');
+    const isAccessDenied =
+      errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
 
     const debugPayload = isDebugRequested(req)
       ? getDebugInfo(routingContext, { lastError: errorMessage })
       : undefined;
 
-    if (isNoServersError || isConcurrencySaturated) {
+    if (isAccessDenied) {
+      res.status(403).json({
+        error: errorMessage,
+        model,
+        ...(debugPayload && { debug: debugPayload }),
+      });
+    } else if (isNoServersError || isConcurrencySaturated) {
       res.status(503).json({
         error: isConcurrencySaturated
           ? 'All servers at max concurrency'
@@ -1296,7 +1338,11 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
 
     const orchestrator = getOrchestratorInstance();
 
-    const server = orchestrator.getBestServerForModel(model);
+    // Extract user info for access control scoping
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+
+    const server = orchestrator.getBestServerForModel(model, false, undefined, userId, isAdmin);
     if (!server) {
       res.status(404).json({
         error: `model '${model}' not found on any healthy server`,
@@ -1342,7 +1388,14 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     res.json(data);
   } catch (error) {
     logger.error('Error in handleEmbed:', error);
-    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isAccessDenied =
+      errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+    if (isAccessDenied) {
+      res.status(403).json({ error: errorMessage });
+    } else {
+      res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+    }
   }
 }
 

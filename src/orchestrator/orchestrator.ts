@@ -569,13 +569,6 @@ export class AIOrchestrator {
     if (this.config.enablePersistence && !this._suppressPersistence) {
       saveServersToDisk(this.servers);
     }
-
-    // Run health check immediately if enabled
-    if (this.config.healthCheck.enabled) {
-      this.updateServerStatus(newServer).catch(err => {
-        logger.error(`Initial health check failed for ${server.id}:`, { error: err as Error });
-      });
-    }
   }
   removeServer(serverId: string): void {
     const initialCount = this.servers.length;
@@ -1382,7 +1375,9 @@ export class AIOrchestrator {
   getBestServerForModel(
     model: string,
     isStreaming: boolean = false,
-    estimatedPromptTokens?: number
+    estimatedPromptTokens?: number,
+    userId?: string,
+    isAdmin?: boolean
   ): AIServer | undefined {
     // Filter candidates based on hard requirements
     const candidates = this.servers.filter(server => {
@@ -1493,7 +1488,9 @@ export class AIOrchestrator {
       serverId => this.getCircuitBreakerHealth(serverId),
       estimatedPromptTokens,
       (serverId, model) =>
-        this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
+        this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model),
+      userId,
+      isAdmin
     );
 
     // Record the decision for historical analysis
@@ -1623,7 +1620,9 @@ export class AIOrchestrator {
     requiredCapability?: 'ollama' | 'openai' | 'anthropic',
     routingContext?: RoutingContext,
     signal?: AbortSignal,
-    estimatedPromptTokens?: number
+    estimatedPromptTokens?: number,
+    userId?: string,
+    isAdmin?: boolean
   ): Promise<T> {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
     const routingStartTime = Date.now();
@@ -1701,7 +1700,11 @@ export class AIOrchestrator {
         isStreaming,
         undefined,
         (serverId, model) => this.getTimeout(serverId, model),
-        serverId => this.getCircuitBreakerHealth(serverId)
+        serverId => this.getCircuitBreakerHealth(serverId),
+        undefined,
+        undefined,
+        userId,
+        isAdmin
       );
 
       if (!selected) {

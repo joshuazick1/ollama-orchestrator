@@ -578,6 +578,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
   }
 
   try {
+    // Extract user info for access control scoping
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer, context?: { requestId?: string }) => {
@@ -930,7 +934,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       'openai',
       routingContext,
       undefined,
-      estimateChatTokens(messages as unknown as Array<{ role?: string; content?: string }>)
+      estimateChatTokens(messages as unknown as Array<{ role?: string; content?: string }>),
+      userId,
+      isAdmin
     );
 
     // Send non-streaming response
@@ -958,17 +964,30 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
         errorMessage.includes('at max concurrency') ||
         errorMessage.includes('circuit breaker');
+      const isAccessDenied =
+        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
-      res.status(isCapacityError ? 503 : 500).json({
-        error: {
-          message: errorMessage,
-          type: isCapacityError ? 'capacity_error' : 'server_error',
-          code: isCapacityError ? 'service_unavailable' : 'internal_error',
-        },
-        ...(debugPayload && { debug: debugPayload }),
-      });
+      if (isAccessDenied) {
+        res.status(403).json({
+          error: {
+            message: errorMessage,
+            type: 'access_denied',
+            code: 'forbidden',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else {
+        res.status(isCapacityError ? 503 : 500).json({
+          error: {
+            message: errorMessage,
+            type: isCapacityError ? 'capacity_error' : 'server_error',
+            code: isCapacityError ? 'service_unavailable' : 'internal_error',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      }
     }
   }
 }
@@ -994,6 +1013,10 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   const routingContext: RoutingContext = {};
 
   try {
+    // Extract user info for access control scoping
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer) => {
@@ -1101,7 +1124,9 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
       undefined,
       Array.isArray(body.prompt)
         ? body.prompt.reduce((sum, p) => sum + estimatePromptTokens(p), 0)
-        : estimatePromptTokens(body.prompt || '')
+        : estimatePromptTokens(body.prompt || ''),
+      userId,
+      isAdmin
     );
 
     if (!stream && result && !result._streamed) {
@@ -1123,17 +1148,30 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
         (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
         errorMessage.includes('at max concurrency') ||
         errorMessage.includes('circuit breaker');
+      const isAccessDenied =
+        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
-      res.status(isCapacityError ? 503 : 500).json({
-        error: {
-          message: errorMessage,
-          type: isCapacityError ? 'capacity_error' : 'server_error',
-          code: isCapacityError ? 'service_unavailable' : 'internal_error',
-        },
-        ...(debugPayload && { debug: debugPayload }),
-      });
+      if (isAccessDenied) {
+        res.status(403).json({
+          error: {
+            message: errorMessage,
+            type: 'access_denied',
+            code: 'forbidden',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else {
+        res.status(isCapacityError ? 503 : 500).json({
+          error: {
+            message: errorMessage,
+            type: isCapacityError ? 'capacity_error' : 'server_error',
+            code: isCapacityError ? 'service_unavailable' : 'internal_error',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      }
     }
   }
 }
@@ -1158,6 +1196,10 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
   const routingContext: RoutingContext = {};
 
   try {
+    // Extract user info for access control scoping
+    const userId = req.user?.id;
+    const isAdmin = req.user?.role === 'admin';
+
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer) => {
@@ -1194,7 +1236,9 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       undefined,
       Array.isArray(body.input)
         ? body.input.reduce((sum, p) => sum + estimatePromptTokens(p), 0)
-        : estimatePromptTokens(body.input || '')
+        : estimatePromptTokens(body.input || ''),
+      userId,
+      isAdmin
     );
 
     // Send response with optional debug info (?debug=true or X-Include-Debug-Info: true)
@@ -1215,17 +1259,30 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
         (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
         errorMessage.includes('at max concurrency') ||
         errorMessage.includes('circuit breaker');
+      const isAccessDenied =
+        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
-      res.status(isCapacityError ? 503 : 500).json({
-        error: {
-          message: errorMessage,
-          type: isCapacityError ? 'capacity_error' : 'server_error',
-          code: isCapacityError ? 'service_unavailable' : 'internal_error',
-        },
-        ...(debugPayload && { debug: debugPayload }),
-      });
+      if (isAccessDenied) {
+        res.status(403).json({
+          error: {
+            message: errorMessage,
+            type: 'access_denied',
+            code: 'forbidden',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else {
+        res.status(isCapacityError ? 503 : 500).json({
+          error: {
+            message: errorMessage,
+            type: isCapacityError ? 'capacity_error' : 'server_error',
+            code: isCapacityError ? 'service_unavailable' : 'internal_error',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      }
     }
   }
 }

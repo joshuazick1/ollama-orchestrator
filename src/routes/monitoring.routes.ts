@@ -31,6 +31,7 @@ import {
   getTemporalProfile,
   getTemporalAdjustment,
 } from '../controllers/analytics-controller.js';
+import { getErrors, getServerErrors, getCircuitErrors } from '../controllers/error-events-controller.js';
 import {
   getMetrics,
   getServerModelMetrics,
@@ -57,6 +58,7 @@ import {
   getCircuitBreakers,
   getCircuitBreakerDetails,
 } from '../controllers/servers-controller.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 // Async handler wrapper
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,71 +73,75 @@ const asyncHandler =
 export const monitoringRouter = Router();
 
 // Basic monitoring endpoints
-monitoringRouter.get('/servers', getServers);
-monitoringRouter.get('/model-map', getModelMap);
-monitoringRouter.get('/models', getModels);
+monitoringRouter.get('/servers', requireAuth, getServers);
+monitoringRouter.get('/model-map', requireAuth, getModelMap);
+monitoringRouter.get('/models', requireAuth, getModels);
 monitoringRouter.get('/health', getHealth);
-monitoringRouter.post('/health-check', asyncHandler(healthCheck));
+monitoringRouter.post('/health-check', requireAuth, asyncHandler(healthCheck));
 monitoringRouter.get('/stats', getStats);
-monitoringRouter.get('/events', streamMetrics);
-monitoringRouter.get('/circuit-breakers', getCircuitBreakers);
+monitoringRouter.get('/events', requireAuth, streamMetrics);
+monitoringRouter.get('/circuit-breakers', requireAuth, getCircuitBreakers);
 
 // Metrics
-monitoringRouter.get('/metrics', getMetrics);
-monitoringRouter.get('/metrics/prometheus', getPrometheusMetrics);
+monitoringRouter.get('/metrics', requireAuth, getMetrics);
+monitoringRouter.get('/metrics/prometheus', requireAuth, getPrometheusMetrics);
 // Model names can contain slashes. Support both encoded param and wildcard tail.
-monitoringRouter.get('/metrics/:serverId/*', getServerModelMetrics);
-monitoringRouter.get('/metrics/:serverId/:model', getServerModelMetrics);
+monitoringRouter.get('/metrics/:serverId/*', requireAuth, getServerModelMetrics);
+monitoringRouter.get('/metrics/:serverId/:model', requireAuth, getServerModelMetrics);
 
 // In-flight requests
-monitoringRouter.get('/in-flight', getInFlight);
+monitoringRouter.get('/in-flight', requireAuth, getInFlight);
 
 // Recovery Test Metrics
-monitoringRouter.get('/metrics/recovery-tests', getRecoveryTestMetrics);
-monitoringRouter.get('/metrics/recovery-tests/:breakerName', getBreakerRecoveryMetrics);
+monitoringRouter.get('/metrics/recovery-tests', requireAuth, getRecoveryTestMetrics);
+monitoringRouter.get('/metrics/recovery-tests/:breakerName', requireAuth, getBreakerRecoveryMetrics);
 
 // Model monitoring
-monitoringRouter.get('/models/status', getAllModelsStatus);
-monitoringRouter.get('/models/recommendations', getWarmupRecommendations);
-monitoringRouter.get('/models/idle', getIdleModels);
-monitoringRouter.get('/models/:model/status', getModelStatus);
+monitoringRouter.get('/models/status', requireAuth, getAllModelsStatus);
+monitoringRouter.get('/models/recommendations', requireAuth, getWarmupRecommendations);
+monitoringRouter.get('/models/idle', requireAuth, getIdleModels);
+monitoringRouter.get('/models/:model/status', requireAuth, getModelStatus);
 
 // Fleet model stats
-monitoringRouter.get('/models/fleet-stats', getFleetModelStats);
+monitoringRouter.get('/models/fleet-stats', requireAuth, getFleetModelStats);
 
 // Analytics
-monitoringRouter.get('/analytics/top-models', getTopModels);
-monitoringRouter.get('/analytics/server-performance', getServerPerformance);
-monitoringRouter.get('/analytics/errors', getErrorAnalysis);
-monitoringRouter.get('/analytics/capacity', getCapacityAnalysis);
-monitoringRouter.get('/analytics/trends/:metric', getTrendAnalysis);
-monitoringRouter.get('/analytics/summary', getAnalyticsSummary);
+monitoringRouter.get('/analytics/top-models', requireAuth, getTopModels);
+monitoringRouter.get('/analytics/server-performance', requireAuth, getServerPerformance);
+monitoringRouter.get('/analytics/errors', requireAuth, getErrorAnalysis);
+monitoringRouter.get('/analytics/capacity', requireAuth, getCapacityAnalysis);
+monitoringRouter.get('/analytics/trends/:metric', requireAuth, getTrendAnalysis);
+monitoringRouter.get('/analytics/summary', requireAuth, getAnalyticsSummary);
 
 // Decision History
-monitoringRouter.get('/analytics/decisions', getDecisionHistory);
-monitoringRouter.get('/analytics/decisions/trends/:serverId/:model', getServerModelDecisionTrend);
-monitoringRouter.get('/analytics/selection-stats', getSelectionStats);
-monitoringRouter.get('/analytics/algorithms', getAlgorithmStats);
-monitoringRouter.get('/analytics/score-timeline', getScoreTimeline);
-monitoringRouter.get('/analytics/metrics-impact', getMetricsImpact);
+monitoringRouter.get('/analytics/decisions', requireAuth, getDecisionHistory);
+monitoringRouter.get('/analytics/decisions/trends/:serverId/:model', requireAuth, getServerModelDecisionTrend);
+monitoringRouter.get('/analytics/selection-stats', requireAuth, getSelectionStats);
+monitoringRouter.get('/analytics/algorithms', requireAuth, getAlgorithmStats);
+monitoringRouter.get('/analytics/score-timeline', requireAuth, getScoreTimeline);
+monitoringRouter.get('/analytics/metrics-impact', requireAuth, getMetricsImpact);
 
 // Request History
-monitoringRouter.get('/analytics/servers-with-history', getServersWithHistory);
-monitoringRouter.get('/analytics/summary-snapshots', getSummarySnapshots);
+monitoringRouter.get('/analytics/servers-with-history', requireAuth, getServersWithHistory);
+monitoringRouter.get('/analytics/summary-snapshots', requireAuth, getSummarySnapshots);
 // Note: /requests/search must be registered before /requests/:serverId to avoid route conflict
-monitoringRouter.get('/analytics/requests/search', searchRequests);
-monitoringRouter.get('/analytics/requests/:serverId', getServerRequestHistory);
-monitoringRouter.get('/analytics/request-stats/:serverId', getServerRequestStats);
-monitoringRouter.get('/analytics/request-timeline', getRequestTimeline);
+monitoringRouter.get('/analytics/requests/search', requireAuth, searchRequests);
+monitoringRouter.get('/analytics/requests/:serverId', requireAuth, getServerRequestHistory);
+monitoringRouter.get('/analytics/request-stats/:serverId', requireAuth, getServerRequestStats);
+monitoringRouter.get('/analytics/request-timeline', requireAuth, getRequestTimeline);
 
 // Phase 2: SQLite rollup and request browser endpoints
-monitoringRouter.get('/analytics/rollups/hourly', getHourlyRollups);
-monitoringRouter.get('/analytics/rollups/daily', getDailyRollups);
-monitoringRouter.get('/analytics/requests/browse', browseRequests);
+monitoringRouter.get('/analytics/rollups/hourly', requireAuth, getHourlyRollups);
+monitoringRouter.get('/analytics/rollups/daily', requireAuth, getDailyRollups);
+monitoringRouter.get('/analytics/requests/browse', requireAuth, browseRequests);
 
 // Phase 3: Temporal scoring endpoints
-monitoringRouter.get('/analytics/temporal-profile', getTemporalProfile);
-monitoringRouter.get('/analytics/temporal-adjustment', getTemporalAdjustment);
+monitoringRouter.get('/analytics/temporal-profile', requireAuth, getTemporalProfile);
+monitoringRouter.get('/analytics/temporal-adjustment', requireAuth, getTemporalAdjustment);
 
 // Get detailed circuit breaker info for a server:model (monitoring)
-monitoringRouter.get('/servers/:serverId/models/:model/circuit-breaker', getCircuitBreakerDetails);
+monitoringRouter.get('/servers/:serverId/models/:model/circuit-breaker', requireAuth, getCircuitBreakerDetails);
+
+monitoringRouter.get('/errors', requireAuth, getErrors);
+monitoringRouter.get('/errors/:serverId', requireAuth, getServerErrors);
+monitoringRouter.get('/errors/:serverId/:circuitId', requireAuth, getCircuitErrors);

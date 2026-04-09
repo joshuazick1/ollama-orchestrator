@@ -213,6 +213,28 @@ export interface TemporalProfileRow {
   updated_at: number;
 }
 
+export interface UserRow {
+  id: number;
+  username: string;
+  email: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UserServerAccessRow {
+  id: number;
+  user_id: number;
+  server_id: string;
+  granted_at: number;
+}
+
+export interface UserModelAccessRow {
+  id: number;
+  user_id: number;
+  model: string;
+  granted_at: number;
+}
+
 // ============================================================
 // Query option types
 // ============================================================
@@ -354,7 +376,7 @@ export const DEFAULT_STORAGE_CONFIG: MetricsStoreConfig = {
   },
   performance: {
     batchSize: 100,
-    batchFlushIntervalMs: 1000,
+    batchFlushIntervalMs: 100,
     rollupDeadlineMinutes: 10,
     profileRebuildIntervalMs: 86_400_000,
     retentionCheckIntervalMs: 3_600_000,

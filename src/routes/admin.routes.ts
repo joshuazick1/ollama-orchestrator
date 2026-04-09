@@ -14,6 +14,8 @@ import {
   reloadConfig,
   saveConfig,
   getConfigSchema,
+  exportConfig,
+  importConfig,
 } from '../controllers/config-controller.js';
 import { getLogs, clearLogs, logClientError } from '../controllers/logs-controller.js';
 import { warmupModel, unloadModel, cancelWarmup } from '../controllers/model-controller.js';
@@ -58,6 +60,8 @@ import {
   warmupModelSchema,
   unloadModelSchema,
 } from '../middleware/validation.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { validateCsrfToken } from '../middleware/csrf.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =
@@ -71,81 +75,89 @@ const asyncHandler =
 export const adminRouter = Router();
 
 // Server management
-adminRouter.post('/servers/add', validateRequest(addServerSchema), asyncHandler(addServer));
-adminRouter.delete('/servers/:id', removeServer);
-adminRouter.patch('/servers/:id', validateRequest(updateServerSchema), asyncHandler(updateServer));
+adminRouter.post('/servers/add', requireAdmin, validateRequest(addServerSchema), asyncHandler(addServer));
+adminRouter.delete('/servers/:id', requireAdmin, removeServer);
+adminRouter.patch('/servers/:id', requireAuth, validateRequest(updateServerSchema), asyncHandler(updateServer));
 
 // Per-server model management
-adminRouter.get('/servers/:id/models', asyncHandler(listServerModels));
+adminRouter.get('/servers/:id/models', requireAuth, asyncHandler(listServerModels));
 adminRouter.post(
   '/servers/:id/models/pull',
+  requireAdmin,
   validateRequest(pullModelSchema),
   asyncHandler(pullModelToServer)
 );
-adminRouter.delete('/servers/:id/models/:model', asyncHandler(deleteModelFromServer));
-adminRouter.post('/servers/:id/models/copy', asyncHandler(copyModelToServer));
+adminRouter.delete('/servers/:id/models/:model', requireAdmin, asyncHandler(deleteModelFromServer));
+adminRouter.post('/servers/:id/models/copy', requireAdmin, asyncHandler(copyModelToServer));
 
 // Model management actions
 adminRouter.post(
   '/models/:model/warmup',
+  requireAdmin,
   validateRequest(warmupModelSchema),
   asyncHandler(warmupModel)
 );
 adminRouter.post(
   '/models/:model/unload',
+  requireAdmin,
   validateRequest(unloadModelSchema),
   asyncHandler(unloadModel)
 );
-adminRouter.post('/models/:model/cancel', cancelWarmup);
+adminRouter.post('/models/:model/cancel', requireAdmin, cancelWarmup);
 
 // Configuration
-adminRouter.get('/config', getConfig);
-adminRouter.get('/config/schema', getConfigSchema);
-adminRouter.post('/config', asyncHandler(updateConfig));
-adminRouter.patch('/config/:section', asyncHandler(updateConfigSection));
-adminRouter.post('/config/reload', asyncHandler(reloadConfig));
-adminRouter.post('/config/save', asyncHandler(saveConfig));
+adminRouter.get('/config', requireAdmin, getConfig);
+adminRouter.get('/config/schema', requireAdmin, getConfigSchema);
+adminRouter.get('/config/export', requireAdmin, exportConfig);
+adminRouter.post('/config', requireAdmin, asyncHandler(updateConfig));
+adminRouter.patch('/config/:section', requireAdmin, asyncHandler(updateConfigSection));
+adminRouter.post('/config/reload', requireAdmin, asyncHandler(reloadConfig));
+adminRouter.post('/config/save', requireAdmin, asyncHandler(saveConfig));
+adminRouter.post('/config/import', requireAdmin, validateCsrfToken, asyncHandler(importConfig));
 
 // Ban management
-adminRouter.get('/bans', getBans);
-adminRouter.delete('/bans', clearAllBans);
-adminRouter.delete('/bans/server/:serverId', removeBansByServer);
-adminRouter.delete('/bans/model/:model', removeBansByModel);
-adminRouter.delete('/bans/:serverId/:model', removeBan);
+adminRouter.get('/bans', requireAdmin, getBans);
+adminRouter.delete('/bans', requireAdmin, clearAllBans);
+adminRouter.delete('/bans/server/:serverId', requireAdmin, removeBansByServer);
+adminRouter.delete('/bans/model/:model', requireAdmin, removeBansByModel);
+adminRouter.delete('/bans/:serverId/:model', requireAdmin, removeBan);
 
 // Circuit breaker management
-adminRouter.get('/circuit-breakers/:serverId/:model', asyncHandler(getBreakerDetails));
-adminRouter.post('/circuit-breakers/:serverId/:model/reset', asyncHandler(resetBreaker));
-adminRouter.post('/circuit-breakers/:serverId/:model/open', asyncHandler(forceOpenBreaker));
-adminRouter.post('/circuit-breakers/:serverId/:model/close', asyncHandler(forceCloseBreaker));
+adminRouter.get('/circuit-breakers/:serverId/:model', requireAdmin, asyncHandler(getBreakerDetails));
+adminRouter.post('/circuit-breakers/:serverId/:model/reset', requireAdmin, asyncHandler(resetBreaker));
+adminRouter.post('/circuit-breakers/:serverId/:model/open', requireAdmin, asyncHandler(forceOpenBreaker));
+adminRouter.post('/circuit-breakers/:serverId/:model/close', requireAdmin, asyncHandler(forceCloseBreaker));
 adminRouter.post(
   '/circuit-breakers/:serverId/:model/half-open',
+  requireAdmin,
   asyncHandler(forceHalfOpenBreaker)
 );
-adminRouter.get('/circuit-breakers/:serverId', asyncHandler(getServerCircuitBreaker));
-adminRouter.post('/circuit-breakers/:serverId/reset', asyncHandler(resetServerCircuitBreaker));
+adminRouter.get('/circuit-breakers/:serverId', requireAdmin, asyncHandler(getServerCircuitBreaker));
+adminRouter.post('/circuit-breakers/:serverId/reset', requireAdmin, asyncHandler(resetServerCircuitBreaker));
 
 // Manual recovery test for debugging (admin)
 adminRouter.post(
   '/servers/:serverId/models/:model/recovery-test',
+  requireAdmin,
   asyncHandler(manualRecoveryTest)
 );
 
 // Recovery failure tracking and analysis
-adminRouter.get('/recovery-failures', getRecoveryFailuresSummary);
-adminRouter.get('/recovery-failures/stats/all', getAllServerRecoveryStats);
-adminRouter.get('/recovery-failures/recent', getRecentFailureRecords);
-adminRouter.get('/recovery-failures/:serverId', getServerRecoveryStats);
-adminRouter.get('/recovery-failures/:serverId/history', getServerFailureHistory);
-adminRouter.get('/recovery-failures/:serverId/analysis', analyzeServerFailures);
-adminRouter.get('/recovery-failures/:serverId/circuit-breaker-impact', analyzeCircuitBreakerImpact);
+adminRouter.get('/recovery-failures', requireAdmin, getRecoveryFailuresSummary);
+adminRouter.get('/recovery-failures/stats/all', requireAdmin, getAllServerRecoveryStats);
+adminRouter.get('/recovery-failures/recent', requireAdmin, getRecentFailureRecords);
+adminRouter.get('/recovery-failures/:serverId', requireAdmin, getServerRecoveryStats);
+adminRouter.get('/recovery-failures/:serverId/history', requireAdmin, getServerFailureHistory);
+adminRouter.get('/recovery-failures/:serverId/analysis', requireAdmin, analyzeServerFailures);
+adminRouter.get('/recovery-failures/:serverId/circuit-breaker-impact', requireAdmin, analyzeCircuitBreakerImpact);
 adminRouter.get(
   '/recovery-failures/:serverId/circuit-breaker-transitions',
+  requireAdmin,
   getCircuitBreakerTransitions
 );
-adminRouter.post('/recovery-failures/:serverId/reset', resetServerRecoveryStats);
+adminRouter.post('/recovery-failures/:serverId/reset', requireAdmin, resetServerRecoveryStats);
 
 // Logging
-adminRouter.get('/logs', getLogs);
-adminRouter.post('/logs/clear', clearLogs);
-adminRouter.post('/logs/client-error', logClientError);
+adminRouter.get('/logs', requireAuth, getLogs);
+adminRouter.post('/logs/clear', requireAdmin, clearLogs);
+adminRouter.post('/logs/client-error', requireAdmin, logClientError);

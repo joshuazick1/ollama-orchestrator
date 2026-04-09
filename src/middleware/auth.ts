@@ -25,9 +25,22 @@ export interface AuthConfig {
   adminApiKeys: string[];
 }
 
+/**
+ * Check if auth is enabled based on environment variables.
+ * Supports both ORCHESTRATOR_AUTH_ENABLED and ENABLE_AUTH for backwards compatibility.
+ * Auth is enabled if ORCHESTRATOR_AUTH_ENABLED is not 'false' OR ENABLE_AUTH is not 'false'.
+ */
+function isAuthEnabled(): boolean {
+  const orchestratorAuth = process.env.ORCHESTRATOR_AUTH_ENABLED;
+  const enableAuth = process.env.ENABLE_AUTH;
+  // Auth is enabled if either flag is set and not explicitly 'false'
+  return (orchestratorAuth !== 'false' && orchestratorAuth !== undefined) ||
+         (enableAuth !== 'false' && enableAuth !== undefined);
+}
+
 // In production, these should come from environment variables
 export const DEFAULT_AUTH_CONFIG: AuthConfig = {
-  enabled: process.env.ENABLE_AUTH !== 'false',
+  enabled: isAuthEnabled(),
   apiKeys: process.env.API_KEYS?.split(',').filter(Boolean) ?? [],
   adminApiKeys: process.env.ADMIN_API_KEYS?.split(',').filter(Boolean) ?? [],
 };
@@ -38,7 +51,7 @@ export const DEFAULT_AUTH_CONFIG: AuthConfig = {
  * without restarting the process.
  */
 export function refreshAuthConfig(): AuthConfig {
-  DEFAULT_AUTH_CONFIG.enabled = process.env.ENABLE_AUTH !== 'false';
+  DEFAULT_AUTH_CONFIG.enabled = isAuthEnabled();
   DEFAULT_AUTH_CONFIG.apiKeys = process.env.API_KEYS?.split(',').filter(Boolean) ?? [];
   DEFAULT_AUTH_CONFIG.adminApiKeys = process.env.ADMIN_API_KEYS?.split(',').filter(Boolean) ?? [];
   logger.info('Auth configuration refreshed from environment');
@@ -51,6 +64,10 @@ declare module 'express-serve-static-core' {
     auth?: {
       apiKey: string;
       isAdmin: boolean;
+    };
+    user?: {
+      id: string;
+      role: 'admin' | 'user';
     };
   }
 }
@@ -87,6 +104,36 @@ export function requireAuth(
     if (!config.enabled) {
       next();
       return;
+    }
+
+    // Check for JWT token first (Bearer token in Authorization header)
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        // Dynamically import to avoid circular dependency at module level
+        // eslint-disable-next-line @typescript-eslint/no-shadow
+        const { verifyAccessToken } = require('../utils/jwt.js');
+        const payload = verifyAccessToken(token);
+        // JWT is valid - set req.user with userId and role
+        req.user = {
+          id: payload.userId,
+          role: payload.role,
+        };
+        // Also set req.auth for backward compatibility
+        req.auth = {
+          apiKey: token,
+          isAdmin: payload.role === 'admin',
+        };
+        next();
+        return;
+      } catch (err) {
+        // JWT verification failed - fall through to API key check
+        logger.debug('JWT verification failed, falling back to API key', {
+          path: req.path,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     const apiKey = extractApiKey(req);

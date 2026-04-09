@@ -494,6 +494,69 @@ export class LoadBalancer {
   }
 
   /**
+   * Filter candidates based on user access control.
+   * Throws 'Access denied' error if no candidates remain after filtering.
+   */
+  private filterByUserAccess(
+    candidates: AIServer[],
+    model: string,
+    userId?: string,
+    isAdmin?: boolean
+  ): AIServer[] {
+    // If no userId provided or user is admin, bypass filtering
+    if (!userId || isAdmin) {
+      return candidates;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-shadow
+    const { getUserStore } = require('../storage/user-store.js');
+    const userStore = getUserStore();
+
+    // Get user's allowed servers
+    const serverAccess = userStore.listServerAccess(userId);
+    const allowedServerIds = new Set(serverAccess.map((s: { serverId: string }) => s.serverId));
+
+    // Get user's allowed models per server
+    const modelAccess = userStore.listModelAccess(userId);
+    const allowedModelsByServer = new Map<string, Set<string>>();
+    for (const access of modelAccess) {
+      if (!allowedModelsByServer.has(access.serverId)) {
+        allowedModelsByServer.set(access.serverId, new Set());
+      }
+      allowedModelsByServer.get(access.serverId)!.add(access.model);
+    }
+
+    // Check if user has any server access at all
+    if (allowedServerIds.size === 0) {
+      // User has no servers assigned
+      throw new Error('No servers assigned');
+    }
+
+    // Filter candidates: keep only servers user has access to
+    const filtered = candidates.filter(server => {
+      // Check if user has access to this server
+      if (!allowedServerIds.has(server.id)) {
+        return false;
+      }
+
+      // Check if user has access to this model on this server
+      const allowedModels = allowedModelsByServer.get(server.id);
+      if (allowedModels && !allowedModels.has(model)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    if (filtered.length === 0 && candidates.length > 0) {
+      // User has server access but not to this model on any candidate
+      throw new Error(`Access denied to model ${model}`);
+    }
+
+    return filtered;
+  }
+
+  /**
    * Update configuration at runtime
    */
   updateConfig(config: Partial<LoadBalancerConfig>): void {
@@ -576,12 +639,16 @@ export class LoadBalancer {
     getTimeout?: (serverId: string, model: string) => number,
     getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined,
     estimatedPromptTokens?: number,
-    getContextLimit?: (serverId: string, model: string) => number
+    getContextLimit?: (serverId: string, model: string) => number,
+    userId?: string,
+    isAdmin?: boolean
   ): AIServer | undefined {
+    // Apply user access filtering before scoring
+    const filteredCandidates = this.filterByUserAccess(candidates, model, userId, isAdmin);
     switch (this.algorithm) {
       case 'weighted':
         return this.selectWeighted(
-          candidates,
+          filteredCandidates,
           model,
           getLoad,
           getTotalLoad,
@@ -593,20 +660,20 @@ export class LoadBalancer {
         );
 
       case 'round-robin':
-        return this.selectRoundRobin(candidates, getTotalLoad, clientId);
+        return this.selectRoundRobin(filteredCandidates, getTotalLoad, clientId);
 
       case 'least-connections':
-        return this.selectLeastConnections(candidates, getTotalLoad, getMetrics, model);
+        return this.selectLeastConnections(filteredCandidates, getTotalLoad, getMetrics, model);
 
       case 'random':
-        return this.selectRandom(candidates);
+        return this.selectRandom(filteredCandidates);
 
       case 'fastest-response':
-        return this.selectFastestResponse(candidates, model, getLoad, getTotalLoad, getMetrics);
+        return this.selectFastestResponse(filteredCandidates, model, getLoad, getTotalLoad, getMetrics);
 
       case 'streaming-optimized':
         return this.selectStreamingOptimized(
-          candidates,
+          filteredCandidates,
           model,
           getLoad,
           getTotalLoad,
@@ -616,7 +683,7 @@ export class LoadBalancer {
 
       default:
         return this.selectWeighted(
-          candidates,
+          filteredCandidates,
           model,
           getLoad,
           getTotalLoad,

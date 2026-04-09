@@ -15,6 +15,7 @@ import {
   handleCompletionsToServer,
   handleOpenAIEmbeddingsToServer,
 } from '../controllers/openai-controller.js';
+import { requireAuth, optionalAuth } from '../middleware/auth.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =
@@ -27,13 +28,13 @@ const asyncHandler =
 
 export const v1Router = Router();
 
-v1Router.post('/chat/completions', asyncHandler(handleChatCompletions));
-v1Router.post('/completions', asyncHandler(handleCompletions));
-v1Router.post('/embeddings', asyncHandler(handleOpenAIEmbeddings));
-v1Router.get('/models', asyncHandler(handleListModels));
-v1Router.get('/models/:model', asyncHandler(handleGetModel));
+v1Router.post('/chat/completions', requireAuth(), asyncHandler(handleChatCompletions));
+v1Router.post('/completions', requireAuth(), asyncHandler(handleCompletions));
+v1Router.post('/embeddings', requireAuth(), asyncHandler(handleOpenAIEmbeddings));
+v1Router.get('/models', optionalAuth(), asyncHandler(handleListModels));
+v1Router.get('/models/:model', optionalAuth(), asyncHandler(handleGetModel));
 
 // Server-specific routes (/v1/:endpoint--$serverid) for testing/debugging
-v1Router.post('/chat/completions--:serverId', asyncHandler(handleChatCompletionsToServer));
-v1Router.post('/completions--:serverId', asyncHandler(handleCompletionsToServer));
-v1Router.post('/embeddings--:serverId', asyncHandler(handleOpenAIEmbeddingsToServer));
+v1Router.post('/chat/completions--:serverId', requireAuth(), asyncHandler(handleChatCompletionsToServer));
+v1Router.post('/completions--:serverId', requireAuth(), asyncHandler(handleCompletionsToServer));
+v1Router.post('/embeddings--:serverId', requireAuth(), asyncHandler(handleOpenAIEmbeddingsToServer));
