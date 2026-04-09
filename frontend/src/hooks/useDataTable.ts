@@ -55,7 +55,8 @@ export function useDataTable<T>({
   };
 
   const processedData = useMemo(() => {
-    let result = [...data];
+    // Defensive: ensure data is always an array before spreading
+    let result = Array.isArray(data) ? [...data] : [];
 
     // 1. Filtering
     Object.entries(filters).forEach(([key, value]) => {

@@ -146,7 +146,9 @@ describe('Complex Model Operations - Hundreds of Models', () => {
 
       const state1 = modelManager.getModelState('ollama-1', 'llama0:latest');
       const state2 = modelManager.getModelState('ollama-1', 'llama9:latest');
-      expect(state1?.lastUsed).toBeGreaterThanOrEqual(state2?.lastUsed || 0);
+      // llama0 is marked FIRST in each inner loop iteration, llama9 is marked LAST
+      // So llama9.lastUsed (state2) should be >= llama0.lastUsed (state1)
+      expect(state2?.lastUsed).toBeGreaterThanOrEqual(state1?.lastUsed || 0);
     });
   });
 
