@@ -465,7 +465,7 @@ export const CircuitBreakers = () => {
     );
   }
 
-  const breakers = data?.circuitBreakers || [];
+  const breakers = Array.isArray(data?.circuitBreakers) ? data.circuitBreakers : [];
   const openCount = breakers.filter(b => b.state === 'OPEN').length;
   const halfOpenCount = breakers.filter(b => b.state === 'HALF-OPEN').length;
   const closedCount = breakers.filter(b => b.state === 'CLOSED').length;
