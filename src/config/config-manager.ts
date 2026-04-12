@@ -120,7 +120,8 @@ export const validateServers = (data: any): data is AIServer[] => {
         typeof server.id === 'string' &&
         typeof server.url === 'string' &&
         typeof server.healthy === 'boolean' &&
-        Array.isArray(server.models)
+        Array.isArray(server.models) &&
+        (server.v1Models === undefined || Array.isArray(server.v1Models))
     )
   );
 };

@@ -73,12 +73,30 @@ export const addServerSchema = z.object({
   id: serverIdSchema.optional(),
   url: z.string().url('Invalid URL format'),
   maxConcurrency: z.number().int().min(1).max(1000).optional().default(4),
-  type: z.enum(['ollama']).optional().default('ollama'),
+  type: z.enum(['ollama', 'openai', 'auto']).optional().default('auto'),
   apiKey: z.string().optional(),
 });
 
 export const updateServerSchema = z.object({
   maxConcurrency: z.number().int().min(1).max(1000).optional(),
+});
+
+export const updateServerConfigSchema = z.object({
+  type: z.enum(['ollama', 'openai', 'auto']).optional(),
+  v1Models: z.array(z.string()).optional(),
+  forcedCapabilities: z.object({
+    supportsOllama: z.boolean().optional(),
+    supportsV1: z.boolean().optional(),
+    supportsAnthropic: z.boolean().optional()
+  }).optional(),
+  endpointOverrides: z.object({
+    anthropic_messages: z.string().optional(),
+    anthropic_auth: z.object({
+      headerName: z.string().optional(),
+      headerPrefix: z.string().optional()
+    }).optional(),
+    modelPrefix: z.string().optional()
+  }).optional()
 });
 
 // Model validation schemas

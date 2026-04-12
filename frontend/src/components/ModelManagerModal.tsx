@@ -69,17 +69,17 @@ function PullProgress({
     >
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center space-x-2 min-w-0 flex-1">
-          <span className="text-sm font-medium text-white truncate">{operation.model}</span>
-          <span className="text-xs text-gray-400">
+          <span className="text-sm font-medium text-text-base truncate">{operation.model}</span>
+          <span className="text-xs text-text-muted">
             ({operation.type === 'copy' ? 'copy' : 'pull'})
           </span>
         </div>
         <div className="flex items-center space-x-2 ml-2">
-          <span className="text-xs text-gray-400">{timeStr}</span>
+          <span className="text-xs text-text-muted">{timeStr}</span>
           {isActive ? (
             <button
               onClick={onCancel}
-              className="p-1 text-gray-400 hover:text-red-400 transition-colors"
+              className="p-1 text-text-muted hover:text-red-400 transition-colors"
               title="Cancel pull"
             >
               <X className="w-3.5 h-3.5" />
@@ -87,7 +87,7 @@ function PullProgress({
           ) : (
             <button
               onClick={onDismiss}
-              className="p-1 text-gray-400 hover:text-white transition-colors"
+              className="p-1 text-text-muted hover:text-text-base transition-colors"
               title="Dismiss"
             >
               <X className="w-3.5 h-3.5" />
@@ -98,7 +98,7 @@ function PullProgress({
 
       {/* Progress bar */}
       {isActive && (
-        <div className="w-full bg-gray-700 rounded-full h-2 mb-1.5 overflow-hidden relative">
+        <div className="w-full bg-surface rounded-full h-2 mb-1.5 overflow-hidden relative">
           {operation.percentage === 0 ? (
             <div className="absolute inset-0 w-full h-full bg-blue-900/30 overflow-hidden rounded-full">
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-500/50 to-transparent w-full h-full animate-shimmer-x" />
@@ -115,14 +115,14 @@ function PullProgress({
       <div className="flex items-center justify-between">
         <span
           className={`text-xs truncate ${
-            isComplete ? 'text-green-400' : isError ? 'text-red-400' : 'text-gray-400'
+            isComplete ? 'text-green-400' : isError ? 'text-red-400' : 'text-text-muted'
           }`}
         >
           {isError ? operation.error || 'Failed' : operation.statusText}
           {operation.digest && isActive ? ` (${shortDigest(operation.digest)})` : ''}
         </span>
         {isActive && operation.total && operation.total > 0 && (
-          <span className="text-xs text-gray-400 ml-2 whitespace-nowrap">
+          <span className="text-xs text-text-muted ml-2 whitespace-nowrap">
             {formatBytes(operation.completed)} / {formatBytes(operation.total)}
             {operation.percentage > 0 && ` (${operation.percentage}%)`}
           </span>
@@ -233,13 +233,13 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
     >
       <div className="flex flex-col h-full">
         {/* Tabs */}
-        <div className="flex border-b border-gray-700 -mx-6 px-6 mb-6">
+        <div className="flex border-b border-surface-border -mx-6 px-6 mb-6">
           <button
             onClick={() => setActiveTab('installed')}
             className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
               activeTab === 'installed'
                 ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/5'
-                : 'text-gray-400 hover:text-white'
+                : 'text-text-muted hover:text-text-base'
             }`}
           >
             <Package className="w-4 h-4 inline mr-2" />
@@ -250,13 +250,13 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
             className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${
               activeTab === 'pull'
                 ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/5'
-                : 'text-gray-400 hover:text-white'
+                : 'text-text-muted hover:text-text-base'
             }`}
           >
             <Download className="w-4 h-4 inline mr-2" />
             Pull / Copy Model
             {activePulls.length > 0 && (
-              <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-blue-500 rounded-full animate-pulse">
+              <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-text-base bg-blue-500 rounded-full animate-pulse">
                 {activePulls.length}
               </span>
             )}
@@ -268,7 +268,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
           {activeTab === 'installed' ? (
             <div>
               <div className="flex justify-between items-center mb-4">
-                <h4 className="text-sm font-medium text-gray-400">
+                <h4 className="text-sm font-medium text-text-muted">
                   Models currently on this server
                 </h4>
                 <button
@@ -284,9 +284,9 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
               </div>
 
               {isLoadingModels ? (
-                <div className="text-center py-8 text-gray-400">Loading models...</div>
+                <div className="text-center py-8 text-text-muted">Loading models...</div>
               ) : models.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-text-subtle">
                   <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p>No models installed on this server</p>
                 </div>
@@ -295,11 +295,11 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                   {models.map(model => (
                     <div
                       key={model.name}
-                      className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg border border-gray-700/50"
+                      className="flex items-center justify-between p-3 bg-surface-raised/50 rounded-lg border border-surface-border/50"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-white truncate">{model.name}</div>
-                        <div className="text-xs text-gray-500 mt-1 flex items-center space-x-4">
+                        <div className="font-medium text-text-base truncate">{model.name}</div>
+                        <div className="text-xs text-text-subtle mt-1 flex items-center space-x-4">
                           <span className="flex items-center">
                             <HardDrive className="w-3 h-3 mr-1" />
                             {formatBytes(model.size)}
@@ -310,7 +310,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                       <button
                         onClick={() => handleDelete(model.name)}
                         disabled={deleteMutation.isPending}
-                        className="ml-4 p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
+                        className="ml-4 p-2 text-text-subtle hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
                         title="Delete model"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -325,7 +325,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
               {/* Active pull operations */}
               {serverPulls.length > 0 && (
                 <div className="mb-6 space-y-2">
-                  <h4 className="text-sm font-medium text-gray-400 mb-2">
+                  <h4 className="text-sm font-medium text-text-muted mb-2">
                     {activePulls.length > 0
                       ? `Active Downloads (${activePulls.length})`
                       : 'Recent Operations'}
@@ -349,10 +349,10 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                     value={newModelName}
                     onChange={e => setNewModelName(e.target.value)}
                     placeholder="e.g., llama3.2:latest or llama3.2:1b"
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-surface-raised border border-surface-border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:border-blue-500"
                     required
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-text-subtle mt-1">
                     Enter the full model name including tag (e.g., llama3.2:latest). You can start
                     multiple pulls simultaneously.
                   </p>
@@ -366,7 +366,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                     <select
                       value={selectedSourceServer}
                       onChange={e => setSelectedSourceServer(e.target.value)}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-surface-raised border border-surface-border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:border-blue-500"
                     >
                       <option value="">Pull from Ollama Registry (default)</option>
                       {otherServers.map((s: AIServer) => (
@@ -375,7 +375,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-text-subtle mt-1">
                       {selectedSourceServer
                         ? 'Will attempt to copy from selected server (falls back to registry pull)'
                         : 'Will download directly from Ollama registry'}
@@ -387,7 +387,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                   <button
                     type="submit"
                     disabled={!newModelName.trim()}
-                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
+                    className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-surface text-text-base py-2 px-4 rounded-lg transition-colors flex items-center justify-center space-x-2"
                   >
                     {selectedSourceServer ? (
                       <>
@@ -406,11 +406,11 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
 
               {/* Popular in Fleet - filter out already installed models */}
               {fleetStats?.popularModels && fleetStats.popularModels.length > 0 && (
-                <div className="mt-6 p-4 bg-gray-900/50 rounded-lg border border-gray-700/50">
+                <div className="mt-6 p-4 bg-surface-raised/50 rounded-lg border border-surface-border/50">
                   <div className="flex items-center mb-3">
                     <TrendingUp className="w-4 h-4 text-blue-400 mr-2" />
                     <h5 className="text-sm font-medium text-gray-300">Popular in Fleet</h5>
-                    <span className="ml-2 text-xs text-gray-500">
+                    <span className="ml-2 text-xs text-text-subtle">
                       ({fleetStats.healthyServers} healthy servers)
                     </span>
                   </div>
@@ -435,7 +435,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
 
               {/* Recently Added - from other servers only */}
               {otherServers && otherServers.length > 0 && (
-                <div className="mt-4 p-4 bg-gray-900/50 rounded-lg border border-gray-700/50">
+                <div className="mt-4 p-4 bg-surface-raised/50 rounded-lg border border-surface-border/50">
                   <div className="flex items-center mb-3">
                     <Clock className="w-4 h-4 text-green-400 mr-2" />
                     <h5 className="text-sm font-medium text-gray-300">

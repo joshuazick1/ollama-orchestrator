@@ -354,50 +354,50 @@ export const UsersTab = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h3 className="text-xl font-semibold text-white">User Management</h3>
-          <p className="text-gray-400 text-sm mt-1">Manage users and their access permissions</p>
+          <h3 className="text-xl font-semibold text-text-base">User Management</h3>
+          <p className="text-text-muted text-sm mt-1">Manage users and their access permissions</p>
         </div>
         <button
           onClick={() => {
             resetForm();
             setIsAddModalOpen(true);
           }}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-text-base px-4 py-2 rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" />
           <span>Add User</span>
         </button>
       </div>
 
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+      <div className="bg-surface rounded-xl border border-surface-border overflow-hidden">
         <table className="w-full">
-          <thead className="bg-gray-900/50">
+          <thead className="bg-surface-raised/50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">User</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Role</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">API Key</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Last Login</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">User</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Role</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">API Key</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Last Login</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
             {users.map(user => (
               <>
-                <tr key={user.id} className="hover:bg-gray-700/30 transition-colors">
+                <tr key={user.id} className="hover:bg-surface/30 transition-colors">
                   <td className="px-4 py-4">
                     <div>
-                      <div className="font-medium text-white">{user.username}</div>
-                      <div className="text-sm text-gray-500">{user.email}</div>
+                      <div className="font-medium text-text-base">{user.username}</div>
+                      <div className="text-sm text-text-subtle">{user.email}</div>
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     <RoleBadge role={user.role} />
                   </td>
                   <td className="px-4 py-4">
-                    <span className="text-gray-400 text-sm">••••••••</span>
+                    <span className="text-text-muted text-sm">••••••••</span>
                   </td>
-                  <td className="px-4 py-4 text-gray-400 text-sm">
+                  <td className="px-4 py-4 text-text-muted text-sm">
                     {formatDate(user.updatedAt)}
                   </td>
                   <td className="px-4 py-4">
@@ -405,7 +405,7 @@ export const UsersTab = () => {
                       className={`px-2 py-0.5 rounded text-xs font-medium ${
                         user.isActive
                           ? 'bg-green-500/20 text-green-400'
-                          : 'bg-gray-500/20 text-gray-400'
+                          : 'bg-gray-500/20 text-text-muted'
                       }`}
                     >
                       {user.isActive ? 'Active' : 'Inactive'}
@@ -415,7 +415,7 @@ export const UsersTab = () => {
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => toggleUserExpansion(user.id)}
-                        className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                        className="p-2 text-text-muted hover:text-text-base hover:bg-surface rounded-lg transition-colors"
                         title="Manage access"
                       >
                         {expandedUsers.has(user.id) ? (
@@ -426,7 +426,7 @@ export const UsersTab = () => {
                       </button>
                       <button
                         onClick={() => rotateApiKeyMutation.mutate(user.id)}
-                        className="p-2 text-gray-400 hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-colors"
+                        className="p-2 text-text-muted hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-colors"
                         title="Generate API Key"
                         disabled={rotateApiKeyMutation.isPending}
                       >
@@ -434,14 +434,14 @@ export const UsersTab = () => {
                       </button>
                       <button
                         onClick={() => openEditModal(user)}
-                        className="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
+                        className="p-2 text-text-muted hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
                         title="Edit user"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => setDeletingUser(user)}
-                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                        className="p-2 text-text-muted hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                         title="Delete user"
                         disabled={user.id === currentUser?.id}
                       >
@@ -452,11 +452,11 @@ export const UsersTab = () => {
                 </tr>
                 {expandedUsers.has(user.id) && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-4 bg-gray-900/30">
+                    <td colSpan={6} className="px-4 py-4 bg-surface-raised/30">
                       <div className="space-y-4">
                         {user.accessLoading ? (
                           <div className="flex items-center justify-center py-4">
-                            <div className="animate-spin text-gray-400">
+                            <div className="animate-spin text-text-muted">
                               <Server className="w-5 h-5" />
                             </div>
                           </div>
@@ -464,7 +464,7 @@ export const UsersTab = () => {
                           <>
                             <div>
                               <div className="flex items-center justify-between mb-2">
-                                <h4 className="text-sm font-medium text-gray-400 flex items-center space-x-2">
+                                <h4 className="text-sm font-medium text-text-muted flex items-center space-x-2">
                                   <Server className="w-4 h-4" />
                                   <span>Server Access</span>
                                 </h4>
@@ -491,7 +491,7 @@ export const UsersTab = () => {
                                       <span className="text-sm text-gray-300">{serverId}</span>
                                       <button
                                         onClick={() => setRevokeServerAccessModal({ userId: user.id, serverId })}
-                                        className="text-gray-400 hover:text-red-400"
+                                        className="text-text-muted hover:text-red-400"
                                       >
                                         <X className="w-3 h-3" />
                                       </button>
@@ -499,13 +499,13 @@ export const UsersTab = () => {
                                   ))}
                                 </div>
                               ) : (
-                                <p className="text-sm text-gray-500">No server access granted</p>
+                                <p className="text-sm text-text-subtle">No server access granted</p>
                               )}
                             </div>
 
                             <div>
                               <div className="flex items-center justify-between mb-2">
-                                <h4 className="text-sm font-medium text-gray-400 flex items-center space-x-2">
+                                <h4 className="text-sm font-medium text-text-muted flex items-center space-x-2">
                                   <Cpu className="w-4 h-4" />
                                   <span>Model Access</span>
                                 </h4>
@@ -520,7 +520,7 @@ export const UsersTab = () => {
                                     }, {})
                                   ).map(([serverId, models]) => (
                                     <div key={serverId} className="bg-gray-700/30 rounded-lg p-3">
-                                      <div className="text-xs text-gray-500 mb-2">{serverId}</div>
+                                      <div className="text-xs text-text-subtle mb-2">{serverId}</div>
                                       <div className="flex flex-wrap gap-2">
                                         {models.map(model => (
                                           <div
@@ -532,7 +532,7 @@ export const UsersTab = () => {
                                               onClick={() =>
                                                 setModelAccessModal({ userId: user.id, serverId, mode: 'remove', model })
                                               }
-                                              className="text-gray-400 hover:text-red-400"
+                                              className="text-text-muted hover:text-red-400"
                                             >
                                               <X className="w-3 h-3" />
                                             </button>
@@ -552,7 +552,7 @@ export const UsersTab = () => {
                                   ))}
                                 </div>
                               ) : (
-                                <p className="text-sm text-gray-500">No model access granted</p>
+                                <p className="text-sm text-text-subtle">No model access granted</p>
                               )}
                             </div>
                           </>
@@ -567,7 +567,7 @@ export const UsersTab = () => {
         </table>
 
         {users.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-text-subtle">
             <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>No users found</p>
           </div>
@@ -591,7 +591,7 @@ export const UsersTab = () => {
               type="text"
               value={formData.username}
               onChange={e => setFormData(prev => ({ ...prev, username: e.target.value }))}
-              className={`w-full bg-gray-900 border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 ${
+              className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
                 formErrors.username ? 'border-red-500 focus:ring-red-500' : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
@@ -604,7 +604,7 @@ export const UsersTab = () => {
               type="email"
               value={formData.email}
               onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              className={`w-full bg-gray-900 border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 ${
+              className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
                 formErrors.email ? 'border-red-500 focus:ring-red-500' : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
@@ -619,7 +619,7 @@ export const UsersTab = () => {
               type="password"
               value={formData.password}
               onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
-              className={`w-full bg-gray-900 border rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 ${
+              className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
                 formErrors.password ? 'border-red-500 focus:ring-red-500' : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
@@ -631,7 +631,7 @@ export const UsersTab = () => {
             <select
               value={formData.role}
               onChange={e => setFormData(prev => ({ ...prev, role: e.target.value as 'user' | 'admin' }))}
-              className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-surface-raised border border-gray-600 rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="user">User</option>
               <option value="admin">Admin</option>
@@ -646,14 +646,14 @@ export const UsersTab = () => {
                 setEditingUser(null);
                 resetForm();
               }}
-              className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+              className="px-4 py-2 text-gray-300 hover:text-text-base transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending || updateMutation.isPending}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="bg-blue-600 hover:bg-blue-700 text-text-base px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
             >
               {editingUser ? 'Save Changes' : 'Create User'}
             </button>
@@ -677,14 +677,14 @@ export const UsersTab = () => {
         size="md"
       >
         <div className="space-y-4">
-          <p className="text-gray-400 text-sm">
+          <p className="text-text-muted text-sm">
             Store this API key securely. It will not be shown again.
           </p>
-          <div className="bg-gray-900 rounded-lg p-4 flex items-center justify-between">
+          <div className="bg-surface-raised rounded-lg p-4 flex items-center justify-between">
             <code className="text-green-400 font-mono break-all">{apiKeyModal?.apiKey}</code>
             <button
               onClick={copyApiKey}
-              className="ml-4 p-2 text-gray-400 hover:text-white transition-colors flex-shrink-0"
+              className="ml-4 p-2 text-text-muted hover:text-text-base transition-colors flex-shrink-0"
               title="Copy to clipboard"
             >
               {copiedKey ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5" />}
@@ -693,7 +693,7 @@ export const UsersTab = () => {
           <div className="flex justify-end">
             <button
               onClick={() => setApiKeyModal(null)}
-              className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors"
+              className="bg-gray-700 hover:bg-gray-600 text-text-base px-4 py-2 rounded-lg transition-colors"
             >
               Done
             </button>
@@ -709,7 +709,7 @@ export const UsersTab = () => {
       >
         <div className="space-y-4">
           {serversLoading ? (
-            <p className="text-gray-400">Loading servers...</p>
+            <p className="text-text-muted">Loading servers...</p>
           ) : availableServers.length > 0 ? (
             <div className="space-y-2">
               {availableServers.map(serverId => (
@@ -721,19 +721,19 @@ export const UsersTab = () => {
                       serverId,
                     })
                   }
-                  className="w-full text-left px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white transition-colors"
+                  className="w-full text-left px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-text-base transition-colors"
                 >
                   {serverId}
                 </button>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500">All servers already have access</p>
+            <p className="text-text-subtle">All servers already have access</p>
           )}
           <div className="flex justify-end">
             <button
               onClick={() => setServerAccessModal(null)}
-              className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+              className="px-4 py-2 text-gray-300 hover:text-text-base transition-colors"
             >
               Cancel
             </button>
@@ -769,14 +769,14 @@ export const UsersTab = () => {
             <input
               type="text"
               id="modelInput"
-              className="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-surface-raised border border-gray-600 rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="e.g., llama3:latest"
             />
           </div>
           <div className="flex justify-end space-x-3">
             <button
               onClick={() => setModelAccessModal(null)}
-              className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+              className="px-4 py-2 text-gray-300 hover:text-text-base transition-colors"
             >
               Cancel
             </button>
@@ -791,7 +791,7 @@ export const UsersTab = () => {
                   });
                 }
               }}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="bg-blue-600 hover:bg-blue-700 text-text-base px-4 py-2 rounded-lg transition-colors"
             >
               Add
             </button>

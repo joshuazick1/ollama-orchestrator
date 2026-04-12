@@ -348,12 +348,18 @@ export class AIOrchestrator {
         }
 
         // Update OpenAI models from health check result
+        // Don't overwrite manually configured v1Models with empty probe results
+        // This preserves manually configured models for servers like MiniMax that don't expose /v1/models
         if (
           result.v1Models &&
           safeJsonStringify(result.v1Models) !== safeJsonStringify(server.v1Models)
         ) {
-          server.v1Models = result.v1Models;
-          needsPersistence = true;
+          // Only update if result has models OR server doesn't have models yet
+          // This prevents empty probe results from overwriting manually configured models
+          if (result.v1Models.length > 0 || !server.v1Models || server.v1Models.length === 0) {
+            server.v1Models = result.v1Models;
+            needsPersistence = true;
+          }
         }
 
         // Save to disk when anything changes
@@ -534,13 +540,22 @@ export class AIOrchestrator {
   }
 
   /**
-   * Add a new Ollama server to the registry
+   * Add a new Ollama server to the registry.
+   * 
+   * Atomic duplicate handling: The check-and-add operation is synchronous and
+   * atomic from the caller's perspective (single-threaded JavaScript event loop).
+   * However, concurrent HTTP requests could theoretically pass the duplicate
+   * check before either adds - this would require a mutex for true atomicity.
+   * The controller trusts this method to handle duplicates after removing
+   * its own pre-check (task 2.1).
    */
   addServer(server: Omit<AIServer, 'healthy' | 'lastResponseTime' | 'models'>): void {
-    // Normalize URL to prevent duplicates with trailing slashes or encoding differences
+    // Normalize URL first - BEFORE checking for duplicates and BEFORE storing
     const normalizedUrl = normalizeServerUrl(server.url);
 
-    // Prevent duplicates by id or url (using normalized comparison)
+    // Check for duplicates by ID or equivalent URL (uses normalized comparison)
+    // Note: This is synchronous atomic within the single-threaded JS event loop,
+    // but concurrent requests may still create a race condition (see JSDoc above)
     if (this.servers.some(s => s.id === server.id || areUrlsEquivalent(s.url, normalizedUrl))) {
       logger.warn(`Server ${server.id} already exists, skipping`);
       return;
@@ -633,7 +648,7 @@ export class AIOrchestrator {
    */
   updateServer(
     serverId: string,
-    updates: Partial<Pick<AIServer, 'maxConcurrency' | 'modelContextLimits'>>
+    updates: Partial<Pick<AIServer, 'maxConcurrency' | 'modelContextLimits' | 'type' | 'v1Models' | 'forcedCapabilities' | 'endpointOverrides'>>
   ): boolean {
     const server = this.servers.find(s => s.id === serverId);
     if (!server) {
@@ -649,6 +664,26 @@ export class AIOrchestrator {
       server.modelContextLimits = { ...updates.modelContextLimits };
       server.contextLimitsFetchedAt = Date.now();
       logger.info(`Updated server ${serverId} modelContextLimits`);
+    }
+
+    if (updates.type !== undefined) {
+      server.type = updates.type;
+      logger.info(`Updated server ${serverId} type to ${updates.type}`);
+    }
+
+    if (updates.v1Models !== undefined) {
+      server.v1Models = updates.v1Models;
+      logger.info(`Updated server ${serverId} v1Models`);
+    }
+
+    if (updates.forcedCapabilities !== undefined) {
+      server.forcedCapabilities = { ...updates.forcedCapabilities };
+      logger.info(`Updated server ${serverId} forcedCapabilities`);
+    }
+
+    if (updates.endpointOverrides !== undefined) {
+      server.endpointOverrides = { ...updates.endpointOverrides };
+      logger.info(`Updated server ${serverId} endpointOverrides`);
     }
 
     // Persist servers to disk if enabled

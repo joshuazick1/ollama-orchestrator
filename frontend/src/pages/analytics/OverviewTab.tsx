@@ -59,14 +59,14 @@ export const OverviewTab = ({
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700/50 p-6 shadow-xl relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-surface-border/50 p-6 shadow-xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
             <Zap className="w-16 h-16 text-blue-500" />
           </div>
           <div className="relative z-10">
-            <p className="text-gray-400 text-sm font-medium">Req/Sec</p>
+            <p className="text-text-muted text-sm font-medium">Req/Sec</p>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-white tracking-tight">
+              <span className="text-3xl font-bold text-text-base tracking-tight">
                 {summary?.global?.requestsPerSecond?.toFixed(2)}
               </span>
               <span className="text-xs text-blue-400 font-medium bg-blue-400/10 px-2 py-0.5 rounded-full">
@@ -76,14 +76,14 @@ export const OverviewTab = ({
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700/50 p-6 shadow-xl relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-surface-border/50 p-6 shadow-xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
             <Activity className="w-16 h-16 text-green-500" />
           </div>
           <div className="relative z-10">
-            <p className="text-gray-400 text-sm font-medium">Success Rate</p>
+            <p className="text-text-muted text-sm font-medium">Success Rate</p>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-white tracking-tight">
+              <span className="text-3xl font-bold text-text-base tracking-tight">
                 {((1 - (summary?.global?.errorRate || 0)) * 100).toFixed(1)}%
               </span>
               <span
@@ -105,14 +105,14 @@ export const OverviewTab = ({
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700/50 p-6 shadow-xl relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-surface-border/50 p-6 shadow-xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
             <Shield className="w-16 h-16 text-purple-500" />
           </div>
           <div className="relative z-10">
-            <p className="text-gray-400 text-sm font-medium">Circuit Breakers</p>
+            <p className="text-text-muted text-sm font-medium">Circuit Breakers</p>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-white tracking-tight">
+              <span className="text-3xl font-bold text-text-base tracking-tight">
                 {openBreakers + halfOpenBreakers} / {circuitBreakers?.length ?? 0}
               </span>
               <span
@@ -126,19 +126,19 @@ export const OverviewTab = ({
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-gray-700/50 p-6 shadow-xl relative overflow-hidden group">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl border border-surface-border/50 p-6 shadow-xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
             <Server className="w-16 h-16 text-orange-500" />
           </div>
           <div className="relative z-10">
-            <p className="text-gray-400 text-sm font-medium">System Capacity</p>
+            <p className="text-text-muted text-sm font-medium">System Capacity</p>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-white tracking-tight">
+              <span className="text-3xl font-bold text-text-base tracking-tight">
                 {((capacityAnalysis?.current?.saturation || 0) * 100).toFixed(0)}%
               </span>
-              <span className="text-xs text-gray-500 font-medium">Sat.</span>
+              <span className="text-xs text-text-subtle font-medium">Sat.</span>
             </div>
-            <div className="w-full bg-gray-700/50 rounded-full h-1.5 mt-3 overflow-hidden">
+            <div className="w-full bg-surface/50 rounded-full h-1.5 mt-3 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
                   (capacityAnalysis?.current?.saturation || 0) > 0.8
@@ -156,8 +156,8 @@ export const OverviewTab = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Models */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+        <div className="bg-surface rounded-xl border border-surface-border shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
             <BarChart2 className="w-5 h-5 text-blue-400" />
             Most Used Models
           </h3>
@@ -202,8 +202,8 @@ export const OverviewTab = ({
         </div>
 
         {/* Request Volume Trend */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+        <div className="bg-surface rounded-xl border border-surface-border shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
             <Activity className="w-5 h-5 text-purple-400" />
             Request Volume
           </h3>

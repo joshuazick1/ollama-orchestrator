@@ -85,6 +85,83 @@ Remove a server from the orchestrator.
 
 Update server configuration.
 
+### Update Server Configuration
+
+**PATCH** `/api/orchestrator/servers/:id/config`
+
+Update advanced server configuration including provider type, model mappings, and endpoint overrides. This endpoint is used to configure how the orchestrator interacts with different AI providers.
+
+**Path Parameters:**
+
+- `id` (string, required): Server identifier
+
+**Request Body:**
+
+```json
+{
+  "type": "openai",
+  "v1Models": ["gpt-4", "gpt-3.5-turbo"],
+  "forcedCapabilities": {
+    "supportsOllama": false,
+    "supportsV1": true,
+    "supportsAnthropic": false
+  },
+  "endpointOverrides": {
+    "anthropic_messages": "/v1/messages",
+    "anthropic_auth": {
+      "headerName": "x-api-key",
+      "headerPrefix": ""
+    },
+    "modelPrefix": "anthropic/"
+  }
+}
+```
+
+**Parameters:**
+
+- `type` (string, optional): Server type - `ollama`, `openai`, or `auto` (auto-detect based on capabilities)
+- `v1Models` (array, optional): List of models that support OpenAI v1 protocol on this server
+- `forcedCapabilities` (object, optional): Override capability detection
+  - `supportsOllama` (boolean): Whether server supports Ollama API
+  - `supportsV1` (boolean): Whether server supports OpenAI v1 protocol
+  - `supportsAnthropic` (boolean): Whether server supports Anthropic API
+- `endpointOverrides` (object, optional): Custom endpoint configuration
+  - `anthropic_messages` (string): Custom path for Anthropic messages endpoint
+  - `anthropic_auth` (object): Custom auth header for Anthropic
+    - `headerName` (string): Auth header name
+    - `headerPrefix` (string): Auth prefix (e.g., "Bearer")
+  - `modelPrefix` (string): Prefix to prepend to model names for this provider
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "id": "server-1",
+  "type": "openai",
+  "v1Models": ["gpt-4", "gpt-3.5-turbo"],
+  "forcedCapabilities": {
+    "supportsOllama": false,
+    "supportsV1": true,
+    "supportsAnthropic": false
+  },
+  "endpointOverrides": {
+    "anthropic_messages": "/v1/messages",
+    "anthropic_auth": {
+      "headerName": "x-api-key",
+      "headerPrefix": ""
+    },
+    "modelPrefix": "anthropic/"
+  }
+}
+```
+
+**Error Codes:**
+
+- `400` - Bad Request (invalid parameters)
+- `404` - Server not found
+- `500` - Internal Server Error (failed to update)
+
 ### Drain Server
 
 **POST** `/api/orchestrator/servers/:id/drain`
@@ -600,6 +677,147 @@ Save current configuration to file.
 **GET** `/api/orchestrator/config/schema`
 
 Get JSON schema for configuration validation.
+
+---
+
+## Provider Configuration
+
+This section documents how to configure servers for different AI providers and use endpoint overrides for custom configurations.
+
+### Provider Types
+
+The orchestrator supports multiple AI providers through server type configuration:
+
+- `ollama` - Standard Ollama server (default)
+- `openai` - OpenAI-compatible server
+- `auto` - Auto-detect capabilities based on server responses
+
+### Configuring MiniMax Server
+
+MiniMax is an OpenAI-compatible provider with a different endpoint structure. To configure a MiniMax server:
+
+**1. Add the server with type `openai`:**
+
+```json
+{
+  "id": "minimax-1",
+  "url": "https://api.minimax.io",
+  "type": "openai",
+  "apiKey": "your-minimax-api-key"
+}
+```
+
+**2. Configure endpoint overrides:**
+
+```json
+{
+  "type": "openai",
+  "v1Models": ["MiniMax-01-MiniChat", "abab6.5s-chat"],
+  "forcedCapabilities": {
+    "supportsOllama": false,
+    "supportsV1": true,
+    "supportsAnthropic": true
+  },
+  "endpointOverrides": {
+    "anthropic_messages": "/anthropic/v1/messages"
+  }
+}
+```
+
+**3. Configure for Anthropic API access (MiniMax supports Anthropic):**
+
+```json
+{
+  "endpointOverrides": {
+    "anthropic_messages": "/anthropic/v1/messages",
+    "anthropic_auth": {
+      "headerName": "Authorization",
+      "headerPrefix": "Bearer"
+    }
+  }
+}
+```
+
+### Configuring Other Providers
+
+#### OpenAI
+
+```json
+{
+  "id": "openai-1",
+  "url": "https://api.openai.com/v1",
+  "type": "openai",
+  "v1Models": ["gpt-4", "gpt-3.5-turbo"]
+}
+```
+
+#### Anthropic
+
+```json
+{
+  "id": "anthropic-1",
+  "url": "https://api.anthropic.com",
+  "type": "openai",
+  "forcedCapabilities": {
+    "supportsOllama": false,
+    "supportsV1": false,
+    "supportsAnthropic": true
+  },
+  "endpointOverrides": {
+    "anthropic_messages": "/v1/messages"
+  }
+}
+```
+
+#### Azure OpenAI
+
+```json
+{
+  "id": "azure-1",
+  "url": "https://your-resource.openai.azure.com/openai/v1",
+  "type": "openai",
+  "apiKey": "your-azure-api-key"
+}
+```
+
+#### AWS Bedrock
+
+```json
+{
+  "id": "bedrock-1",
+  "url": "https://bedrock-runtime.us-east-1.amazonaws.com",
+  "type": "openai"
+}
+```
+
+### Using endpointOverrides
+
+The `endpointOverrides` field allows you to customize how the orchestrator communicates with a server:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `anthropic_messages` | Custom path for Anthropic messages endpoint | `/anthropic/v1/messages` |
+| `anthropic_auth.headerName` | Custom auth header name | `x-api-key` |
+| `anthropic_auth.headerPrefix` | Auth prefix before token | `Bearer` |
+| `modelPrefix` | Prefix to prepend to model names | `anthropic/` |
+
+### Provider Comparison Table
+
+| Provider | Base URL | Auth | Chat Endpoint | Anthropic Endpoint |
+|----------|---------|------|--------------|-------------------|
+| OpenAI | `api.openai.com/v1` | Bearer | `/v1/chat/completions` | N/A |
+| Anthropic | `api.anthropic.com` | x-api-key | N/A | `/v1/messages` |
+| MiniMax | `api.minimax.io` | Bearer | `/v1/text/chatcompletion_v2` | `/anthropic/v1/messages` |
+| Azure OpenAI | `{resource}.openai.azure.com/openai/v1` | api-key | `/chat/completions` | N/A |
+| AWS Bedrock | `bedrock-runtime.{region}.amazonaws.com` | AWS SigV4 | Varies by model | N/A |
+| Google Vertex AI | `{region}-aiplatform.googleapis.com/v1` | Bearer | `/publishers/google/models/{model}:generateContent` | N/A |
+
+**Notes:**
+
+- MiniMax uses Bearer authentication like OpenAI but has different endpoint paths
+- MiniMax provides Anthropic API compatibility at `/anthropic/v1/messages`
+- AWS Bedrock uses AWS Signature Version 4 authentication
+- Google Vertex AI uses OAuth 2.0 authentication
 
 ---
 

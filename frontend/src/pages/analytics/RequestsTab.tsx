@@ -56,16 +56,16 @@ export const RequestsTab = ({
 }: RequestsTabProps) => {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+      <div className="bg-surface rounded-xl border border-surface-border p-6">
         <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
-          <h3 className="text-lg font-semibold text-white">Detailed Request Logs</h3>
+          <h3 className="text-lg font-semibold text-text-base">Detailed Request Logs</h3>
           <select
             value={selectedServer}
             onChange={e => {
               onSelectServer(e.target.value);
               onPageChange(0);
             }}
-            className="bg-gray-900 border border-gray-600 rounded-lg px-4 py-2 text-white min-w-[200px]"
+            className="bg-surface-raised border border-gray-600 rounded-lg px-4 py-2 text-text-base min-w-[200px]"
             aria-label="Select a server to view request logs"
           >
             <option value="">Select a server...</option>
@@ -80,28 +80,28 @@ export const RequestsTab = ({
         {/* Server Request Stats Summary */}
         {selectedServer && serverRequestStats?.stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-gray-900/50 p-3 rounded border border-gray-700/50">
-              <div className="text-xs text-gray-500 uppercase">Total Requests</div>
-              <div className="text-xl font-bold text-white">
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Total Requests</div>
+              <div className="text-xl font-bold text-text-base">
                 {serverRequestStats.stats.totalRequests}
               </div>
             </div>
-            <div className="bg-gray-900/50 p-3 rounded border border-gray-700/50">
-              <div className="text-xs text-gray-500 uppercase">Success Rate</div>
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Success Rate</div>
               <div
                 className={`text-xl font-bold ${serverRequestStats.stats.errorRate > 0.05 ? 'text-red-400' : 'text-green-400'}`}
               >
                 {((1 - serverRequestStats.stats.errorRate) * 100).toFixed(1)}%
               </div>
             </div>
-            <div className="bg-gray-900/50 p-3 rounded border border-gray-700/50">
-              <div className="text-xs text-gray-500 uppercase">Avg Latency</div>
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Avg Latency</div>
               <div className="text-xl font-bold text-blue-400">
                 {formatDurationMs(serverRequestStats.stats.avgDuration)}
               </div>
             </div>
-            <div className="bg-gray-900/50 p-3 rounded border border-gray-700/50">
-              <div className="text-xs text-gray-500 uppercase">Avg Tokens</div>
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Avg Tokens</div>
               <div className="text-xl font-bold text-purple-400">
                 {Math.round(serverRequestStats.stats.avgTokensGenerated || 0)}
               </div>
@@ -114,7 +114,7 @@ export const RequestsTab = ({
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-700 text-gray-400">
+                  <tr className="border-b border-surface-border text-text-muted">
                     <th className="w-8 py-3">
                       <span className="sr-only">Expand row</span>
                     </th>
@@ -130,7 +130,7 @@ export const RequestsTab = ({
                     <>
                       <tr
                         key={req.id}
-                        className="border-b border-gray-800 hover:bg-gray-700/30 cursor-pointer transition-colors"
+                        className="border-b border-gray-800 hover:bg-surface/30 cursor-pointer transition-colors"
                         onClick={() => onToggleExpansion(req.id)}
                         tabIndex={0}
                         role="button"
@@ -152,7 +152,7 @@ export const RequestsTab = ({
                         <td className="py-3 text-gray-300 font-mono text-xs">
                           {new Date(req.timestamp).toLocaleTimeString()}
                         </td>
-                        <td className="py-3 text-white font-medium">{req.model}</td>
+                        <td className="py-3 text-text-base font-medium">{req.model}</td>
                         <td className="py-3 text-right text-gray-300 font-mono">
                           {formatDurationMs(req.duration)}
                         </td>
@@ -168,9 +168,9 @@ export const RequestsTab = ({
                         </td>
                       </tr>
                       {expandedRequests[req.id] && (
-                        <tr className="bg-gray-900/50">
+                        <tr className="bg-surface-raised/50">
                           <td colSpan={6} className="p-4">
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-mono text-gray-400">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-mono text-text-muted">
                               <div>
                                 <span className="text-gray-600 block mb-1">ID</span> {req.id}
                               </div>
@@ -199,8 +199,8 @@ export const RequestsTab = ({
             </div>
 
             {/* Pagination Controls */}
-            <div className="flex justify-between items-center border-t border-gray-700 pt-4">
-              <div className="text-sm text-gray-400">
+            <div className="flex justify-between items-center border-t border-surface-border pt-4">
+              <div className="text-sm text-text-muted">
                 Showing {page * ITEMS_PER_PAGE + 1}-
                 {page * ITEMS_PER_PAGE + serverRequestHistory.requests.length} requests
               </div>
@@ -208,14 +208,14 @@ export const RequestsTab = ({
                 <button
                   onClick={() => onPageChange(Math.max(0, page - 1))}
                   disabled={page === 0 || isLoading}
-                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-white transition-colors"
+                  className="px-3 py-1 bg-surface hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-text-base transition-colors"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => onPageChange(page + 1)}
                   disabled={serverRequestHistory.requests.length < ITEMS_PER_PAGE || isLoading}
-                  className="px-3 py-1 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-white transition-colors"
+                  className="px-3 py-1 bg-surface hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-text-base transition-colors"
                 >
                   Next
                 </button>
@@ -223,7 +223,7 @@ export const RequestsTab = ({
             </div>
           </div>
         ) : (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-text-subtle">
             {selectedServer
               ? 'No requests found for this server.'
               : 'Please select a server to view logs.'}

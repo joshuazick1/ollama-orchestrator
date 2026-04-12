@@ -72,6 +72,14 @@ const ServerBadge = ({
   const isLoaded = modelStatus?.loaded || false;
   const isLoading = modelStatus?.loading || false;
 
+  // Cache score to prevent flashing when data is temporarily stale
+  const [cachedScore, setCachedScore] = useState<number | null>(null);
+  const currentScore = circuitBreaker?.lbScore?.totalScore;
+  if (currentScore != null) {
+    setCachedScore(currentScore);
+  }
+  const displayScore = currentScore != null ? currentScore : cachedScore;
+
   // Determine state
   const isCircuitOpen = circuitBreaker?.state === 'OPEN';
   const isCircuitHalfOpen = circuitBreaker?.state === 'HALF-OPEN';
@@ -80,7 +88,7 @@ const ServerBadge = ({
 
   // Determine badge styling based on priority
   // Priority: Testing > Open > Half-Open > In-Flight > Loaded > Normal
-  let badgeClass = 'bg-gray-700 text-gray-300';
+  let badgeClass = 'bg-surface text-gray-300';
   let icon = <Server className="w-3 h-3" />;
   const label = server.url;
   let tooltip = `${server.url} - Normal`;
@@ -141,18 +149,18 @@ const ServerBadge = ({
             e.stopPropagation();
             onReset();
           }}
-          className="ml-1 p-0.5 hover:bg-white/10 rounded text-white/60 hover:text-white"
+          className="ml-1 p-0.5 hover:bg-white/10 rounded text-text-base/60 hover:text-text-base"
           title="Reset circuit breaker"
         >
           <RefreshCw className="w-3 h-3" />
         </button>
       )}
-      {circuitBreaker?.lbScore?.totalScore != null && (
+      {displayScore != null && (
         <span
-          className="ml-1 text-[10px] text-gray-400"
-          title={`LB Score: ${circuitBreaker.lbScore.totalScore.toFixed(1)}`}
+          className="ml-1 text-[10px] text-text-muted"
+          title={`LB Score: ${displayScore.toFixed(1)}`}
         >
-          ({circuitBreaker.lbScore.totalScore.toFixed(0)})
+          ({displayScore.toFixed(0)})
         </span>
       )}
     </div>
@@ -160,7 +168,7 @@ const ServerBadge = ({
 };
 
 const Legend = () => (
-  <div className="flex flex-wrap gap-4 text-xs text-gray-400 bg-gray-900/50 rounded-lg p-4 border border-gray-700/50">
+  <div className="flex flex-wrap gap-4 text-xs text-text-muted bg-surface-raised/50 rounded-lg p-4 border border-surface-border/50">
     <div className="flex items-center space-x-2">
       <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/50" />
       <span>Loaded</span>
@@ -182,7 +190,7 @@ const Legend = () => (
       <span>Testing</span>
     </div>
     <div className="flex items-center space-x-2">
-      <div className="w-3 h-3 rounded-full bg-gray-700" />
+      <div className="w-3 h-3 rounded-full bg-surface" />
       <span>Normal</span>
     </div>
   </div>
@@ -222,7 +230,8 @@ export const Models = () => {
   } = useQuery({
     queryKey: ['circuitBreakers'],
     queryFn: getCircuitBreakers,
-    refetchInterval: 2000,
+    refetchInterval: 5000,
+    staleTime: 3000,
   });
 
   const {
@@ -232,7 +241,8 @@ export const Models = () => {
   } = useQuery({
     queryKey: ['in-flight'],
     queryFn: getInFlightByServer,
-    refetchInterval: 2000,
+    refetchInterval: 5000,
+    staleTime: 3000,
   });
 
   const { data: recommendations } = useQuery({
@@ -331,8 +341,8 @@ export const Models = () => {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold text-white">Models</h2>
-            <p className="text-gray-400">View and manage models across your servers</p>
+            <h2 className="text-2xl font-bold text-text-base">Models</h2>
+            <p className="text-text-muted">View and manage models across your servers</p>
           </div>
         </div>
         <SkeletonTable rows={8} columns={4} />
@@ -346,8 +356,8 @@ export const Models = () => {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold text-white">Models</h2>
-            <p className="text-gray-400">View and manage models across your servers</p>
+            <h2 className="text-2xl font-bold text-text-base">Models</h2>
+            <p className="text-text-muted">View and manage models across your servers</p>
           </div>
         </div>
         <ErrorState
@@ -366,8 +376,8 @@ export const Models = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-white">Models</h2>
-        <p className="text-gray-400">Available models and their distribution</p>
+        <h2 className="text-2xl font-bold text-text-base">Models</h2>
+        <p className="text-text-muted">Available models and their distribution</p>
       </div>
 
       <DataToolbar
@@ -390,12 +400,12 @@ export const Models = () => {
             }
           }}
           disabled={warmupMutation.isPending || !recommendations?.recommendations?.length}
-          className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-text-base rounded-lg transition-colors text-sm font-medium"
         >
           <Flame className="w-4 h-4" />
           <span>Warmup Recommended</span>
         </button>
-        <div className="hidden md:flex items-center space-x-2 text-sm text-gray-400 ml-2">
+        <div className="hidden md:flex items-center space-x-2 text-sm text-text-muted ml-2">
           <Activity className="w-4 h-4" />
           <span>Live updates</span>
         </div>
@@ -403,13 +413,13 @@ export const Models = () => {
 
       <Legend />
 
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+      <div className="bg-surface rounded-xl border border-surface-border overflow-hidden">
         <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
           <table className="w-full text-left min-w-[500px]">
-            <thead className="bg-gray-900 text-gray-400 uppercase text-xs font-semibold">
+            <thead className="bg-surface-raised text-text-muted uppercase text-xs font-semibold">
               <tr>
                 <th
-                  className="px-6 py-4 cursor-pointer hover:text-white transition-colors group"
+                  className="px-6 py-4 cursor-pointer hover:text-text-base transition-colors group"
                   onClick={() => handleSort('name')}
                 >
                   <div className="flex items-center space-x-2">
@@ -417,7 +427,7 @@ export const Models = () => {
                   </div>
                 </th>
                 <th
-                  className="px-6 py-4 cursor-pointer hover:text-white transition-colors group"
+                  className="px-6 py-4 cursor-pointer hover:text-text-base transition-colors group"
                   onClick={() => handleSort('replicas')}
                 >
                   <div className="flex items-center space-x-2">
@@ -435,13 +445,13 @@ export const Models = () => {
                   servers?.filter((s: AIServer) => serverIds.includes(s.id)) || [];
 
                 return (
-                  <tr key={model} className="hover:bg-gray-750 transition-colors">
+                  <tr key={model} className="hover:bg-surface transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-3">
                         <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
                           <Box className="w-5 h-5" />
                         </div>
-                        <span className="font-medium text-white">{model}</span>
+                        <span className="font-medium text-text-base">{model}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -474,7 +484,7 @@ export const Models = () => {
               })}
               {filteredModels.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={3} className="px-6 py-12 text-center text-text-subtle">
                     <Layers className="w-12 h-12 mx-auto mb-3 opacity-20" />
                     <p>No models found matching your search.</p>
                   </td>

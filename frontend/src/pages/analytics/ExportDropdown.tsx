@@ -107,7 +107,7 @@ export const ExportDropdown = ({
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm hover:border-gray-600 transition-colors"
+        className="flex items-center gap-2 px-4 py-2.5 bg-surface border border-surface-border rounded-lg text-text-base text-sm hover:border-gray-600 transition-colors"
       >
         <Download className="w-4 h-4" />
         Export
@@ -115,24 +115,24 @@ export const ExportDropdown = ({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50">
+        <div className="absolute right-0 mt-2 w-48 bg-surface border border-surface-border rounded-lg shadow-xl z-50">
           <button
             onClick={() => handleExport('csv')}
-            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 rounded-t-lg transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-surface rounded-t-lg transition-colors"
           >
             <FileSpreadsheet className="w-4 h-4 text-green-400" />
             Export CSV
           </button>
           <button
             onClick={() => handleExport('json')}
-            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-surface transition-colors"
           >
             <FileJson className="w-4 h-4 text-yellow-400" />
             Export JSON
           </button>
           <button
             onClick={() => handleExport('html')}
-            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 rounded-b-lg transition-colors"
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:bg-surface rounded-b-lg transition-colors"
           >
             <FileText className="w-4 h-4 text-blue-400" />
             Export Report

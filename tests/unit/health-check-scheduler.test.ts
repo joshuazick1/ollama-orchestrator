@@ -413,6 +413,230 @@ describe('HealthCheckScheduler', () => {
     });
   });
 
+  describe('probeInferenceEndpoint', () => {
+    beforeEach(() => {
+      vi.spyOn(global, 'fetch');
+    });
+
+    it('should return exists=true, healthy=true for status 200', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 200,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: true, healthy: true, status: 200 });
+    });
+
+    it('should return exists=true, healthy=true for status 201', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 201,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: true, healthy: true, status: 201 });
+    });
+
+    it('should return exists=true, healthy=false for status 400', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 400,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: true, healthy: false, status: 400 });
+    });
+
+    it('should return exists=true, healthy=false for status 401', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 401,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: true, healthy: false, status: 401 });
+    });
+
+    it('should return exists=true, healthy=false for status 403', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 403,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: true, healthy: false, status: 403 });
+    });
+
+    it('should return exists=false, healthy=false for status 404', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 404,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: false, healthy: false, status: 404 });
+    });
+
+    it('should return exists=true, healthy=false for status 429', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 429,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: true, healthy: false, status: 429 });
+    });
+
+    it('should return exists=false, healthy=false for status 500', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 500,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: false, healthy: false, status: 500 });
+    });
+
+    it('should return exists=false, healthy=false for status 503', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 503,
+      });
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: false, healthy: false, status: 503 });
+    });
+
+    it('should return exists=false, healthy=false, status=0 for network errors', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: false, healthy: false, status: 0 });
+    });
+
+    it('should return exists=false, healthy=false, status=0 for timeout', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('AbortError'));
+
+      const result = await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] }
+      );
+
+      expect(result).toEqual({ exists: false, healthy: false, status: 0 });
+    });
+
+    it('should include Authorization header when apiKey is provided', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 200,
+      });
+
+      await (scheduler as any).probeInferenceEndpoint(
+        'http://localhost:11434/api/chat',
+        'POST',
+        { model: 'test', messages: [] },
+        'test-api-key'
+      );
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:11434/api/chat',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer test-api-key',
+          }),
+        })
+      );
+    });
+  });
+
+  describe('runEndpointProbes', () => {
+    it('should extract exists field from probe results', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 400,
+      });
+
+      const server: AIServer = {
+        id: 'test-server',
+        url: 'http://localhost:11434',
+        type: 'ollama',
+        healthy: true,
+        lastResponseTime: 100,
+        models: ['llama3:latest'],
+      };
+
+      const result = await (scheduler as any).runEndpointProbes(server);
+
+      expect(result.ollama_chat).toBe(true);
+      expect(result.ollama_generate).toBe(true);
+      expect(result.ollama_embeddings).toBe(true);
+      expect(result.openai_chat).toBe(true);
+      expect(result.openai_completions).toBe(true);
+      expect(result.openai_embeddings).toBe(true);
+      expect(result.anthropic_messages).toBe(true);
+    });
+
+    it('should return false for exists when endpoint returns 404', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        status: 404,
+      });
+
+      const server: AIServer = {
+        id: 'test-server',
+        url: 'http://localhost:11434',
+        type: 'ollama',
+        healthy: true,
+        lastResponseTime: 100,
+        models: ['llama3:latest'],
+      };
+
+      const result = await (scheduler as any).runEndpointProbes(server);
+
+      expect(result.ollama_chat).toBe(false);
+    });
+  });
+
   describe('Integration', () => {
     it('should handle full scheduler lifecycle', async () => {
       global.fetch = vi.fn().mockResolvedValue({

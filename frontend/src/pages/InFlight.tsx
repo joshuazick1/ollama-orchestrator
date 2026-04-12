@@ -79,12 +79,12 @@ export const InFlight = () => {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white">In-Flight Requests</h2>
-          <p className="text-gray-400">Monitor active in-flight operations by server</p>
+          <h2 className="text-2xl font-bold text-text-base">In-Flight Requests</h2>
+          <p className="text-text-muted">Monitor active in-flight operations by server</p>
         </div>
         <button
           onClick={() => refetch()}
-          className="p-2 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg transition-colors"
+          className="p-2 bg-surface hover:bg-surface text-text-muted hover:text-text-base rounded-lg transition-colors"
           title="Refresh Data"
         >
           <RefreshCw className={`w-5 h-5 ${inFlightLoading ? 'animate-spin' : ''}`} />
@@ -150,27 +150,27 @@ export const InFlight = () => {
           filteredServers.map(server => (
             <div
               key={server.serverId}
-              className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden"
+              className="bg-surface rounded-xl border border-surface-border overflow-hidden"
             >
-              <div className="p-6 border-b border-gray-700">
+              <div className="p-6 border-b border-surface-border">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div
                       className={`w-3 h-3 rounded-full ${server.healthy ? 'bg-green-400' : 'bg-red-400'}`}
                     />
-                    <h3 className="text-lg font-semibold text-white">{server.serverId}</h3>
-                    <span className="text-sm text-gray-400">{server.serverUrl}</span>
+                    <h3 className="text-lg font-semibold text-text-base">{server.serverId}</h3>
+                    <span className="text-sm text-text-muted">{server.serverUrl}</span>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="text-2xl font-bold text-white">{server.total}</span>
-                    <span className="text-sm text-gray-400">in-flight</span>
+                    <span className="text-2xl font-bold text-text-base">{server.total}</span>
+                    <span className="text-sm text-text-muted">in-flight</span>
                   </div>
                 </div>
               </div>
 
               {/* Streaming Requests */}
               {server.streamingRequests && server.streamingRequests.length > 0 && (
-                <div className="p-6 border-b border-gray-700 bg-cyan-900/10">
+                <div className="p-6 border-b border-surface-border bg-cyan-900/10">
                   <h4 className="text-sm font-medium text-cyan-400 mb-4 flex items-center gap-2">
                     <Radio className="w-4 h-4" />
                     Streaming Requests
@@ -183,10 +183,10 @@ export const InFlight = () => {
                       return (
                         <div
                           key={req.id}
-                          className={`rounded-lg p-3 ${req.isStalled ? 'bg-red-900/30 border border-red-500/50' : 'bg-gray-900'}`}
+                          className={`rounded-lg p-3 ${req.isStalled ? 'bg-red-900/30 border border-red-500/50' : 'bg-surface-raised'}`}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="text-sm text-white truncate font-mono" title={req.id}>
+                            <div className="text-sm text-text-base truncate font-mono" title={req.id}>
                               {req.id.slice(0, 8)}...
                             </div>
                             {req.isStalled && (
@@ -196,7 +196,7 @@ export const InFlight = () => {
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-gray-400 mt-1">{req.model}</div>
+                          <div className="text-xs text-text-muted mt-1">{req.model}</div>
                           <div className="flex items-center gap-4 mt-2">
                             <div>
                               <span className="text-lg font-bold text-cyan-400">
@@ -226,7 +226,7 @@ export const InFlight = () => {
 
               {server.byModel && Object.entries(server.byModel).length > 0 && (
                 <div className="p-6">
-                  <h4 className="text-sm font-medium text-gray-400 mb-4">Requests by Model</h4>
+                  <h4 className="text-sm font-medium text-text-muted mb-4">Requests by Model</h4>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {(
                       Object.entries(server.byModel) as [
@@ -238,13 +238,13 @@ export const InFlight = () => {
                       return (
                         <div
                           key={model}
-                          className={`rounded-lg p-4 ${hasBypass ? 'bg-gray-900 border-2 border-purple-500/50' : 'bg-gray-900'}`}
+                          className={`rounded-lg p-4 ${hasBypass ? 'bg-surface-raised border-2 border-purple-500/50' : 'bg-surface-raised'}`}
                         >
-                          <div className="text-sm text-gray-400 truncate" title={model}>
+                          <div className="text-sm text-text-muted truncate" title={model}>
                             {model}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
-                            <div className="text-xl font-bold text-white">
+                            <div className="text-xl font-bold text-text-base">
                               {counts.regular + counts.bypass}
                             </div>
                             {hasBypass && (
@@ -267,7 +267,7 @@ export const InFlight = () => {
             </div>
           ))
         ) : (
-          <div className="flex flex-col items-center justify-center h-64 bg-gray-800 rounded-xl border border-gray-700 text-gray-500">
+          <div className="flex flex-col items-center justify-center h-64 bg-surface rounded-xl border border-surface-border text-gray-500">
             <Zap className="w-12 h-12 mb-4 opacity-50" />
             <p>No in-flight requests found</p>
             {searchQuery && <p className="text-sm mt-2">Try adjusting your search query</p>}

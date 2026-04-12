@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -34,6 +34,23 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let savedScrollY = 0;
+
+    if (isOpen) {
+      savedScrollY = window.scrollY;
+      setTimeout(() => inputRef.current?.focus(), 0);
+      window.scrollTo(0, savedScrollY);
+    }
+
+    return () => {
+      if (isOpen) {
+        window.scrollTo(0, savedScrollY);
+      }
+    };
+  }, [isOpen]);
 
   const { data: servers } = useQuery({
     queryKey: ['servers'],
@@ -209,9 +226,9 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-xl bg-gray-900 rounded-xl border border-gray-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-        <div className="flex items-center px-4 border-b border-gray-700">
-          <Search className="w-5 h-5 text-gray-400" />
+      <div className="relative w-full max-w-xl bg-surface-raised rounded-xl border border-surface-border shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex items-center px-4 border-b border-surface-border">
+          <Search className="w-5 h-5 text-text-muted" />
           <input
             type="text"
             value={query}
@@ -221,12 +238,12 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
             }}
             onKeyDown={handleKeyDown}
             placeholder="Search pages, servers, models..."
-            className="flex-1 px-3 py-4 bg-transparent text-white placeholder-gray-500 outline-none text-lg"
-            autoFocus
+            className="flex-1 px-3 py-4 bg-transparent text-text-base placeholder-gray-500 outline-none text-lg"
+            ref={inputRef}
           />
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-white transition-colors"
+            className="p-1 text-text-muted hover:text-text-base transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -234,7 +251,7 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
 
         <div className="max-h-[60vh] overflow-y-auto">
           {allResults.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-text-subtle">
               <p>No results found for "{query}"</p>
             </div>
           ) : (
@@ -264,18 +281,18 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
           )}
         </div>
 
-        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-700 bg-gray-800/50 text-xs text-gray-500">
+        <div className="flex items-center justify-between px-4 py-3 border-t border-surface-border bg-gray-800/50 text-xs text-text-subtle">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">↑↓</kbd>
+              <kbd className="px-1.5 py-0.5 bg-surface rounded text-text-muted">↑↓</kbd>
               Navigate
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">↵</kbd>
+              <kbd className="px-1.5 py-0.5 bg-surface rounded text-text-muted">↵</kbd>
               Select
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-gray-700 rounded text-gray-400">esc</kbd>
+              <kbd className="px-1.5 py-0.5 bg-surface rounded text-text-muted">esc</kbd>
               Close
             </span>
           </div>

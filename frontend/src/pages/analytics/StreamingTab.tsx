@@ -39,10 +39,10 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
       {/* Global Streaming Stats */}
       {metricsData?.global?.streaming && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-gray-800 rounded-xl border border-cyan-500/30 p-6">
+          <div className="bg-surface rounded-xl border border-cyan-500/30 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Streaming Requests</p>
+                <p className="text-text-muted text-sm">Streaming Requests</p>
                 <p className="text-3xl font-bold text-cyan-400">
                   {metricsData.global.streaming.totalStreamingRequests || 0}
                 </p>
@@ -50,10 +50,10 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
               <Radio className="w-10 h-10 text-cyan-500/50" />
             </div>
           </div>
-          <div className="bg-gray-800 rounded-xl border border-teal-500/30 p-6">
+          <div className="bg-surface rounded-xl border border-teal-500/30 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Avg Chunks/Request</p>
+                <p className="text-text-muted text-sm">Avg Chunks/Request</p>
                 <p className="text-3xl font-bold text-teal-400">
                   {(metricsData.global.streaming.avgChunkCount || 0).toFixed(1)}
                 </p>
@@ -61,10 +61,10 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
               <BarChart2 className="w-10 h-10 text-teal-500/50" />
             </div>
           </div>
-          <div className="bg-gray-800 rounded-xl border border-yellow-500/30 p-6">
+          <div className="bg-surface rounded-xl border border-yellow-500/30 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Avg TTFT</p>
+                <p className="text-text-muted text-sm">Avg TTFT</p>
                 <p className="text-3xl font-bold text-yellow-400">
                   {Math.round(metricsData.global.streaming.avgTTFT || 0)}ms
                 </p>
@@ -72,10 +72,10 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
               <Zap className="w-10 h-10 text-yellow-500/50" />
             </div>
           </div>
-          <div className="bg-gray-800 rounded-xl border border-purple-500/30 p-6">
+          <div className="bg-surface rounded-xl border border-purple-500/30 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Streaming %</p>
+                <p className="text-text-muted text-sm">Streaming %</p>
                 <p className="text-3xl font-bold text-purple-400">
                   {(metricsData.global.streaming.streamingPercentage || 0).toFixed(1)}%
                 </p>
@@ -89,8 +89,8 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
       {/* Streaming Details */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* TTFT Distribution */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">TTFT Distribution</h3>
+        <div className="bg-surface rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-text-base mb-4">TTFT Distribution</h3>
           {metricsData?.global?.streaming ? (
             <div className="space-y-4">
               {[
@@ -116,19 +116,19 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
                 },
               ].map(item => (
                 <div key={item.label} className="flex items-center justify-between">
-                  <span className="text-gray-400 text-sm">{item.label}</span>
-                  <span className="text-white font-mono font-medium">{item.value}</span>
+                  <span className="text-text-muted text-sm">{item.label}</span>
+                  <span className="text-text-base font-mono font-medium">{item.value}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-gray-500 text-center py-8">No streaming data available</div>
+            <div className="text-text-subtle text-center py-8">No streaming data available</div>
           )}
         </div>
 
         {/* Server:Model Streaming Breakdown */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Streaming by Server:Model</h3>
+        <div className="bg-surface rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-text-base mb-4">Streaming by Server:Model</h3>
           {metricsData?.servers && Object.keys(metricsData.servers).length > 0 ? (
             <div className="space-y-3 max-h-80 overflow-y-auto">
               {Object.entries(metricsData.servers)
@@ -146,9 +146,9 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
                     ).streamingMetrics;
                     if (!streaming) return null;
                     return (
-                      <div key={`${serverId}:${model}`} className="bg-gray-900 rounded-lg p-3">
+                      <div key={`${serverId}:${model}`} className="bg-surface-raised rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-white text-sm font-medium truncate">
+                          <span className="text-text-base text-sm font-medium truncate">
                             {serverId}:{model}
                           </span>
                           <span className="text-cyan-400 text-sm font-mono">
@@ -157,19 +157,19 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-xs">
                           <div>
-                            <span className="text-gray-500">Avg TTFT</span>
+                            <span className="text-text-subtle">Avg TTFT</span>
                             <div className="text-yellow-400 font-mono">
                               {Math.round(streaming.avgTTFT || 0)}ms
                             </div>
                           </div>
                           <div>
-                            <span className="text-gray-500">Avg Chunks</span>
+                            <span className="text-text-subtle">Avg Chunks</span>
                             <div className="text-teal-400 font-mono">
                               {(streaming.avgChunkCount || 0).toFixed(1)}
                             </div>
                           </div>
                           <div>
-                            <span className="text-gray-500">P95 Gap</span>
+                            <span className="text-text-subtle">P95 Gap</span>
                             <div className="text-red-400 font-mono">
                               {streaming.maxChunkGapPercentiles?.p95 || 0}ms
                             </div>
@@ -182,7 +182,7 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
                 .filter(Boolean)}
             </div>
           ) : (
-            <div className="text-gray-500 text-center py-8">
+            <div className="text-text-subtle text-center py-8">
               No server:model streaming data available
             </div>
           )}

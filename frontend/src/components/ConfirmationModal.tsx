@@ -35,7 +35,7 @@ export function ConfirmationModal({
         <div className="flex gap-3 justify-center">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            className="px-4 py-2 bg-surface hover:bg-surface-hover text-text-base rounded-lg transition-colors"
           >
             {cancelLabel}
           </button>

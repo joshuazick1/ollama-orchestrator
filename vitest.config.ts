@@ -8,6 +8,7 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts', 'src/**/*.test.ts'],
     exclude: ['tests/integration/**', 'tests/e2e/**', 'tests/chaos/**', 'node_modules/**'],
     setupFiles: ['./tests/setup.ts'],
+    reporters: ['verbose', 'json'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],

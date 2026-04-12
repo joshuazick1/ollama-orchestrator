@@ -24,7 +24,7 @@ export const StatCard = ({
 }: StatCardProps) => {
   if (loading) {
     return (
-      <div className="bg-gray-800 rounded-xl p-6 border border-surface-border shadow-lg animate-pulse">
+      <div className="bg-surface rounded-xl p-6 border border-surface-border shadow-lg animate-pulse">
         <div className="flex justify-between items-start">
           <div>
             <div className="h-4 w-24 bg-gray-700 rounded mb-3" />
@@ -40,11 +40,11 @@ export const StatCard = ({
   }
 
   return (
-    <div className="bg-gray-800 rounded-xl p-6 border border-surface-border shadow-lg hover:border-gray-600 transition-colors">
+    <div className="bg-surface rounded-xl p-6 border border-surface-border shadow-lg hover:border-surface-border transition-colors">
       <div className="flex justify-between items-start">
         <div>
           <p className="text-text-muted text-sm font-medium">{title}</p>
-          <h3 className="text-3xl font-bold mt-2 text-white">{value}</h3>
+          <h3 className="text-3xl font-bold mt-2 text-text-base">{value}</h3>
           {subtext && <p className="text-text-subtle text-sm mt-1">{subtext}</p>}
           {trend && (
             <div

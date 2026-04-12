@@ -45,6 +45,19 @@ export interface AIServer {
     supportsAnthropic?: boolean;
   };
 
+  // NEW: Custom endpoint paths and auth per protocol
+  endpointOverrides?: {
+    // Custom path for Anthropic messages endpoint
+    anthropic_messages?: string;
+    // Custom auth config for this endpoint type
+    anthropic_auth?: {
+      headerName?: string;  // e.g., 'x-api-key'
+      headerPrefix?: string; // e.g., 'Bearer' or '' (none)
+    };
+    // Model name prefix for routing (e.g., 'anthropic/' for Bedrock-style)
+    modelPrefix?: string;
+  };
+
   // NEW: Optional API key for authentication
   apiKey?: string;
   // Operational state

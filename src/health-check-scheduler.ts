@@ -370,7 +370,7 @@ export class HealthCheckScheduler {
       const inferredAnthropic = probedEndpoints.anthropic_messages || false;
 
       const supportsOllama = forced.supportsOllama ?? (tagsResponse?.ok || inferredOllama);
-      const supportsV1 = forced.supportsV1 ?? (v1Response?.ok || inferredV1);
+      const supportsV1 = forced.supportsV1 ?? inferredV1;
       const supportsAnthropic = forced.supportsAnthropic ?? inferredAnthropic;
 
       // Update capability flags
@@ -545,13 +545,17 @@ export class HealthCheckScheduler {
     url: string,
     method: string,
     body: object,
-    apiKey?: string
-  ): Promise<boolean> {
+    apiKey?: string,
+    headerName?: string,
+    headerPrefix?: string
+  ): Promise<{ exists: boolean; healthy: boolean; status: number }> {
     try {
       const resolvedKey = resolveApiKey(apiKey);
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (resolvedKey) {
-        headers['Authorization'] = `Bearer ${resolvedKey}`;
+        const authHeader = headerName || 'Authorization';
+        const authPrefix = headerPrefix ?? 'Bearer';
+        headers[authHeader] = authPrefix ? `${authPrefix} ${resolvedKey}` : resolvedKey;
       }
       const res = await fetch(url, {
         method,
@@ -559,9 +563,17 @@ export class HealthCheckScheduler {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
       });
-      return res.status !== 404;
+      const status = res.status;
+      const exists =
+        (status >= 200 && status < 300) ||
+        status === 400 ||
+        status === 401 ||
+        status === 403 ||
+        status === 429;
+      const healthy = status >= 200 && status < 300;
+      return { exists, healthy, status };
     } catch {
-      return false;
+      return { exists: false, healthy: false, status: 0 };
     }
   }
 
@@ -570,6 +582,12 @@ export class HealthCheckScheduler {
   ): Promise<NonNullable<AIServer['probedEndpoints']>> {
     const base = server.url;
     const key = server.apiKey;
+    const overrides = server.endpointOverrides;
+
+    const anthropicPath = overrides?.anthropic_messages ?? '/v1/messages';
+    const anthropicAuth = overrides?.anthropic_auth;
+    const anthropicHeaderName = anthropicAuth?.headerName;
+    const anthropicHeaderPrefix = anthropicAuth?.headerPrefix;
 
     const [
       ollamaChat,
@@ -617,21 +635,23 @@ export class HealthCheckScheduler {
         key
       ),
       this.probeInferenceEndpoint(
-        `${base}/v1/messages`,
+        `${base}${anthropicPath}`,
         'POST',
         { model: PROBE_MODEL, max_tokens: 1, messages: [{ role: 'user', content: 'probe' }] },
-        key
+        key,
+        anthropicHeaderName,
+        anthropicHeaderPrefix
       ),
     ]);
 
     return {
-      ollama_chat: ollamaChat,
-      ollama_generate: ollamaGenerate,
-      ollama_embeddings: ollamaEmbeddings,
-      openai_chat: openaiChat,
-      openai_completions: openaiCompletions,
-      openai_embeddings: openaiEmbeddings,
-      anthropic_messages: anthropicMessages,
+      ollama_chat: ollamaChat.exists,
+      ollama_generate: ollamaGenerate.exists,
+      ollama_embeddings: ollamaEmbeddings.exists,
+      openai_chat: openaiChat.exists,
+      openai_completions: openaiCompletions.exists,
+      openai_embeddings: openaiEmbeddings.exists,
+      anthropic_messages: anthropicMessages.exists,
     };
   }
 

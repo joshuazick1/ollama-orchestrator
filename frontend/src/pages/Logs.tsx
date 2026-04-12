@@ -103,8 +103,8 @@ export const Logs = () => {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold text-white">System Logs</h2>
-            <p className="text-gray-400">View and manage application logs</p>
+            <h2 className="text-2xl font-bold text-text-base">System Logs</h2>
+            <p className="text-text-muted">View and manage application logs</p>
           </div>
         </div>
         <SkeletonTable rows={10} columns={3} />
@@ -117,8 +117,8 @@ export const Logs = () => {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-2xl font-bold text-white">System Logs</h2>
-            <p className="text-gray-400">View and manage application logs</p>
+            <h2 className="text-2xl font-bold text-text-base">System Logs</h2>
+            <p className="text-text-muted">View and manage application logs</p>
           </div>
         </div>
         <ErrorState
@@ -133,8 +133,8 @@ export const Logs = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-white">System Logs</h2>
-        <p className="text-gray-400">View and manage application logs</p>
+        <h2 className="text-2xl font-bold text-text-base">System Logs</h2>
+        <p className="text-text-muted">View and manage application logs</p>
       </div>
 
       <DataToolbar
@@ -145,7 +145,7 @@ export const Logs = () => {
         <select
           value={levelFilter}
           onChange={e => setLevelFilter(e.target.value as LogLevel)}
-          className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
+          className="bg-gray-700 text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
         >
           <option value="ALL">All Levels</option>
           <option value="ERROR">ERROR</option>
@@ -156,8 +156,8 @@ export const Logs = () => {
           onClick={() => setAutoScroll(!autoScroll)}
           className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
             autoScroll
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-gray-700 hover:bg-gray-600 text-white'
+              ? 'bg-blue-600 hover:bg-blue-700 text-text-base'
+              : 'bg-gray-700 hover:bg-gray-600 text-text-base'
           }`}
           title={autoScroll ? 'Auto-scroll enabled' : 'Auto-scroll disabled'}
         >
@@ -166,14 +166,14 @@ export const Logs = () => {
         </button>
         <button
           onClick={() => refetch()}
-          className="flex items-center space-x-2 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+          className="flex items-center space-x-2 bg-gray-700 hover:bg-gray-600 text-text-base px-4 py-2 rounded-lg transition-colors text-sm font-medium"
         >
           <RefreshCw className="w-4 h-4" />
           <span>Refresh</span>
         </button>
         <button
           onClick={() => clearMutation.mutate()}
-          className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+          className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-text-base px-4 py-2 rounded-lg transition-colors text-sm font-medium"
         >
           <Trash2 className="w-4 h-4" />
           <span>Clear Logs</span>
@@ -189,7 +189,7 @@ export const Logs = () => {
             {filteredLogs.map(entry => (
               <div
                 key={entry.id}
-                className={`py-2 px-4 hover:bg-gray-900/50 break-all whitespace-pre-wrap ${getLogLevelColor(entry.level)}`}
+                className={`py-2 px-4 hover:bg-surface-raised/50 break-all whitespace-pre-wrap ${getLogLevelColor(entry.level)}`}
               >
                 {entry.content}
               </div>

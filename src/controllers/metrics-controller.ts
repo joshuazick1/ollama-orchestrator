@@ -223,8 +223,10 @@ export function streamMetrics(req: Request, res: Response): void {
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders(); // Flush headers immediately to establish SSE connection
 
   const orchestrator = getOrchestratorInstance();
+  const inFlightManager = getInFlightManager();
   let isClosed = false;
 
   const sendUpdate = () => {
@@ -237,12 +239,61 @@ export function streamMetrics(req: Request, res: Response): void {
       const metrics = orchestrator.exportMetrics();
       const circuitBreakers = orchestrator.getCircuitBreakerStats();
 
+      const servers = orchestrator.getServers();
+      const serversData = servers.map(s => ({
+        id: s.id,
+        url: s.url,
+        healthy: s.healthy,
+        lastResponseTime: s.lastResponseTime,
+        models: s.models,
+        maxConcurrency: s.maxConcurrency,
+        version: s.version,
+        supportsOllama: s.supportsOllama,
+        supportsV1: s.supportsV1,
+        v1Models: s.v1Models,
+      }));
+
+      const modelMap = orchestrator.getModelMap();
+      const serverToModels: Record<string, string[]> = {};
+      for (const server of servers) {
+        serverToModels[server.id] = [...server.models];
+      }
+
+      const inFlightDetailed = inFlightManager.getInFlightDetailed();
+      const streamingByServer = inFlightManager.getStreamingRequestsByServer();
+
+      const serverMap = new Map(servers.map(s => [s.id, s]));
+
+      const activeServerIds = new Set<string>([
+        ...Object.keys(inFlightDetailed),
+        ...Object.keys(streamingByServer),
+      ]);
+
+      let totalInFlight = 0;
+      const inFlight = Array.from(activeServerIds).map(serverId => {
+        const serverInfo = serverMap.get(serverId);
+        const perServer = inFlightDetailed[serverId] ?? { total: 0, byModel: {} };
+        const streaming = streamingByServer[serverId] ?? [];
+        totalInFlight += perServer.total;
+        return {
+          serverId,
+          serverUrl: serverInfo?.url,
+          healthy: serverInfo?.healthy ?? false,
+          total: perServer.total,
+          byModel: perServer.byModel,
+          streamingRequests: streaming,
+        };
+      });
+
       const data = JSON.stringify({
         type: 'metrics',
         timestamp: Date.now(),
         stats,
         metrics: { timestamp: metrics.timestamp, global: metrics.global },
         circuitBreakers: Object.keys(circuitBreakers).length,
+        servers: serversData,
+        modelMap: { modelToServers: modelMap, serverToModels },
+        inFlight: { total: totalInFlight, inFlight },
       });
 
       res.write(`data: ${data}\n\n`);

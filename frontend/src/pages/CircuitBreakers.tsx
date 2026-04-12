@@ -124,7 +124,7 @@ const CircuitBreakerCard = ({
           {getCircuitBreakerStateIcon(breaker.state)}
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-white font-medium">{isModel ? modelName : 'Server Level'}</span>
+              <span className="text-text-base font-medium">{isModel ? modelName : 'Server Level'}</span>
               <span
                 className={`px-2 py-0.5 rounded text-xs font-medium border ${getCircuitBreakerStateColor(
                   breaker.state
@@ -158,7 +158,7 @@ const CircuitBreakerCard = ({
               onClick={onOpen}
               disabled={isPending || breaker.state === 'OPEN'}
               title="Force Open (block requests)"
-              className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 text-text-muted hover:text-red-400 hover:bg-red-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <ShieldAlert className="w-4 h-4" />
             </button>
@@ -166,7 +166,7 @@ const CircuitBreakerCard = ({
               onClick={onClose}
               disabled={isPending || breaker.state === 'CLOSED'}
               title="Force Close (allow requests)"
-              className="p-1.5 text-gray-400 hover:text-green-400 hover:bg-green-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 text-text-muted hover:text-green-400 hover:bg-green-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <ShieldCheck className="w-4 h-4" />
             </button>
@@ -174,7 +174,7 @@ const CircuitBreakerCard = ({
               onClick={onReset}
               disabled={isPending}
               title="Reset"
-              className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 text-text-muted hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               <RotateCcw className={`w-4 h-4 ${isPending ? 'animate-spin' : ''}`} />
             </button>
@@ -186,15 +186,15 @@ const CircuitBreakerCard = ({
       <div className="grid grid-cols-4 gap-3 text-sm">
         <div>
           <span className="text-gray-500 text-xs block">Failures</span>
-          <span className="text-white font-mono">{breaker.failureCount}</span>
+          <span className="text-text-base font-mono">{breaker.failureCount}</span>
         </div>
         <div>
           <span className="text-gray-500 text-xs block">Successes</span>
-          <span className="text-white font-mono">{breaker.successCount}</span>
+          <span className="text-text-base font-mono">{breaker.successCount}</span>
         </div>
         <div>
           <span className="text-gray-500 text-xs block">Total Requests</span>
-          <span className="text-white font-mono">{breaker.totalRequestCount}</span>
+          <span className="text-text-base font-mono">{breaker.totalRequestCount}</span>
         </div>
         <div>
           <span className="text-gray-500 text-xs block">Blocked</span>
@@ -272,7 +272,7 @@ const CircuitBreakerCard = ({
         </div>
         <div>
           <span className="text-gray-500 text-xs block">Consecutive OK</span>
-          <span className="text-white font-mono">{breaker.consecutiveSuccesses}</span>
+          <span className="text-text-base font-mono">{breaker.consecutiveSuccesses}</span>
         </div>
       </div>
 
@@ -292,7 +292,7 @@ const CircuitBreakerCard = ({
                         ? 'bg-orange-500/20 text-orange-400'
                         : type === 'transient'
                           ? 'bg-yellow-500/20 text-yellow-400'
-                          : 'bg-gray-500/20 text-gray-400'
+                          : 'bg-gray-500/20 text-text-muted'
                   }`}
                 >
                   {type}: {count}
@@ -475,18 +475,18 @@ export const CircuitBreakers = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white">Circuit Breakers</h2>
-          <p className="text-gray-400">
+          <h2 className="text-2xl font-bold text-text-base">Circuit Breakers</h2>
+          <p className="text-text-muted">
             Monitor circuit breaker status and banned server:model pairs
           </p>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex bg-gray-800 rounded-lg p-1 border border-gray-700">
+        <div className="flex bg-surface rounded-lg p-1 border border-surface-border">
           <button
             onClick={() => setActiveTab('breakers')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
-              activeTab === 'breakers' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+              activeTab === 'breakers' ? 'bg-primary text-text-base' : 'text-text-muted hover:text-text-base'
             }`}
           >
             <Shield className="w-4 h-4" />
@@ -495,13 +495,13 @@ export const CircuitBreakers = () => {
           <button
             onClick={() => setActiveTab('bans')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
-              activeTab === 'bans' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+              activeTab === 'bans' ? 'bg-primary text-text-base' : 'text-text-muted hover:text-text-base'
             }`}
           >
             <Ban className="w-4 h-4" />
             Bans
             {bansData && bansData.length > 0 && (
-              <span className="bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+              <span className="bg-red-500 text-text-base text-xs px-1.5 py-0.5 rounded-full">
                 {bansData.length}
               </span>
             )}
@@ -531,7 +531,7 @@ export const CircuitBreakers = () => {
           >
             <button
               onClick={() => refetch()}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-text-base rounded-lg transition-colors text-sm font-medium"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh
@@ -540,10 +540,10 @@ export const CircuitBreakers = () => {
 
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-gray-800 rounded-xl border border-red-500/30 p-6">
+            <div className="bg-surface rounded-xl border border-red-500/30 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-gray-400 text-sm">Open Circuits</p>
+                  <p className="text-text-muted text-sm">Open Circuits</p>
                   <p className="text-3xl font-bold text-red-400">{openCount}</p>
                 </div>
                 <ShieldAlert className="w-12 h-12 text-red-500/50" />
@@ -553,10 +553,10 @@ export const CircuitBreakers = () => {
               </p>
             </div>
 
-            <div className="bg-gray-800 rounded-xl border border-yellow-500/30 p-6">
+            <div className="bg-surface rounded-xl border border-yellow-500/30 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-gray-400 text-sm">Half-Open</p>
+                  <p className="text-text-muted text-sm">Half-Open</p>
                   <p className="text-3xl font-bold text-yellow-400">{halfOpenCount}</p>
                 </div>
                 <ShieldQuestion className="w-12 h-12 text-yellow-500/50" />
@@ -566,10 +566,10 @@ export const CircuitBreakers = () => {
               </p>
             </div>
 
-            <div className="bg-gray-800 rounded-xl border border-green-500/30 p-6">
+            <div className="bg-surface rounded-xl border border-green-500/30 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-gray-400 text-sm">Closed Circuits</p>
+                  <p className="text-text-muted text-sm">Closed Circuits</p>
                   <p className="text-3xl font-bold text-green-400">{closedCount}</p>
                 </div>
                 <ShieldCheck className="w-12 h-12 text-green-500/50" />
@@ -581,12 +581,12 @@ export const CircuitBreakers = () => {
           {/* Server Groups */}
           <div className="space-y-4">
             {groupedServers.length === 0 ? (
-              <div className="bg-gray-800 rounded-xl border border-gray-700 p-12 text-center">
+              <div className="bg-surface rounded-xl border border-surface-border p-12 text-center">
                 <Shield className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-white mb-2">
+                <h3 className="text-xl font-semibold text-text-base mb-2">
                   No Circuit Breakers Active
                 </h3>
-                <p className="text-gray-400">
+                <p className="text-text-muted">
                   Circuit breakers will appear here as servers handle requests and failures occur.
                 </p>
               </div>
@@ -594,29 +594,29 @@ export const CircuitBreakers = () => {
               groupedServers.map(server => (
                 <div
                   key={server.serverId}
-                  className={`bg-gray-800 rounded-xl border overflow-hidden ${
+                  className={`bg-surface rounded-xl border overflow-hidden ${
                     server.hasOpenCircuit
                       ? 'border-red-500/50 shadow-lg shadow-red-500/5'
-                      : 'border-gray-700'
+                      : 'border-surface-border'
                   }`}
                 >
                   {/* Server Header */}
                   <button
                     onClick={() => toggleServer(server.serverId)}
-                    className="w-full flex items-center justify-between p-6 hover:bg-gray-750 transition-colors"
+                    className="w-full flex items-center justify-between p-6 hover:bg-gray-700 transition-colors"
                   >
                     <div className="flex items-center gap-4">
                       {expandedServers.has(server.serverId) ? (
-                        <ChevronDown className="w-5 h-5 text-gray-400" />
+                        <ChevronDown className="w-5 h-5 text-text-muted" />
                       ) : (
-                        <ChevronRight className="w-5 h-5 text-gray-400" />
+                        <ChevronRight className="w-5 h-5 text-text-muted" />
                       )}
                       <Server className="w-6 h-6 text-blue-400" />
                       <div>
-                        <h3 className="text-lg font-semibold text-white font-mono">
+                        <h3 className="text-lg font-semibold text-text-base font-mono">
                           {server.serverId}
                         </h3>
-                        <p className="text-gray-400 text-sm">
+                        <p className="text-text-muted text-sm">
                           {server.modelBreakers.length + (server.serverBreaker ? 1 : 0)} circuit
                           breaker(s)
                         </p>
@@ -630,11 +630,11 @@ export const CircuitBreakers = () => {
                     <div className="flex items-center gap-6 text-sm">
                       <div className="text-right">
                         <span className="text-gray-500 block text-xs">Total Failures</span>
-                        <span className="text-white font-mono">{server.totalFailures}</span>
+                        <span className="text-text-base font-mono">{server.totalFailures}</span>
                       </div>
                       <div className="text-right">
                         <span className="text-gray-500 block text-xs">Model Circuits</span>
-                        <span className="text-white font-mono">{server.modelBreakers.length}</span>
+                        <span className="text-text-base font-mono">{server.modelBreakers.length}</span>
                       </div>
                     </div>
                   </button>
@@ -726,39 +726,39 @@ export const CircuitBreakers = () => {
           </div>
 
           {/* Info Section */}
-          <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+          <div className="bg-surface rounded-xl border border-surface-border p-6">
             {/* ... info content ... */}
-            <h3 className="text-lg font-semibold text-white mb-4">Circuit Breaker Behavior</h3>
+            <h3 className="text-lg font-semibold text-text-base mb-4">Circuit Breaker Behavior</h3>
             {/* ... */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* ... (reused existing info content) ... */}
               <div>
-                <h4 className="text-white font-medium mb-2">When does a circuit open?</h4>
-                <p className="text-gray-400 text-sm">
+                <h4 className="text-text-base font-medium mb-2">When does a circuit open?</h4>
+                <p className="text-text-muted text-sm">
                   A circuit opens when the failure count exceeds the threshold (default: 5 failures)
                   OR when the error rate exceeds 50% within the monitoring window (1 minute).
                 </p>
               </div>
               <div>
-                <h4 className="text-white font-medium mb-2">
+                <h4 className="text-text-base font-medium mb-2">
                   When does a server become unhealthy?
                 </h4>
-                <p className="text-gray-400 text-sm">
+                <p className="text-text-muted text-sm">
                   Servers are marked unhealthy after 3 consecutive transient/retryable failures.
                   Permanent errors mark servers unhealthy only if they're server-wide issues (like
                   disk full).
                 </p>
               </div>
               <div>
-                <h4 className="text-white font-medium mb-2">Recovery process</h4>
-                <p className="text-gray-400 text-sm">
+                <h4 className="text-text-base font-medium mb-2">Recovery process</h4>
+                <p className="text-text-muted text-sm">
                   After 30 seconds (open timeout), the circuit enters half-open state and allows
                   test requests. If 3 consecutive requests succeed, the circuit closes.
                 </p>
               </div>
               <div>
-                <h4 className="text-white font-medium mb-2">Server vs Model circuits</h4>
-                <p className="text-gray-400 text-sm">
+                <h4 className="text-text-base font-medium mb-2">Server vs Model circuits</h4>
+                <p className="text-text-muted text-sm">
                   Server-level circuits track overall server health. Model-level circuits track
                   specific models on that server (useful for OOM errors affecting only certain
                   models).
@@ -779,7 +779,7 @@ export const CircuitBreakers = () => {
               <button
                 onClick={() => clearAllBansMutation.mutate()}
                 disabled={clearAllBansMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-text-base rounded-lg transition-colors text-sm font-medium"
               >
                 <Trash2 className="w-4 h-4" />
                 Clear All Bans
@@ -792,34 +792,34 @@ export const CircuitBreakers = () => {
               <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
             </div>
           ) : filteredBans && filteredBans.length > 0 ? (
-            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+            <div className="bg-surface rounded-xl border border-surface-border overflow-hidden">
               <table className="w-full">
                 <thead className="bg-gray-900">
                   <tr>
-                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                    <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
                       Server
                     </th>
-                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                    <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
                       Model
                     </th>
-                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                    <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
                       Reason
                     </th>
-                    <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                    <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
                       Banned At
                     </th>
-                    <th className="text-right text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                    <th className="text-right text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
                       Actions
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">
                   {filteredBans.map((ban, idx) => (
-                    <tr key={`${ban.serverId}-${ban.model}-${idx}`} className="hover:bg-gray-750">
-                      <td className="px-6 py-4 text-sm text-white font-mono">{ban.serverId}</td>
-                      <td className="px-6 py-4 text-sm text-white">{ban.model}</td>
-                      <td className="px-6 py-4 text-sm text-gray-400">{ban.reason || '-'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-400">
+                    <tr key={`${ban.serverId}-${ban.model}-${idx}`} className="hover:bg-gray-700">
+                      <td className="px-6 py-4 text-sm text-text-base font-mono">{ban.serverId}</td>
+                      <td className="px-6 py-4 text-sm text-text-base">{ban.model}</td>
+                      <td className="px-6 py-4 text-sm text-text-muted">{ban.reason || '-'}</td>
+                      <td className="px-6 py-4 text-sm text-text-muted">
                         {formatTimeAgo(ban.bannedAt)}
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -828,7 +828,7 @@ export const CircuitBreakers = () => {
                             removeBanMutation.mutate({ serverId: ban.serverId, model: ban.model })
                           }
                           disabled={removeBanMutation.isPending}
-                          className="text-gray-400 hover:text-red-400 transition-colors"
+                          className="text-text-muted hover:text-red-400 transition-colors"
                           title="Remove ban"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -840,10 +840,10 @@ export const CircuitBreakers = () => {
               </table>
             </div>
           ) : (
-            <div className="bg-gray-800 rounded-xl border border-gray-700 p-12 text-center">
+            <div className="bg-surface rounded-xl border border-surface-border p-12 text-center">
               <Ban className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-2">No Banned Servers</h3>
-              <p className="text-gray-400">
+              <h3 className="text-xl font-semibold text-text-base mb-2">No Banned Servers</h3>
+              <p className="text-text-muted">
                 Server:model pairs that exceed failure thresholds will appear here.
               </p>
             </div>

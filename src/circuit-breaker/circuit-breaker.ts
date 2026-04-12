@@ -754,6 +754,7 @@ export class CircuitBreaker {
       this.transitionTo('closed');
       this.failureCount = 0;
       this.consecutiveSuccesses = 0;
+      this.successCount = 0;
       this.halfOpenRequestCount = 0;
       this.window.clear();
     }

@@ -29,6 +29,8 @@ import {
   inferenceRouter,
   v1Router,
   anthropicRouter,
+  authRouter,
+  userRouter,
 } from './routes/orchestrator.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { logger } from './utils/logger.js';
@@ -60,9 +62,9 @@ app.use((req, res, next) => {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", `'nonce-${nonce}'`],
-        styleSrc: ["'self'", `'unsafe-inline'`],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         imgSrc: ["'self'", 'data:', 'blob:', 'http:', 'https:'],
-        fontSrc: ["'self'"],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         connectSrc: ["'self'"],
         mediaSrc: ["'self'"],
         objectSrc: ["'none'"],
@@ -151,7 +153,9 @@ if (process.env.ENABLE_AUTH === 'false' || process.env.ORCHESTRATOR_ENABLE_AUTH 
   );
 }
 
-// Routes with rate limiting and authentication
+// Auth routes must be FIRST to bypass authentication checks when auth is disabled
+app.use('/api/orchestrator/auth', authRouter);
+
 // Monitoring routes (permissive rate limiting, require auth)
 app.use('/api/orchestrator', monitoringRateLimiter, requireAuthentication, monitoringRouter);
 
@@ -164,6 +168,9 @@ app.use('/api', inferenceRateLimiter, inferenceRouter);
 // OpenAI-compatible endpoints at /v1/*
 app.use('/v1', inferenceRateLimiter, v1Router);
 app.use('/v1', inferenceRateLimiter, anthropicRouter);
+
+// User management routes (require auth + admin for most operations)
+app.use('/api/orchestrator', adminRateLimiter, requireAuthentication, userRouter);
 
 // Prometheus metrics endpoint at root
 // Only allow access from localhost/internal IPs in production

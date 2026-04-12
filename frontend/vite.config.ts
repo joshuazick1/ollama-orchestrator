@@ -41,9 +41,9 @@ export default defineConfig({
       'Content-Security-Policy': [
         "default-src 'self'",
         "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Required for Vite dev server
-        "style-src 'self' 'unsafe-inline'", // Required for Tailwind
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Required for Tailwind + Google Fonts
         "img-src 'self' data: http: https:",
-        "font-src 'self'",
+        "font-src 'self' https://fonts.gstatic.com", // Required for Google Fonts
         "connect-src 'self' http://localhost:5100 ws://localhost:5173", // Allow API and HMR
         "frame-ancestors 'none'",
         "base-uri 'self'",

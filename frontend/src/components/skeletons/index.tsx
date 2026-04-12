@@ -6,7 +6,7 @@ interface SkeletonProps {
 }
 
 export const Skeleton = ({ className, style }: SkeletonProps) => (
-  <div className={clsx('bg-gray-700/50 rounded animate-shimmer', className)} style={style} />
+  <div className={clsx('bg-surface/50 rounded animate-shimmer', className)} style={style} />
 );
 
 export const SkeletonText = ({ lines = 3 }: { lines?: number }) => (
@@ -18,7 +18,7 @@ export const SkeletonText = ({ lines = 3 }: { lines?: number }) => (
 );
 
 export const SkeletonCard = () => (
-  <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+  <div className="bg-surface rounded-xl border border-surface-border p-6">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-4">
         <Skeleton className="w-12 h-12 rounded-lg" />
@@ -33,7 +33,7 @@ export const SkeletonCard = () => (
 );
 
 export const SkeletonStatCard = () => (
-  <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+  <div className="bg-surface rounded-xl border border-surface-border p-6">
     <div className="flex justify-between items-start">
       <div className="flex-1">
         <Skeleton className="h-4 w-24 mb-2" />
@@ -46,8 +46,8 @@ export const SkeletonStatCard = () => (
 );
 
 export const SkeletonTable = ({ rows = 5, columns = 4 }: { rows?: number; columns?: number }) => (
-  <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-    <div className="bg-gray-900 px-6 py-4 border-b border-gray-700">
+  <div className="bg-surface rounded-xl border border-surface-border overflow-hidden">
+    <div className="bg-surface-raised px-6 py-4 border-b border-surface-border">
       <div className="flex gap-4">
         {Array.from({ length: columns }).map((_, i) => (
           <Skeleton key={i} className="h-4 flex-1" />
@@ -74,7 +74,7 @@ export const SkeletonTable = ({ rows = 5, columns = 4 }: { rows?: number; column
 );
 
 export const SkeletonServerCard = () => (
-  <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+  <div className="bg-surface rounded-xl border border-surface-border overflow-hidden">
     <div className="p-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -102,7 +102,7 @@ export const SkeletonServerCard = () => (
 );
 
 export const SkeletonModelRow = () => (
-  <div className="flex items-center justify-between p-4 border-b border-gray-700">
+  <div className="flex items-center justify-between p-4 border-b border-surface-border">
     <div className="flex items-center gap-4">
       <Skeleton className="w-10 h-10 rounded-lg" />
       <Skeleton className="h-5 w-32" />
@@ -115,14 +115,14 @@ export const SkeletonModelRow = () => (
 );
 
 export const SkeletonChart = ({ height = 300 }: { height?: number }) => (
-  <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+  <div className="bg-surface rounded-xl border border-surface-border p-6">
     <Skeleton className="h-6 w-48 mb-6" />
     <Skeleton className="w-full rounded" style={{ height }} />
   </div>
 );
 
 export const SkeletonCircuitBreaker = () => (
-  <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+  <div className="bg-surface rounded-xl border border-surface-border p-6">
     <div className="flex items-center justify-between mb-4">
       <div className="flex items-center gap-4">
         <Skeleton className="w-10 h-10 rounded-lg" />
@@ -143,7 +143,7 @@ export const SkeletonCircuitBreaker = () => (
 );
 
 export const SkeletonSettingsForm = () => (
-  <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 space-y-6">
+  <div className="bg-surface rounded-xl border border-surface-border p-6 space-y-6">
     <div className="flex items-center gap-4 mb-6">
       <Skeleton className="w-10 h-10 rounded-lg" />
       <div>
@@ -161,7 +161,7 @@ export const SkeletonSettingsForm = () => (
 );
 
 export const SkeletonTabs = ({ tabs = 5 }: { tabs?: number }) => (
-  <div className="flex gap-2 p-1 bg-gray-800 rounded-lg">
+  <div className="flex gap-2 p-1 bg-surface rounded-lg">
     {Array.from({ length: tabs }).map((_, i) => (
       <Skeleton key={i} className="h-10 flex-1 rounded-md" />
     ))}

@@ -10,6 +10,7 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     setupFiles: ['./tests/integration/setup.ts'],
+    reporters: ['verbose', 'json'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'lcov'],

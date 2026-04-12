@@ -14,6 +14,7 @@ export interface RateLimitConfig {
   maxRequests: number;
   skipSuccessfulRequests: boolean;
   keyGenerator?: (req: Request) => string;
+  skip?: (req: Request) => boolean;
 }
 
 export const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
@@ -78,7 +79,6 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}): any {
       });
     },
     skip: (req: Request) => {
-      // Skip rate limiting for health checks and metrics
       if (req.path === '/health' || req.path === '/metrics') {
         return true;
       }
@@ -129,5 +129,19 @@ export function createInferenceRateLimiter(): any {
   return createRateLimiter({
     windowMs: 15 * 60 * 1000, // 15 minutes
     maxRequests: 100, // 100 inference requests per 15 minutes per key/IP
+    skipSuccessfulRequests: false,
+    keyGenerator: defaultKeyGenerator,
+    skip: (req: Request) => {
+      if (req.path === '/health' || req.path === '/metrics') {
+        return true;
+      }
+      const authDisabled =
+        process.env.ORCHESTRATOR_ENABLE_AUTH === 'false' ||
+        process.env.ENABLE_AUTH === 'false';
+      if (authDisabled) {
+        return true;
+      }
+      return false;
+    },
   });
 }

@@ -29,20 +29,20 @@ export const HealthTab = ({ errorAnalysis, circuitBreakers }: HealthTabProps) =>
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Error Analysis */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+        <div className="bg-surface rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-red-400" />
             Error Analysis
           </h3>
           <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
-              <p className="text-gray-400 text-sm">Total Errors</p>
-              <p className="text-2xl font-bold text-white mt-1">
+            <div className="bg-surface-raised/50 p-4 rounded-lg border border-surface-border/50">
+              <p className="text-text-muted text-sm">Total Errors</p>
+              <p className="text-2xl font-bold text-text-base mt-1">
                 {errorAnalysis?.totalErrors || 0}
               </p>
             </div>
-            <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
-              <p className="text-gray-400 text-sm">Error Trend</p>
+            <div className="bg-surface-raised/50 p-4 rounded-lg border border-surface-border/50">
+              <p className="text-text-muted text-sm">Error Trend</p>
               <div className="flex items-center gap-2 mt-1">
                 {errorAnalysis?.trend === 'increasing' && (
                   <TrendingUp className="w-5 h-5 text-red-400" />
@@ -72,18 +72,18 @@ export const HealthTab = ({ errorAnalysis, circuitBreakers }: HealthTabProps) =>
               Object.entries(errorAnalysis.byType).map(([type, count]) => (
                 <div
                   key={type}
-                  className="flex justify-between items-center bg-gray-700/20 p-3 rounded hover:bg-gray-700/30 transition-colors"
+                  className="flex justify-between items-center bg-surface/20 p-3 rounded hover:bg-surface/30 transition-colors"
                 >
                   <span className="text-gray-300 capitalize text-sm">
                     {type.replace(/_/g, ' ')}
                   </span>
-                  <span className="font-mono text-white bg-gray-700 px-2 py-0.5 rounded text-xs">
+                  <span className="font-mono text-text-base bg-surface px-2 py-0.5 rounded text-xs">
                     {count as number}
                   </span>
                 </div>
               ))
             ) : (
-              <div className="text-center text-gray-500 py-4">
+              <div className="text-center text-text-subtle py-4">
                 No errors recorded in this period
               </div>
             )}
@@ -91,8 +91,8 @@ export const HealthTab = ({ errorAnalysis, circuitBreakers }: HealthTabProps) =>
         </div>
 
         {/* Circuit Breaker Status */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+        <div className="bg-surface rounded-xl border border-surface-border p-6">
+          <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
             <Shield className="w-5 h-5 text-blue-400" />
             Circuit Breaker Status
           </h3>
@@ -114,7 +114,7 @@ export const HealthTab = ({ errorAnalysis, circuitBreakers }: HealthTabProps) =>
 
           <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
             {circuitBreakers?.length === 0 ? (
-              <div className="text-center text-gray-500 py-4">No circuit breakers active</div>
+              <div className="text-center text-text-subtle py-4">No circuit breakers active</div>
             ) : (
               circuitBreakers
                 ?.sort((a, b) => {
@@ -127,7 +127,7 @@ export const HealthTab = ({ errorAnalysis, circuitBreakers }: HealthTabProps) =>
                     className={`p-3 rounded border flex justify-between items-center ${getCircuitBreakerStateColor(breaker.state)}`}
                   >
                     <div className="flex flex-col">
-                      <span className="font-mono text-sm font-medium text-white">
+                      <span className="font-mono text-sm font-medium text-text-base">
                         {breaker.serverId}
                       </span>
                       <span className="text-xs opacity-70 mt-0.5">

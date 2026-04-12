@@ -183,7 +183,8 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
         }
 
         const headers = buildUpstreamHeaders(server, anthropicVersion);
-        const upstreamUrl = `${server.url}${API_ENDPOINTS.ANTHROPIC.MESSAGES}`;
+        const anthropicPath = server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
+        const upstreamUrl = `${server.url}${anthropicPath}`;
 
         if (stream) {
           const timeoutMs = resolveRequestTimeout(

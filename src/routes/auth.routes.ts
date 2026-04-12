@@ -19,7 +19,7 @@ import {
   getTokenFromCookie,
   getRefreshTokenFromCookie,
 } from '../utils/jwt.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
 import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf.js';
 import { logger } from '../utils/logger.js';
 
@@ -159,6 +159,19 @@ authRouter.get(
   '/me',
   requireAuth(),
   asyncHandler(async (req: Request, res: Response) => {
+    // When auth is disabled, return a default admin user so frontend doesn't redirect to login
+    if (!DEFAULT_AUTH_CONFIG.enabled) {
+      res.status(200).json({
+        user: {
+          id: 'default',
+          username: 'admin',
+          email: 'admin@local',
+          role: 'admin',
+        },
+      });
+      return;
+    }
+
     const token = getTokenFromCookie(req);
     if (!token) {
       res.status(401).json({

@@ -181,17 +181,17 @@ export const CircuitDetailModal = ({
               </span>
             </div>
             <div className="flex items-center gap-4 text-sm">
-              <span className="text-gray-400">
+              <span className="text-text-muted">
                 Failures:{' '}
-                <span className="text-white font-mono">{circuitBreaker.failureCount}</span>
+                <span className="text-text-base font-mono">{circuitBreaker.failureCount}</span>
               </span>
-              <span className="text-gray-400">
+              <span className="text-text-muted">
                 Successes:{' '}
-                <span className="text-white font-mono">{circuitBreaker.successCount}</span>
+                <span className="text-text-base font-mono">{circuitBreaker.successCount}</span>
               </span>
-              <span className="text-gray-400">
+              <span className="text-text-muted">
                 Error Rate:{' '}
-                <span className="text-white font-mono">
+                <span className="text-text-base font-mono">
                   {(circuitBreaker.errorRate * 100).toFixed(1)}%
                 </span>
               </span>
@@ -200,7 +200,7 @@ export const CircuitDetailModal = ({
         )}
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-700 px-6">
+        <div className="flex border-b border-surface-border px-6">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -208,7 +208,7 @@ export const CircuitDetailModal = ({
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-gray-400 hover:text-white'
+                  : 'border-transparent text-text-muted hover:text-text-base'
               }`}
             >
               <tab.icon className="w-4 h-4" />
@@ -279,8 +279,8 @@ const OverviewTab = ({
 
       {/* Circuit Breaker Details */}
       {circuitBreaker && (
-        <div className="bg-gray-900 rounded-lg p-4">
-          <h3 className="text-lg font-semibold text-white mb-4">Circuit Breaker</h3>
+        <div className="bg-surface-raised rounded-lg p-4">
+          <h3 className="text-lg font-semibold text-text-base mb-4">Circuit Breaker</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <span className="text-gray-500 text-xs">State</span>
@@ -310,7 +310,7 @@ const OverviewTab = ({
             </div>
             <div>
               <span className="text-gray-500 text-xs">Consecutive OK</span>
-              <div className="font-mono font-medium text-white">
+              <div className="font-mono font-medium text-text-base">
                 {circuitBreaker.consecutiveSuccesses}
               </div>
             </div>
@@ -319,24 +319,24 @@ const OverviewTab = ({
       )}
 
       {/* Latency Percentiles */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4">Latency Percentiles</h3>
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4">Latency Percentiles</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <span className="text-gray-500 text-xs">p50</span>
-            <div className="font-mono text-lg text-white">{percentiles?.p50 || 0}ms</div>
+            <div className="font-mono text-lg text-text-base">{percentiles?.p50 || 0}ms</div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">p95</span>
-            <div className="font-mono text-lg text-white">{percentiles?.p95 || 0}ms</div>
+            <div className="font-mono text-lg text-text-base">{percentiles?.p95 || 0}ms</div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">p99</span>
-            <div className="font-mono text-lg text-white">{percentiles?.p99 || 0}ms</div>
+            <div className="font-mono text-lg text-text-base">{percentiles?.p99 || 0}ms</div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">Max</span>
-            <div className="font-mono text-lg text-white">{percentiles?.max || 0}ms</div>
+            <div className="font-mono text-lg text-text-base">{percentiles?.max || 0}ms</div>
           </div>
         </div>
       </div>
@@ -352,8 +352,8 @@ const PerformanceTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) =
   return (
     <div className="space-y-6">
       {/* Latency Breakdown */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4">Latency Distribution</h3>
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4">Latency Distribution</h3>
         <div className="space-y-3">
           {[
             { label: 'p50', value: percentiles?.p50 || 0, color: 'bg-green-500' },
@@ -362,7 +362,7 @@ const PerformanceTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) =
             { label: 'p99', value: percentiles?.p99 || 0, color: 'bg-orange-500' },
           ].map(item => (
             <div key={item.label} className="flex items-center gap-3">
-              <span className="text-gray-400 text-sm w-12">{item.label}</span>
+              <span className="text-text-muted text-sm w-12">{item.label}</span>
               <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${item.color}`}
@@ -371,7 +371,7 @@ const PerformanceTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) =
                   }}
                 />
               </div>
-              <span className="text-white font-mono w-20 text-right">{item.value}ms</span>
+              <span className="text-text-base font-mono w-20 text-right">{item.value}ms</span>
             </div>
           ))}
         </div>
@@ -379,16 +379,16 @@ const PerformanceTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) =
 
       {/* Throughput & Tokens */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-gray-900 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-gray-400 mb-2">Throughput</h4>
-          <div className="text-2xl font-bold text-white">
+        <div className="bg-surface-raised rounded-lg p-4">
+          <h4 className="text-sm font-medium text-text-muted mb-2">Throughput</h4>
+          <div className="text-2xl font-bold text-text-base">
             {derived?.throughput?.toFixed(2) || 0}
           </div>
           <div className="text-sm text-gray-500">requests/minute</div>
         </div>
-        <div className="bg-gray-900 rounded-lg p-4">
-          <h4 className="text-sm font-medium text-gray-400 mb-2">Avg Tokens/Request</h4>
-          <div className="text-2xl font-bold text-white">
+        <div className="bg-surface-raised rounded-lg p-4">
+          <h4 className="text-sm font-medium text-text-muted mb-2">Avg Tokens/Request</h4>
+          <div className="text-2xl font-bold text-text-base">
             {derived?.avgTokensPerRequest?.toFixed(0) || 0}
           </div>
           <div className="text-sm text-gray-500">tokens</div>
@@ -417,31 +417,31 @@ const StreamingTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) => 
   return (
     <div className="space-y-6">
       {/* TTFT Stats */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4 flex items-center gap-2">
           <Zap className="w-5 h-5 text-yellow-400" />
           Time to First Token
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <span className="text-gray-500 text-xs">Average</span>
-            <div className="font-mono text-xl text-white">{streaming.avgTTFT || 0}ms</div>
+            <div className="font-mono text-xl text-text-base">{streaming.avgTTFT || 0}ms</div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">p50</span>
-            <div className="font-mono text-xl text-white">
+            <div className="font-mono text-xl text-text-base">
               {streaming.ttftPercentiles?.p50 || 0}ms
             </div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">p95</span>
-            <div className="font-mono text-xl text-white">
+            <div className="font-mono text-xl text-text-base">
               {streaming.ttftPercentiles?.p95 || 0}ms
             </div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">p99</span>
-            <div className="font-mono text-xl text-white">
+            <div className="font-mono text-xl text-text-base">
               {streaming.ttftPercentiles?.p99 || 0}ms
             </div>
           </div>
@@ -449,33 +449,33 @@ const StreamingTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) => 
       </div>
 
       {/* Chunk Stats */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4 flex items-center gap-2">
           <Radio className="w-5 h-5 text-cyan-400" />
           Chunk Statistics
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <span className="text-gray-500 text-xs">Avg Chunks/Request</span>
-            <div className="font-mono text-xl text-white">
+            <div className="font-mono text-xl text-text-base">
               {streaming.avgChunkCount?.toFixed(1) || 0}
             </div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">Avg Chunk Size</span>
-            <div className="font-mono text-xl text-white">
+            <div className="font-mono text-xl text-text-base">
               {((streaming.avgChunkSizeBytes || 0) / 1024).toFixed(1)}KB
             </div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">p95 Chunk Gap</span>
-            <div className="font-mono text-xl text-white">
+            <div className="font-mono text-xl text-text-base">
               {streaming.maxChunkGapPercentiles?.p95 || 0}ms
             </div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">Avg Duration</span>
-            <div className="font-mono text-xl text-white">
+            <div className="font-mono text-xl text-text-base">
               {formatDuration(streaming.avgStreamingDuration || 0)}
             </div>
           </div>
@@ -483,8 +483,8 @@ const StreamingTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) => 
       </div>
 
       {/* Chunk Count Distribution */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-gray-400 mb-2">Chunk Count Distribution</h4>
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h4 className="text-sm font-medium text-text-muted mb-2">Chunk Count Distribution</h4>
         <div className="space-y-2">
           {[
             {
@@ -504,7 +504,7 @@ const StreamingTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) => 
             },
           ].map(item => (
             <div key={item.label} className="flex items-center gap-3">
-              <span className="text-gray-400 text-sm w-12">{item.label}</span>
+              <span className="text-text-muted text-sm w-12">{item.label}</span>
               <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full ${item.color}`}
@@ -516,7 +516,7 @@ const StreamingTab = ({ metricsData }: { metricsData?: CircuitMetricsData }) => 
                   }}
                 />
               </div>
-              <span className="text-white font-mono w-16 text-right">{item.value} chunks</span>
+              <span className="text-text-base font-mono w-16 text-right">{item.value} chunks</span>
             </div>
           ))}
         </div>
@@ -554,14 +554,14 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
     <div className="space-y-6">
       {/* Time Range Selector */}
       <div className="flex items-center gap-2">
-        <span className="text-sm text-gray-400">Time Range:</span>
+        <span className="text-sm text-text-muted">Time Range:</span>
         {[1, 6, 24, 72].map(hours => (
           <button
             key={hours}
             onClick={() => setTimeRange(hours)}
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               timeRange === hours
-                ? 'bg-blue-600 text-white'
+                ? 'bg-blue-600 text-text-base'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
             }`}
           >
@@ -571,8 +571,8 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
       </div>
 
       {/* Recent Requests */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4 flex items-center gap-2">
           <History className="w-5 h-5 text-blue-400" />
           Recent Requests
         </h3>
@@ -583,7 +583,7 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
             {requests.slice(0, 10).map((req: RequestHistoryItem, idx: number) => (
               <div
                 key={idx}
-                className="flex items-center justify-between p-2 bg-gray-800 rounded-lg"
+                className="flex items-center justify-between p-2 bg-surface rounded-lg"
               >
                 <div className="flex items-center gap-3">
                   {req.success ? (
@@ -592,7 +592,7 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
                     <XCircle className="w-4 h-4 text-red-400" />
                   )}
                   <div>
-                    <div className="text-sm text-white">{req.endpoint || 'generate'}</div>
+                    <div className="text-sm text-text-base">{req.endpoint || 'generate'}</div>
                     <div className="text-xs text-gray-500">
                       {req.duration ? `${req.duration}ms` : 'N/A'}
                       {req.chunkCount !== undefined && ` • ${req.chunkCount} chunks`}
@@ -611,8 +611,8 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
       </div>
 
       {/* Load Balancer Decisions */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4 flex items-center gap-2">
           <Shield className="w-5 h-5 text-purple-400" />
           Load Balancer Decisions
         </h3>
@@ -623,7 +623,7 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
             {decisionList.slice(0, 10).map((decision: DecisionHistoryItem, idx: number) => (
               <div
                 key={idx}
-                className="flex items-center justify-between p-2 bg-gray-800 rounded-lg"
+                className="flex items-center justify-between p-2 bg-surface rounded-lg"
               >
                 <div className="flex items-center gap-3">
                   {decision.selected ? (
@@ -632,7 +632,7 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
                     <XCircle className="w-4 h-4 text-red-400" />
                   )}
                   <div>
-                    <div className="text-sm text-white">{decision.algorithm || 'default'}</div>
+                    <div className="text-sm text-text-base">{decision.algorithm || 'default'}</div>
                     <div className="text-xs text-gray-500">
                       Score: {decision.score?.toFixed(1) || 'N/A'}
                       {decision.reason && ` • ${decision.reason}`}
@@ -687,14 +687,14 @@ const TrendsTab = ({ serverId, model }: { serverId: string; model: string }) => 
     <div className="space-y-6">
       {/* Time Range Selector */}
       <div className="flex items-center gap-2">
-        <span className="text-sm text-gray-400">Time Range:</span>
+        <span className="text-sm text-text-muted">Time Range:</span>
         {[1, 6, 24, 72].map(hours => (
           <button
             key={hours}
             onClick={() => setTimeRange(hours)}
             className={`px-3 py-1 text-sm rounded-md transition-colors ${
               timeRange === hours
-                ? 'bg-blue-600 text-white'
+                ? 'bg-blue-600 text-text-base'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
             }`}
           >
@@ -705,14 +705,14 @@ const TrendsTab = ({ serverId, model }: { serverId: string; model: string }) => 
 
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gray-900 rounded-lg p-4">
+        <div className="bg-surface-raised rounded-lg p-4">
           <div className="text-gray-500 text-xs mb-1">Selection Rate</div>
-          <div className="text-2xl font-bold text-white">{selectionRate.toFixed(1)}%</div>
+          <div className="text-2xl font-bold text-text-base">{selectionRate.toFixed(1)}%</div>
           <div className="text-xs text-gray-500">
             {selectedCount}/{totalDecisions} selected
           </div>
         </div>
-        <div className="bg-gray-900 rounded-lg p-4">
+        <div className="bg-surface-raised rounded-lg p-4">
           <div className="text-gray-500 text-xs mb-1">Success Rate</div>
           <div
             className={`text-2xl font-bold ${successRate > 0.9 ? 'text-green-400' : successRate > 0.7 ? 'text-yellow-400' : 'text-red-400'}`}
@@ -721,28 +721,28 @@ const TrendsTab = ({ serverId, model }: { serverId: string; model: string }) => 
           </div>
           <div className="text-xs text-gray-500">request success</div>
         </div>
-        <div className="bg-gray-900 rounded-lg p-4">
+        <div className="bg-surface-raised rounded-lg p-4">
           <div className="text-gray-500 text-xs mb-1">Avg Latency</div>
-          <div className="text-2xl font-bold text-white">{avgLatency}ms</div>
+          <div className="text-2xl font-bold text-text-base">{avgLatency}ms</div>
           <div className="text-xs text-gray-500">p95: {p95Latency}ms</div>
         </div>
-        <div className="bg-gray-900 rounded-lg p-4">
+        <div className="bg-surface-raised rounded-lg p-4">
           <div className="text-gray-500 text-xs mb-1">Throughput</div>
-          <div className="text-2xl font-bold text-white">{throughput.toFixed(1)}</div>
+          <div className="text-2xl font-bold text-text-base">{throughput.toFixed(1)}</div>
           <div className="text-xs text-gray-500">req/min</div>
         </div>
       </div>
 
       {/* Performance Over Time */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4 flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-green-400" />
           Performance Metrics
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div>
             <span className="text-gray-500 text-xs">Total Requests</span>
-            <div className="text-xl font-bold text-white">
+            <div className="text-xl font-bold text-text-base">
               {stats?.totalRequests?.toLocaleString() || 0}
             </div>
           </div>
@@ -766,32 +766,32 @@ const TrendsTab = ({ serverId, model }: { serverId: string; model: string }) => 
           </div>
           <div>
             <span className="text-gray-500 text-xs">P50 Latency</span>
-            <div className="text-xl font-bold text-white">{stats?.p50Latency || 0}ms</div>
+            <div className="text-xl font-bold text-text-base">{stats?.p50Latency || 0}ms</div>
           </div>
           <div>
             <span className="text-gray-500 text-xs">P99 Latency</span>
-            <div className="text-xl font-bold text-white">{stats?.p99Latency || 0}ms</div>
+            <div className="text-xl font-bold text-text-base">{stats?.p99Latency || 0}ms</div>
           </div>
         </div>
       </div>
 
       {/* Decision Trend */}
-      <div className="bg-gray-900 rounded-lg p-4">
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+      <div className="bg-surface-raised rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-text-base mb-4 flex items-center gap-2">
           <Shield className="w-5 h-5 text-purple-400" />
           Selection Trends
         </h3>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-gray-400 text-sm">Total Decisions</span>
-            <span className="text-white font-mono">{totalDecisions}</span>
+            <span className="text-text-muted text-sm">Total Decisions</span>
+            <span className="text-text-base font-mono">{totalDecisions}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-400 text-sm">Selected</span>
+            <span className="text-text-muted text-sm">Selected</span>
             <span className="text-green-400 font-mono">{selectedCount}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-400 text-sm">Rejected</span>
+            <span className="text-text-muted text-sm">Rejected</span>
             <span className="text-red-400 font-mono">{totalDecisions - selectedCount}</span>
           </div>
           <div className="mt-4">

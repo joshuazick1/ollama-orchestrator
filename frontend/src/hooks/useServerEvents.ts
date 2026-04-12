@@ -21,6 +21,41 @@ interface ServerEvent {
     };
   };
   circuitBreakers: number;
+  servers: Array<{
+    id: string;
+    url: string;
+    healthy: boolean;
+    lastResponseTime: number;
+    models: string[];
+    maxConcurrency: number;
+    version: string;
+    supportsOllama: boolean;
+    supportsV1: boolean;
+    v1Models: string[];
+  }>;
+  modelMap: {
+    modelToServers: Record<string, string[]>;
+    serverToModels: Record<string, string[]>;
+  };
+  inFlight: {
+    total: number;
+    inFlight: Array<{
+      serverId: string;
+      serverUrl?: string;
+      healthy: boolean;
+      total: number;
+      byModel: Record<string, { regular: number; bypass: number }>;
+      streamingRequests: Array<{
+        id: string;
+        serverId: string;
+        model: string;
+        startTime: number;
+        chunkCount: number;
+        lastChunkTime: number;
+        isStalled: boolean;
+      }>;
+    }>;
+  };
 }
 
 export function useServerEvents() {
@@ -40,6 +75,9 @@ export function useServerEvents() {
         queryClient.setQueryData(['circuitBreakers'], {
           circuitBreakers: data.circuitBreakers,
         });
+        queryClient.setQueryData(['servers'], data.servers);
+        queryClient.setQueryData(['modelMap'], data.modelMap.modelToServers);
+        queryClient.setQueryData(['in-flight'], data.inFlight);
       }
     } catch (error) {
       console.error('Failed to parse server event:', error);

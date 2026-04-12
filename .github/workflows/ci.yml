@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
 
 jobs:
   # ──────────────────────────────────────────────
@@ -75,10 +77,11 @@ jobs:
         working-directory: frontend
 
   # ──────────────────────────────────────────────
-  # Unit tests — run after quality checks pass
+  # Tier 1: Unit tests (<2 min) — runs on every push
+  # Smoke tests for fast feedback
   # ──────────────────────────────────────────────
-  test:
-    name: Unit Tests
+  test-tier1:
+    name: Tier 1 - Unit Tests
     needs: [lint, format, typecheck]
     runs-on: ubuntu-latest
     steps:
@@ -88,6 +91,17 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - name: Create test results directory
+        run: mkdir -p test-results/tier1
+      - name: Run unit tests
+        run: npm run test:unit -- --reporter json --outputFile=test-results/tier1/results.json
+      - name: Upload Tier 1 test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier1
+          path: test-results/tier1/
+          retention-days: 14
       - name: Run unit tests with coverage
         run: npm run test:unit -- --coverage
       - name: Upload coverage report
@@ -98,9 +112,6 @@ jobs:
           path: coverage/
           retention-days: 14
 
-  # ──────────────────────────────────────────────
-  # Flaky test isolation — run specific test in isolation to avoid async pollution
-  # ──────────────────────────────────────────────
   flaky-test:
     name: Flaky Test Isolation
     needs: [lint, format, typecheck]
@@ -192,12 +203,12 @@ jobs:
           docker rm test-container
 
   # ──────────────────────────────────────────────
-  # Integration tests — PR-only, Node version matrix
+  # Tier 2: Integration + E2E smoke tests (<10 min) — PR-only
   # ──────────────────────────────────────────────
-  integration-tests:
-    name: Integration Tests (Node ${{ matrix.node-version }})
+  test-tier2:
+    name: Tier 2 - Integration + E2E
     if: github.event_name == 'pull_request'
-    needs: [test, build]
+    needs: [test-tier1, build]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -209,8 +220,70 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
       - run: npm ci
+      - name: Create test results directory
+        run: mkdir -p test-results/tier2
       - name: Run integration tests
-        run: npm run test:integration
+        run: npm run test:integration -- --reporter json --outputFile=test-results/tier2/integration-results.json
+      - name: Upload Tier 2 integration results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier2-integration
+          path: test-results/tier2/
+          retention-days: 14
+      - name: Build for E2E tests
+        run: npm run build
+      - name: Create E2E results directory
+        run: mkdir -p test-results/tier2/e2e
+      - name: Run E2E tests
+        run: npm run test:e2e
+      - name: Upload Tier 2 E2E results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier2-e2e
+          path: test-results/tier2/e2e/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Tier 3: Chaos + Performance tests (<45 min) — release/nightly
+  # ──────────────────────────────────────────────
+  test-tier3:
+    name: Tier 3 - Chaos + Performance
+    if: github.event_name == 'release' || (github.event_name == 'schedule' && github.schedule == '0 2 * * *')
+    needs: [test-tier1, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Create test results directory
+        run: mkdir -p test-results/tier3
+      - name: Run chaos tests
+        run: npm run test:chaos -- --reporter json --outputFile=test-results/tier3/chaos-results.json
+      - name: Upload Tier 3 chaos results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier3-chaos
+          path: test-results/tier3/
+          retention-days: 30
+      - name: Build for performance tests
+        run: npm run build
+      - name: Run performance tests
+        run: npm run test:performance
+      - name: Run load tests
+        run: npm run test:load
+      - name: Upload Tier 3 performance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier3-performance
+          path: test-results/tier3/
+          retention-days: 30
 
   # ──────────────────────────────────────────────
   # Validate commits — PR-only

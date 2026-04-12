@@ -20,11 +20,11 @@ const paddingMap: Record<CardPadding, string> = {
 };
 
 const variantStyles: Record<CardVariant, string> = {
-  default: 'bg-gray-800 border border-surface-border',
-  elevated: 'bg-gray-800 border border-surface-border shadow-lg',
-  bordered: 'bg-gray-800 border-2 border-gray-600',
+  default: 'bg-surface border border-surface-border',
+  elevated: 'bg-surface border border-surface-border shadow-lg',
+  bordered: 'bg-surface border-2 border-surface-border',
   interactive:
-    'bg-gray-800 border border-surface-border hover:border-gray-500 hover:shadow-lg transition-all cursor-pointer',
+    'bg-surface border border-surface-border hover:border-surface-border hover:shadow-lg transition-all cursor-pointer',
 };
 
 export const Card = ({

@@ -71,8 +71,8 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-white">30-Day Historical Trends</h3>
-          <p className="text-sm text-gray-400 mt-1">
+          <h3 className="text-lg font-semibold text-text-base">30-Day Historical Trends</h3>
+          <p className="text-sm text-text-muted mt-1">
             Hourly snapshots — {snapshots.length} data point
             {snapshots.length !== 1 ? 's' : ''} stored
           </p>
@@ -80,18 +80,18 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
       </div>
 
       {snapshots.length === 0 ? (
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-12 text-center">
+        <div className="bg-surface rounded-xl border border-surface-border p-12 text-center">
           <TrendingUp className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-          <p className="text-gray-400 text-lg">No historical snapshots yet</p>
-          <p className="text-gray-500 text-sm mt-2">
+          <p className="text-text-muted text-lg">No historical snapshots yet</p>
+          <p className="text-text-subtle text-sm mt-2">
             Hourly snapshots are recorded automatically. Check back in an hour.
           </p>
         </div>
       ) : (
         <>
           {/* Request Volume Trend */}
-          <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-            <h4 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+          <div className="bg-surface rounded-xl border border-surface-border p-6">
+            <h4 className="text-base font-semibold text-text-base mb-4 flex items-center gap-2">
               <Activity className="w-4 h-4 text-blue-400" />
               Request Volume Over Time
             </h4>
@@ -131,8 +131,8 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Latency Trend */}
-            <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-              <h4 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+            <div className="bg-surface rounded-xl border border-surface-border p-6">
+              <h4 className="text-base font-semibold text-text-base mb-4 flex items-center gap-2">
                 <Clock className="w-4 h-4 text-purple-400" />
                 Avg Latency Over Time
               </h4>
@@ -164,8 +164,8 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
             </div>
 
             {/* Error Rate Trend */}
-            <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-              <h4 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+            <div className="bg-surface rounded-xl border border-surface-border p-6">
+              <h4 className="text-base font-semibold text-text-base mb-4 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-red-400" />
                 Error Rate Over Time
               </h4>

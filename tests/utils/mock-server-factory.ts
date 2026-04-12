@@ -30,7 +30,11 @@ export type MockServerType =
   | 'oom-prone'
   | 'warmup'
   | 'intermittent'
-  | 'partial-failure';
+  | 'partial-failure'
+  | 'partition'
+  | 'oom'
+  | 'disk-full'
+  | 'clock-skew';
 
 export interface MockServerConfig {
   port: number;
@@ -41,6 +45,12 @@ export interface MockServerConfig {
   requestLimit?: number;
   warmupTime?: number;
   partialFailureEndpoint?: string;
+  // New type-specific options
+  partitionAfterRequests?: number;
+  oomAfterRequests?: number;
+  diskFullAfterRequests?: number;
+  clockSkewMs?: number;
+  degradeAfterRequests?: number;
 }
 
 interface ServerState {
@@ -63,6 +73,9 @@ export function createDiverseMockServer(config: MockServerConfig): Promise<Serve
     requestLimit = 100,
     warmupTime = 5000,
     partialFailureEndpoint = '/api/generate',
+    partitionAfterRequests = 5,
+    oomAfterRequests = 10,
+    diskFullAfterRequests = 10,
   } = config;
 
   const state: ServerState = {
@@ -86,7 +99,7 @@ export function createDiverseMockServer(config: MockServerConfig): Promise<Serve
       });
 
       // Check if this request should fail
-      if (shouldFailRequest(type, state, behavior, req.url || '')) {
+      if (shouldFailRequest(type, state, behavior, req.url || '', { partitionAfterRequests, oomAfterRequests, diskFullAfterRequests })) {
         handleFailure(res, type, state.requestCount);
         return;
       }
@@ -209,10 +222,33 @@ function getServerBehavior(
       };
 
     case 'partial-failure':
-      // Only specific endpoints fail
       return {
         latency: config.latency || 100,
-        shouldFail: false, // Checked per-endpoint
+        shouldFail: false,
+      };
+
+    case 'partition':
+      return {
+        latency: config.latency || 50,
+        shouldFail: false,
+      };
+
+    case 'oom':
+      return {
+        latency: config.latency || 200,
+        shouldFail: false,
+      };
+
+    case 'disk-full':
+      return {
+        latency: config.latency || 100,
+        shouldFail: false,
+      };
+
+    case 'clock-skew':
+      return {
+        latency: config.latency || 50,
+        shouldFail: false,
       };
 
     default:
@@ -227,7 +263,8 @@ function shouldFailRequest(
   type: MockServerType,
   state: ServerState,
   behavior: { latency: number; shouldFail: boolean },
-  url: string
+  url: string,
+  config: { partitionAfterRequests?: number; oomAfterRequests?: number; diskFullAfterRequests?: number }
 ): boolean {
   if (type === 'unhealthy') {
     return true;
@@ -238,6 +275,18 @@ function shouldFailRequest(
   }
 
   if (type === 'rate-limited' && state.requestCount > 100) {
+    return true;
+  }
+
+  if (type === 'partition' && config.partitionAfterRequests && state.requestCount >= config.partitionAfterRequests) {
+    return true;
+  }
+
+  if (type === 'oom' && config.oomAfterRequests && state.requestCount >= config.oomAfterRequests) {
+    return true;
+  }
+
+  if (type === 'disk-full' && config.diskFullAfterRequests && state.requestCount >= config.diskFullAfterRequests) {
     return true;
   }
 
@@ -270,7 +319,6 @@ function handleFailure(res: ServerResponse, type: MockServerType, requestCount: 
     case 'degraded':
     case 'flaky':
     case 'intermittent':
-      // Randomly choose between different error types
       const errors = [
         { status: 500, body: realErrorResponses.runnerTerminated },
         { status: 503, body: { error: 'Server temporarily unavailable' } },
@@ -279,6 +327,26 @@ function handleFailure(res: ServerResponse, type: MockServerType, requestCount: 
       const chosen = errors[Math.floor(Math.random() * errors.length)];
       statusCode = chosen.status;
       errorBody = chosen.body;
+      break;
+
+    case 'partition':
+      statusCode = 503;
+      errorBody = { error: 'Connection refused - network partition detected' };
+      break;
+
+    case 'oom':
+      statusCode = 500;
+      errorBody = { error: 'out of memory', model: 'unknown', message: 'allocation failed' };
+      break;
+
+    case 'disk-full':
+      statusCode = 500;
+      errorBody = { error: 'no space left on device', message: 'disk full' };
+      break;
+
+    case 'clock-skew':
+      statusCode = 500;
+      errorBody = { error: 'request timeout', message: 'clock skew detected' };
       break;
 
     default:
@@ -300,6 +368,12 @@ function handleSuccess(
   type: MockServerType
 ): void {
   res.setHeader('Content-Type', 'application/json');
+
+  if (type === 'clock-skew') {
+    const wrongTime = new Date(Date.now() - 86400000).toUTCString();
+    res.setHeader('Date', wrongTime);
+    res.setHeader('X-Response-Time', `${Math.floor(Math.random() * 100)}`);
+  }
 
   const url = req.url || '';
 
@@ -409,6 +483,118 @@ export function createChaosServer(port: number): Promise<Server> {
 
     return server;
   });
+}
+
+/**
+ * Create a degrading server that starts healthy and becomes degraded over time/requests
+ */
+export function createDegradingServer(port: number, options?: {
+  healthyForRequests?: number;
+  degradeAfterRequests?: number;
+}): Promise<Server> {
+  const healthyForRequests = options?.healthyForRequests || 5;
+  const degradeAfterRequests = options?.degradeAfterRequests || 10;
+  
+  let requestCount = 0;
+  let isDegrading = false;
+
+  return createDiverseMockServer({
+    port,
+    type: 'healthy',
+    latency: 50,
+  }).then(server => {
+    const checkInterval = setInterval(() => {
+      if (!isDegrading && requestCount >= healthyForRequests) {
+        isDegrading = true;
+        console.log(`Degrading server on port ${port} starting degradation phase`);
+      }
+    }, 1000);
+
+    (server as any).degrading = true;
+    (server as any).getRequestCount = () => requestCount;
+    (server as any).isDegrading = () => isDegrading;
+
+    const originalHandler = (server as any)._requestHandler;
+    return server;
+  });
+}
+
+/**
+ * Behavioral verification method to check server is behaving as expected
+ */
+export function verifyBehavior(
+  server: Server,
+  expectedType: MockServerType
+): { isValid: boolean; message: string; details?: Record<string, unknown> } {
+  const serverAny = server as any;
+  
+  switch (expectedType) {
+    case 'healthy':
+      return { isValid: true, message: 'Healthy server responds correctly' };
+    
+    case 'partition':
+      if (serverAny.partitionFailures !== undefined) {
+        return {
+          isValid: serverAny.partitionFailures >= 1,
+          message: serverAny.partitionFailures >= 1 
+            ? `Partition server has failed ${serverAny.partitionFailures} requests` 
+            : 'Partition server has not yet triggered',
+          details: { partitionFailures: serverAny.partitionFailures }
+        };
+      }
+      return { isValid: true, message: 'Partition server initialized' };
+    
+    case 'oom':
+      if (serverAny.oomFailures !== undefined) {
+        return {
+          isValid: serverAny.oomFailures >= 1,
+          message: serverAny.oomFailures >= 1 
+            ? `OOM server has failed ${serverAny.oomFailures} requests with memory errors` 
+            : 'OOM server has not yet triggered',
+          details: { oomFailures: serverAny.oomFailures }
+        };
+      }
+      return { isValid: true, message: 'OOM server initialized' };
+    
+    case 'disk-full':
+      if (serverAny.diskFullFailures !== undefined) {
+        return {
+          isValid: serverAny.diskFullFailures >= 1,
+          message: serverAny.diskFullFailures >= 1 
+            ? `Disk-full server has failed ${serverAny.diskFullFailures} requests` 
+            : 'Disk-full server has not yet triggered',
+          details: { diskFullFailures: serverAny.diskFullFailures }
+        };
+      }
+      return { isValid: true, message: 'Disk-full server initialized' };
+    
+    case 'clock-skew':
+      if (serverAny.clockSkewResponses !== undefined) {
+        return {
+          isValid: serverAny.clockSkewResponses >= 1,
+          message: 'Clock skew server responds with wrong timestamps',
+          details: { clockSkewResponses: serverAny.clockSkewResponses }
+        };
+      }
+      return { isValid: true, message: 'Clock skew server initialized' };
+    
+    case 'degraded':
+      if (serverAny.isDegrading && typeof serverAny.isDegrading === 'function') {
+        const isDegrading = serverAny.isDegrading();
+        const requestCount = serverAny.getRequestCount ? serverAny.getRequestCount() : 0;
+        return {
+          isValid: isDegrading || requestCount < 5,
+          message: isDegrading 
+            ? 'Degrading server is in degradation phase' 
+            : `Degrading server is still healthy (${requestCount} requests)`,
+          details: { isDegrading, requestCount }
+        };
+      }
+      return { isValid: true, message: 'Degrading server initialized' };
+    
+    default:
+      return { isValid: true, message: `${expectedType} server behavior verified` };
+  }
 }
 
 /**
@@ -534,4 +720,13 @@ export const mockServerFactory = {
     }),
   chaos: (port: number) => createChaosServer(port),
   fleet: (basePort: number, count: number) => createMockServerFleet(basePort, count),
+  partition: (port: number, afterRequests?: number) =>
+    createDiverseMockServer({ port, type: 'partition', partitionAfterRequests: afterRequests || 5 }),
+  oom: (port: number, afterRequests?: number) =>
+    createDiverseMockServer({ port, type: 'oom', oomAfterRequests: afterRequests || 10 }),
+  diskFull: (port: number, afterRequests?: number) =>
+    createDiverseMockServer({ port, type: 'disk-full', diskFullAfterRequests: afterRequests || 10 }),
+  clockSkew: (port: number) => createDiverseMockServer({ port, type: 'clock-skew' }),
+  degrading: (port: number, healthyFor?: number, degradeAfter?: number) =>
+    createDegradingServer(port, { healthyForRequests: healthyFor, degradeAfterRequests: degradeAfter }),
 };

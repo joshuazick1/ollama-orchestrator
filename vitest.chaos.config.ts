@@ -10,5 +10,6 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     testTimeout: 30000,
     hookTimeout: 30000,
+    reporters: ['verbose', 'json'],
   },
 });

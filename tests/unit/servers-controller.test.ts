@@ -79,7 +79,7 @@ describe('Servers Controller', () => {
         id: 'server-1',
         url: 'http://localhost:11434',
         type: 'auto',
-        maxConcurrency: undefined,
+        maxConcurrency: 4,
         apiKey: undefined,
       });
       expect(mockRes.status).toHaveBeenCalledWith(200);
@@ -118,7 +118,9 @@ describe('Servers Controller', () => {
       addServer(mockReq as Request, mockRes as Response);
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'id and url are required' });
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('id') })
+      );
     });
 
     it('should return 400 if url is missing', () => {
@@ -127,17 +129,31 @@ describe('Servers Controller', () => {
       addServer(mockReq as Request, mockRes as Response);
 
       expect(mockRes.status).toHaveBeenCalledWith(400);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'id and url are required' });
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('url') })
+      );
     });
 
-    it('should return 409 if server already exists', () => {
-      mockReq.body = { id: 'server-1', url: 'http://localhost:11434' };
-      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+    it('should return 400 if id is invalid format', () => {
+      mockReq.body = { id: 'invalid id!', url: 'http://localhost:11434' };
 
       addServer(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(409);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: "Server 'server-1' already exists" });
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('id') })
+      );
+    });
+
+    it('should return 400 if url is invalid', () => {
+      mockReq.body = { id: 'server-1', url: 'not-a-url' };
+
+      addServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('url') })
+      );
     });
   });
 

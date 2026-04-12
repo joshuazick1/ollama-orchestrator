@@ -45,6 +45,8 @@ export const Modal = ({
 
   useEffect(() => {
     let focusTrap: ReturnType<typeof createFocusTrap> | null = null;
+    let savedScrollX = 0;
+    let savedScrollY = 0;
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -53,6 +55,9 @@ export const Modal = ({
     };
 
     if (isOpen && modalRef.current) {
+      savedScrollX = window.scrollX;
+      savedScrollY = window.scrollY;
+
       focusTrap = createFocusTrap(modalRef.current, {
         initialFocus: modalRef.current,
         escapeDeactivates: true,
@@ -61,6 +66,8 @@ export const Modal = ({
       focusTrap.activate();
       document.addEventListener('keydown', handleEscape);
       document.body.style.overflow = 'hidden';
+
+      window.scrollTo(savedScrollX, savedScrollY);
     }
 
     return () => {
@@ -69,6 +76,7 @@ export const Modal = ({
       }
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
+      window.scrollTo(savedScrollX, savedScrollY);
     };
   }, [isOpen, onClose]);
 
@@ -88,7 +96,7 @@ export const Modal = ({
       <div
         ref={modalRef}
         className={clsx(
-          'bg-gray-800 rounded-xl border shadow-2xl w-full animate-in zoom-in-95 duration-200',
+          'bg-surface rounded-xl border shadow-2xl w-full animate-in zoom-in-95 duration-200',
           sizeClasses[size],
           variantClasses[variant],
           className
@@ -113,7 +121,7 @@ export const Modal = ({
         </div>
         <div className="p-6 max-h-[70vh] overflow-y-auto">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-3 p-4 border-t border-gray-700 bg-gray-800/50 rounded-b-xl">
+          <div className="flex justify-end gap-3 p-4 border-t border-surface-border bg-surface/50 rounded-b-xl">
             {footer}
           </div>
         )}

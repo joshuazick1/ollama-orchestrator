@@ -16,6 +16,55 @@ export {
   realErrorResponses,
 } from './real-responses.js';
 
+// Re-export factory functions for test entity generation
+export {
+  // Server factories
+  createServer,
+  createUnhealthyServer,
+  createSlowServer,
+  createFlakyServer,
+  createDegradedServer,
+  createDrainingServer,
+  createMaintenanceServer,
+  createServerBatch,
+  // Model factories
+  createModel,
+  createSmallModel,
+  createLargeModel,
+  // User factories
+  createUser,
+  createAdminUser,
+  createReadonlyUser,
+  createApiKeyUser,
+  // Request factories
+  createRequest,
+  createFailedRequest,
+  createColdStartRequest,
+  createStreamingRequest,
+  createRequestBatch,
+  // Decision factories
+  createDecision,
+  createDecisionCandidate,
+  createDecisionBatch,
+  // Metrics factories
+  createMetricsWindow,
+  createLatencyPercentiles,
+  createServerModelMetrics,
+  createHighLatencyMetrics,
+  createLowSuccessRateMetrics,
+  // Config factories
+  createConfig,
+  createMinimalConfig,
+  createChaosConfig,
+  // Chaos presets
+  ChaosPresets,
+  // Randomization helpers
+  randomLatency,
+  randomErrorRate,
+  randomSuccessRate,
+  randomTimestamp,
+} from './factories.js';
+
 // Mock server configurations
 export const mockServers = {
   healthy: {

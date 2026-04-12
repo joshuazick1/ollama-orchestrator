@@ -32,6 +32,11 @@ export const addServerSchema = z.object({
     .max(100, 'Concurrency cannot exceed 100')
     .optional(),
   apiKey: apiKeySchema,
+  v1Models: z.string().optional(),
+  forceOllama: z.boolean().optional(),
+  forceV1: z.boolean().optional(),
+  forceAnthropic: z.boolean().optional(),
+  anthropicPathOverride: z.string().optional(),
 });
 
 // Model name validation

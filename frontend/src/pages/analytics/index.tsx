@@ -244,7 +244,7 @@ export const Analytics = () => {
   if (isLoading)
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-white text-lg animate-pulse">Loading analytics data...</div>
+        <div className="text-text-base text-lg animate-pulse">Loading analytics data...</div>
       </div>
     );
 
@@ -253,22 +253,22 @@ export const Analytics = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-white tracking-tight">Analytics Dashboard</h2>
-          <p className="text-gray-400 mt-1">
+          <h2 className="text-3xl font-bold text-text-base tracking-tight">Analytics Dashboard</h2>
+          <p className="text-text-muted mt-1">
             System performance, health metrics, and intelligent routing insights
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-4">
-          <div className="bg-gray-800/50 backdrop-blur rounded-lg p-1 border border-gray-700/50 flex">
+          <div className="bg-surface/50 backdrop-blur rounded-lg p-1 border border-surface-border/50 flex">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                   activeTab === tab.id
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                    ? 'bg-blue-600 text-text-base shadow-lg shadow-blue-900/20'
+                    : 'text-text-muted hover:text-text-base hover:bg-surface/50'
                 }`}
               >
                 {tab.id === 'overview' && <TrendingUp className="w-4 h-4 inline mr-2" />}
@@ -294,7 +294,7 @@ export const Analytics = () => {
           <select
             value={timeRange}
             onChange={e => setTimeRange(e.target.value as '1h' | '6h' | '24h' | '7d')}
-            className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm focus:ring-2 focus:ring-blue-500/50 outline-none transition-all hover:border-gray-600"
+            className="bg-surface border border-surface-border rounded-lg px-4 py-2.5 text-text-base text-sm focus:ring-2 focus:ring-blue-500/50 outline-none transition-all hover:border-gray-600"
           >
             <option value="1h">Last Hour</option>
             <option value="6h">Last 6 Hours</option>

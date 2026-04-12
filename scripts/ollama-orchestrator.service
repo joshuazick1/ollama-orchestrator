@@ -1,0 +1,33 @@
+[Unit]
+Description=Ollama Orchestrator Service (Screen Session)
+Documentation=https://github.com/joshuazick1/ollama-orchestrator
+After=network.target
+
+[Service]
+Type=forking
+User=root
+WorkingDirectory=/root/ollama-orchestrator
+
+# Start the orchestrator in a detached screen session
+ExecStart=/root/ollama-orchestrator/scripts/start-screen.sh
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=append:/var/log/ollama-orchestrator/stdout.log
+StandardError=append:/var/log/ollama-orchestrator/stderr.log
+
+# Environment
+Environment=NODE_ENV=production
+EnvironmentFile=/root/ollama-orchestrator/.env
+
+# Security
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/root/ollama-orchestrator/logs /root/ollama-orchestrator/data
+
+[Install]
+WantedBy=multi-user.target

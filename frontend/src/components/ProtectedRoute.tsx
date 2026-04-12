@@ -14,10 +14,10 @@ export const ProtectedRoute = ({ children, adminOnly }: ProtectedRouteProps) => 
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-900">
+      <div className="flex items-center justify-center h-screen bg-surface">
         <div className="flex flex-col items-center gap-4">
           <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-          <span className="text-gray-400 text-sm">Loading...</span>
+          <span className="text-text-muted text-sm">Loading...</span>
         </div>
       </div>
     );
@@ -29,10 +29,10 @@ export const ProtectedRoute = ({ children, adminOnly }: ProtectedRouteProps) => 
 
   if (adminOnly && user?.role !== 'admin') {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
+      <div className="flex flex-col items-center justify-center h-screen bg-surface">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-white mb-2">403</h1>
-          <p className="text-gray-400 mb-4">Access Forbidden</p>
+          <h1 className="text-4xl font-bold text-text-base mb-2">403</h1>
+          <p className="text-text-muted mb-4">Access Forbidden</p>
           <p className="text-gray-500 text-sm">You don&apos;t have permission to access this page.</p>
         </div>
       </div>

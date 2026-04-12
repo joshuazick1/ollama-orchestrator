@@ -8,55 +8,30 @@ import type { Request, Response } from 'express';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
-import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
+import { normalizeServerUrl } from '../utils/url-utils.js';
+import { serverConfigSchema } from '../config/schema.js';
 
 /**
  * Add a new server
  * POST /api/orchestrator/servers/add
  */
 export function addServer(req: Request, res: Response): void {
-  const body = (req.body ?? {}) as {
-    id?: string;
-    url?: string;
-    maxConcurrency?: number;
-    apiKey?: string;
-    type?: 'ollama' | 'openai' | 'auto';
-  };
-  const { id, url, maxConcurrency, apiKey, type } = body;
+  const result = serverConfigSchema.safeParse(req.body);
 
-  if (!id || !url) {
-    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_URL_REQUIRED });
+  if (!result.success) {
+    res.status(400).json({ error: result.error.message });
     return;
   }
+
+  const { id, url, type, maxConcurrency, apiKey } = result.data;
 
   const orchestrator = getOrchestratorInstance();
   const normalizedUrl = normalizeServerUrl(url);
 
-  // Check for duplicates by ID
-  if (orchestrator.getServers().some(s => s.id === id)) {
-    res.status(409).json({ error: ERROR_MESSAGES.SERVER_ALREADY_EXISTS(id) });
-    return;
-  }
-
-  // Check for duplicates by URL (using normalized comparison)
-  const existingByUrl = orchestrator
-    .getServers()
-    .find(s => areUrlsEquivalent(s.url, normalizedUrl));
-  if (existingByUrl) {
-    res.status(409).json({
-      error: `A server with equivalent URL already exists`,
-      existingServerId: existingByUrl.id,
-      existingUrl: existingByUrl.url,
-      requestedUrl: url,
-      normalizedUrl: normalizedUrl,
-    });
-    return;
-  }
-
   orchestrator.addServer({
     id,
     url,
-    type: type ?? 'auto',
+    type,
     maxConcurrency,
     apiKey,
   });
@@ -116,6 +91,54 @@ export function updateServer(req: Request, res: Response): void {
 }
 
 /**
+ * Update server configuration (type, v1Models, forcedCapabilities, endpointOverrides)
+ * PATCH /api/orchestrator/servers/:id/config
+ */
+export function updateServerConfig(req: Request, res: Response): void {
+  const id = req.params.id as string;
+  const body = (req.body ?? {}) as {
+    type?: 'ollama' | 'openai' | 'auto';
+    v1Models?: string[];
+    forcedCapabilities?: {
+      supportsOllama?: boolean;
+      supportsV1?: boolean;
+      supportsAnthropic?: boolean;
+    };
+    endpointOverrides?: {
+      anthropic_messages?: string;
+      anthropic_auth?: {
+        headerName?: string;
+        headerPrefix?: string;
+      };
+      modelPrefix?: string;
+    };
+  };
+  const { type, v1Models, forcedCapabilities, endpointOverrides } = body;
+  const orchestrator = getOrchestratorInstance();
+
+  const server = orchestrator.getServers().find(s => s.id === id);
+  if (!server) {
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
+    return;
+  }
+
+  const success = orchestrator.updateServer(id, { type, v1Models, forcedCapabilities, endpointOverrides });
+
+  if (success) {
+    res.status(200).json({
+      success: true,
+      id,
+      type: type ?? server.type,
+      v1Models: v1Models ?? server.v1Models,
+      forcedCapabilities: forcedCapabilities ?? server.forcedCapabilities,
+      endpointOverrides: endpointOverrides ?? server.endpointOverrides,
+    });
+  } else {
+    res.status(500).json({ error: ERROR_MESSAGES.FAILED_TO_UPDATE_SERVER });
+  }
+}
+
+/**
  * Get all servers
  * GET /api/orchestrator/servers
  */
@@ -136,8 +159,13 @@ export function getServers(req: Request, res: Response): void {
       version: s.version,
       supportsOllama: s.supportsOllama,
       supportsV1: s.supportsV1,
+      supportsAnthropic: s.supportsAnthropic,
       v1Models: s.v1Models,
+      type: s.type,
       apiKey: s.apiKey ? '***REDACTED***' : undefined,
+      forcedCapabilities: s.forcedCapabilities,
+      endpointOverrides: s.endpointOverrides,
+      probedEndpoints: s.probedEndpoints,
     })),
   });
 }

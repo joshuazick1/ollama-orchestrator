@@ -24,7 +24,7 @@ const getErrorTypeColor = (errorType: string): string => {
     case 'rate_limited':
       return 'bg-purple-500/20 text-purple-400';
     default:
-      return 'bg-gray-500/20 text-gray-400';
+      return 'bg-gray-500/20 text-text-muted';
   }
 };
 
@@ -82,8 +82,8 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
     return (
       <div className={className}>
         <div className="mb-6">
-          <h2 className="text-2xl font-bold text-white">Error Log</h2>
-          <p className="text-gray-400">View recent error events from the orchestrator</p>
+          <h2 className="text-2xl font-bold text-text-base">Error Log</h2>
+          <p className="text-text-muted">View recent error events from the orchestrator</p>
         </div>
         <SkeletonTable rows={10} columns={5} />
       </div>
@@ -94,8 +94,8 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
     return (
       <div className={className}>
         <div className="mb-6">
-          <h2 className="text-2xl font-bold text-white">Error Log</h2>
-          <p className="text-gray-400">View recent error events from the orchestrator</p>
+          <h2 className="text-2xl font-bold text-text-base">Error Log</h2>
+          <p className="text-text-muted">View recent error events from the orchestrator</p>
         </div>
         <ErrorState
           title="Failed to load errors"
@@ -111,8 +111,8 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
   return (
     <div className={className}>
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white">Error Log</h2>
-        <p className="text-gray-400">View recent error events from the orchestrator</p>
+        <h2 className="text-2xl font-bold text-text-base">Error Log</h2>
+        <p className="text-text-muted">View recent error events from the orchestrator</p>
       </div>
 
       <DataToolbar
@@ -134,7 +134,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
             setServerFilter(e.target.value);
             setCircuitFilter('');
           }}
-          className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
+          className="bg-surface text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
         >
           <option value="">All Servers</option>
           {serverOptions.map(opt => (
@@ -146,7 +146,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
           value={circuitFilter}
           onChange={e => setCircuitFilter(e.target.value)}
           disabled={!serverFilter}
-          className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-surface text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">All Circuits</option>
           {serverFilter && servers?.find(s => s.id === serverFilter)?.models.map(model => (
@@ -158,20 +158,20 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
           type="datetime-local"
           value={startTimeFilter}
           onChange={e => setStartTimeFilter(e.target.value)}
-          className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
+          className="bg-surface text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
         />
 
         <input
           type="datetime-local"
           value={endTimeFilter}
           onChange={e => setEndTimeFilter(e.target.value)}
-          className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
+          className="bg-surface text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
         />
 
         <select
           value={errorTypeFilter}
           onChange={e => setErrorTypeFilter(e.target.value as ErrorType | '')}
-          className="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
+          className="bg-surface text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
         >
           <option value="">All Error Types</option>
           {ERROR_TYPES.map(type => (
@@ -181,21 +181,21 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
 
         <button
           onClick={() => refetch()}
-          className="flex items-center space-x-2 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+          className="flex items-center space-x-2 bg-surface hover:bg-gray-600 text-text-base px-4 py-2 rounded-lg transition-colors text-sm font-medium"
         >
           <RefreshCw className="w-4 h-4" />
           <span>Refresh</span>
         </button>
       </DataToolbar>
 
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+      <div className="bg-surface-raised rounded-xl border border-surface-border overflow-hidden">
         {filteredErrors.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-900 border-b border-gray-700">
+              <thead className="bg-gray-900 border-b border-surface-border">
                 <tr>
                   <th
-                    className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-white transition-colors"
+                    className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-text-base transition-colors"
                     onClick={() => handleSort('timestamp')}
                   >
                     <div className="flex items-center gap-2">
@@ -204,7 +204,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
                     </div>
                   </th>
                   <th
-                    className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-white transition-colors"
+                    className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-text-base transition-colors"
                     onClick={() => handleSort('serverId')}
                   >
                     <div className="flex items-center gap-2">
@@ -213,7 +213,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
                     </div>
                   </th>
                   <th
-                    className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-white transition-colors"
+                    className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-text-base transition-colors"
                     onClick={() => handleSort('circuitId')}
                   >
                     <div className="flex items-center gap-2">
@@ -222,7 +222,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
                     </div>
                   </th>
                   <th
-                    className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-white transition-colors"
+                    className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3 cursor-pointer hover:text-text-base transition-colors"
                     onClick={() => handleSort('errorType')}
                   >
                     <div className="flex items-center gap-2">
@@ -230,21 +230,21 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
-                  <th className="text-left text-gray-400 text-xs font-medium uppercase tracking-wider px-6 py-3">
+                  <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
                     Error Message
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
                 {filteredErrors.map((err, index) => (
-                  <tr key={`${err.id}-${index}`} className="hover:bg-gray-750 transition-colors">
-                    <td className="px-6 py-4 text-sm text-gray-300 font-mono whitespace-nowrap">
+                  <tr key={`${err.id}-${index}`} className="hover:bg-surface transition-colors">
+                    <td className="px-6 py-4 text-sm text-text-base font-mono whitespace-nowrap">
                       {formatTimestamp(err.timestamp)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-white font-mono">
+                    <td className="px-6 py-4 text-sm text-text-base font-mono">
                       {err.serverId}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-300 font-mono">
+                    <td className="px-6 py-4 text-sm text-text-base font-mono">
                       {err.circuitId}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -254,7 +254,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
                         {err.errorType}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-300 max-w-md truncate" title={err.errorMessage}>
+                    <td className="px-6 py-4 text-sm text-text-base max-w-md truncate" title={err.errorMessage}>
                       {err.errorMessage}
                     </td>
                   </tr>
@@ -263,7 +263,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
             </table>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+          <div className="flex flex-col items-center justify-center h-64 text-text-subtle">
             <AlertCircle className="w-12 h-12 mb-4 opacity-20" />
             <p>No errors found matching your search.</p>
             {searchQuery && (

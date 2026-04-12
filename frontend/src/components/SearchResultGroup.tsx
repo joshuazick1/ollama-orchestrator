@@ -29,7 +29,7 @@ export const SearchResultGroup = ({
 
   return (
     <div className="mb-2">
-      <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
+      <div className="px-3 py-2 text-xs font-medium text-text-muted uppercase tracking-wider">
         {title}
       </div>
       {items.map(item => {
@@ -41,7 +41,7 @@ export const SearchResultGroup = ({
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-left ${
               globalIdx === selectedIndex
                 ? 'bg-blue-600 text-white'
-                : 'text-gray-300 hover:bg-gray-800'
+                : 'text-text-base hover:bg-surface'
             }`}
           >
             <item.icon className="w-5 h-5 flex-shrink-0" />
@@ -49,7 +49,7 @@ export const SearchResultGroup = ({
               <div className="font-medium truncate">{item.title}</div>
               <div
                 className={`text-sm truncate ${
-                  globalIdx === selectedIndex ? 'text-blue-200' : 'text-gray-500'
+                  globalIdx === selectedIndex ? 'text-blue-200' : 'text-text-muted'
                 }`}
               >
                 {item.description}

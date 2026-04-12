@@ -38,14 +38,14 @@ interface ConfigSectionProps {
 }
 
 const ConfigSection = memo(({ title, icon: Icon, children, description }: ConfigSectionProps) => (
-  <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+  <div className="bg-surface rounded-xl p-6 border border-surface-border">
     <div className="flex items-center space-x-3 mb-4">
       <div className="p-2 bg-blue-600/20 rounded-lg">
         <Icon className="w-5 h-5 text-blue-400" />
       </div>
       <div>
-        <h3 className="text-lg font-semibold text-white">{title}</h3>
-        {description && <p className="text-sm text-gray-400">{description}</p>}
+        <h3 className="text-lg font-semibold text-text-base">{title}</h3>
+        {description && <p className="text-sm text-text-muted">{description}</p>}
       </div>
     </div>
     <div className="space-y-4">{children}</div>
@@ -117,14 +117,14 @@ const NumberInput = memo(({
         min={min}
         max={max}
         step={step}
-        className={`flex-1 bg-gray-900 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 transition-all ${
+        className={`flex-1 bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
           error
             ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
             : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
         }`}
         aria-invalid={!!error}
       />
-      {suffix && <span className="text-gray-400 text-sm">{suffix}</span>}
+      {suffix && <span className="text-text-muted text-sm">{suffix}</span>}
     </div>
     {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
   </div>
@@ -146,7 +146,7 @@ const SelectInput = memo(({ label, value, onChange, options, description, error 
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className={`w-full bg-gray-900 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 transition-all ${
+      className={`w-full bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
         error
           ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
           : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
@@ -181,7 +181,7 @@ const TextInput = memo(({ label, value, onChange, description, placeholder, erro
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`w-full bg-gray-900 border rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 transition-all ${
+      className={`w-full bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
         error
           ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
           : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
@@ -389,21 +389,21 @@ export const Settings = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white">Settings</h2>
-          <p className="text-gray-400 mt-1">Configure orchestrator behavior and features</p>
+          <h2 className="text-2xl font-bold text-text-base">Settings</h2>
+          <p className="text-text-muted mt-1">Configure orchestrator behavior and features</p>
         </div>
         <div className="flex items-center space-x-3">
           <button
             onClick={handleDownloadConfig}
             disabled={exportMutation.isPending}
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-surface-raised text-text-base rounded-lg transition-colors disabled:opacity-50"
           >
             <Download className={`w-4 h-4 ${exportMutation.isPending ? 'animate-spin' : ''}`} />
             <span>Download Config</span>
           </button>
           <button
             onClick={handleUploadClick}
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-surface-raised text-text-base rounded-lg transition-colors"
           >
             <Upload className="w-4 h-4" />
             <span>Upload Config</span>
@@ -418,7 +418,7 @@ export const Settings = () => {
           <button
             onClick={() => reloadMutation.mutate()}
             disabled={reloadMutation.isPending}
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-surface-raised text-text-base rounded-lg transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${reloadMutation.isPending ? 'animate-spin' : ''}`} />
             <span>Reload</span>
@@ -426,7 +426,7 @@ export const Settings = () => {
           <button
             onClick={handleSave}
             disabled={!hasChanges || updateMutation.isPending}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-text-base rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
             <span>Save Changes</span>
@@ -437,12 +437,12 @@ export const Settings = () => {
       {/* Import Preview Modal */}
       {importPreview.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto border border-gray-700">
+          <div className="bg-surface rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto border border-surface-border">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold text-white">Import Configuration</h3>
+              <h3 className="text-xl font-semibold text-text-base">Import Configuration</h3>
               <button
                 onClick={handleImportCancel}
-                className="text-gray-400 hover:text-white"
+                className="text-text-muted hover:text-text-base"
               >
                 <AlertCircle className="w-5 h-5" />
               </button>
@@ -489,7 +489,7 @@ export const Settings = () => {
 
             <div className="mb-4">
               <h4 className="text-gray-300 font-medium mb-2">Preview</h4>
-              <pre className="bg-gray-900 p-4 rounded-lg text-sm text-gray-300 overflow-x-auto max-h-64">
+              <pre className="bg-surface-raised p-4 rounded-lg text-sm text-gray-300 overflow-x-auto max-h-64">
                 {JSON.stringify(importPreview.config, null, 2)}
               </pre>
             </div>
@@ -497,14 +497,14 @@ export const Settings = () => {
             <div className="flex justify-end space-x-3">
               <button
                 onClick={handleImportCancel}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                className="px-4 py-2 bg-gray-700 hover:bg-surface-raised text-text-base rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleImportConfirm}
                 disabled={importMutation.isPending}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-text-base rounded-lg transition-colors disabled:opacity-50"
               >
                 {importMutation.isPending ? 'Importing...' : 'Import Configuration'}
               </button>
@@ -514,7 +514,7 @@ export const Settings = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-700">
+      <div className="border-b border-surface-border">
         <nav className="flex space-x-1 overflow-x-auto">
           {tabs.map(tab => (
             <button
@@ -523,7 +523,7 @@ export const Settings = () => {
               className={`flex items-center space-x-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
+                  : 'border-transparent text-text-muted hover:text-gray-300'
               }`}
             >
               <tab.icon className="w-4 h-4" />
@@ -1623,7 +1623,7 @@ export const Settings = () => {
       </div>
 
       {/* Footer Actions */}
-      <div className="flex justify-between items-center pt-6 border-t border-gray-700">
+      <div className="flex justify-between items-center pt-6 border-t border-surface-border">
         <div className="text-sm text-gray-500">
           {hasChanges ? (
             <span className="text-yellow-400">You have unsaved changes</span>
@@ -1635,7 +1635,7 @@ export const Settings = () => {
           <button
             onClick={() => saveToFileMutation.mutate()}
             disabled={saveToFileMutation.isPending}
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50"
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 hover:bg-surface-raised text-text-base rounded-lg transition-colors disabled:opacity-50"
           >
             <Server className="w-4 h-4" />
             <span>Save to File</span>
@@ -1643,7 +1643,7 @@ export const Settings = () => {
           <button
             onClick={handleSave}
             disabled={!hasChanges || updateMutation.isPending}
-            className="flex items-center space-x-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center space-x-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-text-base rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
             <span>Apply Changes</span>

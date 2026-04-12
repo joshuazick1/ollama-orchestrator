@@ -125,9 +125,44 @@ export const addServer = async (server: {
   type?: 'ollama' | 'openai' | 'auto';
   maxConcurrency?: number;
   apiKey?: string;
+  v1Models?: string;
+  forceOllama?: boolean;
+  forceV1?: boolean;
+  forceAnthropic?: boolean;
+  anthropicPathOverride?: string;
 }) => {
   return apiCall(async () => {
-    const response = await api.post('/servers/add', server);
+    // Transform frontend fields to backend format
+    const backendPayload: Record<string, unknown> = {
+      id: server.id,
+      url: server.url,
+      type: server.type,
+      maxConcurrency: server.maxConcurrency,
+      apiKey: server.apiKey,
+    };
+
+    // Add endpointOverrides if anthropicPathOverride is provided
+    if (server.anthropicPathOverride) {
+      backendPayload.endpointOverrides = {
+        anthropic_messages: server.anthropicPathOverride,
+      };
+    }
+
+    // Add forcedCapabilities if any force flags are provided
+    if (server.forceOllama !== undefined || server.forceV1 !== undefined || server.forceAnthropic !== undefined) {
+      backendPayload.forcedCapabilities = {
+        supportsOllama: server.forceOllama ?? false,
+        supportsV1: server.forceV1 ?? false,
+        supportsAnthropic: server.forceAnthropic ?? false,
+      };
+    }
+
+    // Add v1Models if provided
+    if (server.v1Models) {
+      backendPayload.v1Models = server.v1Models;
+    }
+
+    const response = await api.post('/servers/add', backendPayload);
     return response.data;
   });
 };
@@ -176,7 +211,7 @@ export const getHealth = async () => {
 export const getStats = async () => {
   return apiCall(async () => {
     const response = await api.get('/stats');
-    return response.data.stats;
+    return response.data;
   });
 };
 

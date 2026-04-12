@@ -44,21 +44,21 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-          <div className="bg-gray-800 rounded-lg border border-red-500/20 p-6 max-w-md w-full">
+        <div className="min-h-screen bg-surface flex items-center justify-center p-4">
+          <div className="bg-surface-raised rounded-lg border border-red-500/20 p-6 max-w-md w-full">
             <div className="flex items-center space-x-3 mb-4">
               <AlertTriangle className="w-6 h-6 text-red-400" />
-              <h2 className="text-lg font-semibold text-white">Something went wrong</h2>
+              <h2 className="text-lg font-semibold text-text-base">Something went wrong</h2>
             </div>
-            <p className="text-gray-400 mb-4">
+            <p className="text-text-muted mb-4">
               An unexpected error occurred. Please try refreshing the page.
             </p>
-            <div className="text-xs text-gray-500 mb-4 font-mono bg-gray-900 p-2 rounded">
+            <div className="text-xs text-text-subtle mb-4 font-mono bg-surface p-2 rounded">
               {this.state.error?.message}
             </div>
             <button
               onClick={() => window.location.reload()}
-              className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2"
+              className="w-full bg-red-600 hover:bg-red-700 text-text-base px-4 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2"
             >
               <RefreshCw className="w-4 h-4" />
               <span>Refresh Page</span>
