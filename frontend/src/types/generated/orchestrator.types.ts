@@ -26,6 +26,7 @@ export interface AIServer {
   supportsV1?: boolean; // Whether server supports /v1/* OpenAI-compatible endpoints
   // NEW: OpenAI-compatible models (from /v1/models)
   v1Models?: string[];
+  discoveredV1Models?: string[];
   // NEW: Anthropic capability
   supportsAnthropic?: boolean; // Whether server supports /v1/messages Anthropic endpoints
 

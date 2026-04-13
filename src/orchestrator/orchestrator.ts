@@ -858,7 +858,7 @@ export class AIOrchestrator {
         try {
           const data = (await v1Response.json()) as { data?: Array<{ id?: string }> };
           if (data && Array.isArray(data.data)) {
-            server.v1Models = data.data
+            server.discoveredV1Models = data.data
               .map((m: { id?: string }) => m.id)
               .filter((id): id is string => typeof id === 'string');
           }
