@@ -1278,6 +1278,17 @@ export class AIOrchestrator {
       }
     }
 
+    if (model.endsWith(':latest')) {
+      const withoutLatest = model.slice(0, -7);
+      if (availableModels.includes(withoutLatest)) {
+        return withoutLatest;
+      }
+      const withLatestSuffix = `${withoutLatest}:latest`;
+      if (availableModels.includes(withLatestSuffix)) {
+        return withLatestSuffix;
+      }
+    }
+
     return null;
   }
 
