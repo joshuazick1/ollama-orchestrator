@@ -857,7 +857,7 @@ export class AIOrchestrator {
       if (v1Response?.ok) {
         try {
           const data = (await v1Response.json()) as { data?: Array<{ id?: string }> };
-          if (data && Array.isArray(data.data)) {
+          if (data && Array.isArray(data.data) && data.data.length > 0) {
             server.discoveredV1Models = data.data
               .map((m: { id?: string }) => m.id)
               .filter((id): id is string => typeof id === 'string');
@@ -1190,13 +1190,32 @@ export class AIOrchestrator {
     object: string;
     data: Array<{ id: string; object: string; created: number; owned_by: string }>;
   } {
-    // First pass: collect all servers that have each model
+    const seenModels = new Set<string>();
+    
     const modelToServers = new Map<string, string[]>();
 
     for (const server of this.servers) {
-      if (server.healthy && server.supportsV1 && server.v1Models) {
+      if (!server.healthy || !server.supportsV1) {
+        continue;
+      }
+
+      if (server.v1Models) {
         for (const modelId of server.v1Models) {
-          if (!modelToServers.has(modelId)) {
+          if (!seenModels.has(modelId)) {
+            seenModels.add(modelId);
+            modelToServers.set(modelId, []);
+          }
+          const servers = modelToServers.get(modelId);
+          if (servers && !servers.includes(server.id)) {
+            servers.push(server.id);
+          }
+        }
+      }
+
+      if (server.discoveredV1Models) {
+        for (const modelId of server.discoveredV1Models) {
+          if (!seenModels.has(modelId)) {
+            seenModels.add(modelId);
             modelToServers.set(modelId, []);
           }
           const servers = modelToServers.get(modelId);

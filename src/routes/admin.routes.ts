@@ -43,6 +43,7 @@ import {
   removeServer,
   updateServer,
   updateServerConfig,
+  refreshServerV1Models,
   getBans,
   removeBan,
   removeBansByServer,
@@ -81,6 +82,7 @@ adminRouter.post('/servers/add', requireAdmin(), validateRequest(addServerSchema
 adminRouter.delete('/servers/:id', requireAdmin(), removeServer);
 adminRouter.patch('/servers/:id', requireAuth(), validateRequest(updateServerSchema), asyncHandler(updateServer));
 adminRouter.patch('/servers/:id/config', requireAuth(), validateRequest(updateServerConfigSchema), asyncHandler(updateServerConfig));
+adminRouter.post('/servers/:id/refresh-v1-models', requireAuth(), asyncHandler(refreshServerV1Models));
 
 // Per-server model management
 adminRouter.get('/servers/:id/models', requireAuth(), asyncHandler(listServerModels));

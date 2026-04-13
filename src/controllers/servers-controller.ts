@@ -139,6 +139,30 @@ export function updateServerConfig(req: Request, res: Response): void {
 }
 
 /**
+ * Refresh V1 models for a server by triggering an immediate health check
+ * POST /api/orchestrator/servers/:id/refresh-v1-models
+ */
+export async function refreshServerV1Models(req: Request, res: Response): Promise<void> {
+  const id = req.params.id as string;
+  const orchestrator = getOrchestratorInstance();
+
+  const server = orchestrator.getServers().find(s => s.id === id);
+  if (!server) {
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
+    return;
+  }
+
+  // Trigger immediate health check to refresh discoveredV1Models
+  await orchestrator.updateServerStatus(server);
+
+  res.status(200).json({
+    success: true,
+    id,
+    discoveredV1Models: server.discoveredV1Models,
+  });
+}
+
+/**
  * Get all servers
  * GET /api/orchestrator/servers
  */
