@@ -756,6 +756,46 @@ export const Servers = () => {
                             )}
                           </div>
                         </div>
+
+                        {/* V1 Models Section */}
+                        <div>
+                          <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-4">
+                            <span>V1 Models ({((server.v1Models?.length ?? 0) + (server.discoveredV1Models?.length ?? 0))})</span>
+                          </h4>
+                          {(server.v1Models?.length ?? 0) > 0 && (
+                            <div className="mb-3">
+                              <span className="text-xs font-medium text-blue-400 uppercase tracking-wider">Manual:</span>
+                              <div className="bg-surface-raised/50 rounded-lg border border-surface-border/50 max-h-[100px] overflow-y-auto mt-1">
+                                <div className="divide-y divide-gray-700/50">
+                                  {server.v1Models?.map(model => (
+                                    <div key={model} className="p-2 hover:bg-surface/50 transition-colors">
+                                      <span className="text-sm text-gray-200">{model}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {(server.discoveredV1Models?.length ?? 0) > 0 && (
+                            <div>
+                              <span className="text-xs font-medium text-green-400 uppercase tracking-wider">Discovered:</span>
+                              <div className="bg-surface-raised/50 rounded-lg border border-surface-border/50 max-h-[100px] overflow-y-auto mt-1">
+                                <div className="divide-y divide-gray-700/50">
+                                  {server.discoveredV1Models?.map(model => (
+                                    <div key={model} className="p-2 hover:bg-surface/50 transition-colors">
+                                      <span className="text-sm text-gray-200">{model}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {(server.v1Models?.length ?? 0) === 0 && (server.discoveredV1Models?.length ?? 0) === 0 && (
+                            <div className="p-4 text-center text-gray-500 bg-surface-raised/50 rounded-lg border border-surface-border/50">
+                              No V1 models configured
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

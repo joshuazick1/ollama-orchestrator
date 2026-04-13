@@ -15,6 +15,7 @@ import { Timer } from './utils/timer.js';
 
 const PROBE_MODEL = '__probe_nonexistent_model_000000__';
 const PROBE_TIMEOUT_MS = 10_000;
+const LIGHTWEIGHT_PROBE_TIMEOUT_MS = 2_000;
 
 /**
  * Fetch with optional API key authentication
@@ -309,9 +310,9 @@ export class HealthCheckScheduler {
 
     try {
       // Query /api/tags, /api/ps, and /v1/models in parallel
-      // Probe selection respects server.type: ollama=skip v1, openai=skip tags, auto=probe both
-      const probeOllama = server.type !== 'openai';
-      const probeV1 = server.type !== 'ollama';
+      // Probe selection: openai=skip ollama probes, others probe both (unless forcedCapabilities overrides)
+      const probeOllama = server.type !== 'openai' && server.forcedCapabilities?.supportsOllama !== false;
+      const probeV1 = server.forcedCapabilities?.supportsV1 !== false;
 
       const [tagsResponse, psResponse, v1Response] = await Promise.all([
         probeOllama
@@ -338,11 +339,23 @@ export class HealthCheckScheduler {
           : Promise.resolve(null),
         probeV1
           ? fetchWithAuth(`${server.url}/v1/models`, server.apiKey, {
-              timeout: 5000,
+              timeout: LIGHTWEIGHT_PROBE_TIMEOUT_MS,
             }).catch((err: unknown) => {
+              const errorMsg = String(err);
+              // Distinguish between timeout (connection was made, server slow) and network error (connection refused/reset)
+              // Timeout error message format: "Request timeout after Xms: URL"
+              if (errorMsg.includes('timeout')) {
+                // Endpoint exists but responded slowly - treat as positive result
+                // We create a minimal response-like object since we can't create actual Response
+                logger.debug('Health probe timeout for /v1/models - endpoint exists but slow', {
+                  serverId: server.id,
+                });
+                return { ok: true } as Response;
+              }
+              // Network error (ECONNREFUSED, ECONNRESET, etc.) - endpoint doesn't exist
               logger.warn('Health probe failed for /v1/models', {
                 serverId: server.id,
-                error: String(err),
+                error: errorMsg,
               });
               return null;
             })
@@ -369,8 +382,24 @@ export class HealthCheckScheduler {
         false;
       const inferredAnthropic = probedEndpoints.anthropic_messages || false;
 
+      const v1EndpointExistence = await this.probeV1EndpointExistence(server);
+
       const supportsOllama = forced.supportsOllama ?? (tagsResponse?.ok || inferredOllama);
-      const supportsV1 = forced.supportsV1 ?? inferredV1;
+
+      const supportsV1 =
+        forced.supportsV1 ??
+        (v1Response?.ok === true ? true : undefined) ??
+        (v1EndpointExistence.exists ? true : undefined) ??
+        (inferredV1 ? true : undefined);
+
+      logger.debug(`Server ${server.id} supportsV1 detection`, {
+        forced: forced.supportsV1 ?? 'undefined',
+        v1ResponseOk: v1Response?.ok,
+        v1EndpointExists: v1EndpointExistence.exists,
+        inferredV1,
+        finalResult: supportsV1,
+      });
+
       const supportsAnthropic = forced.supportsAnthropic ?? inferredAnthropic;
 
       // Update capability flags
@@ -541,6 +570,22 @@ export class HealthCheckScheduler {
     return details;
   }
 
+  private interpretV1Status(status: number): 'exists' | 'not_exists' | 'error' {
+    // For v1 endpoints specifically:
+    // - 2xx = exists (good)
+    // - 400 "model not found" = exists but model doesn't (good - endpoint works!)
+    // - 401/403 = exists but auth issues (good - endpoint exists!)
+    // - 404/405/410 = doesn't exist (bad)
+    // - 422 = validation error = exists (good)
+    // - Other 4xx = exists but other issues (good)
+    // - Network error = doesn't exist (bad)
+    if (status >= 200 && status < 300) return 'exists';
+    if (status === 400 || status === 401 || status === 403 || status === 422 || status === 429) return 'exists';
+    if (status === 404 || status === 405 || status === 410) return 'not_exists';
+    if (status >= 400) return 'exists'; // Other 4xx = exists but issues
+    return 'error';
+  }
+
   private async probeInferenceEndpoint(
     url: string,
     method: string,
@@ -577,6 +622,88 @@ export class HealthCheckScheduler {
     }
   }
 
+  private async probeV1EndpointExistence(
+    server: AIServer,
+    timeoutMs: number = LIGHTWEIGHT_PROBE_TIMEOUT_MS
+  ): Promise<{ exists: boolean; healthy: boolean; status: number }> {
+    try {
+      const resolvedKey = resolveApiKey(server.apiKey);
+      const headers: Record<string, string> = {};
+      if (resolvedKey) {
+        headers['Authorization'] = `Bearer ${resolvedKey}`;
+      }
+
+      // Try HEAD first, fall back to GET if HEAD not supported
+      let res: Response;
+      try {
+        res = await fetchWithTimeout(`${server.url}/v1/models`, {
+          method: 'HEAD',
+          headers,
+          timeout: timeoutMs,
+        });
+      } catch {
+        // Fall back to GET if HEAD fails
+        res = await fetchWithTimeout(`${server.url}/v1/models`, {
+          method: 'GET',
+          headers,
+          timeout: timeoutMs,
+        });
+      }
+
+      const status = res.status;
+      const interpretation = this.interpretV1Status(status);
+      if (interpretation === 'exists') {
+        return { exists: true, healthy: status >= 200 && status < 300, status };
+      } else {
+        return { exists: false, healthy: false, status };
+      }
+    } catch {
+      // Network error - endpoint doesn't exist
+      return { exists: false, healthy: false, status: 0 };
+    }
+  }
+
+  /**
+   * Lightweight POST probe to /v1/chat/completions with minimal payload
+   * Uses 2s timeout to prevent model loading
+   * Treats 400/422 as positive (endpoint works, model doesn't exist)
+   * Treats timeout as "endpoint exists but slow" = positive
+   */
+  async probeV1EndpointsLightweight(
+    server: AIServer
+  ): Promise<{ exists: boolean; healthy: boolean; status: number }> {
+    try {
+      const resolvedKey = resolveApiKey(server.apiKey);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (resolvedKey) {
+        headers['Authorization'] = `Bearer ${resolvedKey}`;
+      }
+
+      const res = await fetchWithTimeout(`${server.url}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: '__probe__',
+          messages: [],
+          max_tokens: 1,
+        }),
+        timeout: LIGHTWEIGHT_PROBE_TIMEOUT_MS,
+      });
+
+      const status = res.status;
+      const interpretation = this.interpretV1Status(status);
+      const exists = interpretation === 'exists';
+      const healthy = exists && status >= 200 && status < 300;
+      return { exists, healthy, status };
+    } catch {
+      // Timeout or network error - endpoint exists but didn't respond in time
+      // This is still considered "exists" since we got a connection
+      return { exists: true, healthy: false, status: 0 };
+    }
+  }
+
   private async runEndpointProbes(
     server: AIServer
   ): Promise<NonNullable<AIServer['probedEndpoints']>> {
@@ -589,15 +716,7 @@ export class HealthCheckScheduler {
     const anthropicHeaderName = anthropicAuth?.headerName;
     const anthropicHeaderPrefix = anthropicAuth?.headerPrefix;
 
-    const [
-      ollamaChat,
-      ollamaGenerate,
-      ollamaEmbeddings,
-      openaiChat,
-      openaiCompletions,
-      openaiEmbeddings,
-      anthropicMessages,
-    ] = await Promise.all([
+    const [ollamaChat, ollamaGenerate, ollamaEmbeddings, openaiChat, openaiCompletions, openaiEmbeddings, anthropicMessages] = await Promise.all([
       this.probeInferenceEndpoint(
         `${base}/api/chat`,
         'POST',

@@ -822,6 +822,13 @@ export const setServerMaintenance = async (serverId: string, enabled: boolean) =
   });
 };
 
+export const refreshV1Models = async (serverId: string) => {
+  return apiCall(async () => {
+    const response = await api.post(`/servers/${serverId}/refresh-v1-models`);
+    return response.data;
+  });
+};
+
 // === Model Warmup API ===
 
 export const warmupModel = async (model: string, servers?: string[], priority?: string) => {

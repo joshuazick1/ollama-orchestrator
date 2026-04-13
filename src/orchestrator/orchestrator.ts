@@ -1694,7 +1694,13 @@ export class AIOrchestrator {
       if (requiredCapability === 'ollama' && s.supportsOllama === false) {
         return false;
       }
-      if (requiredCapability === 'openai' && s.supportsV1 === false) {
+      // Check if server has any v1 support evidence
+      const hasV1Evidence =
+        s.supportsV1 === true ||
+        (s.v1Models && s.v1Models.length > 0) ||
+        (s.discoveredV1Models && s.discoveredV1Models.length > 0);
+
+      if (requiredCapability === 'openai' && !hasV1Evidence) {
         return false;
       }
       if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) {
