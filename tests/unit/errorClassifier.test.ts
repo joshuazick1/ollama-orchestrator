@@ -64,6 +64,24 @@ describe('ErrorClassifier', () => {
       expect(result.type).toBe('rateLimited');
     });
 
+    it('should classify "HTTP 429: Too Many Requests" as rateLimited', () => {
+      const result = classifier.classify('HTTP 429: Too Many Requests');
+      expect(result.type).toBe('rateLimited');
+      expect(result.isRetryable).toBe(true);
+    });
+
+    it('should classify "429 rate limit exceeded" as rateLimited', () => {
+      const result = classifier.classify('429 rate limit exceeded');
+      expect(result.type).toBe('rateLimited');
+      expect(result.isRetryable).toBe(true);
+    });
+
+    it('should classify "Too Many Requests" as rateLimited', () => {
+      const result = classifier.classify('Too Many Requests');
+      expect(result.type).toBe('rateLimited');
+      expect(result.isRetryable).toBe(true);
+    });
+
     it('should classify 500 as retryable', () => {
       const result = classifier.classify('HTTP 500');
       expect(result.isRetryable).toBe(true);

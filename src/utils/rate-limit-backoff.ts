@@ -29,9 +29,14 @@ export function calculateRateLimitBackoff(
   config: RateLimitConfig,
   attempt: number = 0
 ): number {
-  // Ollama doesn't support Retry-After header - always use exponential backoff
   if (provider === 'ollama') {
-    return calculateExponentialBackoff(attempt, config.defaultRetryAfterMs, config.maxRetryAfterMs);
+    if (retryAfterHeader) {
+      const parsedDelay = parseRetryAfter(retryAfterHeader);
+      if (parsedDelay !== null) {
+        return Math.min(parsedDelay, config.maxRetryAfterMs);
+      }
+    }
+    return calculateExponentialBackoff(attempt, config.defaultRetryAfterMs, config.maxRetryAfterMs, config.jitterFactor);
   }
 
   // OpenAI and Anthropic: Check for Retry-After header
@@ -46,22 +51,25 @@ export function calculateRateLimitBackoff(
   }
 
   // Fall back to exponential backoff
-  return calculateExponentialBackoff(attempt, config.defaultRetryAfterMs, config.maxRetryAfterMs);
+  return calculateExponentialBackoff(attempt, config.defaultRetryAfterMs, config.maxRetryAfterMs, config.jitterFactor);
 }
 
 /**
- * Calculate exponential backoff delay
+ * Calculate exponential backoff delay with optional jitter
  *
  * @param attempt - Current attempt number (0-indexed)
  * @param baseDelayMs - Base delay in milliseconds
  * @param maxDelayMs - Maximum delay cap in milliseconds
+ * @param jitterFactor - Jitter factor (0-1, default 0.25 = ±25% randomization)
  * @returns Delay in milliseconds
  */
 export function calculateExponentialBackoff(
   attempt: number,
   baseDelayMs: number,
-  maxDelayMs: number
+  maxDelayMs: number,
+  jitterFactor: number = 0.25
 ): number {
-  const delay = baseDelayMs * Math.pow(DEFAULT_BACKOFF_MULTIPLIER, attempt);
-  return Math.min(delay, maxDelayMs);
+  const exponentialDelay = baseDelayMs * Math.pow(DEFAULT_BACKOFF_MULTIPLIER, attempt);
+  const jitteredDelay = exponentialDelay * (1 - jitterFactor + Math.random() * jitterFactor * 2);
+  return Math.min(jitteredDelay, maxDelayMs);
 }

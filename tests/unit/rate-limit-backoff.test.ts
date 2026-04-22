@@ -7,12 +7,13 @@ describe('calculateRateLimitBackoff', () => {
     defaultRetryAfterMs: 60000,
     maxRetryAfterMs: 300000,
     enableRetryAfterHeader: true,
+    jitterFactor: 0,
   };
 
   describe('Ollama provider', () => {
-    it('should always use exponential backoff (no Retry-After support)', () => {
+    it('should use Retry-After header when present', () => {
       const result = calculateRateLimitBackoff('ollama', '120', defaultConfig, 0);
-      expect(result).toBe(60000);
+      expect(result).toBe(120000);
     });
 
     it('should use exponential backoff with Retry-After header ignored', () => {
@@ -122,23 +123,59 @@ describe('calculateRateLimitBackoff', () => {
 });
 
 describe('calculateExponentialBackoff', () => {
-  it('should return base delay for attempt 0', () => {
-    expect(calculateExponentialBackoff(0, 60000, 300000)).toBe(60000);
+  it('should return base delay for attempt 0 with jitter', () => {
+    const result = calculateExponentialBackoff(0, 60000, 300000);
+    expect(result).toBeGreaterThanOrEqual(45000);
+    expect(result).toBeLessThanOrEqual(90000);
   });
 
-  it('should apply multiplier of 2 per attempt', () => {
-    expect(calculateExponentialBackoff(0, 1000, 100000)).toBe(1000);
-    expect(calculateExponentialBackoff(1, 1000, 100000)).toBe(2000);
-    expect(calculateExponentialBackoff(2, 1000, 100000)).toBe(4000);
-    expect(calculateExponentialBackoff(3, 1000, 100000)).toBe(8000);
+  it('should apply multiplier of 2 per attempt with jitter', () => {
+    const result0 = calculateExponentialBackoff(0, 1000, 100000);
+    const result1 = calculateExponentialBackoff(1, 1000, 100000);
+    const result2 = calculateExponentialBackoff(2, 1000, 100000);
+    const result3 = calculateExponentialBackoff(3, 1000, 100000);
+    expect(result0).toBeGreaterThanOrEqual(750);
+    expect(result0).toBeLessThanOrEqual(1250);
+    expect(result1).toBeGreaterThanOrEqual(1500);
+    expect(result1).toBeLessThanOrEqual(2500);
+    expect(result2).toBeGreaterThanOrEqual(3000);
+    expect(result2).toBeLessThanOrEqual(5000);
+    expect(result3).toBeGreaterThanOrEqual(6000);
+    expect(result3).toBeLessThanOrEqual(10000);
+  });
+
+  it('should return jittered value between ±25% of expected', () => {
+    const baseDelay = 1000;
+    const results = Array.from({ length: 10 }, () => calculateExponentialBackoff(0, baseDelay, 5000));
+    results.forEach(result => {
+      expect(result).toBeGreaterThanOrEqual(750);
+      expect(result).toBeLessThanOrEqual(1250);
+    });
+  });
+
+  it('should produce different values on consecutive calls (jitter working)', () => {
+    const results = new Set(Array.from({ length: 20 }, () => calculateExponentialBackoff(0, 1000, 5000)));
+    expect(results.size).toBeGreaterThan(1);
   });
 
   it('should cap at maxDelay', () => {
-    expect(calculateExponentialBackoff(10, 60000, 300000)).toBe(300000);
+    const result = calculateExponentialBackoff(10, 60000, 300000);
+    expect(result).toBe(300000);
   });
 
   it('should handle zero base delay', () => {
     expect(calculateExponentialBackoff(0, 0, 1000)).toBe(0);
     expect(calculateExponentialBackoff(1, 0, 1000)).toBe(0);
+  });
+
+  it('should respect custom jitterFactor', () => {
+    const result = calculateExponentialBackoff(0, 1000, 5000, 0.1);
+    expect(result).toBeGreaterThanOrEqual(900);
+    expect(result).toBeLessThanOrEqual(1100);
+  });
+
+  it('should handle zero jitterFactor (no randomization)', () => {
+    const result = calculateExponentialBackoff(0, 1000, 5000, 0);
+    expect(result).toBe(1000);
   });
 });

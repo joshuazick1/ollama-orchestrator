@@ -1,5 +1,6 @@
 import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import type { ProbeSchedulerConfig } from './config/config.js';
+import type { ErrorAggregator } from './utils/error-aggregator.js';
 import { MetricsAggregator } from './metrics/index.js';
 import type { AIServer, RequestContext } from './orchestrator/orchestrator.types.js';
 import type { MetricsStore } from './storage/metrics-store.js';
@@ -32,6 +33,7 @@ export class InferenceProbeScheduler {
   private getMetricsAggregator: () => MetricsAggregator;
   private getMetricsStore: () => MetricsStore;
   private getCircuitBreakerRegistry: () => CircuitBreakerRegistry;
+  private getErrorAggregator: () => ErrorAggregator;
 
   private intervalTimer?: NodeJS.Timeout;
   private drainTimer?: NodeJS.Timeout;
@@ -48,13 +50,15 @@ export class InferenceProbeScheduler {
     getServers: () => AIServer[],
     getMetricsAggregator: () => MetricsAggregator,
     getMetricsStore: () => MetricsStore,
-    getCircuitBreakerRegistry: () => CircuitBreakerRegistry
+    getCircuitBreakerRegistry: () => CircuitBreakerRegistry,
+    getErrorAggregator: () => ErrorAggregator
   ) {
     this.config = config;
     this.getServers = getServers;
     this.getMetricsAggregator = getMetricsAggregator;
     this.getMetricsStore = getMetricsStore;
     this.getCircuitBreakerRegistry = getCircuitBreakerRegistry;
+    this.getErrorAggregator = getErrorAggregator;
   }
 
   start(): void {
@@ -348,6 +352,12 @@ export class InferenceProbeScheduler {
     const { serverId, model } = target;
     const key = `${serverId}:${model}`;
     const startTime = Date.now();
+
+    // Skip inference probes when cluster-wide rate limit is active
+    if (this.getErrorAggregator().isClusterRateLimited()) {
+      logger.info(`InferenceProbeScheduler: skipping probe ${key} - cluster rate limit active`);
+      return;
+    }
 
     logger.info(`InferenceProbeScheduler: starting probe ${key}`, {
       parameterSize: target.parameterSize,

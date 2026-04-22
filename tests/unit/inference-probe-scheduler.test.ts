@@ -161,6 +161,12 @@ function makeAggregator(
   };
 }
 
+function makeErrorAggregator(isRateLimited = false) {
+  return {
+    isClusterRateLimited: vi.fn(() => isRateLimited),
+  };
+}
+
 function makeMetricsStore() {
   return {
     recordRequest: vi.fn(),
@@ -182,7 +188,8 @@ describe('extractParameterSizeFromName (via probe set computation)', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     const targets = scheduler.computeMinimumProbeSet();
     expect(targets).toHaveLength(1);
@@ -198,7 +205,8 @@ describe('extractParameterSizeFromName (via probe set computation)', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     const targets = scheduler.computeMinimumProbeSet();
     expect(targets[0].parameterSize).toBe('70B');
@@ -213,7 +221,8 @@ describe('extractParameterSizeFromName (via probe set computation)', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     const targets = scheduler.computeMinimumProbeSet();
     expect(targets[0].parameterSize).toBe('3.8B');
@@ -228,7 +237,8 @@ describe('extractParameterSizeFromName (via probe set computation)', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     const targets = scheduler.computeMinimumProbeSet();
     expect(targets[0].parameterSize).toBe('unknown');
@@ -250,7 +260,8 @@ describe('computeMinimumProbeSet', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     expect(scheduler.computeMinimumProbeSet()).toHaveLength(0);
   });
@@ -264,7 +275,8 @@ describe('computeMinimumProbeSet', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     const targets = scheduler.computeMinimumProbeSet();
     expect(targets).toHaveLength(1);
@@ -282,7 +294,8 @@ describe('computeMinimumProbeSet', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     expect(scheduler.computeMinimumProbeSet()).toHaveLength(0);
   });
@@ -296,7 +309,8 @@ describe('computeMinimumProbeSet', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     expect(scheduler.computeMinimumProbeSet()).toHaveLength(0);
   });
@@ -311,7 +325,8 @@ describe('computeMinimumProbeSet', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     const targets = scheduler.computeMinimumProbeSet();
     const sizes = targets.map(t => t.parameterSize).sort();
@@ -329,7 +344,8 @@ describe('computeMinimumProbeSet', () => {
         () => [server],
         () => aggregator as never,
         () => store as never,
-        () => ({ getOrCreate: mockGetOrCreate } as never)
+        () => ({ getOrCreate: mockGetOrCreate } as never),
+        () => makeErrorAggregator() as never
       );
       const targets = scheduler.computeMinimumProbeSet();
       expect(targets[0].priority).toBe('critical');
@@ -345,7 +361,8 @@ describe('computeMinimumProbeSet', () => {
         () => [server],
         () => aggregator as never,
         () => store as never,
-        () => ({ getOrCreate: mockGetOrCreate } as never)
+        () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
       );
       const targets = scheduler.computeMinimumProbeSet();
       expect(targets[0].priority).toBe('normal');
@@ -360,7 +377,8 @@ describe('computeMinimumProbeSet', () => {
         () => [server],
         () => aggregator as never,
         () => store as never,
-        () => ({ getOrCreate: mockGetOrCreate } as never)
+        () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
       );
       const targets = scheduler.computeMinimumProbeSet();
       expect(targets[0].priority).toBe('low');
@@ -377,7 +395,8 @@ describe('computeMinimumProbeSet', () => {
         () => [server],
         () => aggregator as never,
         () => store as never,
-        () => ({ getOrCreate: mockGetOrCreate } as never)
+        () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
       );
       const targets = scheduler.computeMinimumProbeSet();
       expect(targets[0].priority).toBe('critical');
@@ -398,7 +417,8 @@ describe('computeMinimumProbeSet', () => {
         () => [server],
         () => aggregator as never,
         () => store as never,
-        () => ({ getOrCreate: mockGetOrCreate } as never)
+        () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
       );
       const targets = scheduler.computeMinimumProbeSet();
       expect(targets[0].model).toBe('mistral:8b');
@@ -419,7 +439,8 @@ describe('computeMinimumProbeSet', () => {
         () => [server],
         () => aggregator as never,
         () => store as never,
-        () => ({ getOrCreate: mockGetOrCreate } as never)
+        () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
       );
       const targets = scheduler.computeMinimumProbeSet();
       expect(targets[0].model).toBe('model-a:8b');
@@ -455,7 +476,8 @@ describe('shouldSkipServer via recordUserRequest cooldown', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     // Record a user request NOW — server should be in cooldown
@@ -484,7 +506,8 @@ describe('shouldSkipServer via recordUserRequest cooldown', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     // Record a user request, then advance past cooldown
@@ -522,7 +545,8 @@ describe('shouldSkipServer via recordUserRequest cooldown', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -549,7 +573,8 @@ describe('shouldSkipServer via recordUserRequest cooldown', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -604,7 +629,8 @@ describe('drainQueue maxConcurrentProbes throttle', () => {
       () => [server1, server2],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -632,7 +658,8 @@ describe('onServerAdded and onModelDiscovered', () => {
       () => [],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     expect(() => scheduler.onServerAdded('nonexistent-server')).not.toThrow();
   });
@@ -645,7 +672,8 @@ describe('onServerAdded and onModelDiscovered', () => {
       () => [],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     expect(() => scheduler.onModelDiscovered('nonexistent-server', 'unknown-model')).not.toThrow();
   });
@@ -659,7 +687,8 @@ describe('onServerAdded and onModelDiscovered', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     expect(() => scheduler.onServerAdded('srv1')).not.toThrow();
     expect(() => scheduler.onModelDiscovered('srv1', 'llama3:8b')).not.toThrow();
@@ -679,7 +708,8 @@ describe('onServerAdded and onModelDiscovered', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     // Should not throw and model should be queued
@@ -699,7 +729,8 @@ describe('onServerAdded and onModelDiscovered', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.onModelDiscovered('srv1', 'llama3:8b');
@@ -744,7 +775,8 @@ const scheduler = new InferenceProbeScheduler(
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -773,7 +805,8 @@ const scheduler = new InferenceProbeScheduler(
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -802,7 +835,8 @@ const scheduler = new InferenceProbeScheduler(
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -856,7 +890,8 @@ describe('executeProbe records isProbe flag', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -883,7 +918,8 @@ describe('executeProbe records isProbe flag', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -912,7 +948,8 @@ describe('executeProbe records isProbe flag', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -938,7 +975,8 @@ describe('executeProbe records isProbe flag', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -977,7 +1015,8 @@ describe('lifecycle', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
     // start() should return early and not schedule timers
     expect(() => scheduler.start()).not.toThrow();
@@ -997,7 +1036,8 @@ describe('lifecycle', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();
@@ -1024,7 +1064,8 @@ describe('lifecycle', () => {
       () => [server],
       () => aggregator as never,
       () => store as never,
-      () => ({ getOrCreate: mockGetOrCreate } as never)
+      () => ({ getOrCreate: mockGetOrCreate } as never),
+      () => makeErrorAggregator() as never
     );
 
     scheduler.start();

@@ -76,6 +76,9 @@ export interface CircuitBreakerConfig {
   nonRetryableRatioThreshold: number; // Ratio above which to lower threshold (default: 0.5)
   transientRatioThreshold: number; // Ratio above which to raise threshold (default: 0.7)
 
+  // Fast-circuit-open for rate limit errors
+  rateLimitFailureThreshold: number; // Number of rate limit failures before hard opening (default: 2)
+
   // Model-to-server breaker escalation settings
   modelEscalation: {
     enabled: boolean; // Enable model breaker escalation to server breaker
@@ -158,6 +161,7 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
   adaptiveThresholdAdjustment: 2,
   nonRetryableRatioThreshold: 0.5,
   transientRatioThreshold: 0.7,
+  rateLimitFailureThreshold: 2, // Open circuit after 2 rate limit failures (faster than adaptive threshold)
   modelEscalation: {
     enabled: true,
     ratioThreshold: 0.5, // 50%
@@ -545,6 +549,24 @@ export class CircuitBreaker {
         }
       );
     } else if (this.state === 'closed') {
+      // Special handling for rate limit errors - open faster after 2 consecutive failures
+      if (classifiedType === 'rateLimited' && this.rateLimitConsecutiveFailures >= this.config.rateLimitFailureThreshold) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.lastFailureReason = errorMsg;
+        this.lastErrorType = classifiedType;
+        this.transitionTo('open');
+        this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType, retryAfterMs, errorMsg);
+        logger.warn(
+          `Circuit breaker opened for rate limit: ${this.rateLimitConsecutiveFailures} consecutive failures`,
+          {
+            failureReason: this.lastFailureReason,
+            errorType: this.lastErrorType,
+            rateLimitConsecutiveFailures: this.rateLimitConsecutiveFailures,
+          }
+        );
+        return;
+      }
+
       const currentThreshold = this.getAdaptiveThreshold();
 
       if (
@@ -943,10 +965,16 @@ export class CircuitBreaker {
     retryAfterMs?: number,
     failureReason?: string
   ): number {
+    // For rate limit errors, use the dedicated rate limit failure counter for proper scaling
+    const consecutiveFailures =
+      errorType === 'rateLimited'
+        ? this.rateLimitConsecutiveFailures
+        : this.consecutiveFailedRecoveries;
+
     return calculateCircuitBreakerBackoff(
       errorType,
       failureReason ?? this.lastFailureReason,
-      this.consecutiveFailedRecoveries,
+      consecutiveFailures,
       retryAfterMs,
       this.config.backoff
     );

@@ -279,6 +279,7 @@ const HTTP_STATUS_PATTERNS = {
   serverError: /^5\d{2}$|http 5\d{2}/i,
   retryableServerErrors: [502, 503, 504], // Bad Gateway, Service Unavailable, Gateway Timeout
   nonRetryableClientErrors: [400, 401, 403, 404, 405, 406, 410, 422], // Permanent client errors
+  rateLimitCodes: [429], // Rate limit (Too Many Requests)
 };
 
 /**
@@ -613,6 +614,27 @@ export class ErrorClassifier {
         category: ErrorCategory.CONFIGURATION,
         severity: ErrorSeverity.CRITICAL,
         retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.CONFIGURATION],
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
+    // HTTP 429 Rate Limit - retryable with extended backoff
+    if (statusCode === 429) {
+      return {
+        type: 'rateLimited',
+        isRetryable: true,
+        isTransient: true,
+        isPermanent: false,
+        shouldCircuitBreak: true,
+        category: ErrorCategory.NETWORK,
+        severity: ErrorSeverity.MEDIUM,
+        retryStrategy: {
+          initialDelay: 300000, // 5 minutes base
+          backoffMultiplier: 3,
+          maxAttempts: 5,
+          testType: 'lightweight' as const,
+          successThreshold: 1,
+        },
         matchedPattern: `HTTP ${statusCode}`,
       };
     }

@@ -389,6 +389,7 @@ describe('Error Handling Integration Tests', () => {
       defaultRetryAfterMs: 60000,  // 1 minute
       maxRetryAfterMs: 300000,     // 5 minutes
       enableRetryAfterHeader: true,
+      jitterFactor: 0.25,
     };
 
     it('should use exponential backoff for Ollama (ignores Retry-After)', () => {
@@ -514,6 +515,7 @@ describe('Error Handling Integration Tests', () => {
         defaultRetryAfterMs: 60000,
         maxRetryAfterMs: 300000,
         enableRetryAfterHeader: true,
+        jitterFactor: 0.25,
       };
 
       // OpenAI respects Retry-After

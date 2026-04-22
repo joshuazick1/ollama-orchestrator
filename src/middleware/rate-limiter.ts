@@ -127,6 +127,7 @@ export function createAuthRateLimiter(): any {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createInferenceRateLimiter(): any {
   return createRateLimiter({
+    enabled: false, // Inference rate limiting disabled - let Ollama servers handle their own limits
     windowMs: 15 * 60 * 1000, // 15 minutes
     maxRequests: 100, // 100 inference requests per 15 minutes per key/IP
     skipSuccessfulRequests: false,

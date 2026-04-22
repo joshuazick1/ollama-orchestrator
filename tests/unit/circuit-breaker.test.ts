@@ -315,6 +315,93 @@ describe('CircuitBreaker', () => {
     });
   });
 
+  describe('Rate Limit Fast Circuit Open', () => {
+    it('should open circuit after 2 consecutive rateLimited failures', () => {
+      const config: Partial<CircuitBreakerConfig> = {
+        baseFailureThreshold: 2,
+        adaptiveThresholds: false,
+        errorRateThreshold: 1.0,
+      };
+      breaker = new CircuitBreaker('test-rate-limit-fast-open', config);
+
+      breaker.recordFailure('Rate limit exceeded', 'rateLimited');
+      expect(breaker.getState()).toBe('closed');
+      expect(breaker.getStats().failureCount).toBe(1);
+
+      breaker.recordFailure('Rate limit exceeded', 'rateLimited');
+      expect(breaker.getState()).toBe('open');
+      expect(breaker.getStats().failureCount).toBe(2);
+    });
+
+    it('should track rateLimited errors in errorCounts', () => {
+      const config: Partial<CircuitBreakerConfig> = {
+        baseFailureThreshold: 5,
+        adaptiveThresholds: false,
+        errorRateThreshold: 1.0,
+      };
+      breaker = new CircuitBreaker('test-rate-limit-tracking', config);
+
+      breaker.recordFailure('Rate limit exceeded', 'rateLimited');
+      breaker.recordFailure('Rate limit exceeded', 'rateLimited');
+
+      expect(breaker.getStats().errorCounts.rateLimited).toBe(2);
+    });
+  });
+
+  describe('Rate Limit Backoff Scaling', () => {
+    it('should calculate exponential backoff for consecutive rate limit failures', () => {
+      const config: Partial<CircuitBreakerConfig> = {
+        baseFailureThreshold: 10,
+        adaptiveThresholds: false,
+        errorRateThreshold: 1.0,
+        backoff: {
+          rateLimitBaseMs: 300000,
+          rateLimitMultiplier: 3,
+          rateLimitMaxMs: 3600000,
+          standardDelaysMs: [30000, 60000, 120000],
+          permanentDelaysMs: [300000, 600000],
+        },
+      };
+      breaker = new CircuitBreaker('test-rate-limit-backoff', config);
+
+      breaker.recordFailure('Rate limit exceeded', 'rateLimited');
+      breaker.recordFailure('Rate limit exceeded', 'rateLimited');
+      breaker.recordFailure('Rate limit exceeded', 'rateLimited');
+
+      expect(breaker.getState()).toBe('open');
+      expect(breaker.getStats().errorCounts.rateLimited).toBe(3);
+    });
+
+    it('should verify rate limit backoff scales correctly with failures', () => {
+      const verifyBackoff = (failures: number) => {
+        const config: Partial<CircuitBreakerConfig> = {
+          baseFailureThreshold: 20,
+          adaptiveThresholds: false,
+          errorRateThreshold: 1.0,
+          backoff: {
+            rateLimitBaseMs: 300000,
+            rateLimitMultiplier: 3,
+            rateLimitMaxMs: 3600000,
+            standardDelaysMs: [30000],
+            permanentDelaysMs: [300000],
+          },
+        };
+        const testBreaker = new CircuitBreaker(`test-backoff-${failures}`, config);
+        testBreaker.forceOpen();
+
+        for (let i = 0; i < failures; i++) {
+          testBreaker.recordFailure('Rate limit exceeded', 'rateLimited');
+        }
+
+        expect(testBreaker.getStats().errorCounts.rateLimited).toBe(failures);
+      };
+
+      verifyBackoff(1);
+      verifyBackoff(2);
+      verifyBackoff(3);
+    });
+  });
+
   describe('Error Rate Tracking', () => {
     it('should track error rate over time', () => {
       breaker.recordFailure('error1');

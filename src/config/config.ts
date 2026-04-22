@@ -83,6 +83,8 @@ export interface RetryConfig {
   backoffMultiplier: number; // Exponential backoff multiplier
   maxRetryDelayMs: number; // Maximum delay between retries
   retryableStatusCodes: number[]; // HTTP status codes to retry on same server
+  jitterFactor: number; // Jitter variance (0-1, default ±25%)
+  maxBudget: number; // Max total retry attempts across all servers
 }
 
 export interface CooldownConfig {
@@ -94,6 +96,7 @@ export interface RateLimitConfig {
   defaultRetryAfterMs: number; // Default retry delay when no Retry-After header
   maxRetryAfterMs: number; // Maximum retry delay cap
   enableRetryAfterHeader: boolean; // Whether to respect Retry-After header
+  jitterFactor: number; // Per-provider jitter override (0-1)
 }
 
 export interface RecoveryTestConfig {
@@ -188,6 +191,13 @@ export interface AnthropicConfig {
   supportedFeatures: string[];
 }
 
+export interface ErrorAggregatorConfig {
+  enabled: boolean;
+  rateLimitThreshold: number;
+  timeWindowMs: number;
+  clusterBackoffMs: number;
+}
+
 export interface OrchestratorConfig {
   // Server settings
   port: number;
@@ -218,6 +228,7 @@ export interface OrchestratorConfig {
   storage: StorageConfig;
   probeScheduler: ProbeSchedulerConfig;
   anthropic: AnthropicConfig;
+  errorAggregator: ErrorAggregatorConfig;
 
   // Ollama servers
   servers: ServerConfig[];
@@ -335,6 +346,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     adaptiveThresholdAdjustment: 2,
     nonRetryableRatioThreshold: 0.5,
     transientRatioThreshold: 0.7,
+    rateLimitFailureThreshold: 2,
     modelEscalation: {
       enabled: true,
       ratioThreshold: 0.5, // 50%
@@ -405,6 +417,8 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     backoffMultiplier: 2, // Double delay each retry
     maxRetryDelayMs: 5000, // Max 5 seconds between retries
     retryableStatusCodes: [503, 502, 504], // Gateway errors - retry on same server
+    jitterFactor: 0.25, // ±25% jitter variance
+    maxBudget: 10, // Max total retry attempts across all servers
   },
 
   cooldown: {
@@ -416,6 +430,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     defaultRetryAfterMs: 60000,
     maxRetryAfterMs: 300000,
     enableRetryAfterHeader: true,
+    jitterFactor: 0.25,
   },
 
   recoveryTest: {
@@ -496,6 +511,13 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   anthropic: {
     enabled: true,
     supportedFeatures: [],
+  },
+
+  errorAggregator: {
+    enabled: true,
+    rateLimitThreshold: 5,
+    timeWindowMs: 10000,
+    clusterBackoffMs: 30000,
   },
 
   servers: [],
@@ -923,6 +945,7 @@ export class ConfigManager {
         : DEFAULT_CONFIG.storage,
       probeScheduler: { ...DEFAULT_CONFIG.probeScheduler, ...partial.probeScheduler },
       anthropic: { ...DEFAULT_CONFIG.anthropic, ...partial.anthropic },
+      errorAggregator: { ...DEFAULT_CONFIG.errorAggregator, ...partial.errorAggregator },
       servers: partial.servers ?? DEFAULT_CONFIG.servers,
       persistencePath: partial.persistencePath ?? DEFAULT_CONFIG.persistencePath,
       configReloadIntervalMs:

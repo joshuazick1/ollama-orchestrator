@@ -107,6 +107,8 @@ export const retryConfigSchema = z.object({
   backoffMultiplier: z.number().min(1).default(2),
   maxRetryDelayMs: z.number().int().min(100).default(5000),
   retryableStatusCodes: z.array(z.number()).default([503, 502, 504]),
+  jitterFactor: z.number().min(0).max(1).default(0.25), // Jitter variance (0-1, default ±25%)
+  maxBudget: z.number().int().min(1).default(10), // Max total retry attempts across all servers
 });
 
 /**
@@ -124,6 +126,7 @@ export const rateLimitConfigSchema = z.object({
   defaultRetryAfterMs: z.number().int().min(0).default(60000), // Default retry delay when no Retry-After header
   maxRetryAfterMs: z.number().int().min(0).default(300000), // Maximum retry delay cap
   enableRetryAfterHeader: z.boolean().default(true), // Whether to respect Retry-After header
+  jitterFactor: z.number().min(0).max(1).default(0.25), // Jitter factor for exponential backoff (0-1, default ±25%)
 });
 
 /**
@@ -275,6 +278,7 @@ export const circuitBreakerConfigSchema = z.object({
   adaptiveThresholdAdjustment: z.number().int().min(1).max(10).default(2),
   nonRetryableRatioThreshold: z.number().min(0).max(1).default(0.5),
   transientRatioThreshold: z.number().min(0).max(1).default(0.7),
+  rateLimitFailureThreshold: z.number().int().min(1).default(2),
   // Model-to-server breaker escalation settings
   modelEscalation: z
     .object({
@@ -457,6 +461,14 @@ export const probeSchedulerConfigSchema = z.object({
   lowTrafficThreshold: z.number().min(0).max(1).default(0.3),
 });
 
+export const errorAggregatorConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  rateLimitThreshold: z.number().int().min(2).default(5),
+  timeWindowMs: z.number().int().min(1000).default(10000),
+  clusterBackoffMs: z.number().int().default(30000),
+  clusterSize: z.number().int().min(1).optional(),
+});
+
 /**
  * Anthropic configuration schema
  */
@@ -499,6 +511,7 @@ export const orchestratorConfigSchema = z.object({
   storage: storageConfigSchema,
   probeScheduler: probeSchedulerConfigSchema,
   anthropic: anthropicConfigSchema,
+  errorAggregator: errorAggregatorConfigSchema,
 
   // Ollama servers
   servers: z.array(serverConfigSchema).default([]),
@@ -531,6 +544,7 @@ export type StorageTemporalConfig = z.infer<typeof storageTemporalConfigSchema>;
 export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
+export type ErrorAggregatorConfig = z.infer<typeof errorAggregatorConfigSchema>;
 export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
 

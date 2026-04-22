@@ -6,6 +6,8 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+
 import {
   getTopModels,
   getServerPerformance,
@@ -145,3 +147,12 @@ monitoringRouter.get('/servers/:serverId/models/:model/circuit-breaker', require
 monitoringRouter.get('/errors', requireAuth(), getErrors);
 monitoringRouter.get('/errors/:serverId', requireAuth(), getServerErrors);
 monitoringRouter.get('/errors/:serverId/:circuitId', requireAuth(), getCircuitErrors);
+
+monitoringRouter.get(
+  '/cluster-status',
+  requireAuth(),
+  asyncHandler((req: Request, res: Response) => {
+    const status = getOrchestratorInstance().getClusterStatus();
+    res.json({ status: 'ok', data: status });
+  })
+);
