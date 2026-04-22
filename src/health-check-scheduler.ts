@@ -350,7 +350,7 @@ export class HealthCheckScheduler {
                 logger.debug('Health probe timeout for /v1/models - endpoint exists but slow', {
                   serverId: server.id,
                 });
-                return { ok: true } as Response;
+                return { ok: true, json: async () => ({ data: [] }) } as unknown as Response;
               }
               // Network error (ECONNREFUSED, ECONNRESET, etc.) - endpoint doesn't exist
               logger.warn('Health probe failed for /v1/models', {
