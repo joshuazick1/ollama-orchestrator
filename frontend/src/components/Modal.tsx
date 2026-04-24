@@ -90,7 +90,7 @@ export const Modal = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm motion-reduce:bg-black/90 animate-in fade-in duration-200"
       onClick={handleOverlayClick}
     >
       <div
@@ -121,7 +121,7 @@ export const Modal = ({
         </div>
         <div className="p-6 max-h-[70vh] overflow-y-auto">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-3 p-4 border-t border-surface-border bg-surface/50 rounded-b-xl">
+          <div className="flex justify-end gap-3 p-4 border-t border-surface-border bg-surface rounded-b-xl">
             {footer}
           </div>
         )}
