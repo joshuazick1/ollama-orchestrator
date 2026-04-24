@@ -149,7 +149,11 @@ export const addServer = async (server: {
     }
 
     // Add forcedCapabilities if any force flags are provided
-    if (server.forceOllama !== undefined || server.forceV1 !== undefined || server.forceAnthropic !== undefined) {
+    if (
+      server.forceOllama !== undefined ||
+      server.forceV1 !== undefined ||
+      server.forceAnthropic !== undefined
+    ) {
       backendPayload.forcedCapabilities = {
         supportsOllama: server.forceOllama ?? false,
         supportsV1: server.forceV1 ?? false,
@@ -193,8 +197,9 @@ export const getServerModelMetrics = async (
   model: string
 ): Promise<ServerModelMetrics> => {
   return apiCall(async () => {
-    // Encode both serverId and model to safely include slashes and special chars
-    const sid = encodeURIComponent(serverId);
+    // Decode if already encoded (from circuit breaker data), then re-encode
+    const decodedSid = serverId.includes('%') ? decodeURIComponent(serverId) : serverId;
+    const sid = encodeURIComponent(decodedSid);
     const m = encodeURIComponent(model);
     const response = await api.get(`/metrics/${sid}/${m}`);
     return response.data;
@@ -470,9 +475,13 @@ export const importConfig = async (
   mode: 'merge' | 'replace' = 'merge'
 ): Promise<ImportConfigResult> => {
   return apiCall(async () => {
-    const response = await api.post('/config/import', { config, version: 1 }, {
-      params: { mode },
-    });
+    const response = await api.post(
+      '/config/import',
+      { config, version: 1 },
+      {
+        params: { mode },
+      }
+    );
     return response.data;
   });
 };
@@ -1011,7 +1020,9 @@ export const getUserAccess = async (userId: string): Promise<UserAccess> => {
   });
 };
 
-export const rotateApiKey = async (userId: string): Promise<{ apiKey: string; message: string }> => {
+export const rotateApiKey = async (
+  userId: string
+): Promise<{ apiKey: string; message: string }> => {
   return apiCall(async () => {
     const response = await api.post(`/users/${userId}/rotate-api-key`);
     return response.data;
