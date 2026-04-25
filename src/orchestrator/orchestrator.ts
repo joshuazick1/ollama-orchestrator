@@ -3076,7 +3076,7 @@ export class AIOrchestrator {
             { errorType, error: errorMessage }
           );
 
-          await this.sleep(delay);
+          await sleep(delay);
           retryCount++;
           continue; // Retry on same server
         }
@@ -3263,13 +3263,6 @@ export class AIOrchestrator {
     }
 
     errors.push({ server: server.id, error: errorMessage, type: errorType });
-  }
-
-  /**
-   * Sleep helper for retry delays
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**

@@ -36,9 +36,17 @@ export async function withRetry<T>(
     maxDelay?: number;
     multiplier?: number;
     onRetry?: (attempt: number, error: Error) => void;
+    useBackoffModule?: boolean;
   } = {}
 ): Promise<T> {
-  const { maxAttempts = 3, baseDelay = 1000, maxDelay = 30000, multiplier = 2, onRetry } = options;
+  const {
+    maxAttempts = 3,
+    baseDelay = 1000,
+    maxDelay = 30000,
+    multiplier = 2,
+    onRetry,
+    useBackoffModule = false,
+  } = options;
 
   let lastError: Error = new Error('All retries failed');
 
@@ -50,7 +58,19 @@ export async function withRetry<T>(
 
       if (attempt < maxAttempts) {
         onRetry?.(attempt, lastError);
-        const delay = Math.min(baseDelay * Math.pow(multiplier, attempt - 1), maxDelay);
+        let delay: number;
+        if (useBackoffModule) {
+          const { calculateBackoff } = await import('./backoff/index.js');
+          const result = calculateBackoff('exponential', {
+            attempt: attempt - 1,
+            baseDelayMs: baseDelay,
+            maxDelayMs: maxDelay,
+            multiplier,
+          });
+          delay = result.delayMs;
+        } else {
+          delay = Math.min(baseDelay * Math.pow(multiplier, attempt - 1), maxDelay);
+        }
         await sleep(delay);
       }
     }

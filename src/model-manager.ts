@@ -12,39 +12,11 @@ import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 
-/** Response shape from Ollama /api/generate endpoint */
-interface OllamaGenerateResponse {
-  model?: string;
-  response?: string;
-  done?: boolean;
-  total_duration?: number;
-  load_duration?: number;
-}
-
-/** Response shape from Ollama /api/show endpoint */
-interface OllamaShowResponse {
-  size?: number;
-  details?: {
-    parameter_size?: string;
-    quantization_level?: string;
-    family?: string;
-    context_length?: number;
-  };
-  model_info?: Record<string, number | string | boolean>;
-}
-
-/** Individual process entry from Ollama /api/ps */
-interface OllamaProcessEntry {
-  model?: string;
-  name?: string;
-  size_vram?: number;
-  vram?: number;
-}
-
-/** Response shape from Ollama /api/ps endpoint */
-interface OllamaProcessListResponse {
-  models?: OllamaProcessEntry[];
-}
+import type {
+  OllamaGenerateResponse,
+  OllamaShowResponse,
+  OllamaProcessListResponse,
+} from './types/ollama/index.js';
 
 /** Server status entry in warmup status result */
 interface ServerWarmupStatusEntry {
