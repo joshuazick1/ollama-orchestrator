@@ -1157,7 +1157,37 @@ export async function streamAnthropicResponse(
           currentEventType ? `event: ${currentEventType}\ndata: ${data}\n\n` : `data: ${data}\n\n`
         );
         if (!writeResult) {
-          await new Promise<void>(r => clientResponse.once('drain', r));
+          // Buffer is full, wait for drain — but also unblock on abort or client disconnect
+          // so we never deadlock here when the client is gone.
+          await new Promise<void>(resolve => {
+            let settled = false;
+            const cleanup = () => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              clientResponse.removeListener('drain', onDrain);
+              clientResponse.removeListener('close', onClose);
+              clientResponse.removeListener('finish', onClose);
+              abortController.signal.removeEventListener('abort', onAbort);
+            };
+            const onDrain = () => {
+              cleanup();
+              resolve();
+            };
+            const onClose = () => {
+              cleanup();
+              resolve();
+            };
+            const onAbort = () => {
+              cleanup();
+              resolve();
+            };
+            clientResponse.once('drain', onDrain);
+            clientResponse.once('close', onClose);
+            clientResponse.once('finish', onClose);
+            abortController.signal.addEventListener('abort', onAbort, { once: true });
+          });
         }
 
         currentEventType = '';

@@ -66,6 +66,36 @@ function generateId(prefix: string = 'chatcmpl'): string {
   return `${prefix}-${Date.now().toString(36)}-${crypto.randomUUID().replace(/-/g, '').slice(0, 13)}`;
 }
 
+function waitForDrain(clientResponse: Response, abortSignal?: AbortSignal): Promise<void> {
+  return new Promise<void>(resolve => {
+    let settled = false;
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      clientResponse.removeListener('drain', onDrain);
+      clientResponse.removeListener('close', onClose);
+      clientResponse.removeListener('finish', onClose);
+      abortSignal?.removeEventListener('abort', onAbort);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onAbort = () => {
+      cleanup();
+      resolve();
+    };
+    clientResponse.once('drain', onDrain);
+    clientResponse.once('close', onClose);
+    clientResponse.once('finish', onClose);
+    abortSignal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /**
  * Stream OpenAI-format SSE response from Ollama's NDJSON stream
  */
@@ -88,7 +118,8 @@ async function streamOpenAIResponse(
   preEnd?: (
     clientResponse: Response,
     tokenData?: { promptTokens: number; completionTokens: number }
-  ) => void
+  ) => void,
+  activityController?: { controller: { signal: AbortSignal } }
 ): Promise<void> {
   const startTime = Date.now();
   let totalTokens = 0;
@@ -211,7 +242,7 @@ async function streamOpenAIResponse(
 
             const writeResult1 = clientResponse.write(`data: ${safeJsonStringify(finalDelta)}\n\n`);
             if (!writeResult1) {
-              await new Promise<void>(r => clientResponse.once('drain', r));
+              await waitForDrain(clientResponse, activityController?.controller.signal);
             }
 
             // Include usage if requested
@@ -232,13 +263,13 @@ async function streamOpenAIResponse(
                 `data: ${safeJsonStringify(usageChunk)}\n\n`
               );
               if (!writeResult2) {
-                await new Promise<void>(r => clientResponse.once('drain', r));
+                await waitForDrain(clientResponse, activityController?.controller.signal);
               }
             }
 
             const writeResult3 = clientResponse.write('data: [DONE]\n\n');
             if (!writeResult3) {
-              await new Promise<void>(r => clientResponse.once('drain', r));
+              await waitForDrain(clientResponse, activityController?.controller.signal);
             }
             continue;
           }
@@ -269,7 +300,7 @@ async function streamOpenAIResponse(
               `data: ${safeJsonStringify(roleChunk)}\n\n`
             );
             if (!writeResultRole) {
-              await new Promise<void>(r => clientResponse.once('drain', r));
+              await waitForDrain(clientResponse, activityController?.controller.signal);
             }
           }
 
@@ -325,7 +356,7 @@ async function streamOpenAIResponse(
 
             const writeResult4 = clientResponse.write(`data: ${safeJsonStringify(sseChunk)}\n\n`);
             if (!writeResult4) {
-              await new Promise<void>(r => clientResponse.once('drain', r));
+              await waitForDrain(clientResponse, activityController?.controller.signal);
             }
           }
         } catch (e) {
@@ -389,7 +420,8 @@ async function passthroughSSEStream(
   stallThresholdMs?: number,
   stallCheckIntervalMs?: number,
   _onStreamEnd?: () => void,
-  preEnd?: (clientResponse: Response) => void
+  preEnd?: (clientResponse: Response) => void,
+  activityController?: { controller: { signal: AbortSignal } }
 ): Promise<void> {
   const startTime = Date.now();
   const effectiveStallThreshold = stallThresholdMs ?? 300000;
@@ -459,7 +491,7 @@ async function passthroughSSEStream(
         // Forward SSE lines verbatim (includes `data: …` and blank separator lines)
         const writeResult = clientResponse.write(`${line}\n`);
         if (!writeResult) {
-          await new Promise<void>(r => clientResponse.once('drain', r));
+          await waitForDrain(clientResponse, activityController?.controller.signal);
         }
 
         // Detect [DONE] sentinel for logging
@@ -486,7 +518,7 @@ async function passthroughSSEStream(
     if (buffer.trim()) {
       const writeResult = clientResponse.write(`${buffer}\n`);
       if (!writeResult) {
-        await new Promise<void>(r => clientResponse.once('drain', r));
+        await waitForDrain(clientResponse, activityController?.controller.signal);
       }
     }
 
@@ -803,7 +835,8 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                         res.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                       }
                     }
-                  : undefined
+                  : undefined,
+                activityController
               );
             } else {
               // REC-36: Server only speaks Ollama NDJSON — translate to OpenAI SSE
@@ -875,7 +908,8 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                         clientResponse.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                       }
                     }
-                  : undefined
+                  : undefined,
+                activityController
               );
             }
 
@@ -1080,7 +1114,8 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
                       clientResponse.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                     }
                   }
-                : undefined
+                : undefined,
+              activityController
             );
           } finally {
             activityController.clearTimeout();
@@ -1534,7 +1569,8 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
                       clientResponse.write(`data: ${JSON.stringify({ debug: debugInfo })}\n\n`);
                     }
                   }
-                : undefined
+                : undefined,
+              activityController
             );
 
             logger.info('STREAM_COMPLETE', {

@@ -194,13 +194,17 @@ export class AIOrchestrator {
     this.banManager = new BanManager();
 
     const eaConfig = this.config.errorAggregator;
-    this.errorAggregator = new ErrorAggregator(eaConfig ? {
-      enabled: eaConfig.enabled,
-      rateLimitThreshold: eaConfig.rateLimitThreshold,
-      timeWindowMs: eaConfig.timeWindowMs,
-      clusterBackoffMs: eaConfig.clusterBackoffMs,
-      clusterSize: this.servers.length,
-    } : {});
+    this.errorAggregator = new ErrorAggregator(
+      eaConfig
+        ? {
+            enabled: eaConfig.enabled,
+            rateLimitThreshold: eaConfig.rateLimitThreshold,
+            timeWindowMs: eaConfig.timeWindowMs,
+            clusterBackoffMs: eaConfig.clusterBackoffMs,
+            clusterSize: this.servers.length,
+          }
+        : {}
+    );
     this.errorAggregator.startPeriodicCleanup();
 
     // Initialize InFlightManager - use the shared singleton so all modules
@@ -561,7 +565,7 @@ export class AIOrchestrator {
 
   /**
    * Add a new Ollama server to the registry.
-   * 
+   *
    * Atomic duplicate handling: The check-and-add operation is synchronous and
    * atomic from the caller's perspective (single-threaded JavaScript event loop).
    * However, concurrent HTTP requests could theoretically pass the duplicate
@@ -674,7 +678,17 @@ export class AIOrchestrator {
    */
   updateServer(
     serverId: string,
-    updates: Partial<Pick<AIServer, 'maxConcurrency' | 'modelContextLimits' | 'type' | 'v1Models' | 'forcedCapabilities' | 'endpointOverrides'>>
+    updates: Partial<
+      Pick<
+        AIServer,
+        | 'maxConcurrency'
+        | 'modelContextLimits'
+        | 'type'
+        | 'v1Models'
+        | 'forcedCapabilities'
+        | 'endpointOverrides'
+      >
+    >
   ): boolean {
     const server = this.servers.find(s => s.id === serverId);
     if (!server) {
@@ -1217,7 +1231,7 @@ export class AIOrchestrator {
     data: Array<{ id: string; object: string; created: number; owned_by: string }>;
   } {
     const seenModels = new Set<string>();
-    
+
     const modelToServers = new Map<string, string[]>();
 
     for (const server of this.servers) {
@@ -1718,7 +1732,9 @@ export class AIOrchestrator {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
     const routingStartTime = Date.now();
 
-    const retryBudget = new RetryBudget((this.config.retry as { maxBudget?: number })?.maxBudget ?? 10);
+    const retryBudget = new RetryBudget(
+      (this.config.retry as { maxBudget?: number })?.maxBudget ?? 10
+    );
 
     // Check for abort before starting
     if (signal?.aborted) {
@@ -1726,19 +1742,25 @@ export class AIOrchestrator {
     }
 
     const clusterBackoffMs = this.errorAggregator.getBackoffForCluster();
-    const rateLimitedServerIds = Object.keys(this.errorAggregator.getErrorSummary().rateLimitServers);
+    const rateLimitedServerIds = Object.keys(
+      this.errorAggregator.getErrorSummary().rateLimitServers
+    );
 
     const eligibleForBackoff = this.servers.filter(s => {
       if (requiredCapability === 'ollama' && s.supportsOllama === false) return false;
       if (requiredCapability === 'openai') {
-        const hasV1Evidence = s.supportsV1 === true || (s.v1Models && s.v1Models.length > 0) || (s.discoveredV1Models && s.discoveredV1Models.length > 0);
+        const hasV1Evidence =
+          s.supportsV1 === true ||
+          (s.v1Models && s.v1Models.length > 0) ||
+          (s.discoveredV1Models && s.discoveredV1Models.length > 0);
         if (!hasV1Evidence) return false;
       }
       if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) return false;
       return s.healthy && !this.isInCooldown(s.id, model) && !this.banManager.isBanned(s.id, model);
     });
 
-    const shouldDelay = clusterBackoffMs > 0 && eligibleForBackoff.some(s => rateLimitedServerIds.includes(s.id));
+    const shouldDelay =
+      clusterBackoffMs > 0 && eligibleForBackoff.some(s => rateLimitedServerIds.includes(s.id));
     if (shouldDelay) {
       await sleep(clusterBackoffMs);
     }
@@ -1818,8 +1840,9 @@ export class AIOrchestrator {
         undefined,
         (serverId, model) => this.getTimeout(serverId, model),
         serverId => this.getCircuitBreakerHealth(serverId),
-        undefined,
-        undefined,
+        estimatedPromptTokens,
+        (serverId, model) =>
+          this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model),
         userId,
         isAdmin
       );
@@ -2110,7 +2133,9 @@ export class AIOrchestrator {
       retryBudget.recordAttempt(server.id);
       if (retryBudget.isExhausted()) {
         const uniqueServerCount = new Set(allServersTried).size;
-        throw new Error(`Retry budget exhausted after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`);
+        throw new Error(
+          `Retry budget exhausted after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`
+        );
       }
       logger.info(`Server ${server.id} failed, failing over to next candidate`, { model });
     }
@@ -2251,7 +2276,9 @@ export class AIOrchestrator {
       retryBudget.recordAttempt(server.id);
       if (retryBudget.isExhausted()) {
         const uniqueServerCount = new Set(allServersTried).size;
-        throw new Error(`Retry budget exhausted after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`);
+        throw new Error(
+          `Retry budget exhausted after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`
+        );
       }
     }
 
@@ -2263,7 +2290,9 @@ export class AIOrchestrator {
     }
     if (!retryBudget.canRetry()) {
       const uniqueServerCount = new Set(allServersTried).size;
-      throw new Error(`Retry budget exhausted before Phase 3 after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`);
+      throw new Error(
+        `Retry budget exhausted before Phase 3 after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`
+      );
     }
     logger.info(
       `Phase 3: All servers exhausted twice. Attempting same-server retries on initial server ${initialServer.id}`,
@@ -2358,7 +2387,9 @@ export class AIOrchestrator {
       retryBudget.recordAttempt(initialServer.id);
       if (retryBudget.isExhausted()) {
         const uniqueServerCount = new Set(allServersTried).size;
-        throw new Error(`Retry budget exhausted after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`);
+        throw new Error(
+          `Retry budget exhausted after ${retryBudget.getAttemptsUsed()} attempts across ${uniqueServerCount} servers`
+        );
       }
     }
 
@@ -2373,7 +2404,8 @@ export class AIOrchestrator {
         routingContext.failoverErrors = failoverErrors;
       }
       routingContext.retryBudgetUsed = retryBudget.getAttemptsUsed();
-      routingContext.retryBudgetMax = retryBudget.getAttemptsRemaining() + retryBudget.getAttemptsUsed();
+      routingContext.retryBudgetMax =
+        retryBudget.getAttemptsRemaining() + retryBudget.getAttemptsUsed();
     }
 
     // Distinguish concurrency saturation from other failures
@@ -3180,16 +3212,22 @@ export class AIOrchestrator {
 
         if (failureCount >= rateLimitThreshold) {
           // Don't mark server unhealthy for rate limits - they're temporary
-          logger.warn(`RATE LIMIT ERROR: ${server.id} for model ${model} (${failureCount}/${rateLimitThreshold} failures - circuit breaker will handle)`, {
-            error: errorMessage,
-            threshold: rateLimitThreshold,
-            model,
-          });
+          logger.warn(
+            `RATE LIMIT ERROR: ${server.id} for model ${model} (${failureCount}/${rateLimitThreshold} failures - circuit breaker will handle)`,
+            {
+              error: errorMessage,
+              threshold: rateLimitThreshold,
+              model,
+            }
+          );
         } else {
-          logger.warn(`RATE LIMIT ERROR: ${server.id} for model ${model} (${failureCount}/${rateLimitThreshold} failures)`, {
-            error: errorMessage,
-            remainingBeforeCircuitBreaker: rateLimitThreshold - failureCount,
-          });
+          logger.warn(
+            `RATE LIMIT ERROR: ${server.id} for model ${model} (${failureCount}/${rateLimitThreshold} failures)`,
+            {
+              error: errorMessage,
+              remainingBeforeCircuitBreaker: rateLimitThreshold - failureCount,
+            }
+          );
         }
         this.recordFailure(server.id, errorType, model);
         break;

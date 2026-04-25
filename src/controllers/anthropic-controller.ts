@@ -36,7 +36,8 @@ async function passthroughAnthropicSSE(
   clientResponse: Response,
   serverId: string,
   model: string,
-  _streamingTelemetryMeta?: StreamingTelemetryMeta
+  _streamingTelemetryMeta?: StreamingTelemetryMeta,
+  abortSignal?: AbortSignal
 ): Promise<void> {
   const startTime = Date.now();
 
@@ -68,7 +69,33 @@ async function passthroughAnthropicSSE(
       for (const line of lines) {
         const writeResult = clientResponse.write(`${line}\n`);
         if (!writeResult) {
-          await new Promise<void>(r => clientResponse.once('drain', r));
+          await new Promise<void>(resolve => {
+            let settled = false;
+            const cleanup = () => {
+              if (settled) return;
+              settled = true;
+              clientResponse.removeListener('drain', onDrain);
+              clientResponse.removeListener('close', onClose);
+              clientResponse.removeListener('finish', onClose);
+              abortSignal?.removeEventListener('abort', onAbort);
+            };
+            const onDrain = () => {
+              cleanup();
+              resolve();
+            };
+            const onClose = () => {
+              cleanup();
+              resolve();
+            };
+            const onAbort = () => {
+              cleanup();
+              resolve();
+            };
+            clientResponse.once('drain', onDrain);
+            clientResponse.once('close', onClose);
+            clientResponse.once('finish', onClose);
+            abortSignal?.addEventListener('abort', onAbort, { once: true });
+          });
         }
       }
 
@@ -86,7 +113,33 @@ async function passthroughAnthropicSSE(
     if (buffer.trim()) {
       const writeResult = clientResponse.write(`${buffer}\n`);
       if (!writeResult) {
-        await new Promise<void>(r => clientResponse.once('drain', r));
+        await new Promise<void>(resolve => {
+          let settled = false;
+          const cleanup = () => {
+            if (settled) return;
+            settled = true;
+            clientResponse.removeListener('drain', onDrain);
+            clientResponse.removeListener('close', onClose);
+            clientResponse.removeListener('finish', onClose);
+            abortSignal?.removeEventListener('abort', onAbort);
+          };
+          const onDrain = () => {
+            cleanup();
+            resolve();
+          };
+          const onClose = () => {
+            cleanup();
+            resolve();
+          };
+          const onAbort = () => {
+            cleanup();
+            resolve();
+          };
+          clientResponse.once('drain', onDrain);
+          clientResponse.once('close', onClose);
+          clientResponse.once('finish', onClose);
+          abortSignal?.addEventListener('abort', onAbort, { once: true });
+        });
       }
     }
 
@@ -183,7 +236,8 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
         }
 
         const headers = buildUpstreamHeaders(server, anthropicVersion);
-        const anthropicPath = server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
+        const anthropicPath =
+          server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
         const upstreamUrl = `${server.url}${anthropicPath}`;
 
         if (stream) {
@@ -214,12 +268,19 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           }
 
           try {
-            await passthroughAnthropicSSE(response, res, server.id, model, {
-              serverId: server.id,
+            await passthroughAnthropicSSE(
+              response,
+              res,
+              server.id,
               model,
-              protocol: 'anthropic',
-              endpoint: 'messages',
-            });
+              {
+                serverId: server.id,
+                model,
+                protocol: 'anthropic',
+                endpoint: 'messages',
+              },
+              activityController.controller.signal
+            );
           } finally {
             activityController.clearTimeout();
           }
