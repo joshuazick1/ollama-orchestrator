@@ -7,7 +7,7 @@
 import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
-import { API_ENDPOINTS } from '../constants/index.js';
+import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import {
   getOrchestratorInstance,
   type RoutingContext,
@@ -72,7 +72,9 @@ function waitForDrain(clientResponse: Response, abortSignal?: AbortSignal): Prom
   return new Promise<void>(resolve => {
     let settled = false;
     const cleanup = () => {
-      if (settled) {return;}
+      if (settled) {
+        return;
+      }
       settled = true;
       clientResponse.removeListener('drain', onDrain);
       clientResponse.removeListener('close', onClose);
@@ -1000,7 +1002,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   if (!model) {
     res
       .status(400)
-      .json({ error: { message: 'model is required', type: 'invalid_request_error' } });
+      .json({ error: { message: ERROR_MESSAGES.MODEL_REQUIRED, type: 'invalid_request_error' } });
     return;
   }
 
@@ -1363,7 +1365,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
   if (!model) {
     res
       .status(400)
-      .json({ error: { message: 'model is required', type: 'invalid_request_error' } });
+      .json({ error: { message: ERROR_MESSAGES.MODEL_REQUIRED, type: 'invalid_request_error' } });
     return;
   }
 
@@ -1627,7 +1629,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
   if (!model) {
     res
       .status(400)
-      .json({ error: { message: 'model is required', type: 'invalid_request_error' } });
+      .json({ error: { message: ERROR_MESSAGES.MODEL_REQUIRED, type: 'invalid_request_error' } });
     return;
   }
 
@@ -1794,7 +1796,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
   if (!model) {
     res
       .status(400)
-      .json({ error: { message: 'model is required', type: 'invalid_request_error' } });
+      .json({ error: { message: ERROR_MESSAGES.MODEL_REQUIRED, type: 'invalid_request_error' } });
     return;
   }
   if (!body.input) {
