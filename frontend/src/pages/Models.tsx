@@ -18,6 +18,7 @@ import type { AIServer } from '../types';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import type { CircuitBreakerInfo } from '../api';
 import { toastSuccess, toastError } from '../utils/toast';
+import { safeArray } from '../utils/safeArray';
 import { CircuitDetailModal } from '../components/CircuitDetailModal';
 
 interface InFlightServer {
@@ -307,13 +308,11 @@ export const Models = () => {
   const circuitBreakerMap = useMemo(() => {
     const map = new Map<string, CircuitBreakerInfo>();
     const breakers = circuitBreakersData?.circuitBreakers;
-    if (Array.isArray(breakers)) {
-      breakers.forEach((cb: CircuitBreakerInfo) => {
-        if (cb.serverId) {
-          map.set(cb.serverId, cb);
-        }
-      });
-    }
+    safeArray<CircuitBreakerInfo>(breakers).forEach((cb: CircuitBreakerInfo) => {
+      if (cb.serverId) {
+        map.set(cb.serverId, cb);
+      }
+    });
     return map;
   }, [circuitBreakersData]);
 
@@ -340,13 +339,11 @@ export const Models = () => {
 
   useEffect(() => {
     const breakers = circuitBreakersData?.circuitBreakers;
-    if (Array.isArray(breakers)) {
-      breakers.forEach((cb: CircuitBreakerInfo) => {
-        if (cb.lbScore?.totalScore != null) {
-          scoreCache.current.set(cb.serverId, cb.lbScore.totalScore);
-        }
-      });
-    }
+    safeArray<CircuitBreakerInfo>(breakers).forEach((cb: CircuitBreakerInfo) => {
+      if (cb.lbScore?.totalScore != null) {
+        scoreCache.current.set(cb.serverId, cb.lbScore.totalScore);
+      }
+    });
   }, [circuitBreakersData]);
 
   if (mapLoading || serversLoading || circuitLoading || inFlightLoading) {

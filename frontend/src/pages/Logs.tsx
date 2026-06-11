@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getLogs, clearLogs } from '../api';
 import { Trash2, RefreshCw, FileText, ArrowDown, ArrowUp } from 'lucide-react';
 import { toastSuccess, toastError } from '../utils/toast';
+import { safeArray } from '../utils/safeArray';
 import { SkeletonTable } from '../components/skeletons';
 import { ErrorState } from '../components/EmptyState';
 import { DataToolbar } from '../components/DataToolbar';
@@ -96,15 +97,11 @@ export const Logs = () => {
         .split('\n')
         .filter(line => line.trim().length > 0)
         .map((line, i) => ({ id: i, content: line, level: getLogLevel(line) }));
-    } else if (Array.isArray(logs)) {
-      entries = logs.map((log, i) => {
+    } else {
+      entries = safeArray(logs).map((log, i) => {
         const content = typeof log === 'string' ? log : JSON.stringify(log);
         return { id: i, content, level: getLogLevel(content) };
       });
-    } else {
-      entries = [
-        { id: 0, content: JSON.stringify(logs), level: getLogLevel(JSON.stringify(logs)) },
-      ];
     }
 
     return entries;

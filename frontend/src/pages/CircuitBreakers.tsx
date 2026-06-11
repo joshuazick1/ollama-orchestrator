@@ -24,6 +24,7 @@ import { useState, useMemo } from 'react';
 import { formatTimeAgo, formatTimeUntil } from '../utils/formatting';
 import { getCircuitBreakerStateColor, getCircuitBreakerStateIcon } from '../utils/circuitBreaker';
 import { toastSuccess, toastError } from '../utils/toast';
+import { safeArray } from '../utils/safeArray';
 import { getBans, removeBan, clearAllBans, type BanEntry } from '../api';
 import { DataToolbar } from '../components/DataToolbar';
 import { ConfirmationModal } from '../components/ConfirmationModal';
@@ -472,7 +473,7 @@ export const CircuitBreakers = () => {
     );
   }
 
-  const breakers = Array.isArray(data?.circuitBreakers) ? data.circuitBreakers : [];
+  const breakers = safeArray<CircuitBreakerInfo>(data?.circuitBreakers);
   const openCount = breakers.filter(b => b.state === 'OPEN').length;
   const halfOpenCount = breakers.filter(b => b.state === 'HALF-OPEN').length;
   const closedCount = breakers.filter(b => b.state === 'CLOSED').length;
