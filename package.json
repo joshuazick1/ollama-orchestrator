@@ -1,4 +1,5 @@
 {
+  "//_comment": "Dependency audit (2026-06-03): All dependencies in 'dependencies' and 'devDependencies' are actively used. js-yaml is used via dynamic import in src/config/config.ts for YAML config support. compression is wired in src/index.ts.",
   "name": "ollama-orchestrator",
   "version": "1.0.0",
   "description": "Production-ready Ollama orchestrator with intelligent routing, historical metrics, and operational excellence",
@@ -54,6 +55,7 @@
     "helmet": "^7.1.0",
     "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.3",
+    "playwright": "^1.59.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -63,6 +65,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/compression": "^1.7.5",
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/express-rate-limit": "^6.0.2",
@@ -72,6 +75,7 @@
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "@vitest/coverage-v8": "^4.0.18",
+    "cookie-parser": "^1.4.7",
     "eslint": "^8.56.0",
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-security": "^2.1.0",

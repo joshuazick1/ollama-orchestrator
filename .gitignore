@@ -27,6 +27,7 @@ Thumbs.db
 # Test coverage
 coverage/
 test-results/
+tmp/
 playwright-report/
 reports/
 
@@ -57,3 +58,13 @@ load-test.sh
 
 # Design documents (not for commit)
 docs/DESIGN-*.md
+
+# Sisyphus orchestration state (boulder, evidence, drafts, plans)
+.sisyphus/
+.sisyphus/drafts/
+!.sisyphus/plans/
+.sisyphus/evidence/
+.sisyphus/notepads/
+
+# Playwright browser state
+.playwright-mcp/
