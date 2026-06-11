@@ -46,8 +46,22 @@
   "ignorePatterns": ["dist/", "node_modules/", "coverage/"],
   "overrides": [
     {
+      "files": ["src/**/*.ts"],
+      "excludedFiles": ["src/constants/api-endpoints.ts"],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "Literal[value='/api/tags'],Literal[value='/api/generate'],Literal[value='/api/chat'],Literal[value='/api/embeddings'],Literal[value='/api/pull'],Literal[value='/api/show'],Literal[value='/api/ps']",
+            "message": "Use API_ENDPOINTS.OLLAMA.* constants instead of hardcoded API paths. Import from './constants/api-endpoints.js' or '../constants/api-endpoints.js'."
+          }
+        ]
+      }
+    },
+    {
       "files": ["tests/**/*", "**/*.test.ts"],
       "rules": {
+        "no-restricted-syntax": "off",
         "@typescript-eslint/no-explicit-any": "off",
         "@typescript-eslint/unbound-method": "off",
         "@typescript-eslint/require-await": "off",
