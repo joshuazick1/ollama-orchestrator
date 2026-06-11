@@ -123,7 +123,7 @@ test.describe('Auth Smoke Tests', () => {
     expect(path).toBeDefined();
 
     const fs = await import('fs');
-    const content = fs.readFileSync(path!, 'utf-8');
+    const content = fs.readFileSync(path, 'utf-8');
     const parsed = JSON.parse(content);
 
     expect(parsed).toHaveProperty('exportedAt');

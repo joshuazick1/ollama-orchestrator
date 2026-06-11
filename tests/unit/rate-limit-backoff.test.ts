@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { calculateRateLimitBackoff, calculateExponentialBackoff } from '../../src/utils/rate-limit-backoff.js';
+
 import type { RateLimitConfig } from '../../src/config/schema.js';
+import { calculateRateLimitBackoff, calculateExponentialBackoff } from '../../src/utils/rate-limit-backoff.js';
 
 describe('calculateRateLimitBackoff', () => {
   const defaultConfig: RateLimitConfig = {

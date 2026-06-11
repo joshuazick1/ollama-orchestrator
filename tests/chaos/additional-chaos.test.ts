@@ -9,7 +9,10 @@ import { Server } from 'http';
 
 import { describe, it, expect, afterAll, afterEach } from 'vitest';
 
-import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../../src/circuit-breaker/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  DEFAULT_CIRCUIT_BREAKER_CONFIG,
+} from '../../src/circuit-breaker/circuit-breaker.js';
 import {
   createDiverseMockServer,
   mockServerFactory,
@@ -65,7 +68,6 @@ describe('Chaos: Security Attack Scenarios', () => {
         baseFailureThreshold: 3,
         openTimeout: 1000,
         halfOpenTimeout: 2000,
-        halfOpenMaxRequests: 10,
       });
 
       for (let i = 0; i < 5; i++) {
@@ -110,7 +112,6 @@ describe('Chaos: Security Attack Scenarios', () => {
         baseFailureThreshold: 2,
         openTimeout: 500,
         halfOpenTimeout: 1000,
-        halfOpenMaxRequests: 10,
       });
 
       for (let i = 0; i < 3; i++) {
@@ -231,13 +232,17 @@ describe('Chaos: Multi-Server Coordination', () => {
       for (let i = 0; i < 4; i++) {
         try {
           const res = await fetch(`http://localhost:${port1}/api/tags`);
-          if (!res.ok) {failures++;}
+          if (!res.ok) {
+            failures++;
+          }
         } catch {
           failures++;
         }
         try {
           const res = await fetch(`http://localhost:${port2}/api/tags`);
-          if (!res.ok) {failures++;}
+          if (!res.ok) {
+            failures++;
+          }
         } catch {
           failures++;
         }

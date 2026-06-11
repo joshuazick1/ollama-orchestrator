@@ -133,11 +133,11 @@ describe('JsonFileHandler', () => {
   });
 
   describe('write', () => {
-    it('should write data to file', () => {
+    it('should write data to file', async () => {
       const handler = new JsonFileHandler(testFilePath);
       const testData = { test: 'data', number: 123 };
 
-      const result = handler.write(testData);
+      const result = await handler.write(testData);
 
       expect(result).toBe(true);
       expect(fs.existsSync(testFilePath)).toBe(true);
@@ -146,42 +146,39 @@ describe('JsonFileHandler', () => {
       expect(written).toEqual(testData);
     });
 
-    it('should create backup before writing (lines 62-65)', () => {
+    it('should create backup before writing (lines 62-65)', async () => {
       const existingData = { existing: true };
       fs.writeFileSync(testFilePath, JSON.stringify(existingData), 'utf-8');
 
       const handler = new JsonFileHandler(testFilePath, { createBackups: true });
       const newData = { new: 'data' };
 
-      handler.write(newData);
+      await handler.write(newData);
 
-      // Check that backup was created
       const dir = path.dirname(testFilePath);
       const files = fs.readdirSync(dir);
       const backups = files.filter(f => f.includes('.backup.'));
       expect(backups.length).toBeGreaterThan(0);
     });
 
-    it('should skip backup when createBackups is false', () => {
+    it('should skip backup when createBackups is false', async () => {
       const existingData = { existing: true };
       fs.writeFileSync(testFilePath, JSON.stringify(existingData), 'utf-8');
 
       const handler = new JsonFileHandler(testFilePath, { createBackups: false });
       const newData = { new: 'data' };
 
-      handler.write(newData);
+      await handler.write(newData);
 
-      // Check that no backup was created
       const dir = path.dirname(testFilePath);
       const files = fs.readdirSync(dir);
       const backups = files.filter(f => f.includes('.backup.'));
       expect(backups.length).toBe(0);
     });
 
-    it('should cleanup temp file on write error (lines 79-86)', () => {
+    it('should cleanup temp file on write error (lines 79-86)', async () => {
       const handler = new JsonFileHandler(testFilePath);
 
-      // Mock fs.writeFileSync to throw error
       const originalWriteFile = fs.writeFileSync;
       fs.writeFileSync = vi.fn().mockImplementation(() => {
         throw new Error('Write failed');
@@ -189,25 +186,23 @@ describe('JsonFileHandler', () => {
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const result = handler.write({ test: 'data' });
+      const result = await handler.write({ test: 'data' });
 
       expect(result).toBe(false);
       expect(consoleSpy).toHaveBeenCalled();
 
-      // Cleanup
       fs.writeFileSync = originalWriteFile;
       consoleSpy.mockRestore();
     });
 
-    it('should handle write errors gracefully', () => {
+    it('should handle write errors gracefully', async () => {
       const handler = new JsonFileHandler(testFilePath);
 
-      // Make directory read-only to cause write error
       fs.mkdirSync(testFilePath, { recursive: true });
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const result = handler.write({ test: 'data' });
+      const result = await handler.write({ test: 'data' });
 
       expect(result).toBe(false);
 
@@ -216,7 +211,7 @@ describe('JsonFileHandler', () => {
   });
 
   describe('backup management', () => {
-    it('should create backup with timestamp (lines 92-104)', () => {
+    it('should create backup with timestamp (lines 92-104)', async () => {
       fs.writeFileSync(testFilePath, JSON.stringify({ version: 1 }), 'utf-8');
 
       const handler = new JsonFileHandler(testFilePath, {
@@ -224,11 +219,10 @@ describe('JsonFileHandler', () => {
         maxBackups: 5,
       });
 
-      // Write multiple times to create backups (with delay to ensure unique timestamps)
       for (let i = 0; i < 3; i++) {
-        handler.write({ version: i + 2 });
+        await handler.write({ version: i + 2 });
         const start = Date.now();
-        while (Date.now() - start < 2) {} // Ensure unique timestamp
+        while (Date.now() - start < 2) {}
       }
 
       const dir = path.dirname(testFilePath);
@@ -238,53 +232,47 @@ describe('JsonFileHandler', () => {
       expect(backups.length).toBe(3);
     });
 
-    it('should handle backup creation errors gracefully', () => {
+    it('should handle backup creation errors gracefully', async () => {
       fs.writeFileSync(testFilePath, JSON.stringify({ test: 'data' }), 'utf-8');
 
       const handler = new JsonFileHandler(testFilePath, { createBackups: true });
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      // Mock fs.copyFileSync to throw error
-      const originalCopyFile = fs.copyFileSync;
-      fs.copyFileSync = vi.fn().mockImplementation(() => {
-        throw new Error('Copy failed');
+      const originalReadFileSync = fs.readFileSync;
+      fs.readFileSync = vi.fn().mockImplementation(() => {
+        throw new Error('Read failed');
       });
 
-      // This should not throw even though backup fails
-      handler.write({ new: 'data' });
+      await handler.write({ new: 'data' });
 
       expect(consoleSpy).toHaveBeenCalled();
 
-      // Restore
-      fs.copyFileSync = originalCopyFile;
+      fs.readFileSync = originalReadFileSync;
       consoleSpy.mockRestore();
     });
 
-    it('should cleanup old backups (lines 106-133)', () => {
+    it('should cleanup old backups (lines 106-133)', async () => {
       const handler = new JsonFileHandler(testFilePath, {
         createBackups: true,
         maxBackups: 2,
       });
 
-      // Create initial file and multiple backups
       fs.writeFileSync(testFilePath, JSON.stringify({ version: 0 }), 'utf-8');
 
       for (let i = 1; i <= 5; i++) {
-        // Small delay to ensure different timestamps
         const start = Date.now();
-        while (Date.now() - start < 10) {} // 10ms delay
-        handler.write({ version: i });
+        while (Date.now() - start < 10) {}
+        await handler.write({ version: i });
       }
 
       const dir = path.dirname(testFilePath);
       const files = fs.readdirSync(dir);
       const backups = files.filter(f => f.includes('.backup.'));
 
-      // Should only keep maxBackups (2) backups
       expect(backups.length).toBeLessThanOrEqual(2);
     });
 
-    it('should handle cleanup errors gracefully', () => {
+    it('should handle cleanup errors gracefully', async () => {
       fs.writeFileSync(testFilePath, JSON.stringify({ test: 'data' }), 'utf-8');
 
       const handler = new JsonFileHandler(testFilePath, {
@@ -292,19 +280,15 @@ describe('JsonFileHandler', () => {
         maxBackups: 2,
       });
 
-      // Create a backup file that can't be deleted (by making it a directory)
       const backupPath = `${testFilePath}.backup.test`;
       fs.mkdirSync(backupPath);
 
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      // Write to trigger cleanup
-      handler.write({ new: 'data' });
+      await handler.write({ new: 'data' });
 
-      // Should not throw
-      expect(consoleSpy).not.toHaveBeenCalled(); // Cleanup errors are silently ignored
+      expect(consoleSpy).not.toHaveBeenCalled();
 
-      // Cleanup
       fs.rmdirSync(backupPath);
       consoleSpy.mockRestore();
     });

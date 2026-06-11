@@ -165,7 +165,6 @@ describe('CircuitBreaker', () => {
       const config: Partial<CircuitBreakerConfig> = {
         baseFailureThreshold: 1,
         openTimeout: 50,
-        halfOpenMaxRequests: 5,
         recoverySuccessThreshold: 3,
         adaptiveThresholds: false,
         errorRateThreshold: 1.0,

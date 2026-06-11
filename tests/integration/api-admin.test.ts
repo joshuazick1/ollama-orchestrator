@@ -4,7 +4,9 @@
  * Tests: Server CRUD, Model Management, Circuit Breaker, Config, Analytics, Logs, Recovery Failures, Bans
  */
 
-import { describe, it, beforeAll, afterAll, expect } from 'vitest';
+import { describe, it, beforeAll, afterAll, expect, vi, beforeEach, afterEach } from 'vitest';
+
+import { logger } from '../../src/utils/logger.js';
 
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 
@@ -171,6 +173,7 @@ describe('Admin API Integration Tests', () => {
     });
 
     it('should force open a circuit breaker', async () => {
+      const loggerInfoSpy = vi.spyOn(logger, 'info');
       const encodedModel = encodeURIComponent(cbModel);
       const response = await makeRequest(
         'POST',
@@ -180,6 +183,15 @@ describe('Admin API Integration Tests', () => {
       expect(response.data).toHaveProperty('success', true);
       expect(response.data.circuitBreaker).toBeDefined();
       expect(response.data.circuitBreaker.state).toBe('OPEN');
+      expect(loggerInfoSpy).toHaveBeenCalledWith(
+        'admin_force_breaker',
+        expect.objectContaining({
+          action: 'force_open',
+          serverId: cbServerId,
+          model: cbModel,
+        })
+      );
+      loggerInfoSpy.mockRestore();
     });
 
     it('should get circuit breaker details', async () => {
@@ -195,6 +207,7 @@ describe('Admin API Integration Tests', () => {
     });
 
     it('should force close a circuit breaker', async () => {
+      const loggerInfoSpy = vi.spyOn(logger, 'info');
       const encodedModel = encodeURIComponent(cbModel);
       const response = await makeRequest(
         'POST',
@@ -203,9 +216,19 @@ describe('Admin API Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('success', true);
       expect(response.data.circuitBreaker.state).toBe('CLOSED');
+      expect(loggerInfoSpy).toHaveBeenCalledWith(
+        'admin_force_breaker',
+        expect.objectContaining({
+          action: 'force_close',
+          serverId: cbServerId,
+          model: cbModel,
+        })
+      );
+      loggerInfoSpy.mockRestore();
     });
 
     it('should force half-open a circuit breaker', async () => {
+      const loggerInfoSpy = vi.spyOn(logger, 'info');
       const encodedModel = encodeURIComponent(cbModel);
       // First force open
       await makeRequest(
@@ -221,6 +244,15 @@ describe('Admin API Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('success', true);
       expect(response.data.circuitBreaker.state).toBe('HALF_OPEN');
+      expect(loggerInfoSpy).toHaveBeenCalledWith(
+        'admin_force_breaker',
+        expect.objectContaining({
+          action: 'force_half_open',
+          serverId: cbServerId,
+          model: cbModel,
+        })
+      );
+      loggerInfoSpy.mockRestore();
     });
 
     it('should reset a circuit breaker', async () => {
@@ -338,16 +370,12 @@ describe('Admin API Integration Tests', () => {
     });
 
     it('should import configuration', async () => {
-      const response = await makeRequest(
-        'POST',
-        '/api/orchestrator/config/import?mode=merge',
-        {
-          config: {
-            logLevel: 'info',
-          },
-          version: 1,
-        }
-      );
+      const response = await makeRequest('POST', '/api/orchestrator/config/import?mode=merge', {
+        config: {
+          logLevel: 'info',
+        },
+        version: 1,
+      });
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('success', true);
       expect(response.data).toHaveProperty('mode', 'merge');

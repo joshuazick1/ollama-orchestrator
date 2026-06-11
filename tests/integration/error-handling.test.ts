@@ -3,16 +3,19 @@
  * Tests full flow of error classification, recording, querying, and rate limit backoff
  */
 
-import { describe, it, beforeAll, afterAll, expect, beforeEach } from 'vitest';
-import path from 'path';
 import fs from 'fs';
+import path from 'path';
+
+import { describe, it, beforeAll, afterAll, expect, beforeEach } from 'vitest';
+
+import type { RateLimitConfig } from '../../src/config/schema.js';
+import { getErrorEventStore, resetErrorEventStore } from '../../src/storage/error-event-store.js';
+import { ErrorClassifier, ErrorCategory, ErrorSeverity } from '../../src/utils/error-classifier.js';
+
+import { calculateRateLimitBackoff } from '../../src/utils/rate-limit-backoff.js';
+import { parseRetryAfter } from '../../src/utils/retry-after.js';
 
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
-import { ErrorClassifier, ErrorCategory, ErrorSeverity } from '../../src/utils/error-classifier.js';
-import { parseRetryAfter } from '../../src/utils/retry-after.js';
-import { calculateRateLimitBackoff } from '../../src/utils/rate-limit-backoff.js';
-import { getErrorEventStore, resetErrorEventStore } from '../../src/storage/error-event-store.js';
-import type { RateLimitConfig } from '../../src/config/schema.js';
 
 // Test data directory - using a unique path for isolation
 const TEST_ERROR_EVENTS_DIR = './data/test-error-events';

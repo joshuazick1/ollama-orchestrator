@@ -122,8 +122,6 @@ describe('BanManager', () => {
 
   describe('removeModelBans', () => {
     it('should remove all bans for model', () => {
-      // Note: The ban manager splits by ':' so models with ':' won't work correctly
-      // Use models without ':' in the name
       manager.addBan('server-1', 'llama3');
       manager.addBan('server-2', 'llama3');
       manager.addBan('server-3', 'codellama');

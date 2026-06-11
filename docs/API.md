@@ -10,6 +10,35 @@ All API endpoints are prefixed with `/api/orchestrator/` unless otherwise noted.
 
 Currently, no authentication is required. Configure security settings in the configuration endpoint.
 
+## CSRF Protection
+
+State-changing operations (POST, PUT, PATCH, DELETE) are protected by CSRF validation.
+CSRF validation is skipped when `ENABLE_AUTH=false`.
+
+**Option 1 — Same-origin header (recommended for browsers and same-host clients)**
+Include an `Origin` or `Referer` header matching the server host. Browsers send this automatically for same-origin requests.
+
+**Option 2 — Double Submit Cookie (recommended for scripts and API clients)**
+
+1. Fetch a CSRF token: `GET /api/orchestrator/auth/csrf-token`
+   This sets a `csrf-token` cookie (readable by JavaScript — `httpOnly: false`).
+2. Include the token value in the `X-CSRF-Token` header on state-changing requests.
+
+**Example (curl):**
+
+```bash
+# Step 1: Get token
+curl -c cookies.txt http://localhost:5100/api/orchestrator/auth/csrf-token
+
+# Step 2: Extract token from cookie jar and use it
+TOKEN=$(grep csrf-token cookies.txt | awk '{print $7}')
+curl -X POST http://localhost:5100/api/orchestrator/auth/login \
+  -b cookies.txt \
+  -H "X-CSRF-Token: $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"password"}'
+```
+
 ## Response Format
 
 All responses follow this structure:
@@ -794,23 +823,23 @@ MiniMax is an OpenAI-compatible provider with a different endpoint structure. To
 
 The `endpointOverrides` field allows you to customize how the orchestrator communicates with a server:
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `anthropic_messages` | Custom path for Anthropic messages endpoint | `/anthropic/v1/messages` |
-| `anthropic_auth.headerName` | Custom auth header name | `x-api-key` |
-| `anthropic_auth.headerPrefix` | Auth prefix before token | `Bearer` |
-| `modelPrefix` | Prefix to prepend to model names | `anthropic/` |
+| Field                         | Description                                 | Example                  |
+| ----------------------------- | ------------------------------------------- | ------------------------ |
+| `anthropic_messages`          | Custom path for Anthropic messages endpoint | `/anthropic/v1/messages` |
+| `anthropic_auth.headerName`   | Custom auth header name                     | `x-api-key`              |
+| `anthropic_auth.headerPrefix` | Auth prefix before token                    | `Bearer`                 |
+| `modelPrefix`                 | Prefix to prepend to model names            | `anthropic/`             |
 
 ### Provider Comparison Table
 
-| Provider | Base URL | Auth | Chat Endpoint | Anthropic Endpoint |
-|----------|---------|------|--------------|-------------------|
-| OpenAI | `api.openai.com/v1` | Bearer | `/v1/chat/completions` | N/A |
-| Anthropic | `api.anthropic.com` | x-api-key | N/A | `/v1/messages` |
-| MiniMax | `api.minimax.io` | Bearer | `/v1/text/chatcompletion_v2` | `/anthropic/v1/messages` |
-| Azure OpenAI | `{resource}.openai.azure.com/openai/v1` | api-key | `/chat/completions` | N/A |
-| AWS Bedrock | `bedrock-runtime.{region}.amazonaws.com` | AWS SigV4 | Varies by model | N/A |
-| Google Vertex AI | `{region}-aiplatform.googleapis.com/v1` | Bearer | `/publishers/google/models/{model}:generateContent` | N/A |
+| Provider         | Base URL                                 | Auth      | Chat Endpoint                                       | Anthropic Endpoint       |
+| ---------------- | ---------------------------------------- | --------- | --------------------------------------------------- | ------------------------ |
+| OpenAI           | `api.openai.com/v1`                      | Bearer    | `/v1/chat/completions`                              | N/A                      |
+| Anthropic        | `api.anthropic.com`                      | x-api-key | N/A                                                 | `/v1/messages`           |
+| MiniMax          | `api.minimax.io`                         | Bearer    | `/v1/text/chatcompletion_v2`                        | `/anthropic/v1/messages` |
+| Azure OpenAI     | `{resource}.openai.azure.com/openai/v1`  | api-key   | `/chat/completions`                                 | N/A                      |
+| AWS Bedrock      | `bedrock-runtime.{region}.amazonaws.com` | AWS SigV4 | Varies by model                                     | N/A                      |
+| Google Vertex AI | `{region}-aiplatform.googleapis.com/v1`  | Bearer    | `/publishers/google/models/{model}:generateContent` | N/A                      |
 
 **Notes:**
 

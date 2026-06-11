@@ -158,7 +158,6 @@ describe('recovery-cycle integration – open→half-open→probe→close', () =
     const breaker = registry.getOrCreate('probe-srv:llama3.1:8b', {
       baseFailureThreshold: 1,
       recoverySuccessThreshold: 1,
-      halfOpenMaxRequests: 1,
       adaptiveThresholds: false,
       openTimeout: 0,
     });
@@ -182,21 +181,18 @@ describe('recovery-cycle integration – open→half-open→probe→close', () =
     const breakerA = registry.getOrCreate('seq-srv:modelA', {
       baseFailureThreshold: 1,
       recoverySuccessThreshold: 1,
-      halfOpenMaxRequests: 1,
       adaptiveThresholds: false,
       openTimeout: 0,
     });
     const breakerB = registry.getOrCreate('seq-srv:modelB', {
       baseFailureThreshold: 1,
       recoverySuccessThreshold: 1,
-      halfOpenMaxRequests: 1,
       adaptiveThresholds: false,
       openTimeout: 0,
     });
     const breakerC = registry.getOrCreate('seq-srv:modelC', {
       baseFailureThreshold: 1,
       recoverySuccessThreshold: 1,
-      halfOpenMaxRequests: 1,
       adaptiveThresholds: false,
       openTimeout: 0,
     });

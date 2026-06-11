@@ -1,18 +1,20 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AddressInfo } from 'net';
 import { createServer, IncomingMessage, ServerResponse, Server as HttpServer } from 'http';
+import { AddressInfo } from 'net';
 
 import express from 'express';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { createServer as createTestServer } from '../fixtures/factories.js';
-import { makeRequest, setupIntegrationTest, teardownIntegrationTest } from './setup.js';
-import { anthropicRouter } from '../../src/routes/anthropic.routes.js';
-import { inferenceRouter } from '../../src/routes/inference.routes.js';
-import { v1Router } from '../../src/routes/v1.routes.js';
+
 import {
   getOrchestratorInstance,
   resetOrchestratorInstance,
 } from '../../src/orchestrator/orchestrator-instance.js';
+import { anthropicRouter } from '../../src/routes/anthropic.routes.js';
+import { inferenceRouter } from '../../src/routes/inference.routes.js';
+import { v1Router } from '../../src/routes/v1.routes.js';
+import { createServer as createTestServer } from '../fixtures/factories.js';
+
+import { makeRequest, setupIntegrationTest, teardownIntegrationTest } from './setup.js';
 
 type ParsedResponse = {
   status: number;
@@ -376,7 +378,7 @@ async function requestRaw(path: string, init: RequestInit): Promise<ParsedRespon
 }
 
 async function startBackendServer(options: { delayMs?: number } = {}): Promise<{ url: string }> {
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (options.delayMs) {
       await new Promise(resolve => setTimeout(resolve, options.delayMs));
     }

@@ -4,6 +4,7 @@
  * Supports both happy-path and edge-case scenarios, including chaos presets.
  */
 
+import type { OrchestratorConfig } from '../../src/config/config.js';
 import type {
   AIServer,
   ServerModelMetrics,
@@ -16,7 +17,6 @@ import type {
   DecisionRow,
   DecisionCandidateRow,
 } from '../../src/storage/types.js';
-import type { OrchestratorConfig } from '../../src/config/config.js';
 
 // ============================================================
 // Server Factory
@@ -557,15 +557,15 @@ export function createConfig(options: ConfigFactoryOptions = {}): OrchestratorCo
 
   const config = { ...DEFAULT_CONFIG };
 
-  if (options.port !== undefined) config.port = options.port;
-  if (options.host !== undefined) config.host = options.host;
-  if (options.logLevel !== undefined) config.logLevel = options.logLevel;
-  if (options.enableQueue !== undefined) config.enableQueue = options.enableQueue;
-  if (options.enableCircuitBreaker !== undefined) config.enableCircuitBreaker = options.enableCircuitBreaker;
-  if (options.enableMetrics !== undefined) config.enableMetrics = options.enableMetrics;
-  if (options.enableStreaming !== undefined) config.enableStreaming = options.enableStreaming;
-  if (options.enablePersistence !== undefined) config.enablePersistence = options.enablePersistence;
-  if (options.servers !== undefined) config.servers = options.servers;
+  if (options.port !== undefined) {config.port = options.port;}
+  if (options.host !== undefined) {config.host = options.host;}
+  if (options.logLevel !== undefined) {config.logLevel = options.logLevel;}
+  if (options.enableQueue !== undefined) {config.enableQueue = options.enableQueue;}
+  if (options.enableCircuitBreaker !== undefined) {config.enableCircuitBreaker = options.enableCircuitBreaker;}
+  if (options.enableMetrics !== undefined) {config.enableMetrics = options.enableMetrics;}
+  if (options.enableStreaming !== undefined) {config.enableStreaming = options.enableStreaming;}
+  if (options.enablePersistence !== undefined) {config.enablePersistence = options.enablePersistence;}
+  if (options.servers !== undefined) {config.servers = options.servers;}
 
   return config;
 }

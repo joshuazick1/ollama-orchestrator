@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { ErrorEventStore, resetErrorEventStore } from '../../src/storage/error-event-store.js';
 import type { ErrorEvent, ErrorType } from '../../src/types/error-event.js';

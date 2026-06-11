@@ -14,7 +14,10 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import { CircuitBreaker, CircuitBreakerRegistry } from '../../src/circuit-breaker/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  CircuitBreakerRegistry,
+} from '../../src/circuit-breaker/circuit-breaker.js';
 import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 import { InFlightManager } from '../../src/utils/in-flight-manager.js';
 
@@ -318,7 +321,9 @@ describe('Failover Integration Tests', () => {
         }
       }
 
-      if (!done) {throw lastErr;}
+      if (!done) {
+        throw lastErr;
+      }
 
       expect(attempts).toBe(3); // Initial + 2 retries
     });
@@ -527,7 +532,6 @@ describe('Failover Integration Tests', () => {
     it('should close circuit after successful recovery', () => {
       const breaker = circuitBreakerRegistry.getOrCreate('test-recovery', {
         baseFailureThreshold: 1,
-        halfOpenMaxRequests: 3,
         recoverySuccessThreshold: 3,
         openTimeout: 50,
         adaptiveThresholds: false,

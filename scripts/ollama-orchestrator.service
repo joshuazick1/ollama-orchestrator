@@ -1,33 +1,65 @@
 [Unit]
-Description=Ollama Orchestrator Service (Screen Session)
-Documentation=https://github.com/joshuazick1/ollama-orchestrator
+Description=Ollama Orchestrator
 After=network.target
 
 [Service]
-Type=forking
-User=root
-WorkingDirectory=/root/ollama-orchestrator
-
-# Start the orchestrator in a detached screen session
-ExecStart=/root/ollama-orchestrator/scripts/start-screen.sh
-
-# Restart policy
-Restart=always
+Type=simple
+User=orchestrator
+Group=orchestrator
+WorkingDirectory=/opt/ollama-orchestrator
+EnvironmentFile=/etc/ollama-orchestrator/orchestrator.env
+Environment=NODE_ENV=production
+Environment=DISABLE_FILE_LOGGING=false
+ExecStart=/usr/bin/node /opt/ollama-orchestrator/dist/index.js
+Restart=on-failure
 RestartSec=10
 
-# Logging
-StandardOutput=append:/var/log/ollama-orchestrator/stdout.log
-StandardError=append:/var/log/ollama-orchestrator/stderr.log
+# Block service start until orchestrator is ready (max 30s)
+ExecStartPost=/usr/bin/bash -c 'for i in {1..30}; do if curl -fsS http://localhost:5100/health/ready > /dev/null 2>&1; then exit 0; fi; sleep 1; done; echo "Service did not become ready in 30s"; exit 1'
+RestartPreventExitStatus=1
 
-# Environment
-Environment=NODE_ENV=production
-EnvironmentFile=/root/ollama-orchestrator/.env
+# Process management
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=30
+LimitNOFILE=65536
 
-# Security
-NoNewPrivileges=false
+# Hardening
+NoNewPrivileges=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/root/ollama-orchestrator/logs /root/ollama-orchestrator/data
+ReadWritePaths=/var/log/ollama-orchestrator /opt/ollama-orchestrator/data /opt/ollama-orchestrator/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+RestrictNamespaces=true
+# Address family restrictions - only allow expected network types
+# AF_INET=IPv4, AF_INET6=IPv6, AF_UNIX=local sockets
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# System call filtering - allow standard system service calls
+# @system-service = standard syscalls for services (read, write, fork, etc.)
+# ~@privileged = block dangerous privileged calls (mount, reboot, sys_module)
+# @resources = block resource-intensive calls that could cause DoS
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# Native arch prevents x86 emulation attacks
+SystemCallArchitectures=native
+
+# Memory protection - deny W^E (Write+Execute) memory pages
+# DISABLED: V8 uses JIT compilation which requires W^E memory pages.
+# Node.js will fail to start with MemoryDenyWriteExecute=true.
+# We accept this trade-off for production performance with V8-based runtimes.
+# MemoryDenyWriteExecute=false
 
 [Install]
 WantedBy=multi-user.target

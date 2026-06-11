@@ -147,10 +147,14 @@ const mockGetConfigManager = vi.mocked(getConfigManager);
 const mockFetchWithActivityTimeout = vi.mocked(fetchWithActivityTimeout);
 
 function makeActivityController() {
+  // Use a real AbortController so the signal has proper addEventListener /
+  // removeEventListener methods (the production code calls cleanup on
+  // drain/close/abort, which must not throw a TypeError).
+  const ac = new AbortController();
   return {
     clearTimeout: vi.fn(),
     resetTimeout: vi.fn(),
-    controller: { signal: { aborted: false } },
+    controller: ac,
   };
 }
 

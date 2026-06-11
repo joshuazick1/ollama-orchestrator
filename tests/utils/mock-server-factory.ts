@@ -495,7 +495,7 @@ export function createDegradingServer(port: number, options?: {
   const healthyForRequests = options?.healthyForRequests || 5;
   const degradeAfterRequests = options?.degradeAfterRequests || 10;
   
-  let requestCount = 0;
+  const requestCount = 0;
   let isDegrading = false;
 
   return createDiverseMockServer({

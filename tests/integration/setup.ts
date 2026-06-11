@@ -8,10 +8,11 @@ import 'dotenv/config';
 import { createServer } from 'http';
 import { AddressInfo } from 'net';
 
+import cookieParser from 'cookie-parser';
 import express from 'express';
 
-import { getPrometheusMetrics } from '../../src/controllers/metrics-controller.js';
 import { getConfigManager } from '../../src/config/config.js';
+import { getPrometheusMetrics } from '../../src/controllers/metrics-controller.js';
 import {
   getOrchestratorInstance,
   resetOrchestratorInstance,
@@ -35,6 +36,7 @@ export async function setupIntegrationTest() {
   // Create Express app
   const app = express();
   app.use(express.json({ limit: '10mb' }));
+  app.use(cookieParser());
   app.use((req, _res, next) => {
     next();
   });
@@ -96,6 +98,21 @@ export async function setupIntegrationTest() {
 }
 
 /**
+ * Fetch a CSRF token from the test server's /csrf-token endpoint.
+ * Returns the token value (64-char hex string).
+ * Throws if the endpoint doesn't return a csrf-token cookie.
+ */
+export async function getCsrfToken(): Promise<string> {
+  const response = await fetch(`${baseUrl}/api/orchestrator/auth/csrf-token`, {
+    credentials: 'include',
+  });
+  const setCookie = response.headers.get('set-cookie') ?? '';
+  const match = setCookie.match(/csrf-token=([^;]+)/);
+  if (!match) {throw new Error('CSRF token not returned by /csrf-token endpoint');}
+  return match[1];
+}
+
+/**
  * Teardown integration test environment
  */
 export async function teardownIntegrationTest() {
@@ -121,6 +138,7 @@ export async function makeRequest(
   options?: {
     headers?: Record<string, string>;
     rawBody?: string;
+    csrfToken?: string;
   }
 ): Promise<{ status: number; data: any; headers: Headers }> {
   const url = `${baseUrl}${path}`;
@@ -129,6 +147,7 @@ export async function makeRequest(
     method,
     headers: {
       ...(options?.rawBody !== undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(options?.csrfToken ? { 'x-csrf-token': options.csrfToken } : {}),
       ...(options?.headers ?? {}),
     },
     body:

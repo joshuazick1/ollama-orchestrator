@@ -561,7 +561,7 @@ describe('Ollama Controller', () => {
     it('should return version info', () => {
       handleVersion(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.json).toHaveBeenCalledWith({ version: '0.1.0-orchestrator' });
+      expect(mockRes.json).toHaveBeenCalledWith({ version: '1.0.0' });
     });
   });
 

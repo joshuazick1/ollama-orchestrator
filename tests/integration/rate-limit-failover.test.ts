@@ -15,11 +15,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { CircuitBreakerRegistry } from '../../src/circuit-breaker/circuit-breaker.js';
-import { ErrorAggregator } from '../../src/utils/error-aggregator.js';
-import { RetryBudget } from '../../src/utils/retry-budget.js';
-import { InFlightManager } from '../../src/utils/in-flight-manager.js';
 import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
+import { ErrorAggregator } from '../../src/utils/error-aggregator.js';
 import { classifyError, ErrorType } from '../../src/utils/error-classifier.js';
+import { InFlightManager } from '../../src/utils/in-flight-manager.js';
+import { RetryBudget } from '../../src/utils/retry-budget.js';
 
 // Mock logger
 vi.mock('../../src/utils/logger.js', () => ({

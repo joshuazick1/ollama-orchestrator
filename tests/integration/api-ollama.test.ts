@@ -3,13 +3,15 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
-import { makeRequest, setupIntegrationTest, teardownIntegrationTest } from './setup.js';
+
 import {
   createModel,
   createServer as createServerFactory,
   createSmallModel,
 } from '../fixtures/factories.js';
 import { cleanupMockServers } from '../utils/mock-server-factory.js';
+
+import { makeRequest, setupIntegrationTest, teardownIntegrationTest } from './setup.js';
 
 type HttpMethod = 'GET' | 'POST';
 

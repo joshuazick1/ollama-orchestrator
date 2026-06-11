@@ -5,7 +5,10 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { CircuitBreaker, CircuitBreakerRegistry } from '../../src/circuit-breaker/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  CircuitBreakerRegistry,
+} from '../../src/circuit-breaker/circuit-breaker.js';
 
 describe('Circuit Breaker Enhanced Tests', () => {
   let breaker: CircuitBreaker;
@@ -17,7 +20,6 @@ describe('Circuit Breaker Enhanced Tests', () => {
       minFailureThreshold: 2,
       openTimeout: 1000,
       halfOpenTimeout: 2000,
-      halfOpenMaxRequests: 3,
       recoverySuccessThreshold: 2,
       activeTestTimeout: 5000,
       errorRateWindow: 10000,

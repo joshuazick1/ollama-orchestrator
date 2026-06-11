@@ -15,20 +15,21 @@
 
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach, expect } from 'vitest';
 
-import {
-  setupIntegrationTest,
-  teardownIntegrationTest,
-  makeRequest,
-} from './setup.js';
 
+import { createServer } from '../fixtures/factories.js';
 import {
   createDiverseMockServer,
   mockServerFactory,
   cleanupMockServers,
 } from '../utils/mock-server-factory.js';
 
-import { createServer } from '../fixtures/factories.js';
 import { delay } from '../utils/test-helpers.js';
+
+import {
+  setupIntegrationTest,
+  teardownIntegrationTest,
+  makeRequest,
+} from './setup.js';
 
 // Unique server ID generator for test isolation
 let serverCounter = 0;
@@ -274,7 +275,7 @@ describe('Circuit Breaker State Machine Integration', () => {
       await forceOpenCircuitBreaker(serverId, model);
 
       // Verify it's OPEN
-      let stats = await getCircuitBreakerStats(serverId, model);
+      const stats = await getCircuitBreakerStats(serverId, model);
       expect(stats.state).toBe('OPEN');
 
       // Note: The actual timeout-based transition is internal to the circuit breaker

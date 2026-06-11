@@ -7,7 +7,10 @@
 
 import { describe, it, expect, afterAll, afterEach } from 'vitest';
 
-import { CircuitBreaker, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../../src/circuit-breaker/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  DEFAULT_CIRCUIT_BREAKER_CONFIG,
+} from '../../src/circuit-breaker/circuit-breaker.js';
 import {
   createDiverseMockServer,
   mockServerFactory,
@@ -43,7 +46,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         openTimeout: 2000,
         halfOpenTimeout: 5000,
         errorRateThreshold: 0.3,
-        halfOpenMaxRequests: 10,
       });
 
       const results: Array<{ success: boolean; state: string }> = [];
@@ -91,7 +93,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         openTimeout: 500,
         halfOpenTimeout: 2000,
         recoverySuccessThreshold: 2,
-        halfOpenMaxRequests: 10,
       });
 
       for (let i = 0; i < 3; i++) {
@@ -123,7 +124,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         baseFailureThreshold: 5,
         openTimeout: 2000,
         halfOpenTimeout: 5000,
-        halfOpenMaxRequests: 10,
       });
 
       const concurrentRequests = 15;
@@ -170,7 +170,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         baseFailureThreshold: 3,
         openTimeout: 1000,
         halfOpenTimeout: 5000,
-        halfOpenMaxRequests: 10,
       });
 
       const floodPromises = Array.from({ length: 20 }, async () => {
@@ -215,7 +214,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         openTimeout: 500,
         halfOpenTimeout: 2000,
         recoverySuccessThreshold: 2,
-        halfOpenMaxRequests: 10,
       });
 
       for (let i = 0; i < 3; i++) {
@@ -246,7 +244,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         openTimeout: 400,
         halfOpenTimeout: 1500,
         recoverySuccessThreshold: 2,
-        halfOpenMaxRequests: 10,
       });
 
       await createDiverseMockServer({ port, type: 'unhealthy' });
@@ -285,7 +282,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         baseFailureThreshold: 1,
         openTimeout: 1000,
         halfOpenTimeout: 2000,
-        halfOpenMaxRequests: 10,
       });
 
       for (let i = 0; i < 3; i++) {
@@ -314,7 +310,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         baseFailureThreshold: 5,
         openTimeout: 1000,
         halfOpenTimeout: 5000,
-        halfOpenMaxRequests: 10,
       });
 
       for (let i = 0; i < 10; i++) {
@@ -349,7 +344,6 @@ describe('Chaos: Circuit Breaker Chaos Scenarios', () => {
         baseFailureThreshold: 2,
         openTimeout: 5000,
         halfOpenTimeout: 10000,
-        halfOpenMaxRequests: 10,
       });
 
       for (let i = 0; i < 3; i++) {

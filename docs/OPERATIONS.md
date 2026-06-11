@@ -50,6 +50,50 @@ curl http://localhost:5100/api/orchestrator/models/status
 curl http://localhost:5100/api/orchestrator/analytics/summary
 ```
 
+## Verifying Service Health
+
+The orchestrator exposes two health endpoints:
+
+- `GET /health` - Always returns 200 if the service is running (liveness probe)
+- `GET /health/ready` - Returns 200 if ready, 503 if not ready (readiness probe)
+
+### Systemd Readiness Gate
+
+The systemd service uses `/health/ready` to gate startup. The `ExecStartPost` directive in the service file polls this endpoint for up to 30 seconds. If the endpoint returns 503 (no healthy servers configured) or the service fails to start, the service transitions to a **failed** state rather than silently restarting.
+
+This prevents the "restart loop of death" where a misconfigured service restarts repeatedly without clear error indication.
+
+### Quick Health Check
+
+```bash
+# Service status
+systemctl is-active ollama-orchestrator
+systemctl status ollama-orchestrator
+
+# Liveness (always 200 if running)
+curl -f http://localhost:5100/health
+
+# Readiness (200 if ready, 503 if not)
+curl -f http://localhost:5100/health/ready
+
+# Recent logs
+journalctl -u ollama-orchestrator --since "5 minutes ago"
+```
+
+### Init Failure Detection
+
+If the service fails to start (e.g., bad config), check:
+
+```bash
+# Check if service is in failed state
+systemctl status ollama-orchestrator
+
+# View recent logs
+journalctl -u ollama-orchestrator --since "1 minute ago"
+```
+
+The `ExecStartPost` will time out after 30s and mark the service as failed (not silently restart). This makes init failures visible immediately rather than hidden in restart loops.
+
 ## Common Issues and Solutions
 
 ### High Latency or Timeouts
@@ -524,3 +568,101 @@ If OpenAI completions streaming handoff is required, it can be implemented by ad
 2. Check access logs for suspicious activity
 3. Rotate any exposed credentials
 4. Update and redeploy with security patches
+
+## Rate Limiting in Multi-Process Deployments
+
+The orchestrator's rate limiter uses `express-rate-limit` with the default in-memory store. This works correctly for single-process deployments (e.g., direct systemd).
+
+### When This Is a Problem
+
+If you deploy the orchestrator in:
+
+- PM2 cluster mode (`pm2 start ecosystem.config.js` with `instances: N`)
+- Kubernetes with multiple replicas
+- Multiple Node.js processes behind a load balancer
+
+Each process maintains its own counter, so a client hitting 3 replicas gets 3 × the configured limit (e.g., 300 requests instead of 100 per 15 minutes).
+
+### Solution: Shared Redis Store
+
+For multi-process deployments, configure a shared Redis store:
+
+```bash
+npm install rate-limit-redis redis
+```
+
+In `src/middleware/rate-limiter.ts`:
+
+```typescript
+import RedisStore from 'rate-limit-redis';
+import { createClient } from 'redis';
+
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+});
+await redisClient.connect();
+
+const store = new RedisStore({
+  sendCommand: (...args) => redisClient.sendCommand(args),
+});
+
+// Use `store` in the rateLimit() options
+```
+
+### Current Deployment
+
+The reference deployment is single-process systemd. Multi-process scaling is a separate concern.
+
+## Metrics Database Retention
+
+The orchestrator uses SQLite for metrics storage at `data/metrics.db`. Without intervention, this file can grow large (observed 27.6 GB in production).
+
+### Recommended Retention
+
+- **Hot data**: 7 days (in-database, fast queries)
+- **Warm data**: 30 days (compressed, slower queries)
+- **Cold data**: 90 days (archived, off-DB)
+
+### Manual Cleanup
+
+Use the API to prune old data:
+
+```bash
+curl -X POST http://localhost:5100/api/orchestrator/admin/metrics/prune \
+  -H "X-Admin-API-Key: $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"olderThanDays": 7}'
+```
+
+Or directly via SQLite:
+
+```bash
+sqlite3 data/metrics.db "DELETE FROM metrics WHERE timestamp < strftime('%s', 'now', '-7 days') * 1000"
+```
+
+## Log Rotation
+
+The orchestrator dual-writes logs to:
+
+- `logs/app-*.log` (200-300 MB/day)
+- stdout (captured by systemd)
+
+The install script sets up logrotate (see `/etc/logrotate.d/ollama-orchestrator`) to:
+
+- Rotate daily
+- Compress after 1 day
+- Keep 7 days
+- Missing files are OK
+
+To change retention: edit `/etc/logrotate.d/ollama-orchestrator`.
+
+## Systemd Service Management
+
+The orchestrator runs as a systemd service.
+
+**Status**: `systemctl status ollama-orchestrator`
+**Start**: `systemctl start ollama-orchestrator`
+**Stop**: `systemctl stop ollama-orchestrator`
+**Logs**: `journalctl -u ollama-orchestrator -f`
+
+The service runs as user `orchestrator` (not root) per the hardened service file.
