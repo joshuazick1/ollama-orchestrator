@@ -6,7 +6,6 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
-import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 
 import {
   getTopModels,
@@ -60,7 +59,8 @@ import {
   getCircuitBreakers,
   getCircuitBreakerDetails,
 } from '../controllers/servers-controller.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 
 // Async handler wrapper
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

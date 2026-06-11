@@ -29,6 +29,8 @@ import {
   LoadBalancer,
   calculateServerScore,
   type LoadBalancerConfig,
+  type CircuitBreakerHealth,
+  type ServerScore,
 } from '../load-balancer/load-balancer.js';
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { MetricsAggregator } from '../metrics/index.js';
@@ -46,7 +48,6 @@ import { BanManager } from '../utils/ban-manager.js';
 import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
 import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
-import { fetchWithTimeout } from '../utils/fetch-with-timeout.js';
 import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -56,11 +57,7 @@ import { RetryBudget } from '../utils/retry-budget.js';
 import { TimeoutManager } from '../utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
 
-import {
-  saveServersToDisk,
-  loadTimeoutsFromDisk,
-  saveTimeoutsToDisk,
-} from './orchestrator-persistence.js';
+import { OrchestratorModels } from './models.js';
 import type {
   AIServer,
   RequestContext,
@@ -68,6 +65,7 @@ import type {
   GlobalMetrics,
   MetricsExport,
 } from './orchestrator.types.js';
+import { OrchestratorPersistence } from './persistence.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -122,6 +120,7 @@ export class AIOrchestrator {
   private modelAggregator: ModelAggregator;
   private circuitBreakerRegistry: CircuitBreakerRegistry;
   private circuitBreakerPersistence: CircuitBreakerPersistence;
+  private persistence: OrchestratorPersistence;
   private metricsAggregator: MetricsAggregator;
   private loadBalancer: LoadBalancer;
   private healthCheckScheduler: HealthCheckScheduler;
@@ -160,8 +159,103 @@ export class AIOrchestrator {
 
   private errorAggregator: ErrorAggregator;
 
-  // Unsubscribe from config changes
   private unsubscribeFromConfig?: () => void;
+
+  public getConfig(): OrchestratorConfig {
+    return this.config;
+  }
+  public getInFlightManager(): InFlightManager {
+    return this.inFlightManager;
+  }
+  public getBanManager(): BanManager {
+    return this.banManager;
+  }
+  public getLoadBalancer(): LoadBalancer {
+    return this.loadBalancer;
+  }
+  public getMetricsAggregator(): MetricsAggregator {
+    return this.metricsAggregator;
+  }
+  public getErrorAggregator(): ErrorAggregator {
+    return this.errorAggregator;
+  }
+  public getProbeScheduler(): InferenceProbeScheduler {
+    return this.probeScheduler;
+  }
+  public getTimeoutManager(): TimeoutManager {
+    return this.timeoutManager;
+  }
+  public getCircuitBreakerRegistry(): CircuitBreakerRegistry {
+    return this.circuitBreakerRegistry;
+  }
+  public getModelAggregator(): ModelAggregator {
+    return this.modelAggregator;
+  }
+  public getHealthCheckScheduler(): HealthCheckScheduler {
+    return this.healthCheckScheduler;
+  }
+  public getActiveTestScheduler(): ActiveTestScheduler {
+    return this.activeTestScheduler;
+  }
+  public getMetricsStore() {
+    return getMetricsStore();
+  }
+  public getPersistence(): OrchestratorPersistence {
+    return this.persistence;
+  }
+  public getModels(): OrchestratorModels {
+    return this.models;
+  }
+  public getDecisionHistory() {
+    return getDecisionHistory();
+  }
+  public getRequestHistory() {
+    return getRequestHistory();
+  }
+  public getRecoveryTestCoordinator(): RecoveryTestCoordinator {
+    return getRecoveryTestCoordinator();
+  }
+  public getRetryBudget(): typeof RetryBudget {
+    return RetryBudget;
+  }
+
+  public populateRoutingContext(
+    context: RoutingContext | undefined,
+    serverId: string,
+    model: string,
+    serverLoad?: number,
+    maxConcurrency?: number
+  ): void {
+    this.persistence.populateRoutingContext(context, serverId, model, serverLoad, maxConcurrency);
+  }
+
+  public calculateServerScore(
+    server: AIServer,
+    model: string,
+    currentLoad: number,
+    totalLoad: number,
+    metrics: ServerModelMetrics | undefined,
+    config: LoadBalancerConfig | undefined,
+    cbHealth: CircuitBreakerHealth | undefined,
+    timeoutMs: number | undefined,
+    estimatedPromptTokens: number | undefined,
+    getContextLimit?: (serverId: string, model: string) => number
+  ): ServerScore {
+    return calculateServerScore(
+      server,
+      model,
+      currentLoad,
+      totalLoad,
+      metrics,
+      config,
+      cbHealth,
+      timeoutMs,
+      estimatedPromptTokens,
+      getContextLimit
+    );
+  }
+
+  public readonly models: OrchestratorModels;
 
   constructor(
     loadBalancerConfig?: LoadBalancerConfig,
@@ -189,6 +283,8 @@ export class AIOrchestrator {
         ? `${this.config.persistencePath}/circuit-breakers.json`
         : undefined,
     });
+
+    this.persistence = new OrchestratorPersistence(this);
 
     // Initialize BanManager
     this.banManager = new BanManager();
@@ -275,7 +371,9 @@ export class AIOrchestrator {
     // Load timeouts from persistence
     if (this.config.enablePersistence) {
       try {
-        const timeoutStates = loadTimeoutsFromDisk(currentConfig.circuitBreaker.activeTestTimeout);
+        const timeoutStates = this.persistence.loadTimeoutsFromDisk(
+          currentConfig.circuitBreaker.activeTestTimeout
+        );
         if (Object.keys(timeoutStates).length > 0) {
           this.timeoutManager.loadFromPersistedData({
             timeouts: timeoutStates,
@@ -299,6 +397,8 @@ export class AIOrchestrator {
         });
       }
     );
+
+    this.models = new OrchestratorModels(this);
   }
 
   /**
@@ -388,7 +488,7 @@ export class AIOrchestrator {
 
         // Save to disk when anything changes
         if (needsPersistence && this.config.enablePersistence) {
-          saveServersToDisk(this.servers);
+          this.persistence.saveServersToDisk(this.servers);
         }
 
         // Update loaded model information from /api/ps
@@ -607,7 +707,7 @@ export class AIOrchestrator {
 
     // Persist servers to disk if enabled and not suppressed
     if (this.config.enablePersistence && !this._suppressPersistence) {
-      saveServersToDisk(this.servers);
+      this.persistence.saveServersToDisk(this.servers);
     }
   }
   removeServer(serverId: string): void {
@@ -632,7 +732,7 @@ export class AIOrchestrator {
       // Persist servers to disk if enabled
       if (this.config.enablePersistence) {
         logger.info(`Saving ${this.servers.length} servers to disk after removal...`);
-        saveServersToDisk(this.servers);
+        this.persistence.saveServersToDisk(this.servers);
       } else {
         logger.warn(`Persistence disabled - server removal will not be saved to disk`);
       }
@@ -728,7 +828,7 @@ export class AIOrchestrator {
 
     // Persist servers to disk if enabled
     if (this.config.enablePersistence) {
-      saveServersToDisk(this.servers);
+      this.persistence.saveServersToDisk(this.servers);
     }
 
     return true;
@@ -963,264 +1063,24 @@ export class AIOrchestrator {
    * Get aggregated tags from all servers with caching and concurrency control
    */
   async getAggregatedTags(): Promise<{ models: any[] }> {
-    const now = Date.now();
-
-    // Check cache first
-    if (this.tagsCache && now - this.tagsCache.timestamp < this.config.tags.cacheTtlMs) {
-      return { models: this.tagsCache.data };
-    }
-
-    const healthyServers = this.servers.filter(s => s.healthy && s.supportsOllama !== false);
-
-    if (healthyServers.length === 0) {
-      // Return cached data if available, even if stale
-      if (this.tagsCache) {
-        return { models: this.tagsCache.data };
-      }
-      return { models: [] };
-    }
-
-    const allTags = new Map<string, Record<string, unknown>>();
-    let totalRequests = 0;
-    let successfulRequests = 0;
-    let failedRequests = 0;
-    const errors: Array<{
-      serverId: string;
-      error: string;
-      type: 'network' | 'server' | 'timeout' | 'unknown';
-    }> = [];
-
-    // Process servers in batches with concurrency control
-    const maxConcurrent = this.config.tags.maxConcurrentRequests ?? 10;
-    const batchDelayMs = this.config.tags.batchDelayMs ?? 50;
-
-    for (let i = 0; i < healthyServers.length; i += maxConcurrent) {
-      const batch = healthyServers.slice(i, i + maxConcurrent);
-
-      const batchPromises = batch.map(server => this.fetchServerTags(server));
-      const batchResults = await Promise.allSettled(batchPromises);
-
-      for (const result of batchResults) {
-        totalRequests++;
-        if (result.status === 'fulfilled') {
-          const fetchResult = result.value;
-          if (fetchResult.success && fetchResult.data) {
-            successfulRequests++;
-            this.mergeTagsData(allTags, fetchResult.data, fetchResult.serverId);
-          } else if (fetchResult.error) {
-            failedRequests++;
-            errors.push(fetchResult.error);
-          }
-        } else {
-          failedRequests++;
-          // This shouldn't happen since fetchServerTags doesn't reject, but handle it anyway
-          errors.push({
-            serverId: 'unknown',
-            error: `Promise rejected: ${result.reason}`,
-            type: 'unknown',
-          });
-        }
-      }
-
-      // Small delay between batches to avoid overwhelming servers
-      if (i + maxConcurrent < healthyServers.length) {
-        await sleep(batchDelayMs);
-      }
-    }
-
-    const models = Array.from(allTags.values());
-
-    // Filter out models that have no closed circuit breaker
-    const filteredModels = models.filter(model => {
-      const servers = model.servers as string[];
-      const modelName = (model.name as string) ?? (model.model as string);
-      // Use full model name (including tag like :latest) to match circuit breaker keys
-      return this.hasClosedCircuitBreaker(modelName, servers);
-    });
-
-    // Cache the results
-    this.tagsCache = {
-      data: filteredModels,
-      timestamp: now,
-      metadata: {
-        totalRequests,
-        successfulRequests,
-        failedRequests,
-        serverCount: healthyServers.length,
-        modelCount: filteredModels.length,
-        errors: errors.slice(0, 10), // Keep only first 10 errors
-      },
-    };
-
-    // Log summary
-    logger.debug(
-      `Tags aggregation completed: ${successfulRequests}/${totalRequests} successful requests, ${filteredModels.length} unique models`
-    );
-
-    return { models: filteredModels };
+    return this.models.getAggregatedTags();
   }
 
-  /**
-   * Fetch tags from a single server with error classification
-   */
   private async fetchServerTags(server: AIServer): Promise<{
     success: boolean;
     data?: any[];
     serverId: string;
     error?: { serverId: string; error: string; type: 'network' | 'server' | 'timeout' | 'unknown' };
   }> {
-    const timeoutMs = this.config.tags?.requestTimeoutMs ?? 5000;
-
-    try {
-      const response = await fetchWithTimeout(`${server.url}/api/tags`, {
-        timeout: timeoutMs,
-        headers: {
-          'User-Agent': 'ollama-orchestrator/1.0.0',
-        },
-      });
-
-      if (!response.ok) {
-        // Classify HTTP errors
-        const errorType = response.status >= 500 ? 'server' : 'unknown';
-        return {
-          success: false,
-          serverId: server.id,
-          error: {
-            serverId: server.id,
-            error: `HTTP ${response.status}: ${response.statusText}`,
-            type: errorType,
-          },
-        };
-      }
-
-      const data = (await response.json()) as { models?: unknown };
-
-      // Validate response structure
-      if (!data || typeof data !== 'object') {
-        return {
-          success: false,
-          serverId: server.id,
-          error: {
-            serverId: server.id,
-            error: 'Invalid response: not an object',
-            type: 'server',
-          },
-        };
-      }
-
-      if (!('models' in data)) {
-        return {
-          success: false,
-          serverId: server.id,
-          error: {
-            serverId: server.id,
-            error: 'Invalid response: missing models property',
-            type: 'server',
-          },
-        };
-      }
-
-      const models = data.models;
-      if (!Array.isArray(models)) {
-        return {
-          success: false,
-          serverId: server.id,
-          error: {
-            serverId: server.id,
-            error: 'Invalid response: models is not an array',
-            type: 'server',
-          },
-        };
-      }
-
-      // Update circuit breaker on success
-      this.recordSuccess(server.id);
-
-      return {
-        success: true,
-        data: models,
-        serverId: server.id,
-      };
-    } catch (error) {
-      let errorType: 'network' | 'server' | 'timeout' | 'unknown' = 'unknown';
-      let errorMessage = 'Unknown error';
-
-      if (error instanceof Error) {
-        errorMessage = error.message;
-
-        if (error.name === 'AbortError') {
-          errorType = 'timeout';
-        } else if (
-          error.message.includes('ECONNREFUSED') ||
-          error.message.includes('ENOTFOUND') ||
-          error.message.includes('ECONNRESET')
-        ) {
-          errorType = 'network';
-        } else if (error.message.includes('fetch failed') || error.message.includes('network')) {
-          errorType = 'network';
-        }
-      }
-
-      // Update circuit breaker on failure (but not for network issues)
-      if (errorType !== 'network') {
-        this.recordFailure(server.id, error instanceof Error ? error.message : String(error));
-      }
-
-      return {
-        success: false,
-        serverId: server.id,
-        error: {
-          serverId: server.id,
-          error: errorMessage,
-          type: errorType,
-        },
-      };
-    }
+    return this.models.fetchServerTags(server);
   }
 
-  /**
-   * Merge tags data from a server into the global collection
-   */
   private mergeTagsData(
     allTags: Map<string, Record<string, unknown>>,
     models: unknown[],
     serverId: string
   ): void {
-    for (const tag of models) {
-      if (!tag || typeof tag !== 'object') {
-        continue;
-      }
-
-      const tagRecord = tag as Record<string, unknown>;
-
-      // Generate safe model key
-      const modelName =
-        (tagRecord.name as string | undefined) ?? (tagRecord.model as string | undefined);
-      if (!modelName || typeof modelName !== 'string') {
-        // Skip models without valid names
-        continue;
-      }
-
-      // Use model name as primary key, with fallback to digest for uniqueness
-      const digest = tagRecord.digest as string | undefined;
-      const modelKey = digest ? `${modelName}:${digest}` : modelName;
-
-      if (!allTags.has(modelKey)) {
-        // First time seeing this model
-        allTags.set(modelKey, {
-          ...tagRecord,
-          servers: [serverId],
-        });
-      } else {
-        const existing = allTags.get(modelKey);
-        if (existing) {
-          const servers = existing.servers as string[];
-          if (!servers.includes(serverId)) {
-            servers.push(serverId);
-          }
-        }
-      }
-    }
+    this.models.mergeTagsData(allTags, models, serverId);
   }
 
   /**
@@ -1304,7 +1164,7 @@ export class AIOrchestrator {
   /**
    * Resolve model name by appending :latest tag if needed
    */
-  private resolveModelName(model: string, availableModels: string[]): string | null {
+  public resolveModelName(model: string, availableModels: string[]): string | null {
     // Direct match
     if (availableModels.includes(model)) {
       return model;
@@ -1747,15 +1607,21 @@ export class AIOrchestrator {
     );
 
     const eligibleForBackoff = this.servers.filter(s => {
-      if (requiredCapability === 'ollama' && s.supportsOllama === false) return false;
+      if (requiredCapability === 'ollama' && s.supportsOllama === false) {
+        return false;
+      }
       if (requiredCapability === 'openai') {
         const hasV1Evidence =
           s.supportsV1 === true ||
           (s.v1Models && s.v1Models.length > 0) ||
           (s.discoveredV1Models && s.discoveredV1Models.length > 0);
-        if (!hasV1Evidence) return false;
+        if (!hasV1Evidence) {
+          return false;
+        }
       }
-      if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) return false;
+      if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) {
+        return false;
+      }
       return s.healthy && !this.isInCooldown(s.id, model) && !this.banManager.isBanned(s.id, model);
     });
 
@@ -2089,7 +1955,7 @@ export class AIOrchestrator {
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
         const serverLoad = this.getTotalInFlight(server.id);
-        this.populateRoutingContext(
+        this.persistence.populateRoutingContext(
           routingContext,
           server.id,
           model,
@@ -2235,7 +2101,7 @@ export class AIOrchestrator {
         const serverMaxConcurrency =
           server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
         const serverLoad = this.getTotalInFlight(server.id);
-        this.populateRoutingContext(
+        this.persistence.populateRoutingContext(
           routingContext,
           server.id,
           model,
@@ -2346,7 +2212,7 @@ export class AIOrchestrator {
             routingContext.failoverErrors = failoverErrors;
           }
         }
-        this.populateRoutingContext(
+        this.persistence.populateRoutingContext(
           routingContext,
           initialServer.id,
           model,
@@ -2510,7 +2376,13 @@ export class AIOrchestrator {
         const serverLoad = this.getTotalInFlight(server.id);
         const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
         routingContext.queueWaitTime = 0; // Direct-to-server, no routing delay
-        this.populateRoutingContext(routingContext, server.id, model, serverLoad, maxConcurrency);
+        this.persistence.populateRoutingContext(
+          routingContext,
+          server.id,
+          model,
+          serverLoad,
+          maxConcurrency
+        );
       }
 
       return result;
@@ -3127,7 +2999,7 @@ export class AIOrchestrator {
   /**
    * Handle a server error and update state appropriately
    */
-  private handleServerError(
+  public handleServerError(
     server: AIServer,
     model: string,
     errorMessage: string,
@@ -3342,7 +3214,7 @@ export class AIOrchestrator {
   /**
    * Record success for circuit breaker (both server and model level).
    */
-  private recordSuccess(serverId: string, model?: string): void {
+  public recordSuccess(serverId: string, model?: string): void {
     const serverCb = this.getCircuitBreaker(serverId);
 
     serverCb.recordSuccess();
@@ -3360,14 +3232,14 @@ export class AIOrchestrator {
     }
 
     // Schedule persistence save
-    this.scheduleCircuitBreakerSave();
+    this.persistence.scheduleCircuitBreakerSave();
   }
 
   /**
    * Record failure for circuit breaker (both server and model level)
    * Uses enhanced error classification for category-specific handling
    */
-  private recordFailure(serverId: string, error: string | Error, model?: string): void {
+  public recordFailure(serverId: string, error: string | Error, model?: string): void {
     // Classify the error for enhanced handling
     const classification = classifyError(typeof error === 'string' ? error : error.message);
 
@@ -3462,7 +3334,7 @@ export class AIOrchestrator {
     }
 
     // Schedule persistence save
-    this.scheduleCircuitBreakerSave();
+    this.persistence.scheduleCircuitBreakerSave();
   }
 
   /**
@@ -3526,33 +3398,9 @@ export class AIOrchestrator {
   }
 
   /**
-   * Schedule a save of circuit breaker states (debounced)
-   */
-  private scheduleCircuitBreakerSave(): void {
-    const data: CircuitBreakerData = {
-      timestamp: Date.now(),
-      breakers: this.circuitBreakerRegistry.getAllStats(),
-    };
-
-    // Debug logging for persistence triggers
-    const modelTypeUpdates = Object.entries(data.breakers)
-      .filter(([_, stats]) => stats.modelType)
-      .map(([key, stats]) => `${key}: ${stats.modelType}`)
-      .join(', ');
-
-    if (modelTypeUpdates) {
-      logger.debug(`Scheduling circuit breaker save with model type updates: ${modelTypeUpdates}`);
-    } else {
-      logger.debug('Scheduling circuit breaker save (no model type updates)');
-    }
-
-    this.circuitBreakerPersistence.scheduleSave(data);
-  }
-
-  /**
    * Get circuit breaker health for a server:model combination
    */
-  private getCircuitBreakerHealth(
+  public getCircuitBreakerHealth(
     serverId: string,
     _model?: string
   ):
@@ -3740,7 +3588,7 @@ export class AIOrchestrator {
     // Persist if enabled
     if (this.config.enablePersistence) {
       const persistedData = this.timeoutManager.toPersistedData();
-      saveTimeoutsToDisk(persistedData.timeouts);
+      this.persistence.saveTimeoutsToDisk(persistedData.timeouts);
     }
   }
 
@@ -3939,7 +3787,7 @@ export class AIOrchestrator {
   /**
    * Get circuit breaker for a server (with server-level half-open limits)
    */
-  private getCircuitBreaker(
+  public getCircuitBreaker(
     serverId: string
   ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
     return this.circuitBreakerRegistry.getOrCreate(serverId, undefined, (oldState, newState) => {
@@ -3977,7 +3825,7 @@ export class AIOrchestrator {
   /**
    * Get circuit breaker for a server:model combination (with server-level half-open limits)
    */
-  private getModelCircuitBreaker(
+  public getModelCircuitBreaker(
     serverId: string,
     model: string
   ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
@@ -4007,48 +3855,6 @@ export class AIOrchestrator {
 
       logger.info(`Circuit breaker state changed: ${oldState} -> ${newState}`);
     });
-  }
-
-  /**
-   * Populate routing context with circuit breaker and server info after successful request
-   */
-  private populateRoutingContext(
-    context: RoutingContext | undefined,
-    serverId: string,
-    model: string,
-    serverLoad?: number,
-    maxConcurrency?: number
-  ): void {
-    if (!context) {
-      return;
-    }
-
-    context.selectedServerId = serverId;
-
-    // Get server-level circuit breaker state
-    const serverCb = this.circuitBreakerRegistry.get(serverId);
-    if (serverCb) {
-      context.serverCircuitState = serverCb.getState();
-    }
-
-    // Get model-level circuit breaker state
-    const modelCb = this.circuitBreakerRegistry.get(`${serverId}:${model}`);
-    if (modelCb) {
-      context.modelCircuitState = modelCb.getState();
-    }
-
-    // Check if we routed to an open circuit
-    if (context.serverCircuitState === 'open' || context.modelCircuitState === 'open') {
-      context.routedToOpenCircuit = true;
-    }
-
-    // Add server load info
-    if (serverLoad !== undefined) {
-      context.serverLoad = serverLoad;
-    }
-    if (maxConcurrency !== undefined) {
-      context.maxConcurrency = maxConcurrency;
-    }
   }
 
   /**
@@ -4213,49 +4019,10 @@ export class AIOrchestrator {
   }
 
   /**
-   * Extract models from health check response data
-   */
-  private extractModelsFromResponse(responseData?: any): string[] {
-    if (!responseData || typeof responseData !== 'object') {
-      return [];
-    }
-
-    const data = responseData as { models?: unknown };
-    if (!data.models || !Array.isArray(data.models)) {
-      return [];
-    }
-
-    return data.models
-      .map((m: unknown) => {
-        if (typeof m === 'string') {
-          return m;
-        }
-        if (typeof m === 'object' && m !== null) {
-          const record = m as Record<string, unknown>;
-          return (
-            (record.model as string | undefined) ?? (record.name as string | undefined) ?? null
-          );
-        }
-        return null;
-      })
-      .filter(Boolean) as string[];
-  }
-
-  /**
-   * Check if two string arrays are equal (order matters for model lists)
-   */
-  private arraysEqual(a: string[], b: string[]): boolean {
-    if (a.length !== b.length) {
-      return false;
-    }
-    return a.every((val, index) => val === b[index]);
-  }
-
-  /**
    * Check if server:model combo should be skipped due to circuit breaker
    * Uses canAttempt() for read-only check without triggering state transitions
    */
-  private shouldSkipServerModel(
+  public shouldSkipServerModel(
     serverId: string,
     model: string,
     endpoint?: 'generate' | 'embeddings'
@@ -4365,7 +4132,7 @@ export class AIOrchestrator {
   /**
    * Reset consecutive failure count for a server (on successful request)
    */
-  private resetServerFailureCount(serverId: string): void {
+  public resetServerFailureCount(serverId: string): void {
     this.banManager.resetFailureCount(serverId);
   }
 
@@ -4618,7 +4385,7 @@ export class AIOrchestrator {
     // Persist timeouts on shutdown to ensure they're saved
     if (this.config.enablePersistence) {
       const persistedData = this.timeoutManager.toPersistedData();
-      saveTimeoutsToDisk(persistedData.timeouts);
+      this.persistence.saveTimeoutsToDisk(persistedData.timeouts);
       logger.info(`Persisted ${Object.keys(persistedData.timeouts).length} timeouts on shutdown`);
     }
 

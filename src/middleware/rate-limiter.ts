@@ -8,6 +8,16 @@ import rateLimit from 'express-rate-limit';
 
 import { logger } from '../utils/logger.js';
 
+/**
+ * IMPORTANT: This middleware uses the default in-memory store for express-rate-limit.
+ * In multi-process deployments (PM2 cluster mode, Kubernetes replicas, multiple Node.js
+ * processes), each process has its own independent counter. A client hitting 3 different
+ * pods gets 3 × maxRequests rather than the intended maxRequests total.
+ *
+ * For multi-process deployments, configure a shared store (e.g., rate-limit-redis).
+ * See docs/OPERATIONS.md for setup instructions.
+ */
+
 export interface RateLimitConfig {
   enabled: boolean;
   windowMs: number;
@@ -137,8 +147,7 @@ export function createInferenceRateLimiter(): any {
         return true;
       }
       const authDisabled =
-        process.env.ORCHESTRATOR_ENABLE_AUTH === 'false' ||
-        process.env.ENABLE_AUTH === 'false';
+        process.env.ORCHESTRATOR_ENABLE_AUTH === 'false' || process.env.ENABLE_AUTH === 'false';
       if (authDisabled) {
         return true;
       }

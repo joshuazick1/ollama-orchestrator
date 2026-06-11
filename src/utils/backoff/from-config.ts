@@ -1,5 +1,6 @@
-import type { BackoffStrategyType, StrategyOptions } from './types.js';
 import type { RetryConfig, RateLimitConfig } from '../../config/schema.js';
+
+import type { BackoffStrategyType, StrategyOptions } from './types.js';
 
 export interface RetryConfigAdapter {
   strategyType: BackoffStrategyType;

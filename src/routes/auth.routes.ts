@@ -6,6 +6,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 
+import { requireAuth, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
+import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf.js';
 import { getUserStore } from '../storage/user-store.js';
 import {
   signToken,
@@ -19,8 +21,6 @@ import {
   getTokenFromCookie,
   getRefreshTokenFromCookie,
 } from '../utils/jwt.js';
-import { requireAuth, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
-import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf.js';
 import { logger } from '../utils/logger.js';
 
 const loginSchema = z.object({
@@ -102,7 +102,7 @@ authRouter.post(
 authRouter.post(
   '/logout',
   validateCsrfToken,
-  asyncHandler(async (_req: Request, res: Response) => {
+  asyncHandler((_req: Request, res: Response) => {
     clearTokenCookie(res);
     clearRefreshTokenCookie(res);
 
@@ -113,7 +113,7 @@ authRouter.post(
 authRouter.post(
   '/refresh',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler((req: Request, res: Response) => {
     const refreshToken = getRefreshTokenFromCookie(req);
     if (!refreshToken) {
       res.status(401).json({
@@ -158,7 +158,7 @@ authRouter.post(
 authRouter.get(
   '/me',
   requireAuth(),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler((req: Request, res: Response) => {
     // When auth is disabled, return a default admin user so frontend doesn't redirect to login
     if (!DEFAULT_AUTH_CONFIG.enabled) {
       res.status(200).json({

@@ -17,6 +17,7 @@ export function saveServersToDisk(servers: AIServer[]): void {
   try {
     logger.info(`Saving ${servers.length} servers to disk at ${serversConfig.getPath()}...`);
     const success = serversConfig.set(servers);
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     if (!success) {
       logger.error('Failed to save servers to disk - configManager.set() returned false');
     } else {

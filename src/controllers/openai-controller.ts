@@ -27,8 +27,10 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
+import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
-import { performStreamHandoff } from '../utils/stream-handoff.js';
+// import { performStreamHandoff } from '../utils/stream-handoff.js';
+import { createStreamingStallHandler } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 /**
@@ -70,7 +72,7 @@ function waitForDrain(clientResponse: Response, abortSignal?: AbortSignal): Prom
   return new Promise<void>(resolve => {
     let settled = false;
     const cleanup = () => {
-      if (settled) return;
+      if (settled) {return;}
       settled = true;
       clientResponse.removeListener('drain', onDrain);
       clientResponse.removeListener('close', onClose);
@@ -698,11 +700,22 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           let _openaiChatHandoffAttempted = false;
           let _openaiChatHandoffSuccess = false;
 
+          const { onStall: sharedOnStall } = createStreamingStallHandler({
+            server,
+            requestId: requestId ?? '',
+            model,
+            protocol: 'openai',
+            endpoint: 'chat',
+            clientResponse: res,
+            originalRequestBody: body as unknown as Record<string, unknown>,
+            stallThreshold,
+            stallCheckInterval,
+          });
+
           const onStallCallback = async (
             _abortController: AbortController,
             passedRequestId?: string
           ): Promise<{ success: boolean; error?: string }> => {
-            // Track stall detection for debug output
             openaiChatStallDetected = true;
             openaiChatStallStartTime = Date.now();
 
@@ -715,60 +728,12 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               message: 'Stall detected - attempting seamless handoff',
             });
 
-            const progress = passedRequestId
-              ? getInFlightManager().getStreamingRequestProgress(passedRequestId)
-              : undefined;
-
-            if (!progress) {
-              logger.warn('No streaming progress found for OpenAI handoff', {
-                requestId: passedRequestId,
-              });
-              return { success: false, error: 'No progress tracked' };
-            }
-
-            // Find an eligible server for failover
-            const orchestratorInst = getOrchestratorInstance();
-            const allServers = orchestratorInst.getServers();
-            const newServer = allServers.find(
-              s =>
-                s.id !== server.id &&
-                s.healthy &&
-                s.models.includes(model) &&
-                orchestratorInst.isCircuitAllowed(s.id) &&
-                s.supportsV1 !== false
-            );
-
-            if (!newServer) {
-              logger.warn('No eligible OpenAI servers for handoff', {
-                requestId: passedRequestId,
-                currentServer: server.id,
-                model,
-              });
-              return { success: false, error: 'No alternative servers with closed circuit' };
-            }
+            const result = await sharedOnStall(_abortController, passedRequestId);
 
             _openaiChatHandoffAttempted = true;
+            _openaiChatHandoffSuccess = result.success;
 
-            try {
-              const result = await performStreamHandoff({
-                originalRequest: progress,
-                newServer,
-                clientResponse: res,
-                originalRequestBody: body as unknown as Record<string, unknown>,
-                stallThresholdMs: stallThreshold,
-                stallCheckIntervalMs: stallCheckInterval,
-              });
-
-              _openaiChatHandoffSuccess = result.success;
-              return { success: result.success, error: result.error };
-            } catch (handoffError) {
-              logger.error('OpenAI handoff failed with exception', {
-                requestId: passedRequestId,
-                error: handoffError instanceof Error ? handoffError.message : String(handoffError),
-              });
-              _openaiChatHandoffSuccess = false;
-              return { success: false, error: 'Handoff exception' };
-            }
+            return result;
           };
 
           try {
@@ -994,12 +959,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const isCapacityError =
-        (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
-        errorMessage.includes('at max concurrency') ||
-        errorMessage.includes('circuit breaker');
-      const isAccessDenied =
-        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+        classifyOrchestratorError(errorMessage);
+      const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
@@ -1179,12 +1141,9 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     logger.error('OpenAI completions failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const isCapacityError =
-        (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
-        errorMessage.includes('at max concurrency') ||
-        errorMessage.includes('circuit breaker');
-      const isAccessDenied =
-        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+        classifyOrchestratorError(errorMessage);
+      const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
@@ -1290,12 +1249,9 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
     logger.error('OpenAI embeddings failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const isCapacityError =
-        (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
-        errorMessage.includes('at max concurrency') ||
-        errorMessage.includes('circuit breaker');
-      const isAccessDenied =
-        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+        classifyOrchestratorError(errorMessage);
+      const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;

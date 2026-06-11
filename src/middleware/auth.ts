@@ -30,12 +30,14 @@ export interface AuthConfig {
  * Supports both ORCHESTRATOR_AUTH_ENABLED and ENABLE_AUTH for backwards compatibility.
  * Auth is enabled if ORCHESTRATOR_AUTH_ENABLED is not 'false' OR ENABLE_AUTH is not 'false'.
  */
-function isAuthEnabled(): boolean {
+export function isAuthEnabled(): boolean {
   const orchestratorAuth = process.env.ORCHESTRATOR_AUTH_ENABLED;
   const enableAuth = process.env.ENABLE_AUTH;
   // Auth is enabled if either flag is set and not explicitly 'false'
-  return (orchestratorAuth !== 'false' && orchestratorAuth !== undefined) ||
-         (enableAuth !== 'false' && enableAuth !== undefined);
+  return (
+    (orchestratorAuth !== 'false' && orchestratorAuth !== undefined) ||
+    (enableAuth !== 'false' && enableAuth !== undefined)
+  );
 }
 
 // In production, these should come from environment variables
@@ -69,6 +71,7 @@ declare module 'express-serve-static-core' {
       id: string;
       role: 'admin' | 'user';
     };
+    currentUser?: import('../storage/user-store.js').User;
   }
 }
 
@@ -112,7 +115,7 @@ export function requireAuth(
       const token = authHeader.substring(7);
       try {
         // Dynamically import to avoid circular dependency at module level
-        // eslint-disable-next-line @typescript-eslint/no-shadow
+        // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-shadow
         const { verifyAccessToken } = require('../utils/jwt.js');
         const payload = verifyAccessToken(token);
         // JWT is valid - set req.user with userId and role

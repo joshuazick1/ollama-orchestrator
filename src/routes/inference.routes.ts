@@ -19,6 +19,7 @@ import {
   handleChatToServer,
   handleEmbeddingsToServer,
 } from '../controllers/ollama-controller.js';
+import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import {
   validateRequest,
   generateRequestSchema,
@@ -26,7 +27,6 @@ import {
   embeddingsRequestSchema,
   embedRequestSchema,
 } from '../middleware/validation.js';
-import { requireAuth, optionalAuth } from '../middleware/auth.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =

@@ -11,7 +11,10 @@ import fs from 'fs';
 import path from 'path';
 
 import type { ErrorEvent, ErrorQueryFilters } from '../types/error-event.js';
+import { isObject, safeJsonParse } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
+
+import { NdjsonFileStore } from './json-file-store.js';
 
 const DEFAULT_ERROR_EVENTS_DIR = './data/error-events';
 
@@ -20,11 +23,16 @@ const DEFAULT_ERROR_EVENTS_DIR = './data/error-events';
  *
  * Provides daily rotation with NDJSON format for error event storage.
  */
-export class ErrorEventStore {
+export class ErrorEventStore extends NdjsonFileStore<ErrorEvent> {
   private baseDir: string;
 
   constructor(baseDir: string = DEFAULT_ERROR_EVENTS_DIR) {
+    super();
     this.baseDir = baseDir;
+  }
+
+  protected getFilePath(): string {
+    return path.join(this.baseDir, 'error-events.json');
   }
 
   // ============================================================
@@ -40,7 +48,7 @@ export class ErrorEventStore {
     const line = JSON.stringify(event) + '\n';
 
     return new Promise((resolve, reject) => {
-      fs.appendFile(filePath, line, 'utf8', (err) => {
+      fs.appendFile(filePath, line, 'utf8', err => {
         if (err) {
           logger.error('[ErrorEventStore] Failed to record error event', { error: err, event });
           reject(err);
@@ -106,9 +114,12 @@ export class ErrorEventStore {
 
     if (!fs.existsSync(resolvedPath)) {
       return new Promise((resolve, reject) => {
-        fs.mkdir(resolvedPath, { recursive: true }, (err) => {
+        fs.mkdir(resolvedPath, { recursive: true }, err => {
           if (err) {
-            logger.error('[ErrorEventStore] Failed to create directory', { error: err, path: resolvedPath });
+            logger.error('[ErrorEventStore] Failed to create directory', {
+              error: err,
+              path: resolvedPath,
+            });
             reject(err);
           } else {
             logger.debug('[ErrorEventStore] Created directory', { path: resolvedPath });
@@ -138,10 +149,14 @@ export class ErrorEventStore {
         const lines = content.split('\n').filter(line => line.trim() !== '');
 
         for (const line of lines) {
-          try {
-            events.push(JSON.parse(line) as ErrorEvent);
-          } catch (parseErr) {
-            logger.warn('[ErrorEventStore] Failed to parse NDJSON line', { filePath, line });
+          const parsed = safeJsonParse(
+            line,
+            (v): v is ErrorEvent => isObject(v) && 'id' in v && 'timestamp' in v,
+            null,
+            'error-event'
+          );
+          if (parsed !== null) {
+            events.push(parsed);
           }
         }
 
@@ -157,9 +172,7 @@ export class ErrorEventStore {
     const dates: Set<string> = new Set();
 
     const start = startTime ? new Date(startTime) : new Date(Date.now() - 86400000);
-    const end = endTime
-      ? new Date(endTime)
-      : (startTime ? new Date('2100-01-01') : new Date());
+    const end = endTime ? new Date(endTime) : startTime ? new Date('2100-01-01') : new Date();
 
     const current = new Date(start);
     current.setUTCHours(0, 0, 0, 0);

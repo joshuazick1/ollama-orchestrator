@@ -4,7 +4,6 @@
  */
 
 import type { MetricsDecayConfig } from '../config/config.js';
-import { featureFlags } from '../config/feature-flags.js';
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import type {
   MetricsWindow,
@@ -1027,28 +1026,11 @@ export class MetricsAggregator {
    * Calculate percentiles from latency array
    */
   private calculatePercentiles(latencies: number[]): LatencyPercentiles {
-    // Use centralized Statistics utility if feature flag is enabled
-    if (featureFlags.get('useStatisticsUtility')) {
-      const result = Statistics.calculatePercentiles(latencies);
-      return {
-        p50: result.p50,
-        p95: result.p95,
-        p99: result.p99,
-      };
-    }
-
-    // Legacy implementation
-    if (latencies.length === 0) {
-      return { p50: 0, p95: 0, p99: 0 };
-    }
-
-    const sorted = [...latencies].sort((a, b) => a - b);
-    const len = sorted.length;
-
+    const result = Statistics.calculatePercentiles(latencies);
     return {
-      p50: this.getPercentile(sorted, len, 0.5),
-      p95: this.getPercentile(sorted, len, 0.95),
-      p99: this.getPercentile(sorted, len, 0.99),
+      p50: result.p50,
+      p95: result.p95,
+      p99: result.p99,
     };
   }
 

@@ -3,14 +3,15 @@
  * SQLite-backed user store with bcrypt password hashing and access management.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 
-import Database from 'better-sqlite3';
 import bcrypt from 'bcrypt';
+import Database from 'better-sqlite3';
 
 import { logger } from '../utils/logger.js';
+
 import { DEFAULT_STORAGE_CONFIG } from './types.js';
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -3,9 +3,10 @@
  * JWT utilities for user authentication with HMAC-SHA256 signing.
  */
 
-import jwt from 'jsonwebtoken';
-import type { Request, Response } from 'express';
 import { createHash, randomBytes } from 'crypto';
+
+import type { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 
 import { logger } from './logger.js';
 

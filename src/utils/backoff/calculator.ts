@@ -1,7 +1,7 @@
-import type { BackoffResult, BackoffStrategyType, StrategyOptions } from './types.js';
-import { exponentialStrategy } from './strategies/exponential.js';
 import { decorrelatedStrategy } from './strategies/decorrelated.js';
+import { exponentialStrategy } from './strategies/exponential.js';
 import { fixedStrategy } from './strategies/fixed.js';
+import type { BackoffResult, BackoffStrategyType, StrategyOptions } from './types.js';
 
 const strategies: Record<BackoffStrategyType, (opts: StrategyOptions) => BackoffResult> = {
   exponential: exponentialStrategy,

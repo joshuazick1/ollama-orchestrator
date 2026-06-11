@@ -69,14 +69,22 @@ export class InFlightManager {
     const key = `${serverId}:${model}`;
 
     if (bypass) {
-      const current = this.inFlightBypass.get(key) ?? 1;
+      const current = this.inFlightBypass.get(key);
+      if (current === undefined) {
+        logger.warn(`decrementInFlight for ${key} but key does not exist in bypass map`);
+        return;
+      }
       if (current <= 1) {
         this.inFlightBypass.delete(key);
       } else {
         this.inFlightBypass.set(key, current - 1);
       }
     } else {
-      const current = this.inFlight.get(key) ?? 1;
+      const current = this.inFlight.get(key);
+      if (current === undefined) {
+        logger.warn(`decrementInFlight for ${key} but key does not exist`);
+        return;
+      }
       if (current <= 1) {
         this.inFlight.delete(key);
       } else {
@@ -92,6 +100,21 @@ export class InFlightManager {
   getInFlight(serverId: string, model: string): number {
     const key = `${serverId}:${model}`;
     return (this.inFlight.get(key) ?? 0) + (this.inFlightBypass.get(key) ?? 0);
+  }
+
+  /**
+   * Get count for a specific server:model combination
+   */
+  getCount(serverId: string, model: string): number {
+    const key = `${serverId}:${model}`;
+    return (this.inFlight.get(key) ?? 0) + (this.inFlightBypass.get(key) ?? 0);
+  }
+
+  /**
+   * Get total number of entries across both maps
+   */
+  getTotalEntries(): number {
+    return this.inFlight.size + this.inFlightBypass.size;
   }
 
   /**

@@ -6,17 +6,17 @@
 import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
+import type {
+  OllamaGenerateResponse,
+  OllamaShowResponse,
+  OllamaProcessListResponse,
+} from './types/ollama/index.js';
 import { sleep } from './utils/async-helpers.js';
 import { getErrorClassifier } from './utils/error-classifier.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 
-import type {
-  OllamaGenerateResponse,
-  OllamaShowResponse,
-  OllamaProcessListResponse,
-} from './types/ollama/index.js';
 
 /** Server status entry in warmup status result */
 interface ServerWarmupStatusEntry {

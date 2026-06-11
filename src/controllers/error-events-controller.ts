@@ -9,7 +9,13 @@ import { getErrorEventStore } from '../storage/error-event-store.js';
 import type { ErrorQueryFilters, ErrorType } from '../types/error-event.js';
 import { logger } from '../utils/logger.js';
 
-const VALID_ERROR_TYPES: ErrorType[] = ['retryable', 'non_retryable', 'transient', 'permanent', 'rate_limited'];
+const VALID_ERROR_TYPES: ErrorType[] = [
+  'retryable',
+  'non_retryable',
+  'transient',
+  'permanent',
+  'rate_limited',
+];
 
 function parseErrorQueryParams(req: Request): ErrorQueryFilters {
   const { startTime, endTime, errorType, limit } = req.query;
@@ -90,7 +96,7 @@ export async function getServerErrors(req: Request, res: Response): Promise<void
       errors,
     });
   } catch (error) {
-    logger.error(`Error listing error events for server ${req.params.serverId}:`, error);
+    logger.error(`Error listing error events for server ${String(req.params.serverId)}:`, error);
     res.status(500).json({ success: false, error: 'Failed to retrieve server error events' });
   }
 }
@@ -125,7 +131,10 @@ export async function getCircuitErrors(req: Request, res: Response): Promise<voi
       errors,
     });
   } catch (error) {
-    logger.error(`Error listing error events for circuit ${req.params.serverId}/${req.params.circuitId}:`, error);
+    logger.error(
+      `Error listing error events for circuit ${String(req.params.serverId)}/${String(req.params.circuitId)}:`,
+      error
+    );
     res.status(500).json({ success: false, error: 'Failed to retrieve circuit error events' });
   }
 }

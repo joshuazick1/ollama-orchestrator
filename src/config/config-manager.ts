@@ -23,7 +23,7 @@ export interface ConfigOptions<T> extends JsonFileHandlerOptions {
 
 export interface ConfigManager<T> {
   get(): T;
-  set(value: T): boolean;
+  set(value: T): Promise<boolean>;
   reload(): T | null;
   getPath(): string;
 }
@@ -55,7 +55,7 @@ export function createConfigManager<T>(options: ConfigOptions<T>): ConfigManager
         logger.info(`Loaded config from ${fileName}`);
       } else {
         logger.warn(`No config found at ${fileName}, using defaults`);
-        handler.write(defaults);
+        void handler.write(defaults);
       }
     } catch (error) {
       logger.error(`Error loading config from ${fileName}`, { error });
@@ -70,9 +70,9 @@ export function createConfigManager<T>(options: ConfigOptions<T>): ConfigManager
       return loadConfig();
     },
 
-    set(value: T): boolean {
+    async set(value: T): Promise<boolean> {
       try {
-        const success = handler.write(value);
+        const success = await handler.write(value);
         if (success) {
           cachedConfig = value;
           logger.info(`Saved config to ${fileName}`);

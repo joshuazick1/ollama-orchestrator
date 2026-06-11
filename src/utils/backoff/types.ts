@@ -46,10 +46,10 @@ export interface ExponentialOptions extends BackoffOptions {
 }
 
 export interface DecorrelatedOptions extends BackoffOptions {
+  /** Previous delay for decorrelation (default: baseDelayMs) */
+  previousDelay?: number;
   /** Multiplier for decorrelation (default: 3) */
   multiplier?: number;
-  /** Jitter factor 0-1 (default: 0) */
-  jitterFactor?: number;
 }
 
 export interface FixedOptions extends BackoffOptions {

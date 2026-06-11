@@ -11,7 +11,6 @@
  */
 
 import { CircuitBreaker } from './circuit-breaker/circuit-breaker.js';
-import { featureFlags } from './config/feature-flags.js';
 import { sleep } from './utils/async-helpers.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
@@ -109,6 +108,15 @@ export function isEmbeddingModel(modelName: string): boolean {
   );
 }
 
+/**
+ * Determine if a breaker is a server-level or model-level breaker.
+ * Server-level: "srv-abc123" (no colon)
+ * Model-level: "srv-abc123:llama3.1:8b" (has colon after serverId)
+ */
+export function isServerLevelBreaker(breakerName: string): boolean {
+  return !breakerName.includes(':');
+}
+
 export class RecoveryTestCoordinator {
   private serverStates = new Map<string, ServerTestState>();
   private config: TestCoordinatorConfig;
@@ -168,6 +176,14 @@ export class RecoveryTestCoordinator {
     return this.testMetrics
       .filter(m => m.breakerName === breakerName)
       .sort((a, b) => b.startTime - a.startTime);
+  }
+
+  /**
+   * Returns a snapshot of the test metrics array.
+   * Used by the metrics controller to expose test execution stats.
+   */
+  public getTestMetrics(): TestMetrics[] {
+    return [...this.testMetrics]; // Return a copy to prevent external mutation
   }
 
   /**
@@ -343,10 +359,7 @@ export class RecoveryTestCoordinator {
    * Model-level: "srv-abc123:llama3.1:8b" (has model name after server ID)
    */
   private isServerLevelBreaker(breakerName: string): boolean {
-    // Split by colon - if we have more than 2 parts, it's model-level
-    // Format: "serverId" (server) or "serverId:model:name" (model)
-    const parts = breakerName.split(':');
-    return parts.length <= 1;
+    return !breakerName.includes(':');
   }
 
   /**
@@ -533,7 +546,7 @@ export class RecoveryTestCoordinator {
     const serverId = this.getServerId(breakerName);
     const state = this.getServerState(serverId);
 
-    const useTimer = featureFlags.get('useTimerUtility');
+    const useTimer = true;
     const timer = useTimer ? new Timer() : null;
     const startTime = timer ? undefined : Date.now();
     const metricsStartTime = Date.now();
@@ -642,7 +655,7 @@ export class RecoveryTestCoordinator {
     const breakerName = breaker.getName();
     const state = this.getServerState(serverId);
 
-    const useTimer = featureFlags.get('useTimerUtility');
+    const useTimer = true;
     const timer = useTimer ? new Timer() : null;
     const startTime = timer ? undefined : Date.now();
     const metricsStartTime = Date.now();

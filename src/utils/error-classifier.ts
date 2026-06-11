@@ -5,9 +5,10 @@
 
 import crypto from 'crypto';
 
-import { logger } from './logger.js';
 import { getErrorEventStore } from '../storage/error-event-store.js';
 import type { ErrorEvent } from '../types/error-event.js';
+
+import { logger } from './logger.js';
 
 /**
  * Error classification types

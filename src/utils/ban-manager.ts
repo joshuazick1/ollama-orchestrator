@@ -3,6 +3,8 @@ import { getOperationalStore } from '../storage/operational-store.js';
 
 import { logger } from './logger.js';
 
+const MAX_PERMANENT_BANS = 10000;
+
 export interface FailureTracker {
   timestamps: number[];
   lastSuccess: number;
@@ -172,6 +174,12 @@ export class BanManager {
 
   addBan(serverId: string, model: string): void {
     const key = `${serverId}:${model}`;
+    if (this.permanentBan.size >= MAX_PERMANENT_BANS) {
+      const firstKey = this.permanentBan.values().next().value;
+      if (firstKey !== undefined) {
+        this.permanentBan.delete(firstKey);
+      }
+    }
     this.permanentBan.add(key);
     getOperationalStore().addBan(serverId, model);
     logger.info(`Server ${serverId} banned for model ${model}`);
@@ -209,7 +217,11 @@ export class BanManager {
     let removed = 0;
     const toRemove: string[] = [];
     for (const ban of this.permanentBan) {
-      const [, modelPart] = ban.split(':');
+      const colonIdx = ban.indexOf(':');
+      if (colonIdx === -1) {
+        continue;
+      }
+      const modelPart = ban.substring(colonIdx + 1);
       if (modelPart === model) {
         toRemove.push(ban);
       }
@@ -233,7 +245,9 @@ export class BanManager {
   getBanDetails(): BanInfo[] {
     const details: BanInfo[] = [];
     for (const ban of this.permanentBan) {
-      const [serverId, model] = ban.split(':');
+      const colonIdx = ban.indexOf(':');
+      const serverId = colonIdx !== -1 ? ban.substring(0, colonIdx) : ban;
+      const model = colonIdx !== -1 ? ban.substring(colonIdx + 1) : '';
       details.push({
         serverId,
         model,
@@ -242,7 +256,9 @@ export class BanManager {
       });
     }
     for (const [key, timestamp] of this.failureCooldown) {
-      const [serverId, model] = key.split(':');
+      const colonIdx = key.indexOf(':');
+      const serverId = colonIdx !== -1 ? key.substring(0, colonIdx) : key;
+      const model = colonIdx !== -1 ? key.substring(colonIdx + 1) : '';
       const expiresAt = timestamp + this.config.failureCooldownMs;
       if (Date.now() < expiresAt) {
         details.push({
@@ -259,6 +275,10 @@ export class BanManager {
 
   isBanned(serverId: string, model: string): boolean {
     return this.permanentBan.has(`${serverId}:${model}`);
+  }
+
+  getPermanentBanCount(): number {
+    return this.permanentBan.size;
   }
 
   recordSuccess(serverId: string, model?: string): void {

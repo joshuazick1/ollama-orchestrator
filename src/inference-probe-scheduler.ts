@@ -1,12 +1,13 @@
 import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import type { ProbeSchedulerConfig } from './config/config.js';
-import type { ErrorAggregator } from './utils/error-aggregator.js';
 import { MetricsAggregator } from './metrics/index.js';
 import type { AIServer, RequestContext } from './orchestrator/orchestrator.types.js';
 import type { MetricsStore } from './storage/metrics-store.js';
+import type { ErrorAggregator } from './utils/error-aggregator.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { logger } from './utils/logger.js';
+import { probeCoordinator } from './utils/probe-coordinator.js';
 
 export type { ProbeSchedulerConfig };
 
@@ -40,6 +41,7 @@ export class InferenceProbeScheduler {
   private probeQueue: ProbeTarget[] = [];
   private activeProbes: Map<string, Promise<void>> = new Map();
   private activeProbesPerServer: Map<string, number> = new Map();
+  private probeAbortControllers: Map<string, AbortController> = new Map();
   private lastUserRequestTime: Map<string, number> = new Map();
   private failureBackoff: Map<string, number> = new Map();
   private failureCount: Map<string, number> = new Map();
@@ -139,6 +141,25 @@ export class InferenceProbeScheduler {
 
   recordUserRequest(serverId: string): void {
     this.lastUserRequestTime.set(serverId, Date.now());
+  }
+
+  cancelProbe(probeId: string): void {
+    const controller = this.probeAbortControllers.get(probeId);
+    if (controller) {
+      controller.abort();
+      this.probeAbortControllers.delete(probeId);
+      logger.info(`InferenceProbeScheduler: cancelled probe ${probeId}`);
+    }
+  }
+
+  getActiveProbeId(serverId: string, model: string): string | undefined {
+    const prefix = `${serverId}:${model}:`;
+    for (const [probeId] of this.probeAbortControllers) {
+      if (probeId.startsWith(prefix)) {
+        return probeId;
+      }
+    }
+    return undefined;
   }
 
   computeMinimumProbeSet(): ProbeTarget[] {
@@ -358,6 +379,10 @@ export class InferenceProbeScheduler {
       logger.info(`InferenceProbeScheduler: skipping probe ${key} - cluster rate limit active`);
       return;
     }
+    if (!probeCoordinator.tryAcquire(serverId, model)) {
+      logger.info(`InferenceProbeScheduler: skipping probe ${key} - another probe in progress`);
+      return;
+    }
 
     logger.info(`InferenceProbeScheduler: starting probe ${key}`, {
       parameterSize: target.parameterSize,
@@ -384,12 +409,22 @@ export class InferenceProbeScheduler {
         options: { num_predict: 10, temperature: 0 },
       });
 
-      const response = await fetchWithTimeout(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        timeout: this.config.probeTimeoutMs,
-      });
+      const abortController = new AbortController();
+      const probeId = `probe-${key}-${startTime}`;
+      this.probeAbortControllers.set(probeId, abortController);
+
+      let response: Response;
+      try {
+        response = await fetchWithTimeout(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          timeout: this.config.probeTimeoutMs,
+          signal: abortController.signal,
+        });
+      } finally {
+        this.probeAbortControllers.delete(probeId);
+      }
 
       requestContext.endTime = Date.now();
       requestContext.duration = requestContext.endTime - startTime;
@@ -417,13 +452,18 @@ export class InferenceProbeScheduler {
     } catch (err) {
       requestContext.endTime = Date.now();
       requestContext.duration = requestContext.endTime - startTime;
-      requestContext.success = false;
-      requestContext.error = err instanceof Error ? err : new Error(String(err));
-      this.recordProbeFailure(key);
-      this.getCircuitBreakerRegistry()
-        .getOrCreate(key)
-        .recordFailure(err instanceof Error ? err : new Error(String(err)), 'transient');
-      logger.warn(`InferenceProbeScheduler: probe error for ${key}`, { error: err });
+
+      if (err instanceof Error && err.name === 'AbortError') {
+        logger.info(`InferenceProbeScheduler: probe ${key} was cancelled`);
+      } else {
+        requestContext.success = false;
+        requestContext.error = err instanceof Error ? err : new Error(String(err));
+        this.recordProbeFailure(key);
+        this.getCircuitBreakerRegistry()
+          .getOrCreate(key)
+          .recordFailure(err instanceof Error ? err : new Error(String(err)), 'transient');
+        logger.warn(`InferenceProbeScheduler: probe error for ${key}`, { error: err });
+      }
     }
 
     try {
@@ -441,6 +481,7 @@ export class InferenceProbeScheduler {
         error: err,
       });
     }
+    probeCoordinator.release(serverId, model);
   }
 
   private shouldSkipServer(serverId: string, maxConcurrency: number): boolean {

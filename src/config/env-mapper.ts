@@ -47,7 +47,6 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_CB_MIN_FAILURE_THRESHOLD: 'circuitBreaker.minFailureThreshold',
   ORCHESTRATOR_CB_OPEN_TIMEOUT: 'circuitBreaker.openTimeout',
   ORCHESTRATOR_CB_HALF_OPEN_TIMEOUT: 'circuitBreaker.halfOpenTimeout',
-  ORCHESTRATOR_CB_HALF_OPEN_MAX_REQUESTS: 'circuitBreaker.halfOpenMaxRequests',
   ORCHESTRATOR_CB_RECOVERY_SUCCESS_THRESHOLD: 'circuitBreaker.recoverySuccessThreshold',
   ORCHESTRATOR_CB_ERROR_RATE_WINDOW: 'circuitBreaker.errorRateWindow',
   ORCHESTRATOR_CB_ERROR_RATE_THRESHOLD: 'circuitBreaker.errorRateThreshold',
@@ -121,7 +120,7 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_MM_MEMORY_SAFETY_MARGIN: 'modelManager.memorySafetyMargin',
   ORCHESTRATOR_MM_GB_PER_BILLION_PARAMS: 'modelManager.gbPerBillionParams',
 
-  // Persistence settings
+  ORCHESTRATOR_ADAPTIVE_WEIGHT_TUNER_ENABLED: 'adaptiveWeightTuner.enabled',
   ORCHESTRATOR_PERSISTENCE_PATH: 'persistencePath',
   ORCHESTRATOR_CONFIG_RELOAD_INTERVAL: 'configReloadIntervalMs',
 };

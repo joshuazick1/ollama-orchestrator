@@ -1,33 +1,34 @@
-// This utility centralizes JSON handling to prevent repeated inline usage
-// and provides basic error handling for the parsing process.
-
 import { logger } from './logger.js';
 
-/**
- * Safely parses a JSON string.
- * @param {string} jsonString - The string to parse.
- * @param {any} [fallback] - Optional fallback value if parsing fails.
- * @returns {any} The parsed object or the fallback value.
- */
-export const safeJsonParse = (jsonString: string, fallback: any = null): any => {
-  try {
-    return JSON.parse(jsonString);
-  } catch (error) {
-    // Only log errors in DEBUG mode to avoid noisy test output
-    if (process.env.DEBUG === 'true') {
-      logger.error('Failed to parse JSON string:', { error });
-    }
-    return fallback;
-  }
-};
+export function isObject(obj: unknown): obj is Record<string, unknown> {
+  return typeof obj === 'object' && obj !== null && !Array.isArray(obj);
+}
 
-/**
- * Converts a value to a JSON string.
- * @param {any} value - The value to stringify.
- * @param {(number | string)[] | ((this: any, key: string, value: any) => any) | null} [replacer] - Optional replacer function or array.
- * @param {string | number} [space] - Optional space for formatting.
- * @returns {string} The JSON string representation.
- */
+export function isArrayOf<T>(itemGuard: (obj: unknown) => obj is T): (obj: unknown) => obj is T[] {
+  return (obj: unknown): obj is T[] => {
+    return Array.isArray(obj) && obj.every(itemGuard);
+  };
+}
+
+export function safeJsonParse<T>(
+  raw: string,
+  validator?: (obj: unknown) => obj is T,
+  fallback?: T,
+  context: string = 'json'
+): T | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (validator && !validator(parsed)) {
+      logger.warn(`JSON validation failed for ${context}, using fallback`);
+      return fallback ?? null;
+    }
+    return (parsed as T) ?? fallback ?? null;
+  } catch (err) {
+    logger.warn(`JSON parse failed for ${context}, using fallback`, { error: err });
+    return fallback ?? null;
+  }
+}
+
 export const safeJsonStringify = (
   value: any,
   replacer?: (number | string)[] | ((this: any, key: string, value: any) => any) | null,

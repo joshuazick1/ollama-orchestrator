@@ -17,7 +17,10 @@ export const serverConfigSchema = z.object({
   url: z.string().url(),
   type: z.enum(['ollama', 'openai', 'auto']).default('auto'),
   maxConcurrency: z.number().int().min(1).max(100).default(4),
-  apiKey: z.string().regex(/^(env:[A-Z_][A-Z0-9_]*|sk-[a-zA-Z0-9-_]*)?$/).optional(),
+  apiKey: z
+    .string()
+    .regex(/^(env:[A-Z_][A-Z0-9_]*|sk-[a-zA-Z0-9-_]*)?$/)
+    .optional(),
 });
 
 /**
@@ -236,7 +239,6 @@ export const circuitBreakerConfigSchema = z.object({
   minFailureThreshold: z.number().int().min(1).default(3),
   openTimeout: z.number().int().min(1000).default(120000), // 2 minutes
   halfOpenTimeout: z.number().int().min(1000).default(300000), // 5 minutes - match activeTestTimeout
-  halfOpenMaxRequests: z.number().int().min(1).default(5),
   recoverySuccessThreshold: z.number().int().min(1).default(3),
   activeTestTimeout: z.number().int().min(5000).max(600000).default(300000), // 5 minutes
   maxHalfOpenPerServer: z.number().int().min(1).max(20).default(3),
@@ -469,6 +471,19 @@ export const errorAggregatorConfigSchema = z.object({
   clusterSize: z.number().int().min(1).optional(),
 });
 
+export const adaptiveWeightTunerConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+});
+
+export const recoveryBackoffConfigSchema = z.object({
+  modelCapability: z.array(z.number().int().min(0)).default([30000, 30000]),
+  modelFile: z.array(z.number().int().min(0)).default([60000, 300000, 600000]),
+  permanent: z.array(z.number().int().min(0)).default([300000, 600000, 1200000, 2400000, 3600000]),
+  standard: z
+    .array(z.number().int().min(0))
+    .default([30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000]),
+});
+
 /**
  * Anthropic configuration schema
  */
@@ -494,6 +509,9 @@ export const orchestratorConfigSchema = z.object({
   enableStreaming: z.boolean().default(true),
   enablePersistence: z.boolean().default(true),
 
+  // Total request timeout for failover (ms) - budget that aborts when exceeded
+  inferenceTimeoutMs: z.number().int().min(1000).default(90000),
+
   // Sub-configurations
   loadBalancer: loadBalancerConfigSchema,
   circuitBreaker: circuitBreakerConfigSchema,
@@ -512,6 +530,10 @@ export const orchestratorConfigSchema = z.object({
   probeScheduler: probeSchedulerConfigSchema,
   anthropic: anthropicConfigSchema,
   errorAggregator: errorAggregatorConfigSchema,
+  adaptiveWeightTuner: z.object({
+    enabled: z.boolean().default(true),
+  }),
+  recoveryBackoff: recoveryBackoffConfigSchema,
 
   // Ollama servers
   servers: z.array(serverConfigSchema).default([]),
@@ -546,6 +568,7 @@ export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type ErrorAggregatorConfig = z.infer<typeof errorAggregatorConfigSchema>;
 export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;
+export type RecoveryBackoffConfig = z.infer<typeof recoveryBackoffConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
 
 /**

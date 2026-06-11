@@ -3,19 +3,23 @@
  * Consolidates logic from circuit-breaker.ts and health-check-scheduler.ts
  */
 
+import { calculateBackoff } from './backoff/calculator.js';
 import type { ErrorType } from './error-classifier.js';
 
+export const DEFAULT_RECOVERY_BACKOFF = {
+  modelCapability: [30000, 30000],
+  modelFile: [60000, 300000, 600000],
+  permanent: [300000, 600000, 1200000, 2400000, 3600000],
+  standard: [30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000],
+};
+
 export interface BackoffOptions {
-  /** Current attempt number (0-indexed) */
   attempt: number;
-  /** Error type for determining backoff strategy */
   errorType?: ErrorType;
-  /** Failure reason for specific handling */
   failureReason?: string;
-  /** Base delay in ms (default: 30000) */
   baseDelay?: number;
-  /** Maximum delay in ms (default: 1800000 = 30min) */
   maxDelay?: number;
+  recoveryBackoff?: typeof DEFAULT_RECOVERY_BACKOFF;
 }
 
 export interface BackoffResult {
@@ -67,25 +71,17 @@ function categorizeError(options: BackoffOptions): {
  * Consolidates backoff logic from circuit-breaker.ts and health-check-scheduler.ts
  */
 export function calculateRecoveryBackoff(options: BackoffOptions): BackoffResult {
-  const { attempt, maxDelay = 1800000 } = options;
+  const { attempt, maxDelay = 1800000, recoveryBackoff } = options;
 
   const category = categorizeError(options);
 
-  // Define delays per category
+  const config = recoveryBackoff ?? DEFAULT_RECOVERY_BACKOFF;
+
   const delays: Record<string, number[]> = {
-    model_capability: [30000, 30000], // 2 attempts, then stop
-    model_file: [60000, 300000, 600000], // 3 attempts
-    permanent: [300000, 600000, 1200000, 2400000, 3600000], // 5 attempts, up to 1h
-    standard: [
-      30000, // 30s
-      60000, // 1m
-      120000, // 2m
-      240000, // 4m
-      480000, // 8m
-      900000, // 15m
-      1800000, // 30m
-      1800000, // 30m (max)
-    ],
+    model_capability: config.modelCapability,
+    model_file: config.modelFile,
+    permanent: config.permanent,
+    standard: config.standard,
   };
 
   const categoryDelays = delays[category.category] || delays.standard;
@@ -183,11 +179,13 @@ export function calculateCircuitBreakerBackoff(
       if (retryAfterMs !== undefined) {
         return retryAfterMs;
       }
-      // Exponential backoff for rate limits: base, base*mult, base*mult^2, ...
-      return Math.min(
-        rateLimitBase * Math.pow(rateLimitMultiplier, consecutiveFailures),
-        rateLimitMax
-      );
+      // Use strategy system for exponential backoff
+      return calculateBackoff('exponential', {
+        attempt: consecutiveFailures,
+        baseDelayMs: rateLimitBase,
+        maxDelayMs: rateLimitMax,
+        multiplier: rateLimitMultiplier,
+      }).delayMs;
     case 'transient':
     default:
       // Default 2 minutes for network/transient errors

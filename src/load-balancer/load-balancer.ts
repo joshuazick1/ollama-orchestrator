@@ -4,6 +4,7 @@
  */
 
 import type { AIServer, ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
+import { getUserStore } from '../storage/user-store.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
 
@@ -508,8 +509,6 @@ export class LoadBalancer {
       return candidates;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-shadow
-    const { getUserStore } = require('../storage/user-store.js');
     const userStore = getUserStore();
 
     // Get user's allowed servers
@@ -669,7 +668,13 @@ export class LoadBalancer {
         return this.selectRandom(filteredCandidates);
 
       case 'fastest-response':
-        return this.selectFastestResponse(filteredCandidates, model, getLoad, getTotalLoad, getMetrics);
+        return this.selectFastestResponse(
+          filteredCandidates,
+          model,
+          getLoad,
+          getTotalLoad,
+          getMetrics
+        );
 
       case 'streaming-optimized':
         return this.selectStreamingOptimized(
@@ -805,9 +810,11 @@ export class LoadBalancer {
     }
 
     // Select using round-robin from eligible servers
-    const currentIndex = this.roundRobinIndex;
+    const safeIndex =
+      eligibleServers.length > 0 ? this.roundRobinIndex % eligibleServers.length : 0;
+    const currentIndex = safeIndex;
     this.roundRobinIndex = currentIndex + 1;
-    const selected = eligibleServers[currentIndex % eligibleServers.length];
+    const selected = eligibleServers[currentIndex];
 
     // Store sticky session if enabled
     if (roundRobin.stickySessionsTtlMs > 0 && clientId && selected) {

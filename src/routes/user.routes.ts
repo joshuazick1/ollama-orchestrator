@@ -1,12 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 
-import { getUserStore, type User } from '../storage/user-store.js';
-import {
-  verifyAccessToken,
-  getTokenFromCookie,
-} from '../utils/jwt.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
+import { getUserStore, type User } from '../storage/user-store.js';
+import { verifyAccessToken, getTokenFromCookie } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
 
 const asyncHandler =
@@ -55,7 +52,7 @@ const grantModelAccessSchema = z.object({
 export const userRouter = Router();
 
 userRouter.use(
-  asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+  asyncHandler((req: Request, res: Response, next: NextFunction) => {
     const token = getTokenFromCookie(req);
     if (!token) {
       res.status(401).json({
@@ -86,15 +83,15 @@ userRouter.use(
       return;
     }
 
-    (req as any).currentUser = currentUser;
+    req.currentUser = currentUser;
     next();
   })
 );
 
 userRouter.get(
   '/users',
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     if (currentUser.role !== 'admin') {
       res.status(403).json({
         error: 'Forbidden',
@@ -116,7 +113,7 @@ userRouter.post(
   '/users',
   validateCsrfToken,
   asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+    const currentUser = req.currentUser!;
     if (currentUser.role !== 'admin') {
       res.status(403).json({
         error: 'Forbidden',
@@ -179,8 +176,8 @@ userRouter.post(
 
 userRouter.get(
   '/users/:id',
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
 
     if (currentUser.role !== 'admin' && currentUser.id !== targetUserId) {
@@ -211,8 +208,8 @@ userRouter.get(
 userRouter.put(
   '/users/:id',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
 
     const isSelf = currentUser.id === targetUserId;
@@ -290,9 +287,15 @@ userRouter.put(
     }
 
     const updates: { username?: string; email?: string; role?: string } = {};
-    if (otherUpdates.username) updates.username = otherUpdates.username;
-    if (otherUpdates.email) updates.email = otherUpdates.email;
-    if (role) updates.role = role;
+    if (otherUpdates.username) {
+      updates.username = otherUpdates.username;
+    }
+    if (otherUpdates.email) {
+      updates.email = otherUpdates.email;
+    }
+    if (role) {
+      updates.role = role;
+    }
 
     if (Object.keys(updates).length === 0 && !parsed.data.password) {
       res.status(400).json({
@@ -319,8 +322,8 @@ userRouter.put(
 userRouter.delete(
   '/users/:id',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
 
     if (currentUser.role !== 'admin') {
@@ -363,8 +366,8 @@ userRouter.delete(
 userRouter.post(
   '/users/:id/access/server',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
 
     const isSelf = currentUser.id === targetUserId;
@@ -416,7 +419,9 @@ userRouter.post(
 
     userStore.grantServerAccess(targetUserId, serverId);
 
-    logger.info(`Server access ${serverId} granted to user ${targetUserId} by ${currentUser.username}`);
+    logger.info(
+      `Server access ${serverId} granted to user ${targetUserId} by ${currentUser.username}`
+    );
 
     res.status(201).json({
       message: 'Server access granted',
@@ -427,8 +432,8 @@ userRouter.post(
 userRouter.delete(
   '/users/:id/access/server/:serverId',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
     const serverId = req.params.serverId as string;
 
@@ -462,7 +467,9 @@ userRouter.delete(
       return;
     }
 
-    logger.info(`Server access ${serverId} revoked for user ${targetUserId} by ${currentUser.username}`);
+    logger.info(
+      `Server access ${serverId} revoked for user ${targetUserId} by ${currentUser.username}`
+    );
 
     res.status(200).json({
       message: 'Server access revoked',
@@ -473,8 +480,8 @@ userRouter.delete(
 userRouter.post(
   '/users/:id/access/model',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
 
     const isSelf = currentUser.id === targetUserId;
@@ -526,7 +533,9 @@ userRouter.post(
 
     userStore.grantModelAccess(targetUserId, serverId, model);
 
-    logger.info(`Model access ${serverId}/${model} granted to user ${targetUserId} by ${currentUser.username}`);
+    logger.info(
+      `Model access ${serverId}/${model} granted to user ${targetUserId} by ${currentUser.username}`
+    );
 
     res.status(201).json({
       message: 'Model access granted',
@@ -537,8 +546,8 @@ userRouter.post(
 userRouter.delete(
   '/users/:id/access/model/:serverId/:model',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = ( req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
     const serverId = req.params.serverId as string;
     const model = req.params.model as string;
@@ -573,7 +582,9 @@ userRouter.delete(
       return;
     }
 
-    logger.info(`Model access ${serverId}/${model} revoked for user ${targetUserId} by ${currentUser.username}`);
+    logger.info(
+      `Model access ${serverId}/${model} revoked for user ${targetUserId} by ${currentUser.username}`
+    );
 
     res.status(200).json({
       message: 'Model access revoked',
@@ -583,8 +594,8 @@ userRouter.delete(
 
 userRouter.get(
   '/users/:id/access',
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
 
     if (currentUser.role !== 'admin' && currentUser.id !== targetUserId) {
@@ -618,8 +629,8 @@ userRouter.get(
 userRouter.post(
   '/users/:id/rotate-api-key',
   validateCsrfToken,
-  asyncHandler(async (req: Request, res: Response) => {
-    const currentUser = (req as any).currentUser as User;
+  asyncHandler((req: Request, res: Response) => {
+    const currentUser = req.currentUser!;
     const targetUserId = req.params.id as string;
 
     const isSelf = currentUser.id === targetUserId;
@@ -656,7 +667,8 @@ userRouter.post(
 
     res.status(200).json({
       apiKey: newApiKey,
-      message: 'API key rotated successfully. Store this key securely - it will not be shown again.',
+      message:
+        'API key rotated successfully. Store this key securely - it will not be shown again.',
     });
   })
 );

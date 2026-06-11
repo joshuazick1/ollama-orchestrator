@@ -309,7 +309,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     minFailureThreshold: 3,
     openTimeout: 120000,
     halfOpenTimeout: 300000, // 5 minutes - match activeTestTimeout
-    halfOpenMaxRequests: 5,
+    halfOpenMaxRequests: 3,
     recoverySuccessThreshold: 3,
     activeTestTimeout: 300000, // 5 minutes
     maxHalfOpenPerServer: 1, // Sequential recovery - one model at a time per server

@@ -4,12 +4,12 @@
  */
 
 import type { HealthCheckConfig } from './config/config.js';
-import { featureFlags } from './config/feature-flags.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
 import { resolveApiKey } from './utils/api-keys.js';
 import { sleep } from './utils/async-helpers.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { logger } from './utils/logger.js';
+import { probeCoordinator } from './utils/probe-coordinator.js';
 import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
 import { Timer } from './utils/timer.js';
 
@@ -121,6 +121,9 @@ export class HealthCheckScheduler {
   // Config: cooldown between test rounds per server
   private readonly SERVER_TEST_COOLDOWN_MS = 5000; // 5 seconds
 
+  // Track jitter offsets per server to spread out health checks (thundering herd prevention)
+  private serverJitterOffsets: Map<string, number> = new Map();
+
   // Callbacks
   private getServers?: () => AIServer[];
   private onHealthCheck?: (result: HealthCheckResult) => void;
@@ -157,6 +160,12 @@ export class HealthCheckScheduler {
     this.isRunning = true;
     logger.info(`Health check scheduler started (interval: ${this.config.intervalMs}ms)`);
 
+    // Run initial health checks after a short delay
+    this.initialTimeoutId = setTimeout(() => {
+      this.initialTimeoutId = undefined;
+      void this.runHealthChecks();
+    }, 1000);
+
     // Start main health check interval
     this.intervalId = setInterval(() => {
       void this.runHealthChecks();
@@ -166,12 +175,6 @@ export class HealthCheckScheduler {
     this.recoveryIntervalId = setInterval(() => {
       void this.runRecoveryChecks();
     }, this.config.recoveryIntervalMs);
-
-    // Run initial health checks
-    this.initialTimeoutId = setTimeout(() => {
-      this.initialTimeoutId = undefined;
-      void this.runHealthChecks();
-    }, 1000);
   }
 
   /**
@@ -199,11 +202,22 @@ export class HealthCheckScheduler {
       this.initialTimeoutId = undefined;
     }
 
+    if (this.activeTestIntervalId) {
+      clearInterval(this.activeTestIntervalId);
+      this.activeTestIntervalId = undefined;
+    }
+
     logger.info('Health check scheduler stopped');
+    this.serverJitterOffsets.clear();
+  }
+
+  private clearServerTimeouts(): void {
+    // No-op placeholder - individual server timeouts are managed internally
+    // by the setTimeout closures that check this.isRunning
   }
 
   /**
-   * Run health checks on all servers with concurrency control
+   * Run health checks on all servers with concurrency control and per-server jitter
    */
   private async runHealthChecks(): Promise<void> {
     if (!this.isRunning || !this.getServers) {
@@ -218,19 +232,33 @@ export class HealthCheckScheduler {
         return;
       }
 
-      // Run health checks with concurrency control
+      // Ensure jitter offsets exist for all servers
+      for (const server of servers) {
+        if (!this.serverJitterOffsets.has(server.id)) {
+          this.serverJitterOffsets.set(server.id, 0.9 + Math.random() * 0.2);
+        }
+      }
+
       const results: HealthCheckResult[] = [];
 
-      // Process servers in batches to respect concurrency limits
       for (let i = 0; i < servers.length; i += this.config.maxConcurrentChecks) {
         const batch = servers.slice(i, i + this.config.maxConcurrentChecks);
 
-        const batchPromises = batch.map(server => this.checkServerHealth(server));
-        const batchResults = await Promise.all(batchPromises);
+        // Apply per-server jitter delay (spread across the interval)
+        const batchPromises = batch.map(async server => {
+          const jitterOffset = this.serverJitterOffsets.get(server.id) ?? 1.0;
+          // Jitter delay: multiply by (jitterOffset - 0.9) * interval * 0.33
+          // This gives 0-10% of interval as delay (0.9-1.0 → 0-3.3%, 1.0-1.1 → 3.3-10%)
+          const jitterDelayMs = (jitterOffset - 0.9) * this.config.intervalMs * 0.33;
+          if (jitterDelayMs > 0) {
+            await sleep(jitterDelayMs);
+          }
+          return this.checkServerHealth(server);
+        });
 
+        const batchResults = await Promise.all(batchPromises);
         results.push(...batchResults);
 
-        // Small delay between batches to avoid overwhelming the network
         if (i + this.config.maxConcurrentChecks < servers.length) {
           await sleep(100);
         }
@@ -304,14 +332,24 @@ export class HealthCheckScheduler {
    * Perform health check on a single server with retry logic
    */
   async checkServerHealth(server: AIServer, retryCount = 0): Promise<HealthCheckResult> {
-    const useTimer = featureFlags.get('useTimerUtility');
+    if (!probeCoordinator.tryAcquire(server.id)) {
+      logger.debug(`Health check for ${server.id} skipped - probe already in progress`);
+      return {
+        serverId: server.id,
+        success: false,
+        error: 'Probe already in progress',
+        timestamp: Date.now(),
+      };
+    }
+    const useTimer = true;
     const timer = useTimer ? new Timer() : null;
     const startTime = timer ? undefined : Date.now();
 
     try {
       // Query /api/tags, /api/ps, and /v1/models in parallel
       // Probe selection: openai=skip ollama probes, others probe both (unless forcedCapabilities overrides)
-      const probeOllama = server.type !== 'openai' && server.forcedCapabilities?.supportsOllama !== false;
+      const probeOllama =
+        server.type !== 'openai' && server.forcedCapabilities?.supportsOllama !== false;
       const probeV1 = server.forcedCapabilities?.supportsV1 !== false;
 
       const [tagsResponse, psResponse, v1Response] = await Promise.all([
@@ -350,7 +388,7 @@ export class HealthCheckScheduler {
                 logger.debug('Health probe timeout for /v1/models - endpoint exists but slow', {
                   serverId: server.id,
                 });
-                return { ok: true, json: async () => ({ data: [] }) } as unknown as Response;
+                return { ok: true, json: () => () => ({ data: [] }) } as unknown as Response;
               }
               // Network error (ECONNREFUSED, ECONNRESET, etc.) - endpoint doesn't exist
               logger.warn('Health probe failed for /v1/models', {
@@ -505,6 +543,7 @@ export class HealthCheckScheduler {
           this.config.retryDelayMs * Math.pow(this.config.backoffMultiplier, retryCount);
         await sleep(delay);
 
+        probeCoordinator.release(server.id);
         return this.checkServerHealth(server, retryCount + 1);
       }
 
@@ -519,6 +558,8 @@ export class HealthCheckScheduler {
       this.onHealthCheck?.(result);
 
       return result;
+    } finally {
+      probeCoordinator.release(server.id);
     }
   }
 
@@ -579,10 +620,11 @@ export class HealthCheckScheduler {
     // - 422 = validation error = exists (good)
     // - Other 4xx = exists but other issues (good)
     // - Network error = doesn't exist (bad)
-    if (status >= 200 && status < 300) return 'exists';
-    if (status === 400 || status === 401 || status === 403 || status === 422 || status === 429) return 'exists';
-    if (status === 404 || status === 405 || status === 410) return 'not_exists';
-    if (status >= 400) return 'exists'; // Other 4xx = exists but issues
+    if (status >= 200 && status < 300) {return 'exists';}
+    if (status === 400 || status === 401 || status === 403 || status === 422 || status === 429)
+      {return 'exists';}
+    if (status === 404 || status === 405 || status === 410) {return 'not_exists';}
+    if (status >= 400) {return 'exists';} // Other 4xx = exists but issues
     return 'error';
   }
 
@@ -716,7 +758,15 @@ export class HealthCheckScheduler {
     const anthropicHeaderName = anthropicAuth?.headerName;
     const anthropicHeaderPrefix = anthropicAuth?.headerPrefix;
 
-    const [ollamaChat, ollamaGenerate, ollamaEmbeddings, openaiChat, openaiCompletions, openaiEmbeddings, anthropicMessages] = await Promise.all([
+    const [
+      ollamaChat,
+      ollamaGenerate,
+      ollamaEmbeddings,
+      openaiChat,
+      openaiCompletions,
+      openaiEmbeddings,
+      anthropicMessages,
+    ] = await Promise.all([
       this.probeInferenceEndpoint(
         `${base}/api/chat`,
         'POST',

@@ -5,11 +5,12 @@
 
 import type { Request, Response } from 'express';
 
+import { serverConfigSchema } from '../config/schema.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
+import { logger } from '../utils/logger.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
-import { serverConfigSchema } from '../config/schema.js';
 
 /**
  * Add a new server
@@ -122,7 +123,12 @@ export function updateServerConfig(req: Request, res: Response): void {
     return;
   }
 
-  const success = orchestrator.updateServer(id, { type, v1Models, forcedCapabilities, endpointOverrides });
+  const success = orchestrator.updateServer(id, {
+    type,
+    v1Models,
+    forcedCapabilities,
+    endpointOverrides,
+  });
 
   if (success) {
     res.status(200).json({
@@ -177,6 +183,7 @@ export function getServers(req: Request, res: Response): void {
       id: s.id,
       url: s.url,
       healthy: s.healthy,
+      recovering: s.recovering ?? false,
       lastResponseTime: s.lastResponseTime,
       models: s.models,
       maxConcurrency: s.maxConcurrency,
@@ -351,6 +358,155 @@ export function getCircuitBreakers(req: Request, res: Response): void {
     res.status(200).json({
       success: true,
       circuitBreakers: breakerArray,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: ERROR_MESSAGES.FAILED_TO_GET_CIRCUIT_BREAKER_STATUS,
+      details: getErrorMessage(error),
+    });
+  }
+}
+
+export function getServersCircuitBreakers(req: Request, res: Response): void {
+  const orchestrator = getOrchestratorInstance();
+
+  try {
+    const circuitBreakers = orchestrator.getCircuitBreakerStats();
+    const serverBreakers = new Map<string, any>();
+
+    for (const [name, stats] of Object.entries(circuitBreakers)) {
+      const colonIndex = name.indexOf(':');
+      const serverId = colonIndex > 0 ? name.substring(0, colonIndex) : name;
+      const model = colonIndex > 0 ? name.substring(colonIndex + 1) : '';
+
+      const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
+
+      const breakerInfo: any = {
+        serverId,
+        state: stats.state.toUpperCase(),
+        failureCount: stats.failureCount,
+        successCount: stats.successCount,
+        totalRequestCount: stats.totalRequestCount || 0,
+        blockedRequestCount: stats.blockedRequestCount || 0,
+        lastFailure: stats.lastFailure,
+        lastSuccess: stats.lastSuccess,
+        nextRetryAt: stats.nextRetryAt,
+        errorRate: Math.round(stats.errorRate * 100) / 100,
+        consecutiveSuccesses: stats.consecutiveSuccesses,
+        lastFailureReason: stats.lastFailureReason,
+        halfOpenStartedAt: stats.halfOpenStartedAt,
+        halfOpenAttempts: stats.halfOpenAttempts,
+        activeTestsInProgress: stats.activeTestsInProgress,
+        lbScore: lbScore
+          ? {
+              totalScore: lbScore.totalScore,
+              latencyScore: lbScore.breakdown.latencyScore,
+              successRateScore: lbScore.breakdown.successRateScore,
+              loadScore: lbScore.breakdown.loadScore,
+              capacityScore: lbScore.breakdown.capacityScore,
+              circuitBreakerScore: lbScore.breakdown.circuitBreakerScore,
+              timeoutScore: lbScore.breakdown.timeoutScore,
+            }
+          : null,
+      };
+
+      const existing = serverBreakers.get(serverId);
+      if (existing) {
+        const statePriority = { OPEN: 3, HALF_OPEN: 2, CLOSED: 1 };
+        const existingPriority = statePriority[existing.state as keyof typeof statePriority] || 0;
+        const newPriority = statePriority[breakerInfo.state as keyof typeof statePriority] || 0;
+
+        if (newPriority > existingPriority) {
+          existing.state = breakerInfo.state;
+        }
+        if (breakerInfo.failureCount > existing.failureCount) {
+          existing.failureCount = breakerInfo.failureCount;
+        }
+        if (breakerInfo.errorRate > existing.errorRate) {
+          existing.errorRate = breakerInfo.errorRate;
+        }
+      } else {
+        serverBreakers.set(serverId, breakerInfo);
+      }
+    }
+
+    const result: Record<string, any> = {};
+    for (const [serverId, info] of serverBreakers) {
+      result[serverId] = info;
+    }
+
+    res.status(200).json({
+      success: true,
+      circuitBreakers: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: ERROR_MESSAGES.FAILED_TO_GET_CIRCUIT_BREAKER_STATUS,
+      details: getErrorMessage(error),
+    });
+  }
+}
+
+export function getCircuitBreakersByModel(req: Request, res: Response): void {
+  const orchestrator = getOrchestratorInstance();
+
+  try {
+    const circuitBreakers = orchestrator.getCircuitBreakerStats();
+    const modelBreakers = new Map<string, any[]>();
+
+    for (const [name, stats] of Object.entries(circuitBreakers)) {
+      const colonIndex = name.indexOf(':');
+      const serverId = colonIndex > 0 ? name.substring(0, colonIndex) : name;
+      const model = colonIndex > 0 ? name.substring(colonIndex + 1) : '';
+
+      const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
+
+      const breakerInfo: any = {
+        serverId,
+        state: stats.state.toUpperCase(),
+        failureCount: stats.failureCount,
+        successCount: stats.successCount,
+        totalRequestCount: stats.totalRequestCount || 0,
+        blockedRequestCount: stats.blockedRequestCount || 0,
+        lastFailure: stats.lastFailure,
+        lastSuccess: stats.lastSuccess,
+        nextRetryAt: stats.nextRetryAt,
+        errorRate: Math.round(stats.errorRate * 100) / 100,
+        consecutiveSuccesses: stats.consecutiveSuccesses,
+        lastFailureReason: stats.lastFailureReason,
+        halfOpenStartedAt: stats.halfOpenStartedAt,
+        halfOpenAttempts: stats.halfOpenAttempts,
+        activeTestsInProgress: stats.activeTestsInProgress,
+        model,
+        lbScore: lbScore
+          ? {
+              totalScore: lbScore.totalScore,
+              latencyScore: lbScore.breakdown.latencyScore,
+              successRateScore: lbScore.breakdown.successRateScore,
+              loadScore: lbScore.breakdown.loadScore,
+              capacityScore: lbScore.breakdown.capacityScore,
+              circuitBreakerScore: lbScore.breakdown.circuitBreakerScore,
+              timeoutScore: lbScore.breakdown.timeoutScore,
+            }
+          : null,
+      };
+
+      const existing = modelBreakers.get(model);
+      if (existing) {
+        existing.push(breakerInfo);
+      } else {
+        modelBreakers.set(model, [breakerInfo]);
+      }
+    }
+
+    const result: Record<string, any[]> = {};
+    for (const [model, breakers] of modelBreakers) {
+      result[model] = breakers;
+    }
+
+    res.status(200).json({
+      success: true,
+      models: result,
     });
   } catch (error) {
     res.status(500).json({
@@ -566,6 +722,14 @@ export function forceOpenBreaker(req: Request, res: Response): void {
   breaker.forceOpen();
   const stats = breaker.getStats();
 
+  logger.info('admin_force_breaker', {
+    adminUserId: req.user?.id ?? 'unknown',
+    action: 'force_open',
+    serverId,
+    model,
+    timestamp: new Date().toISOString(),
+  });
+
   res.status(200).json({
     success: true,
     message: `Circuit breaker force-opened for ${serverId}:${model}`,
@@ -601,6 +765,14 @@ export function forceCloseBreaker(req: Request, res: Response): void {
   breaker.forceClose();
   const stats = breaker.getStats();
 
+  logger.info('admin_force_breaker', {
+    adminUserId: req.user?.id ?? 'unknown',
+    action: 'force_close',
+    serverId,
+    model,
+    timestamp: new Date().toISOString(),
+  });
+
   res.status(200).json({
     success: true,
     message: `Circuit breaker force-closed for ${serverId}:${model}`,
@@ -635,6 +807,14 @@ export function forceHalfOpenBreaker(req: Request, res: Response): void {
 
   breaker.forceHalfOpen();
   const stats = breaker.getStats();
+
+  logger.info('admin_force_breaker', {
+    adminUserId: req.user?.id ?? 'unknown',
+    action: 'force_half_open',
+    serverId,
+    model,
+    timestamp: new Date().toISOString(),
+  });
 
   res.status(200).json({
     success: true,

@@ -8,6 +8,7 @@ import type { StreamingTelemetryMeta } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
+import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 const anthropicMessagesRequestSchema = z
@@ -72,7 +73,7 @@ async function passthroughAnthropicSSE(
           await new Promise<void>(resolve => {
             let settled = false;
             const cleanup = () => {
-              if (settled) return;
+              if (settled) {return;}
               settled = true;
               clientResponse.removeListener('drain', onDrain);
               clientResponse.removeListener('close', onClose);
@@ -116,7 +117,7 @@ async function passthroughAnthropicSSE(
         await new Promise<void>(resolve => {
           let settled = false;
           const cleanup = () => {
-            if (settled) return;
+            if (settled) {return;}
             settled = true;
             clientResponse.removeListener('drain', onDrain);
             clientResponse.removeListener('close', onClose);
@@ -334,11 +335,8 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const isNoServers =
-        (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
-        errorMessage.includes('circuit breaker') ||
-        errorMessage.includes('does not support Anthropic') ||
-        (errorMessage.includes('not found on any') && errorMessage.includes('server'));
+      const { isNoServersError } = classifyOrchestratorError(errorMessage);
+      const isNoServers = isNoServersError;
 
       res.status(isNoServers ? 503 : 500).json({
         type: 'error',

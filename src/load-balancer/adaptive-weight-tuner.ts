@@ -21,7 +21,7 @@ export interface AdaptiveWeightTunerConfig {
 }
 
 const DEFAULT_TUNER_CONFIG: AdaptiveWeightTunerConfig = {
-  enabled: false,
+  enabled: true,
   tuningIntervalMs: 300_000,
   analysisWindowMs: 900_000,
   learningRate: 0.05,
@@ -69,6 +69,10 @@ export class AdaptiveWeightTuner {
     this.config = { ...DEFAULT_TUNER_CONFIG, ...config };
     this.getDecisionHistory = getDecisionHistory;
     this.getLoadBalancer = getLoadBalancer;
+  }
+
+  isEnabled(): boolean {
+    return this.config.enabled;
   }
 
   start(): void {

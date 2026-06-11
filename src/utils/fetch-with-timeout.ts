@@ -55,9 +55,14 @@ export async function fetchWithTimeout(
   }, timeout);
 
   try {
+    // Combine external signal with internal timeout signal
+    const signal = fetchOptions.signal
+      ? AbortSignal.any([fetchOptions.signal, controller.signal])
+      : controller.signal;
+
     const response = await fetch(url, {
       ...fetchOptions,
-      signal: controller.signal,
+      signal,
     });
     return response;
   } catch (error) {

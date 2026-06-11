@@ -42,7 +42,7 @@ function parseHttpDate(dateStr: string): number | null {
  * Parse delta-seconds (integer) to milliseconds
  * Returns null if the value is not a valid positive integer
  */
-function parseDeltaSeconds(deltaStr: string): number | null {
+function _parseDeltaSeconds(deltaStr: string): number | null {
   const trimmed = deltaStr.trim();
   const seconds = parseInt(trimmed, 10);
 

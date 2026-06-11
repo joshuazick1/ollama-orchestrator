@@ -36,9 +36,12 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
+import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 import { performStreamHandoff } from '../utils/stream-handoff.js';
+import { createStreamingStallHandler } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
+import { APP_VERSION } from '../utils/version.js';
 
 /**
  * Handle /api/tags - Get aggregated tags from all servers
@@ -203,150 +206,45 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             hasOnStall: true,
           });
 
+          const { onStall: sharedOnStall } = createStreamingStallHandler({
+            server,
+            requestId: streamingRequestId ?? '',
+            model,
+            protocol: 'ollama',
+            endpoint: 'generate',
+            clientResponse: res,
+            originalRequestBody: body as Record<string, unknown>,
+            stallThreshold,
+            stallCheckInterval,
+          });
+
           const onStallCallback = async (
             _abortController: AbortController,
             passedRequestId?: string
           ) => {
-            // Use only the authoritative streamingRequestId passed into the handler.
-            // Do NOT fall back to the closure-captured streamingRequestId to avoid races.
-            const requestId = passedRequestId;
-
-            // Track stall detection for debug output
             stallDetected = true;
             stallStartTime = Date.now();
 
             logger.error('OLLAMA_ON_STALL_CALLED', {
-              requestId,
+              requestId: passedRequestId,
               serverId: server.id,
               model,
               endpoint: 'generate',
               passedRequestId,
             });
-            logger.warn('STREAM_STALL_DETECTED', {
-              requestId,
-              serverId: server.id,
-              model,
-              endpoint: 'generate',
-              protocol: 'ollama',
-              message: 'Stall detected - attempting seamless handoff',
-            });
 
-            logger.info('ON_STALL_DEBUG', {
-              requestId,
-              hasRequestId: !!requestId,
-            });
+            const result = await sharedOnStall(_abortController, passedRequestId);
 
-            // Extra debug: log list of tracked request IDs to help diagnose missing progress
-            try {
-              const tracked = getInFlightManager().getAllStreamingRequests();
-              logger.debug('ON_STALL_TRACKED_IDS', {
-                authoritativeRequestId: requestId,
-                trackedCount: tracked.length,
-                trackedIds: tracked.slice(0, 20).map(r => r.id),
-              });
-            } catch (e) {
-              logger.debug('ON_STALL_TRACKED_IDS_ERROR', {
-                error: e instanceof Error ? e.message : String(e),
-              });
-            }
-
-            // Try to get the streaming request progress from InFlightManager using authoritative id
-            const progress = requestId
-              ? getInFlightManager().getStreamingRequestProgress(requestId)
-              : undefined;
-
-            logger.info('ON_STALL_PROGRESS', {
-              requestId,
-              progressFound: !!progress,
-              progressDetails: progress
-                ? {
-                    chunkCount: progress.chunkCount,
-                    accumulatedTextLength: progress.accumulatedText.length,
-                    lastChunkTime: progress.lastChunkTime,
-                  }
-                : undefined,
-            });
-
-            if (!progress) {
-              logger.warn('No streaming progress found for handoff', {
-                requestId,
-              });
-              return { success: false, error: 'No progress tracked' };
-            }
-
-            // Get a new server for failover (excluding current)
-            const orchestrator = getOrchestratorInstance();
-            const allServers = orchestrator.getServers();
-
-            // Filter for healthy servers with the model, excluding current server
-            // Also check that the circuit breaker is not open (allows requests)
-            // REC-49: additionally require protocol compatibility
-            const requestProtocol = progress.protocol;
-            const newServer = allServers.find(
-              s =>
-                s.id !== server.id &&
-                s.healthy &&
-                s.models.includes(model) &&
-                orchestrator.isCircuitAllowed(s.id) &&
-                (requestProtocol === 'openai' ? s.supportsV1 !== false : s.supportsOllama !== false)
-            );
-
-            if (!newServer) {
-              logger.warn(
-                'No eligible servers for handoff - all circuits open or no servers with model',
-                {
-                  requestId,
-                  currentServer: server.id,
-                  model,
-                  requestProtocol,
-                  checkedServers: allServers
-                    .filter(s => s.id !== server.id && s.models.includes(model))
-                    .map(s => ({
-                      id: s.id,
-                      healthy: s.healthy,
-                      circuitOpen: !orchestrator.isCircuitAllowed(s.id),
-                      supportsOllama: s.supportsOllama,
-                      supportsV1: s.supportsV1,
-                    })),
-                }
-              );
-              return { success: false, error: 'No alternative servers with closed circuit' };
-            }
-
-            logger.info('Attempting seamless handoff to new server', {
-              requestId,
-              fromServer: server.id,
-              toServer: newServer.id,
-              accumulatedTextLength: progress.accumulatedText.length,
-            });
-
-            // Track handoff attempt for debug output
             handoffAttempted = true;
-            handoffTargetServer = newServer.id;
-
-            // Perform the handoff - this will stream directly to clientResponse
-            try {
-              logger.debug('PERFORM_HANDOFF_INVOKE', { requestId, toServer: newServer.id });
-              const result = await performStreamHandoff({
-                originalRequest: progress,
-                newServer,
-                clientResponse: res,
-                originalRequestBody: body as Record<string, unknown>,
-                stallThresholdMs: stallThreshold,
-                stallCheckIntervalMs: stallCheckInterval,
+            handoffSuccess = result.success;
+            if (!handoffSuccess) {
+              logger.warn('Handoff did not succeed', {
+                requestId: passedRequestId,
+                error: result.error,
               });
-              logger.debug('PERFORM_HANDOFF_RESULT', { requestId, result });
-
-              handoffSuccess = result.success;
-              return { success: result.success, error: result.error };
-            } catch (handoffError) {
-              logger.error('Handoff failed with exception', {
-                requestId,
-                error: handoffError instanceof Error ? handoffError.message : String(handoffError),
-              });
-              handoffSuccess = false;
-              return { success: false, error: 'Handoff failed' };
             }
+
+            return result;
           };
 
           try {
@@ -545,11 +443,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isNoServersError =
-        errorMessage.includes('No') && errorMessage.includes('servers available');
-      const isConcurrencySaturated = errorMessage.includes('at max concurrency');
-      const isAccessDenied =
-        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+        classifyOrchestratorError(errorMessage);
 
       // Include routing context in error responses when debug is requested
       const debugPayload = isDebugRequested(req)
@@ -1021,11 +916,8 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isNoServersError =
-        errorMessage.includes('No') && errorMessage.includes('servers available');
-      const isConcurrencySaturated = errorMessage.includes('at max concurrency');
-      const isAccessDenied =
-        errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+        classifyOrchestratorError(errorMessage);
 
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1127,11 +1019,8 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     logger.error('Embeddings request failed:', { error, model });
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const isNoServersError =
-      errorMessage.includes('No') && errorMessage.includes('servers available');
-    const isConcurrencySaturated = errorMessage.includes('at max concurrency');
-    const isAccessDenied =
-      errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+    const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+      classifyOrchestratorError(errorMessage);
 
     const debugPayload = isDebugRequested(req)
       ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1213,7 +1102,7 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
  * Handle /api/version - Get version info
  */
 export function handleVersion(req: Request, res: Response): void {
-  res.json({ version: '0.1.0-orchestrator' });
+  res.json({ version: APP_VERSION });
 }
 
 /**
@@ -1286,9 +1175,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isNoServersError =
-        errorMessage.includes('No') && errorMessage.includes('servers available');
-      const isConcurrencySaturated = errorMessage.includes('at max concurrency');
+      const { isNoServersError, isConcurrencySaturated } = classifyOrchestratorError(errorMessage);
 
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1389,8 +1276,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
   } catch (error) {
     logger.error('Error in handleEmbed:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const isAccessDenied =
-      errorMessage.includes('Access denied') || errorMessage.includes('No servers assigned');
+    const { isAccessDenied } = classifyOrchestratorError(errorMessage);
     if (isAccessDenied) {
       res.status(403).json({ error: errorMessage });
     } else {
@@ -1729,7 +1615,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
           if (lines.length === 0) {
             throw new Error('Empty response from server');
           }
-          const data: Record<string, unknown> = safeJsonParse(lines[0]);
+          const data: Record<string, unknown> = safeJsonParse(lines[0]) ?? {};
           return data;
         }
       },
@@ -1924,7 +1810,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
           if (lines.length === 0) {
             throw new Error('Empty response from server');
           }
-          const data = safeJsonParse(lines[0]);
+          const data: Record<string, unknown> | null = safeJsonParse(lines[0]) ?? null;
           return data;
         }
       },
@@ -2019,7 +1905,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
         if (lines.length === 0) {
           throw new Error('Empty response from server');
         }
-        const data: Record<string, unknown> = safeJsonParse(lines[0]);
+        const data: Record<string, unknown> = safeJsonParse(lines[0]) ?? {};
         return data;
       },
       { bypassCircuitBreaker, routingContext }

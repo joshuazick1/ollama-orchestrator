@@ -6,7 +6,6 @@
 
 import { randomUUID } from 'crypto';
 
-import { featureFlags } from '../config/feature-flags.js';
 import type { RequestContext } from '../orchestrator/orchestrator.types.js';
 
 import { Timer } from './timer.js';
@@ -20,7 +19,7 @@ export class RequestContextBuilder {
    */
   static create(serverId: string, model: string): RequestContextBuilder {
     const builder = new RequestContextBuilder();
-    const useTimer = featureFlags.get('useTimerUtility');
+    const useTimer = true;
 
     if (useTimer) {
       builder.timer = new Timer();

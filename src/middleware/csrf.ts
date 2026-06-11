@@ -3,11 +3,13 @@
  * CSRF protection using Double Submit Cookie pattern
  */
 
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual as cryptoTimingSafeEqual } from 'crypto';
 
 import type { Request, Response, NextFunction } from 'express';
 
 import { logger } from '../utils/logger.js';
+
+import { isAuthEnabled } from './auth.js';
 
 const CSRF_COOKIE_NAME = 'csrf-token';
 const CSRF_HEADER_NAME = 'x-csrf-token';
@@ -24,11 +26,7 @@ function generateToken(): string {
  * The cookie is httpOnly=false so JavaScript can read it (needed for Double Submit).
  * Secure flag is set based on environment.
  */
-export function generateCsrfToken(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
+export function generateCsrfToken(req: Request, res: Response, next: NextFunction): void {
   const token = generateToken();
   const isSecure = req.protocol === 'https';
 
@@ -53,11 +51,29 @@ export function generateCsrfToken(
  * Compares the X-CSRF-Token header with the csrf-token cookie.
  * Returns 403 on mismatch or missing token.
  */
-export function validateCsrfToken(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void {
+export function validateCsrfToken(req: Request, res: Response, next: NextFunction): void {
+  // First guard: skip CSRF entirely when auth is disabled
+  if (!isAuthEnabled()) {
+    return next();
+  }
+
+  // Second guard: accept valid Origin or Referer as CSRF bypass
+  const origin = req.headers['origin'];
+  const referer = req.headers['referer'];
+  const host = req.headers['host'];
+
+  if (origin || referer) {
+    const sourceUrl = origin ?? referer!;
+    try {
+      const sourceHost = new URL(sourceUrl).host;
+      if (sourceHost === host) {
+        return next(); // same-origin request — CSRF safe
+      }
+    } catch {
+      // malformed URL — fall through to token check
+    }
+  }
+
   // Extract token from header
   const headerToken = req.headers[CSRF_HEADER_NAME];
   const headerTokenValue = Array.isArray(headerToken) ? headerToken[0] : headerToken;
@@ -136,6 +152,6 @@ function timingSafeEqualImpl(a: string, b: string): boolean {
     return false;
   }
   // Use crypto's timingSafeEqual for byte comparison
-  const { timingSafeEqual: tsEq } = require('crypto');
-  return tsEq(bufA, bufB);
+
+  return cryptoTimingSafeEqual(bufA, bufB);
 }

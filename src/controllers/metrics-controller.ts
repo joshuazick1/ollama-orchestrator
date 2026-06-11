@@ -120,7 +120,7 @@ export function getRecoveryTestMetrics(req: Request, res: Response): void {
     const stats = coordinator.getTestStats();
 
     const breakerNames = new Set<string>();
-    for (const metric of (coordinator as any).testMetrics || []) {
+    for (const metric of coordinator.getTestMetrics()) {
       breakerNames.add(metric.breakerName);
     }
 

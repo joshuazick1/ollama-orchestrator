@@ -345,7 +345,6 @@ export function getConfigSchema(req: Request, res: Response): void {
           minFailureThreshold: { type: 'integer', minimum: 1, default: 3 },
           openTimeout: { type: 'integer', minimum: 1000, default: 30000 },
           halfOpenTimeout: { type: 'integer', minimum: 1000, default: 60000 },
-          halfOpenMaxRequests: { type: 'integer', minimum: 1, default: 5 },
           recoverySuccessThreshold: { type: 'integer', minimum: 1, default: 3 },
           errorRateWindow: { type: 'integer', minimum: 1000, default: 60000 },
           errorRateThreshold: { type: 'number', minimum: 0, maximum: 1, default: 0.5 },
@@ -456,21 +455,27 @@ export function importConfig(req: Request, res: Response): void {
         // Merge mode: update each section
         for (const [key, value] of Object.entries(importedConfig)) {
           if (value !== undefined && typeof value === 'object' && !Array.isArray(value)) {
-            manager.updateSection(key as keyof OrchestratorConfig, value as unknown as Record<string, unknown>);
+            manager.updateSection(
+              key as keyof OrchestratorConfig,
+              value as unknown as Record<string, unknown>
+            );
           }
         }
       }
     } catch (validationError) {
       res.status(400).json({
         error: 'Configuration validation failed',
-        details: validationError instanceof Error ? validationError.message : String(validationError),
+        details:
+          validationError instanceof Error ? validationError.message : String(validationError),
       });
       return;
     }
 
     res.status(200).json({
       success: true,
-      message: isReplace ? 'Configuration replaced successfully' : 'Configuration merged successfully',
+      message: isReplace
+        ? 'Configuration replaced successfully'
+        : 'Configuration merged successfully',
       config: sanitizeConfig(manager.getConfig()),
       mode: isReplace ? 'replace' : 'merge',
     });

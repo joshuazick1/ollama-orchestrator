@@ -3,8 +3,6 @@
  * Centralized token metrics extraction from various response formats
  */
 
-import { featureFlags } from '../config/feature-flags.js';
-
 export interface TokenMetrics {
   tokensGenerated?: number;
   tokensPrompt?: number;
@@ -139,11 +137,6 @@ export class TokenMetricsExtractor {
    * Combine all extraction methods for maximum coverage
    */
   static extractAll(response: unknown): TokenMetrics & StreamingMetrics {
-    // If feature flag is disabled, return empty
-    if (!featureFlags.get('useTokenExtractor')) {
-      return {};
-    }
-
     if (!response || typeof response !== 'object') {
       return {};
     }

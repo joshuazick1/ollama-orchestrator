@@ -52,7 +52,7 @@ export interface AIServer {
     anthropic_messages?: string;
     // Custom auth config for this endpoint type
     anthropic_auth?: {
-      headerName?: string;  // e.g., 'x-api-key'
+      headerName?: string; // e.g., 'x-api-key'
       headerPrefix?: string; // e.g., 'Bearer' or '' (none)
     };
     // Model name prefix for routing (e.g., 'anthropic/' for Bedrock-style)
@@ -64,6 +64,7 @@ export interface AIServer {
   // Operational state
   draining?: boolean;
   maintenance?: boolean;
+  recovering?: boolean;
   drainStartedAt?: Date;
   // Hardware capabilities (populated from API responses)
   hardware?: {

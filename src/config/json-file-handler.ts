@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { atomicWriteFile } from '../utils/atomic-write.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 
@@ -64,25 +65,21 @@ export class JsonFileHandler {
     }
   }
 
-  write<T>(data: T): boolean {
+  async write<T>(data: T): Promise<boolean> {
     try {
-      // Create backup if file exists
       if (this.options.createBackups && fs.existsSync(this.filePath)) {
-        this.createBackup();
+        await this.createBackup();
       }
 
-      // Write to temp file first
       const tempPath = `${this.filePath}.tmp`;
       fs.writeFileSync(tempPath, safeJsonStringify(data, null, 2), 'utf-8');
 
-      // Atomic rename
       fs.renameSync(tempPath, this.filePath);
 
       return true;
     } catch (error) {
       logger.error(`[JsonFileHandler] Error writing ${this.filePath}`, { error });
 
-      // Cleanup temp file if exists
       try {
         const tempPath = `${this.filePath}.tmp`;
         if (fs.existsSync(tempPath)) {
@@ -96,14 +93,14 @@ export class JsonFileHandler {
     }
   }
 
-  private createBackup(): void {
+  private async createBackup(): Promise<void> {
     try {
       const timestamp = Date.now();
       const backupPath = `${this.filePath}.backup.${timestamp}`;
 
-      fs.copyFileSync(this.filePath, backupPath);
+      const content = fs.readFileSync(this.filePath, 'utf-8');
+      await atomicWriteFile(backupPath, content);
 
-      // Clean up old backups
       this.cleanupOldBackups();
     } catch (error) {
       logger.warn(`[JsonFileHandler] Failed to create backup`, { error });
