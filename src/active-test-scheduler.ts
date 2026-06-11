@@ -17,6 +17,7 @@ import type {
 } from './circuit-breaker/circuit-breaker.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
 import { logger } from './utils/logger.js';
+import { probeCoordinator } from './utils/probe-coordinator.js';
 
 /** Milliseconds between polls of the circuit-breaker registry. */
 const POLL_INTERVAL_MS = 1000;
@@ -267,13 +268,30 @@ export class ActiveTestScheduler {
   }
 
   /** Trigger active tests for the server associated with the given breaker. */
-  private triggerTest(server: AIServer, breakerName: string): void {
+  private async triggerTest(server: AIServer, breakerName: string): Promise<void> {
     if (!this.isRunning) {
       return;
     }
+
+    const colonIdx = breakerName.indexOf(':');
+    const serverId = colonIdx === -1 ? breakerName : breakerName.slice(0, colonIdx);
+    const model = colonIdx === -1 ? undefined : breakerName.slice(colonIdx + 1);
+
+    if (!probeCoordinator.tryAcquire(serverId, model)) {
+      logger.debug(
+        `ActiveTestScheduler: skipping test for ${breakerName} - probe already in progress`
+      );
+      return;
+    }
+
     logger.info(`ActiveTestScheduler: triggering recovery test for ${breakerName}`, {
       serverId: server.id,
     });
-    void this.runActiveTests(server);
+
+    try {
+      await this.runActiveTests(server);
+    } finally {
+      probeCoordinator.release(serverId, model);
+    }
   }
 }

@@ -29,6 +29,10 @@ export class ProbeCoordinator {
     const key = model ? `${serverId}:${model}` : serverId;
     return this.probesInProgress.has(key);
   }
+
+  reset(): void {
+    this.probesInProgress.clear();
+  }
 }
 
 export const probeCoordinator = new ProbeCoordinator();

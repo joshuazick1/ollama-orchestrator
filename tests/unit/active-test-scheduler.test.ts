@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { ActiveTestScheduler } from '../../src/active-test-scheduler.js';
+import { probeCoordinator } from '../../src/utils/probe-coordinator.js';
 import type {
   CircuitBreakerRegistry,
   CircuitBreakerStats,
@@ -79,6 +80,7 @@ describe('ActiveTestScheduler', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    probeCoordinator.reset();
     servers = [
       makeServer('s1', ['llama3:latest', 'codellama:latest']),
       makeServer('s2', ['llama3:latest']),
