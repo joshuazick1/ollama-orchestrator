@@ -99,7 +99,13 @@ export function createDiverseMockServer(config: MockServerConfig): Promise<Serve
       });
 
       // Check if this request should fail
-      if (shouldFailRequest(type, state, behavior, req.url || '', { partitionAfterRequests, oomAfterRequests, diskFullAfterRequests })) {
+      if (
+        shouldFailRequest(type, state, behavior, req.url || '', {
+          partitionAfterRequests,
+          oomAfterRequests,
+          diskFullAfterRequests,
+        })
+      ) {
         handleFailure(res, type, state.requestCount);
         return;
       }
@@ -264,7 +270,11 @@ function shouldFailRequest(
   state: ServerState,
   behavior: { latency: number; shouldFail: boolean },
   url: string,
-  config: { partitionAfterRequests?: number; oomAfterRequests?: number; diskFullAfterRequests?: number }
+  config: {
+    partitionAfterRequests?: number;
+    oomAfterRequests?: number;
+    diskFullAfterRequests?: number;
+  }
 ): boolean {
   if (type === 'unhealthy') {
     return true;
@@ -278,7 +288,11 @@ function shouldFailRequest(
     return true;
   }
 
-  if (type === 'partition' && config.partitionAfterRequests && state.requestCount >= config.partitionAfterRequests) {
+  if (
+    type === 'partition' &&
+    config.partitionAfterRequests &&
+    state.requestCount >= config.partitionAfterRequests
+  ) {
     return true;
   }
 
@@ -286,7 +300,11 @@ function shouldFailRequest(
     return true;
   }
 
-  if (type === 'disk-full' && config.diskFullAfterRequests && state.requestCount >= config.diskFullAfterRequests) {
+  if (
+    type === 'disk-full' &&
+    config.diskFullAfterRequests &&
+    state.requestCount >= config.diskFullAfterRequests
+  ) {
     return true;
   }
 
@@ -488,13 +506,16 @@ export function createChaosServer(port: number): Promise<Server> {
 /**
  * Create a degrading server that starts healthy and becomes degraded over time/requests
  */
-export function createDegradingServer(port: number, options?: {
-  healthyForRequests?: number;
-  degradeAfterRequests?: number;
-}): Promise<Server> {
+export function createDegradingServer(
+  port: number,
+  options?: {
+    healthyForRequests?: number;
+    degradeAfterRequests?: number;
+  }
+): Promise<Server> {
   const healthyForRequests = options?.healthyForRequests || 5;
   const degradeAfterRequests = options?.degradeAfterRequests || 10;
-  
+
   const requestCount = 0;
   let isDegrading = false;
 
@@ -527,71 +548,74 @@ export function verifyBehavior(
   expectedType: MockServerType
 ): { isValid: boolean; message: string; details?: Record<string, unknown> } {
   const serverAny = server as any;
-  
+
   switch (expectedType) {
     case 'healthy':
       return { isValid: true, message: 'Healthy server responds correctly' };
-    
+
     case 'partition':
       if (serverAny.partitionFailures !== undefined) {
         return {
           isValid: serverAny.partitionFailures >= 1,
-          message: serverAny.partitionFailures >= 1 
-            ? `Partition server has failed ${serverAny.partitionFailures} requests` 
-            : 'Partition server has not yet triggered',
-          details: { partitionFailures: serverAny.partitionFailures }
+          message:
+            serverAny.partitionFailures >= 1
+              ? `Partition server has failed ${serverAny.partitionFailures} requests`
+              : 'Partition server has not yet triggered',
+          details: { partitionFailures: serverAny.partitionFailures },
         };
       }
       return { isValid: true, message: 'Partition server initialized' };
-    
+
     case 'oom':
       if (serverAny.oomFailures !== undefined) {
         return {
           isValid: serverAny.oomFailures >= 1,
-          message: serverAny.oomFailures >= 1 
-            ? `OOM server has failed ${serverAny.oomFailures} requests with memory errors` 
-            : 'OOM server has not yet triggered',
-          details: { oomFailures: serverAny.oomFailures }
+          message:
+            serverAny.oomFailures >= 1
+              ? `OOM server has failed ${serverAny.oomFailures} requests with memory errors`
+              : 'OOM server has not yet triggered',
+          details: { oomFailures: serverAny.oomFailures },
         };
       }
       return { isValid: true, message: 'OOM server initialized' };
-    
+
     case 'disk-full':
       if (serverAny.diskFullFailures !== undefined) {
         return {
           isValid: serverAny.diskFullFailures >= 1,
-          message: serverAny.diskFullFailures >= 1 
-            ? `Disk-full server has failed ${serverAny.diskFullFailures} requests` 
-            : 'Disk-full server has not yet triggered',
-          details: { diskFullFailures: serverAny.diskFullFailures }
+          message:
+            serverAny.diskFullFailures >= 1
+              ? `Disk-full server has failed ${serverAny.diskFullFailures} requests`
+              : 'Disk-full server has not yet triggered',
+          details: { diskFullFailures: serverAny.diskFullFailures },
         };
       }
       return { isValid: true, message: 'Disk-full server initialized' };
-    
+
     case 'clock-skew':
       if (serverAny.clockSkewResponses !== undefined) {
         return {
           isValid: serverAny.clockSkewResponses >= 1,
           message: 'Clock skew server responds with wrong timestamps',
-          details: { clockSkewResponses: serverAny.clockSkewResponses }
+          details: { clockSkewResponses: serverAny.clockSkewResponses },
         };
       }
       return { isValid: true, message: 'Clock skew server initialized' };
-    
+
     case 'degraded':
       if (serverAny.isDegrading && typeof serverAny.isDegrading === 'function') {
         const isDegrading = serverAny.isDegrading();
         const requestCount = serverAny.getRequestCount ? serverAny.getRequestCount() : 0;
         return {
           isValid: isDegrading || requestCount < 5,
-          message: isDegrading 
-            ? 'Degrading server is in degradation phase' 
+          message: isDegrading
+            ? 'Degrading server is in degradation phase'
             : `Degrading server is still healthy (${requestCount} requests)`,
-          details: { isDegrading, requestCount }
+          details: { isDegrading, requestCount },
         };
       }
       return { isValid: true, message: 'Degrading server initialized' };
-    
+
     default:
       return { isValid: true, message: `${expectedType} server behavior verified` };
   }
@@ -721,12 +745,81 @@ export const mockServerFactory = {
   chaos: (port: number) => createChaosServer(port),
   fleet: (basePort: number, count: number) => createMockServerFleet(basePort, count),
   partition: (port: number, afterRequests?: number) =>
-    createDiverseMockServer({ port, type: 'partition', partitionAfterRequests: afterRequests || 5 }),
+    createDiverseMockServer({
+      port,
+      type: 'partition',
+      partitionAfterRequests: afterRequests || 5,
+    }),
   oom: (port: number, afterRequests?: number) =>
     createDiverseMockServer({ port, type: 'oom', oomAfterRequests: afterRequests || 10 }),
   diskFull: (port: number, afterRequests?: number) =>
-    createDiverseMockServer({ port, type: 'disk-full', diskFullAfterRequests: afterRequests || 10 }),
+    createDiverseMockServer({
+      port,
+      type: 'disk-full',
+      diskFullAfterRequests: afterRequests || 10,
+    }),
   clockSkew: (port: number) => createDiverseMockServer({ port, type: 'clock-skew' }),
   degrading: (port: number, healthyFor?: number, degradeAfter?: number) =>
-    createDegradingServer(port, { healthyForRequests: healthyFor, degradeAfterRequests: degradeAfter }),
+    createDegradingServer(port, {
+      healthyForRequests: healthyFor,
+      degradeAfterRequests: degradeAfter,
+    }),
 };
+
+export interface MockOllamaServerOptions {
+  failGenerateFor?: number;
+  healthy?: boolean;
+  models?: any[];
+  latency?: number;
+}
+
+export function createMockOllamaServer(
+  port: number,
+  options: MockOllamaServerOptions = {}
+): { server: any; getRequestLog?: () => string[]; getRequestCount?: () => number } {
+  const { failGenerateFor = 0, healthy = true, models = [], latency = 0 } = options;
+  let requestCount = 0;
+  const requestLog: string[] = [];
+
+  const server = (require('http') as any).createServer((req: any, res: any) => {
+    const path = req.url ?? '/';
+    requestLog.push(`${req.method} ${path}`);
+
+    setTimeout(() => {
+      if (!healthy) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Service Unavailable' }));
+        return;
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+
+      if (path === '/api/tags') {
+        res.writeHead(200);
+        res.end(JSON.stringify({ models }));
+        return;
+      }
+
+      if (path === '/api/generate') {
+        requestCount++;
+        if (failGenerateFor > 0 && requestCount <= failGenerateFor) {
+          res.writeHead(503, { 'Content-Type': 'text/plain' });
+          res.end('Service Unavailable');
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ response: 'test response', done: true }));
+        return;
+      }
+
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not Found');
+    }, latency);
+  });
+
+  return {
+    server,
+    getRequestLog: () => [...requestLog],
+    getRequestCount: () => requestCount,
+  };
+}

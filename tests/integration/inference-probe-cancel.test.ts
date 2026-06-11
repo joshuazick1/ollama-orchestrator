@@ -4,26 +4,8 @@ import { AddressInfo } from 'net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InferenceProbeScheduler } from '../../src/inference-probe-scheduler.js';
+import { createMockOllamaServer } from '../utils/mock-server-factory.js';
 
-function createMockOllamaServer() {
-  const server = http.createServer((req, res) => {
-    const path = req.url ?? '/';
-    if (path === '/api/tags') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ models: [] }));
-      return;
-    }
-    if (path === '/api/generate') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ response: 'test response', done: true }));
-      return;
-    }
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
-  });
-
-  return { server };
-}
 
 async function startServer(
   server: http.Server
@@ -37,12 +19,12 @@ async function startServer(
 }
 
 describe('InferenceProbeScheduler - probe cancellation', () => {
-  let mockServer: ReturnType<typeof createMockOllamaServer>;
+  let mockServer: { server: http.Server };
   let serverPort: number;
   let closeServer: () => Promise<void>;
 
   beforeEach(async () => {
-    mockServer = createMockOllamaServer();
+    mockServer = createMockOllamaServer(0);
     const started = await startServer(mockServer.server);
     serverPort = started.port;
     closeServer = started.close;
