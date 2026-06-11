@@ -1,11 +1,8 @@
 import type { SSECopy } from '../sse-stream-base.js';
-import { waitForDrain } from '../sse-stream-base.js';
+import { formatSSE, writeSSE } from './_base.js';
 
 export function formatAnthropicChunk(eventType: string, data: string): string {
-  if (eventType) {
-    return `event: ${eventType}\ndata: ${data}\n\n`;
-  }
-  return `data: ${data}\n\n`;
+  return formatSSE(data, eventType);
 }
 
 export function formatAnthropicMessageStart(data: string): string {
@@ -29,11 +26,5 @@ export async function writeAnthropicChunk(
   eventType: string,
   data: string
 ): Promise<boolean> {
-  const formatted = formatAnthropicChunk(eventType, data);
-  const result = clientResponse.write(formatted);
-  if (!result) {
-    await waitForDrain(clientResponse);
-    return false;
-  }
-  return true;
+  return writeSSE(clientResponse, data, eventType);
 }

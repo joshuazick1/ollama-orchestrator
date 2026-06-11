@@ -1,22 +1,16 @@
 import type { SSECopy } from '../sse-stream-base.js';
-import { waitForDrain } from '../sse-stream-base.js';
+import { formatSSE, writeSSE } from './_base.js';
 
 export function formatOllamaChunk(data: string): string {
-  return `data: ${data}\n\n`;
+  return formatSSE(data);
 }
 
 export function formatOllamaEvent(eventType: string, data: string): string {
-  return `event: ${eventType}\ndata: ${data}\n\n`;
+  return formatSSE(data, eventType);
 }
 
 export async function writeOllamaChunk(clientResponse: SSECopy, data: string): Promise<boolean> {
-  const formatted = formatOllamaChunk(data);
-  const result = clientResponse.write(formatted);
-  if (!result) {
-    await waitForDrain(clientResponse);
-    return false;
-  }
-  return true;
+  return writeSSE(clientResponse, data);
 }
 
 export async function writeOllamaEvent(
@@ -24,11 +18,5 @@ export async function writeOllamaEvent(
   eventType: string,
   data: string
 ): Promise<boolean> {
-  const formatted = formatOllamaEvent(eventType, data);
-  const result = clientResponse.write(formatted);
-  if (!result) {
-    await waitForDrain(clientResponse);
-    return false;
-  }
-  return true;
+  return writeSSE(clientResponse, data, eventType);
 }

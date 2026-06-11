@@ -1,30 +1,18 @@
 import type { SSECopy } from '../sse-stream-base.js';
-import { waitForDrain } from '../sse-stream-base.js';
+import { formatSSE, writeSSE } from './_base.js';
 
 export function formatOpenAIChunk(data: string): string {
-  return `data: ${data}\n\n`;
+  return formatSSE(data);
 }
 
 export function formatOpenAIDone(): string {
-  return 'data: [DONE]\n\n';
+  return formatSSE('[DONE]');
 }
 
 export async function writeOpenAIChunk(clientResponse: SSECopy, data: string): Promise<boolean> {
-  const formatted = formatOpenAIChunk(data);
-  const result = clientResponse.write(formatted);
-  if (!result) {
-    await waitForDrain(clientResponse);
-    return false;
-  }
-  return true;
+  return writeSSE(clientResponse, data);
 }
 
 export async function writeOpenAIDone(clientResponse: SSECopy): Promise<boolean> {
-  const formatted = formatOpenAIDone();
-  const result = clientResponse.write(formatted);
-  if (!result) {
-    await waitForDrain(clientResponse);
-    return false;
-  }
-  return true;
+  return writeSSE(clientResponse, '[DONE]');
 }
