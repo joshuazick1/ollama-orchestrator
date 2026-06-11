@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
 import type { RequestContext } from '../../src/orchestrator/orchestrator.types.js';
 import { streamResponse, type OllamaDurations } from '../../src/streaming.js';
+import { createMockBody, createMockUpstreamResponse } from '../utils/streaming-mocks.js';
 
 // Mock the logger
 vi.mock('../../src/utils/logger.js', () => ({
@@ -31,35 +32,8 @@ vi.mock('../../src/utils/in-flight-manager.js', () => ({
 }));
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Test helpers (copied from streaming.test.ts pattern)
+// Test helpers
 // ──────────────────────────────────────────────────────────────────────────────
-
-function createMockBody(chunks: string[]): ReadableStream {
-  let index = 0;
-  return {
-    getReader: () => ({
-      read: async () => {
-        if (index >= chunks.length) {
-          return { done: true, value: undefined };
-        }
-        const chunk = new TextEncoder().encode(chunks[index]);
-        index++;
-        return { done: false, value: chunk };
-      },
-      cancel: vi.fn(),
-    }),
-  } as any;
-}
-
-function createMockUpstreamResponse(body: ReadableStream): any {
-  return {
-    body,
-    ok: true,
-    status: 200,
-    statusText: 'OK',
-    headers: new Headers({ 'content-type': 'text/event-stream' }),
-  };
-}
 
 function createMockExpressResponse(): Partial<Response> {
   return {

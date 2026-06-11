@@ -7,6 +7,7 @@ import type { Response } from 'express';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { streamResponse } from '../../src/streaming.js';
+import { createMockBody, createMockUpstreamResponse } from '../utils/streaming-mocks.js';
 
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
@@ -24,26 +25,6 @@ vi.mock('../../src/utils/in-flight-manager.js', () => ({
     removeStreamingRequest: vi.fn(),
   })),
 }));
-
-function createMockBody(data: string[]): ReadableStream<Uint8Array> {
-  let index = 0;
-  return new ReadableStream({
-    pull(controller) {
-      if (index < data.length) {
-        controller.enqueue(new TextEncoder().encode(data[index]));
-        index++;
-      } else {
-        controller.close();
-      }
-    },
-  });
-}
-
-function createMockUpstreamResponse(body: ReadableStream<Uint8Array>): {
-  body: ReadableStream<Uint8Array>;
-} {
-  return { body };
-}
 
 describe('streamResponse - Stall Detection Parameters', () => {
   let mockResponse: Partial<Response>;

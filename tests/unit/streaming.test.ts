@@ -7,6 +7,7 @@ import {
   isStreamingRequest,
   handleStreamWithRetry,
 } from '../../src/streaming.js';
+import { createMockBody, createMockUpstreamResponse } from '../utils/streaming-mocks.js';
 
 // Mock the logger
 vi.mock('../../src/utils/logger.js', () => ({
@@ -154,12 +155,7 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(['data: chunk1\n\n', 'data: chunk2\n\n', 'data: chunk3\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(
-      mockUpstreamResponse,
-      mockResponse as Response,
-      undefined,
-      onComplete
-    );
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, undefined, onComplete);
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     const chunkData = onComplete.mock.calls[0][3];
@@ -172,12 +168,7 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(['data: test\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(
-      mockUpstreamResponse,
-      mockResponse as Response,
-      undefined,
-      onComplete
-    );
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, undefined, onComplete);
 
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledWith(
@@ -312,12 +303,7 @@ describe('streamResponse', () => {
     ]);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(
-      mockUpstreamResponse,
-      mockResponse as Response,
-      undefined,
-      onComplete
-    );
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, undefined, onComplete);
 
     expect(onComplete).toHaveBeenCalled();
     const args = onComplete.mock.calls[0];
@@ -331,12 +317,7 @@ describe('streamResponse', () => {
     const mockBody = createMockBody(['data: plain text\n\n', 'data: [DONE]\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(
-      mockUpstreamResponse,
-      mockResponse as Response,
-      undefined,
-      onComplete
-    );
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, undefined, onComplete);
 
     expect(onComplete).toHaveBeenCalled();
     const args = onComplete.mock.calls[0];
@@ -476,36 +457,6 @@ describe('handleStreamWithRetry', () => {
   });
 });
 
-// Helper functions
-function createMockBody(chunks: string[]): ReadableStream {
-  let index = 0;
-  return {
-    getReader: () => ({
-      read: async () => {
-        if (index >= chunks.length) {
-          return { done: true, value: undefined };
-        }
-        const chunk = new TextEncoder().encode(chunks[index]);
-        index++;
-        return { done: false, value: chunk };
-      },
-      cancel: vi.fn(),
-    }),
-  } as any;
-}
-
-function createMockUpstreamResponse(body: ReadableStream): any {
-  return {
-    body,
-    ok: true,
-    status: 200,
-    statusText: 'OK',
-    headers: new Headers({
-      'content-type': 'text/event-stream',
-    }),
-  };
-}
-
 describe('streamResponse TTFT integration', () => {
   let mockResponse: Partial<Response>;
   let writtenChunks: Buffer[];
@@ -556,12 +507,7 @@ describe('streamResponse TTFT integration', () => {
     const mockBody = createMockBody(['data: {"response":"x","done":true}\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(
-      mockUpstreamResponse,
-      mockResponse as Response,
-      undefined,
-      onComplete
-    );
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, undefined, onComplete);
 
     const chunkData = onComplete.mock.calls[0][3];
     expect(chunkData.chunkCount).toBe(1);
@@ -651,12 +597,7 @@ describe('streamResponse TTFT integration', () => {
     const mockBody = createMockBody(['data: {"response":"Hello","done":true,"eval_count":5}\n\n']);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(
-      mockUpstreamResponse,
-      mockResponse as Response,
-      undefined,
-      onComplete
-    );
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, undefined, onComplete);
 
     const chunkData = onComplete.mock.calls[0][3];
     expect(chunkData.totalBytes).toBeGreaterThan(0);
@@ -670,12 +611,7 @@ describe('streamResponse TTFT integration', () => {
     ]);
     const mockUpstreamResponse = createMockUpstreamResponse(mockBody);
 
-    await streamResponse(
-      mockUpstreamResponse,
-      mockResponse as Response,
-      undefined,
-      onComplete
-    );
+    await streamResponse(mockUpstreamResponse, mockResponse as Response, undefined, onComplete);
 
     const chunkData = onComplete.mock.calls[0][3];
     expect(chunkData.maxChunkGapMs).toBeDefined();

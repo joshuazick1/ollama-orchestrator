@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { streamResponse } from '../../src/streaming.js';
+import { createMockBody, createMockUpstreamResponse } from '../utils/streaming-mocks.js';
 
 // Mock the logger
 vi.mock('../../src/utils/logger.js', () => ({
@@ -35,39 +36,6 @@ vi.mock('../../src/utils/in-flight-manager.js', () => ({
     removeStreamingRequest: vi.fn(),
   })),
 }));
-
-/**
- * Create a mock ReadableStream body from an array of string chunks.
- * Each chunk is encoded to Uint8Array.
- */
-function createMockBody(chunks: string[]) {
-  let index = 0;
-  return {
-    getReader: () => ({
-      read: vi.fn(async () => {
-        if (index < chunks.length) {
-          return {
-            done: false,
-            value: new TextEncoder().encode(chunks[index++]),
-          };
-        }
-        return { done: true, value: undefined };
-      }),
-      cancel: vi.fn(),
-    }),
-  };
-}
-
-/**
- * Create a mock upstream Response (globalThis.Response shape)
- */
-function createMockUpstreamResponse(body: any): Partial<globalThis.Response> {
-  return {
-    body: body as ReadableStream,
-    status: 200,
-    headers: new Headers({ 'content-type': 'application/x-ndjson' }),
-  };
-}
 
 /**
  * Create a mock Express clientResponse as an EventEmitter so we can emit
