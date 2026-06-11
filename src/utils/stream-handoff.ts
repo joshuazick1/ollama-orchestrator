@@ -6,6 +6,7 @@
 import type { Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
+import { API_ENDPOINTS } from '../constants/api-endpoints.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { streamResponse } from '../streaming.js';
 import { fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
@@ -31,11 +32,6 @@ export interface HandoffRequest {
   /** Stall check interval for the handoff stream (ms). Defaults to 3 s. */
   stallCheckIntervalMs?: number;
 }
-
-const OLLAMA_GENERATE_ENDPOINT = '/api/generate';
-const OLLAMA_CHAT_ENDPOINT = '/api/chat';
-const OPENAI_CHAT_ENDPOINT = '/v1/chat/completions';
-const ANTHROPIC_MESSAGES_ENDPOINT = '/v1/messages';
 
 export async function performStreamHandoff(handoffRequest: HandoffRequest): Promise<HandoffResult> {
   const {
@@ -284,12 +280,12 @@ function checkSupportsContinuation(
 
 function getEndpointForRequest(request: StreamingRequestProgress): string {
   if (request.protocol === 'ollama') {
-    return request.endpoint === 'chat' ? OLLAMA_CHAT_ENDPOINT : OLLAMA_GENERATE_ENDPOINT;
+    return request.endpoint === 'chat' ? API_ENDPOINTS.OLLAMA.CHAT : API_ENDPOINTS.OLLAMA.GENERATE;
   }
   if (request.protocol === 'anthropic') {
-    return ANTHROPIC_MESSAGES_ENDPOINT;
+    return API_ENDPOINTS.ANTHROPIC.MESSAGES;
   }
-  return OPENAI_CHAT_ENDPOINT;
+  return API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS;
 }
 
 function buildContinuationRequest(

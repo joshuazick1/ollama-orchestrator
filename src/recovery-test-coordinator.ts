@@ -1450,7 +1450,9 @@ export class RecoveryTestCoordinator {
       // REC-16: use shared isEmbeddingModel() helper
       const embeddingModel = isEmbeddingModel(modelName);
 
-      const endpoint = embeddingModel ? '/api/embeddings' : '/api/generate';
+      const endpoint = embeddingModel
+        ? API_ENDPOINTS.OLLAMA.EMBEDDINGS
+        : API_ENDPOINTS.OLLAMA.GENERATE;
       const body = embeddingModel
         ? { model: modelName, prompt: 'test' }
         : {

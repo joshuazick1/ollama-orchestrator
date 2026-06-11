@@ -1303,11 +1303,11 @@ export function handleUnsupported(req: Request, res: Response): void {
   let message: string;
 
   switch (path) {
-    case '/api/pull':
+    case API_ENDPOINTS.OLLAMA.PULL:
       message =
         'This is a multi-node orchestrator. Use POST /api/orchestrator/servers/:id/models/pull to pull models to a specific server.';
       break;
-    case '/api/delete':
+    case API_ENDPOINTS.OLLAMA.DELETE:
       message =
         'This is a multi-node orchestrator. Use DELETE /api/orchestrator/servers/:id/models/:model to delete models from a specific server.';
       break;
