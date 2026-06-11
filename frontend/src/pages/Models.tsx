@@ -15,7 +15,7 @@ import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
 import { Server, Box, Layers, Zap, Lock, RefreshCw, Activity, Loader2, Flame } from 'lucide-react';
 import type { AIServer } from '../types';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import type { CircuitBreakerInfo } from '../api';
 import { toastSuccess, toastError } from '../utils/toast';
 import { CircuitDetailModal } from '../components/CircuitDetailModal';
@@ -54,6 +54,7 @@ const ServerBadge = ({
   modelStatus,
   onReset,
   onClick,
+  scoreCache,
 }: {
   server: AIServer;
   model: string;
@@ -62,6 +63,7 @@ const ServerBadge = ({
   modelStatus?: ModelServerStatus;
   onReset?: () => void;
   onClick?: () => void;
+  scoreCache: React.MutableRefObject<Map<string, number>>;
 }) => {
   // Get in-flight count for this server:model
   const inFlightCount = inFlightData?.byModel?.[model]?.regular || 0;
@@ -72,12 +74,8 @@ const ServerBadge = ({
   const isLoaded = modelStatus?.loaded || false;
   const isLoading = modelStatus?.loading || false;
 
-  // Cache score to prevent flashing when data is temporarily stale
-  const [cachedScore, setCachedScore] = useState<number | null>(null);
   const currentScore = circuitBreaker?.lbScore?.totalScore;
-  if (currentScore != null) {
-    setCachedScore(currentScore);
-  }
+  const cachedScore = scoreCache.current.get(server.id);
   const displayScore = currentScore != null ? currentScore : cachedScore;
 
   // Determine state
@@ -311,7 +309,9 @@ export const Models = () => {
     const breakers = circuitBreakersData?.circuitBreakers;
     if (Array.isArray(breakers)) {
       breakers.forEach((cb: CircuitBreakerInfo) => {
-        map.set(cb.serverId, cb);
+        if (cb.serverId) {
+          map.set(cb.serverId, cb);
+        }
       });
     }
     return map;
@@ -335,6 +335,19 @@ export const Models = () => {
     }
     return map;
   }, [modelsStatusData]);
+
+  const scoreCache = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    const breakers = circuitBreakersData?.circuitBreakers;
+    if (Array.isArray(breakers)) {
+      breakers.forEach((cb: CircuitBreakerInfo) => {
+        if (cb.lbScore?.totalScore != null) {
+          scoreCache.current.set(cb.serverId, cb.lbScore.totalScore);
+        }
+      });
+    }
+  }, [circuitBreakersData]);
 
   if (mapLoading || serversLoading || circuitLoading || inFlightLoading) {
     return (
@@ -470,11 +483,12 @@ export const Models = () => {
                             key={server.id}
                             server={server}
                             model={model}
-                            circuitBreaker={circuitBreakerMap.get(`${server.id}:${model}`)}
+                            circuitBreaker={circuitBreakerMap.get(server.id + ':' + model)}
                             inFlightData={inFlightMap.get(server.id)}
                             modelStatus={modelStatusMap.get(model)?.[server.id]}
                             onReset={() => resetCbMutation.mutate({ serverId: server.id, model })}
                             onClick={() => setSelectedCircuit({ serverId: server.id, model })}
+                            scoreCache={scoreCache}
                           />
                         ))}
                       </div>

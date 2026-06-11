@@ -8,19 +8,27 @@ import { ErrorState } from '../components/EmptyState';
 import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
 
-type LogLevel = 'ALL' | 'ERROR' | 'WARN' | 'INFO';
+type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
 
-const getLogLevel = (content: string): LogLevel => {
-  if (content.includes('ERROR') || content.includes('[E]') || content.toLowerCase().includes('error')) {
-    return 'ERROR';
-  }
-  if (content.includes('WARN') || content.includes('[W]')) {
-    return 'WARN';
-  }
-  return 'INFO';
+const LEVEL_COLORS = {
+  ERROR: '#F2495C',
+  WARN: '#FF9830',
+  INFO: '#5794F2',
+  DEBUG: '#73BF69',
 };
 
-const getLogLevelColor = (level: LogLevel): string => {
+const getLogStyle = (level: LogLevel): React.CSSProperties => {
+  switch (level) {
+    case 'ERROR':
+      return { backgroundColor: 'rgba(242,73,92,0.15)' };
+    case 'WARN':
+      return { backgroundColor: 'rgba(255,152,48,0.12)' };
+    default:
+      return {};
+  }
+};
+
+const getLogTextColor = (level: LogLevel): string => {
   switch (level) {
     case 'ERROR':
       return 'text-red-400';
@@ -28,14 +36,35 @@ const getLogLevelColor = (level: LogLevel): string => {
       return 'text-yellow-400';
     case 'INFO':
       return 'text-blue-400';
+    case 'DEBUG':
+      return 'text-green-400';
     default:
       return 'text-gray-300';
   }
 };
 
+const getLogLevel = (content: string): LogLevel => {
+  if (
+    content.includes('ERROR') ||
+    content.includes('[E]') ||
+    content.toLowerCase().includes('error')
+  ) {
+    return 'ERROR';
+  }
+  if (content.includes('WARN') || content.includes('[W]')) {
+    return 'WARN';
+  }
+  if (content.includes('DEBUG') || content.includes('[D]')) {
+    return 'DEBUG';
+  }
+  return 'INFO';
+};
+
 export const Logs = () => {
   const queryClient = useQueryClient();
-  const [levelFilter, setLevelFilter] = useState<LogLevel>('ALL');
+  const [levelFilter, setLevelFilter] = useState<Set<LogLevel>>(
+    new Set(['ERROR', 'WARN', 'INFO', 'DEBUG'])
+  );
   const [autoScroll, setAutoScroll] = useState(true);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
@@ -73,22 +102,20 @@ export const Logs = () => {
         return { id: i, content, level: getLogLevel(content) };
       });
     } else {
-      entries = [{ id: 0, content: JSON.stringify(logs), level: getLogLevel(JSON.stringify(logs)) }];
-    }
-
-    if (levelFilter !== 'ALL') {
-      entries = entries.filter(entry => entry.level === levelFilter);
+      entries = [
+        { id: 0, content: JSON.stringify(logs), level: getLogLevel(JSON.stringify(logs)) },
+      ];
     }
 
     return entries;
-  }, [logs, levelFilter]);
+  }, [logs]);
 
-  const {
-    searchQuery,
-    setSearchQuery,
-    processedData: filteredLogs,
-  } = useDataTable({
-    data: logEntries,
+  const filteredLogs = useMemo(() => {
+    return logEntries.filter(entry => levelFilter.has(entry.level));
+  }, [logEntries, levelFilter]);
+
+  const { searchQuery, setSearchQuery } = useDataTable({
+    data: filteredLogs,
     searchKeys: ['content'],
   });
 
@@ -142,16 +169,33 @@ export const Logs = () => {
         onSearchChange={setSearchQuery}
         searchPlaceholder="Search logs..."
       >
-        <select
-          value={levelFilter}
-          onChange={e => setLevelFilter(e.target.value as LogLevel)}
-          className="bg-gray-700 text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500"
-        >
-          <option value="ALL">All Levels</option>
-          <option value="ERROR">ERROR</option>
-          <option value="WARN">WARN</option>
-          <option value="INFO">INFO</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Level:</span>
+          {(['ERROR', 'WARN', 'INFO', 'DEBUG'] as const).map(level => (
+            <button
+              key={level}
+              onClick={() => {
+                const newFilter = new Set(levelFilter);
+                if (newFilter.has(level)) {
+                  newFilter.delete(level);
+                } else {
+                  newFilter.add(level);
+                }
+                setLevelFilter(newFilter);
+              }}
+              className={`px-2 py-1 text-xs rounded ${
+                levelFilter.has(level) ? 'bg-opacity-100' : 'bg-opacity-30 opacity-50'
+              }`}
+              style={{
+                backgroundColor: levelFilter.has(level) ? LEVEL_COLORS[level] : 'transparent',
+                borderColor: LEVEL_COLORS[level],
+                borderWidth: 1,
+              }}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => setAutoScroll(!autoScroll)}
           className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
@@ -189,7 +233,8 @@ export const Logs = () => {
             {filteredLogs.map(entry => (
               <div
                 key={entry.id}
-                className={`py-2 px-4 hover:bg-surface-raised/50 break-all whitespace-pre-wrap ${getLogLevelColor(entry.level)}`}
+                className={`py-2 px-4 hover:bg-surface-raised/50 break-all whitespace-pre-wrap ${getLogTextColor(entry.level)}`}
+                style={getLogStyle(entry.level)}
               >
                 {entry.content}
               </div>

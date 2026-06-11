@@ -26,6 +26,7 @@ import { getCircuitBreakerStateColor, getCircuitBreakerStateIcon } from '../util
 import { toastSuccess, toastError } from '../utils/toast';
 import { getBans, removeBan, clearAllBans, type BanEntry } from '../api';
 import { DataToolbar } from '../components/DataToolbar';
+import { ConfirmationModal } from '../components/ConfirmationModal';
 import { useDataTable } from '../hooks/useDataTable';
 
 interface CircuitBreakerResponse {
@@ -124,7 +125,9 @@ const CircuitBreakerCard = ({
           {getCircuitBreakerStateIcon(breaker.state)}
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-text-base font-medium">{isModel ? modelName : 'Server Level'}</span>
+              <span className="text-text-base font-medium">
+                {isModel ? modelName : 'Server Level'}
+              </span>
               <span
                 className={`px-2 py-0.5 rounded text-xs font-medium border ${getCircuitBreakerStateColor(
                   breaker.state
@@ -344,6 +347,10 @@ export const CircuitBreakers = () => {
   const queryClient = useQueryClient();
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<'breakers' | 'bans'>('breakers');
+  const [pendingForceOpen, setPendingForceOpen] = useState<{
+    serverId: string;
+    model?: string;
+  } | null>(null);
 
   const { data, isLoading, refetch } = useQuery<CircuitBreakerResponse>({
     queryKey: ['circuitBreakers'],
@@ -486,7 +493,9 @@ export const CircuitBreakers = () => {
           <button
             onClick={() => setActiveTab('breakers')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
-              activeTab === 'breakers' ? 'bg-primary text-text-base' : 'text-text-muted hover:text-text-base'
+              activeTab === 'breakers'
+                ? 'bg-primary text-text-base'
+                : 'text-text-muted hover:text-text-base'
             }`}
           >
             <Shield className="w-4 h-4" />
@@ -495,7 +504,9 @@ export const CircuitBreakers = () => {
           <button
             onClick={() => setActiveTab('bans')}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
-              activeTab === 'bans' ? 'bg-primary text-text-base' : 'text-text-muted hover:text-text-base'
+              activeTab === 'bans'
+                ? 'bg-primary text-text-base'
+                : 'text-text-muted hover:text-text-base'
             }`}
           >
             <Ban className="w-4 h-4" />
@@ -634,7 +645,9 @@ export const CircuitBreakers = () => {
                       </div>
                       <div className="text-right">
                         <span className="text-gray-500 block text-xs">Model Circuits</span>
-                        <span className="text-text-base font-mono">{server.modelBreakers.length}</span>
+                        <span className="text-text-base font-mono">
+                          {server.modelBreakers.length}
+                        </span>
                       </div>
                     </div>
                   </button>
@@ -652,7 +665,7 @@ export const CircuitBreakers = () => {
                           <CircuitBreakerCard
                             breaker={server.serverBreaker}
                             onReset={() => resetMutation.mutate({ serverId: server.serverId })}
-                            onOpen={() => openMutation.mutate({ serverId: server.serverId })}
+                            onOpen={() => setPendingForceOpen({ serverId: server.serverId })}
                             onClose={() => closeMutation.mutate({ serverId: server.serverId })}
                             isPending={
                               resetMutation.isPending ||
@@ -696,7 +709,7 @@ export const CircuitBreakers = () => {
                                       })
                                     }
                                     onOpen={() =>
-                                      openMutation.mutate({
+                                      setPendingForceOpen({
                                         serverId: server.serverId,
                                         model: modelName,
                                       })
@@ -849,6 +862,42 @@ export const CircuitBreakers = () => {
             </div>
           )}
         </div>
+      )}
+      {pendingForceOpen && (
+        <ConfirmationModal
+          isOpen={!!pendingForceOpen}
+          onClose={() => setPendingForceOpen(null)}
+          onConfirm={() => {
+            if (pendingForceOpen) {
+              openMutation.mutate(
+                { serverId: pendingForceOpen.serverId, model: pendingForceOpen.model },
+                {
+                  onSuccess: () => {
+                    toastSuccess('Circuit breaker force-opened');
+                    setPendingForceOpen(null);
+                  },
+                  onError: error => {
+                    toastError(
+                      error instanceof Error
+                        ? error.message
+                        : 'Failed to force-open circuit breaker'
+                    );
+                    setPendingForceOpen(null);
+                  },
+                }
+              );
+            }
+          }}
+          title="Force Open Circuit Breaker?"
+          message="This will immediately block all requests to this server:model combination."
+          consequences={[
+            'All new requests will be blocked immediately',
+            'Auto-recovery will be disabled',
+            'You will need to manually close the circuit to restore traffic',
+          ]}
+          confirmLabel="Force Open"
+          isPending={openMutation.isPending}
+        />
       )}
     </div>
   );

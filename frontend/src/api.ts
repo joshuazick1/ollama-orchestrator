@@ -283,6 +283,13 @@ export const getCircuitBreakers = async () => {
   });
 };
 
+export const getServersCircuitBreakers = async () => {
+  return apiCall(async () => {
+    const response = await api.get('/servers/circuit-breakers');
+    return response.data.circuitBreakers as Record<string, CircuitBreakerInfo>;
+  });
+};
+
 export const resetCircuitBreaker = async (serverId: string, model?: string) => {
   return apiCall(async () => {
     const endpoint = model

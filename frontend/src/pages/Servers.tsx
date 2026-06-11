@@ -89,6 +89,7 @@ export const Servers = () => {
   const [newServerUrl, setNewServerUrl] = useState('');
   const [newServerConcurrency, setNewServerConcurrency] = useState<number | ''>('');
   const [newServerApiKey, setNewServerApiKey] = useState('');
+  const [apiKeyConfirmed, setApiKeyConfirmed] = useState(false);
   const [newServerType, setNewServerType] = useState<'ollama' | 'openai' | 'auto'>('auto');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
@@ -101,7 +102,9 @@ export const Servers = () => {
 
   // Provider selector state
   const [selectedProvider, setSelectedProvider] = useState<ProviderType>('ollama');
-  const [testConnectionStatus, setTestConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [testConnectionStatus, setTestConnectionStatus] = useState<
+    'idle' | 'testing' | 'success' | 'error'
+  >('idle');
   const [testConnectionMessage, setTestConnectionMessage] = useState('');
 
   // View options
@@ -162,6 +165,7 @@ export const Servers = () => {
       setNewServerUrl('');
       setNewServerConcurrency('');
       setNewServerApiKey('');
+      setApiKeyConfirmed(false);
       setNewServerType('ollama');
       setShowAdvancedOptions(false);
       setNewServerV1Models('');
@@ -392,10 +396,10 @@ export const Servers = () => {
                     }
                   >
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="flex items-center space-x-4">
-                          <Badge variant={server.healthy ? 'success' : 'danger'} size="md">
-                            <ServerIcon className="w-6 h-6" />
-                          </Badge>
+                      <div className="flex items-center space-x-4">
+                        <Badge variant={server.healthy ? 'success' : 'danger'} size="md">
+                          <ServerIcon className="w-6 h-6" />
+                        </Badge>
                         <div>
                           <h3 className="font-semibold text-text-base text-lg">{server.url}</h3>
                           <div className="flex items-center space-x-2 text-sm text-gray-500">
@@ -467,7 +471,10 @@ export const Servers = () => {
                             <Download className="w-3 h-3 mr-1 animate-bounce" />
                             <span>
                               Pulling (
-                              {getServerPulls(server.id).filter(op => op.status === 'downloading').length}
+                              {
+                                getServerPulls(server.id).filter(op => op.status === 'downloading')
+                                  .length
+                              }
                               )
                             </span>
                           </Badge>
@@ -638,12 +645,16 @@ export const Servers = () => {
                                     key={key}
                                     className="flex items-center space-x-2 p-2 bg-surface-raised/50 rounded-lg"
                                   >
-                                    {server.probedEndpoints?.[key as keyof typeof server.probedEndpoints] ? (
+                                    {server.probedEndpoints?.[
+                                      key as keyof typeof server.probedEndpoints
+                                    ] ? (
                                       <CheckCircle className="w-4 h-4 text-green-500" />
                                     ) : (
                                       <XCircle className="w-4 h-4 text-red-500" />
                                     )}
-                                    <span className="text-xs text-text-base font-mono">{label}</span>
+                                    <span className="text-xs text-text-base font-mono">
+                                      {label}
+                                    </span>
                                   </div>
                                 ))}
                               </div>
@@ -760,15 +771,25 @@ export const Servers = () => {
                         {/* V1 Models Section */}
                         <div>
                           <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-4">
-                            <span>V1 Models ({((server.v1Models?.length ?? 0) + (server.discoveredV1Models?.length ?? 0))})</span>
+                            <span>
+                              V1 Models (
+                              {(server.v1Models?.length ?? 0) +
+                                (server.discoveredV1Models?.length ?? 0)}
+                              )
+                            </span>
                           </h4>
                           {(server.v1Models?.length ?? 0) > 0 && (
                             <div className="mb-3">
-                              <span className="text-xs font-medium text-blue-400 uppercase tracking-wider">Manual:</span>
+                              <span className="text-xs font-medium text-blue-400 uppercase tracking-wider">
+                                Manual:
+                              </span>
                               <div className="bg-surface-raised/50 rounded-lg border border-surface-border/50 max-h-[100px] overflow-y-auto mt-1">
                                 <div className="divide-y divide-gray-700/50">
                                   {server.v1Models?.map(model => (
-                                    <div key={model} className="p-2 hover:bg-surface/50 transition-colors">
+                                    <div
+                                      key={model}
+                                      className="p-2 hover:bg-surface/50 transition-colors"
+                                    >
                                       <span className="text-sm text-gray-200">{model}</span>
                                     </div>
                                   ))}
@@ -778,11 +799,16 @@ export const Servers = () => {
                           )}
                           {(server.discoveredV1Models?.length ?? 0) > 0 && (
                             <div>
-                              <span className="text-xs font-medium text-green-400 uppercase tracking-wider">Discovered:</span>
+                              <span className="text-xs font-medium text-green-400 uppercase tracking-wider">
+                                Discovered:
+                              </span>
                               <div className="bg-surface-raised/50 rounded-lg border border-surface-border/50 max-h-[100px] overflow-y-auto mt-1">
                                 <div className="divide-y divide-gray-700/50">
                                   {server.discoveredV1Models?.map(model => (
-                                    <div key={model} className="p-2 hover:bg-surface/50 transition-colors">
+                                    <div
+                                      key={model}
+                                      className="p-2 hover:bg-surface/50 transition-colors"
+                                    >
                                       <span className="text-sm text-gray-200">{model}</span>
                                     </div>
                                   ))}
@@ -790,11 +816,12 @@ export const Servers = () => {
                               </div>
                             </div>
                           )}
-                          {(server.v1Models?.length ?? 0) === 0 && (server.discoveredV1Models?.length ?? 0) === 0 && (
-                            <div className="p-4 text-center text-gray-500 bg-surface-raised/50 rounded-lg border border-surface-border/50">
-                              No V1 models configured
-                            </div>
-                          )}
+                          {(server.v1Models?.length ?? 0) === 0 &&
+                            (server.discoveredV1Models?.length ?? 0) === 0 && (
+                              <div className="p-4 text-center text-gray-500 bg-surface-raised/50 rounded-lg border border-surface-border/50">
+                                No V1 models configured
+                              </div>
+                            )}
                         </div>
                       </div>
                     </div>
@@ -834,9 +861,7 @@ export const Servers = () => {
               <option value="minimax">MiniMax</option>
               <option value="custom">Custom</option>
             </select>
-            <p className="mt-1 text-xs text-gray-500">
-              {PROVIDER_CONFIG[selectedProvider].hint}
-            </p>
+            <p className="mt-1 text-xs text-gray-500">{PROVIDER_CONFIG[selectedProvider].hint}</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">Server URL</label>
@@ -906,14 +931,27 @@ export const Servers = () => {
               <p className="mt-1 text-sm text-red-400">{validationErrors.apiKey}</p>
             )}
             {newServerApiKey && !newServerApiKey.startsWith('env:') && (
-              <p className="mt-1 text-sm text-yellow-400">
-                Warning: Plain text API keys are stored unencrypted. Use &quot;env:VAR_NAME&quot; to
-                reference environment variables instead.
-              </p>
+              <>
+                <p className="mt-1 text-sm text-yellow-400">
+                  Warning: Plain text API keys are stored unencrypted. Use &quot;env:VAR_NAME&quot;
+                  to reference environment variables instead.
+                </p>
+                <label className="mt-2 flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={apiKeyConfirmed}
+                    onChange={e => setApiKeyConfirmed(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <span className="text-sm text-gray-300">
+                    I understand the security risk of storing plain text API keys
+                  </span>
+                </label>
+                <p className="mt-1 text-xs text-gray-500">
+                  Use &quot;env:VAR_NAME&quot; to reference environment variables
+                </p>
+              </>
             )}
-            <p className="mt-1 text-xs text-gray-500">
-              Use "env:VAR_NAME" to reference environment variables
-            </p>
           </div>
 
           {/* Advanced Options Collapsible Section */}
@@ -930,7 +968,12 @@ export const Servers = () => {
                 stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
               </svg>
             </button>
 
@@ -980,7 +1023,9 @@ export const Servers = () => {
                       onChange={e => setNewServerForceAnthropic(e.target.checked)}
                       className="w-4 h-4 rounded border-surface-border bg-surface-raised text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
                     />
-                    <span className="text-sm font-medium text-gray-300">Force Anthropic support</span>
+                    <span className="text-sm font-medium text-gray-300">
+                      Force Anthropic support
+                    </span>
                   </label>
                 </div>
 
@@ -1001,10 +1046,7 @@ export const Servers = () => {
           </div>
 
           <div className="flex justify-end space-x-3 mt-6">
-            <Button
-              variant="secondary"
-              onClick={() => setIsAddModalOpen(false)}
-            >
+            <Button variant="secondary" onClick={() => setIsAddModalOpen(false)}>
               Cancel
             </Button>
             <Button
@@ -1034,7 +1076,9 @@ export const Servers = () => {
                   }
                 } catch (err) {
                   setTestConnectionStatus('error');
-                  setTestConnectionMessage(err instanceof Error ? err.message : 'Connection failed');
+                  setTestConnectionMessage(
+                    err instanceof Error ? err.message : 'Connection failed'
+                  );
                 }
               }}
               disabled={testConnectionStatus === 'testing'}
@@ -1046,15 +1090,22 @@ export const Servers = () => {
               type="submit"
               variant="primary"
               loading={addMutation.isPending}
+              disabled={!apiKeyConfirmed || addMutation.isPending}
             >
               {addMutation.isPending ? 'Adding...' : 'Add Server'}
             </Button>
           </div>
           {testConnectionStatus !== 'idle' && testConnectionMessage && (
-            <div className={`mt-2 p-3 rounded-lg text-sm ${
-              testConnectionStatus === 'success' ? 'bg-green-900/30 text-green-400 border border-green-800' : 'bg-red-900/30 text-red-400 border border-red-800'
-            }`}>
-              {testConnectionStatus === 'success' && <CheckCircle className="w-4 h-4 inline mr-2" />}
+            <div
+              className={`mt-2 p-3 rounded-lg text-sm ${
+                testConnectionStatus === 'success'
+                  ? 'bg-green-900/30 text-green-400 border border-green-800'
+                  : 'bg-red-900/30 text-red-400 border border-red-800'
+              }`}
+            >
+              {testConnectionStatus === 'success' && (
+                <CheckCircle className="w-4 h-4 inline mr-2" />
+              )}
               {testConnectionStatus === 'error' && <XCircle className="w-4 h-4 inline mr-2" />}
               {testConnectionMessage}
             </div>

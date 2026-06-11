@@ -6,13 +6,28 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
   AreaChart,
   Area,
+  Rectangle,
 } from 'recharts';
 import { Zap, Activity, Shield, Server, BarChart2 } from 'lucide-react';
+import type { CircuitBreakerInfo } from '../../api';
+import { safeArray } from '../../utils/safeArray';
 
 const COLORS = ['#60A5FA', '#34D399', '#A78BFA', '#F472B6', '#FBBF24', '#F87171'];
+
+interface BarShapeProps {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  fill?: string;
+  index?: number;
+}
+
+const ColoredBar = (props: BarShapeProps) => (
+  <Rectangle {...props} fill={COLORS[props.index ?? 0 % COLORS.length]} />
+);
 
 interface OverviewTabProps {
   summary?: {
@@ -36,7 +51,7 @@ interface OverviewTabProps {
       saturation?: number;
     };
   };
-  circuitBreakers?: Array<{ serverId: string; state: string }>;
+  circuitBreakers?: CircuitBreakerInfo[];
 }
 
 export const OverviewTab = ({
@@ -46,8 +61,10 @@ export const OverviewTab = ({
   capacityAnalysis,
   circuitBreakers,
 }: OverviewTabProps) => {
-  const openBreakers = circuitBreakers?.filter(b => b.state === 'OPEN').length ?? 0;
-  const halfOpenBreakers = circuitBreakers?.filter(b => b.state === 'HALF-OPEN').length ?? 0;
+  const openBreakers =
+    safeArray<CircuitBreakerInfo>(circuitBreakers).filter(b => b.state === 'OPEN').length ?? 0;
+  const halfOpenBreakers =
+    safeArray<CircuitBreakerInfo>(circuitBreakers).filter(b => b.state === 'HALF-OPEN').length ?? 0;
 
   const topModelsData =
     topModels?.map(item => ({
@@ -189,13 +206,12 @@ export const OverviewTab = ({
                   }}
                   itemStyle={{ color: '#F3F4F6' }}
                 />
-                <Bar dataKey="requests" fill="#60A5FA" radius={[0, 4, 4, 0]}>
-                  {topModelsData.map(
-                    (_entry: { name: string; requests: number }, index: number) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    )
-                  )}
-                </Bar>
+                <Bar
+                  dataKey="requests"
+                  shape={<ColoredBar />}
+                  fill="#60A5FA"
+                  radius={[0, 4, 4, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>

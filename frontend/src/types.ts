@@ -87,7 +87,6 @@ export interface CircuitBreakerConfig {
   minFailureThreshold: number;
   openTimeout: number;
   halfOpenTimeout: number;
-  halfOpenMaxRequests: number;
   recoverySuccessThreshold: number;
   errorRateWindow: number;
   errorRateThreshold: number;

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { getCircuitBreakerStateColor } from '../../utils/circuitBreaker';
 import type { CircuitBreakerInfo } from '../../api';
+import { safeArray } from '../../utils/safeArray';
 
 interface HealthTabProps {
   errorAnalysis?: {
@@ -21,9 +22,12 @@ interface HealthTabProps {
 }
 
 export const HealthTab = ({ errorAnalysis, circuitBreakers }: HealthTabProps) => {
-  const openBreakers = circuitBreakers?.filter(b => b.state === 'OPEN').length ?? 0;
-  const halfOpenBreakers = circuitBreakers?.filter(b => b.state === 'HALF-OPEN').length ?? 0;
-  const closedBreakers = circuitBreakers?.filter(b => b.state === 'CLOSED').length ?? 0;
+  const openBreakers =
+    safeArray<CircuitBreakerInfo>(circuitBreakers).filter(b => b.state === 'OPEN').length ?? 0;
+  const halfOpenBreakers =
+    safeArray<CircuitBreakerInfo>(circuitBreakers).filter(b => b.state === 'HALF-OPEN').length ?? 0;
+  const closedBreakers =
+    safeArray<CircuitBreakerInfo>(circuitBreakers).filter(b => b.state === 'CLOSED').length ?? 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -113,11 +117,11 @@ export const HealthTab = ({ errorAnalysis, circuitBreakers }: HealthTabProps) =>
           </div>
 
           <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-            {circuitBreakers?.length === 0 ? (
+            {safeArray<CircuitBreakerInfo>(circuitBreakers).length === 0 ? (
               <div className="text-center text-text-subtle py-4">No circuit breakers active</div>
             ) : (
-              circuitBreakers
-                ?.sort((a, b) => {
+              safeArray<CircuitBreakerInfo>(circuitBreakers)
+                .sort((a, b) => {
                   const stateOrder = { OPEN: 0, 'HALF-OPEN': 1, CLOSED: 2 };
                   return stateOrder[a.state] - stateOrder[b.state];
                 })

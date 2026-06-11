@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Modal } from './Modal';
 
 interface ConfirmationModalProps {
@@ -9,6 +9,8 @@ interface ConfirmationModalProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  isPending?: boolean;
+  consequences?: string[];
 }
 
 export function ConfirmationModal({
@@ -19,10 +21,12 @@ export function ConfirmationModal({
   message,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  isPending = false,
+  consequences,
 }: ConfirmationModalProps) {
   const handleConfirm = () => {
+    if (isPending) return;
     onConfirm();
-    onClose();
   };
 
   return (
@@ -32,6 +36,16 @@ export function ConfirmationModal({
           <AlertTriangle className="h-6 w-6 text-red-600" />
         </div>
         <p className="text-gray-400 mb-6">{message}</p>
+        {consequences && consequences.length > 0 && (
+          <ul className="mt-4 text-left text-sm text-yellow-300 space-y-1">
+            {consequences.map((c, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="mt-1">⚠️</span>
+                {c}
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="flex gap-3 justify-center">
           <button
             onClick={onClose}
@@ -41,9 +55,18 @@ export function ConfirmationModal({
           </button>
           <button
             onClick={handleConfirm}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+            disabled={isPending}
+            className={`px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors
+              ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            {confirmLabel}
+            {isPending ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Processing...
+              </span>
+            ) : (
+              confirmLabel
+            )}
           </button>
         </div>
       </div>

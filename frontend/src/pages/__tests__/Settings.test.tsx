@@ -44,7 +44,6 @@ const mockConfig = {
     openTimeout: 120000,
     halfOpenTimeout: 60000,
     recoverySuccessThreshold: 3,
-    halfOpenMaxRequests: 5,
     errorRateWindow: 60000,
     errorRateThreshold: 0.5,
     errorRateSmoothing: 0.3,

@@ -95,40 +95,42 @@ interface NumberInputProps {
   error?: string;
 }
 
-const NumberInput = memo(({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step = 1,
-  description,
-  suffix,
-  error,
-}: NumberInputProps) => (
-  <div>
-    <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-    {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
-    <div className="flex items-center space-x-2">
-      <input
-        type="number"
-        value={value}
-        onChange={e => onChange(Number(e.target.value))}
-        min={min}
-        max={max}
-        step={step}
-        className={`flex-1 bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
-          error
-            ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
-            : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
-        }`}
-        aria-invalid={!!error}
-      />
-      {suffix && <span className="text-text-muted text-sm">{suffix}</span>}
+const NumberInput = memo(
+  ({
+    label,
+    value,
+    onChange,
+    min,
+    max,
+    step = 1,
+    description,
+    suffix,
+    error,
+  }: NumberInputProps) => (
+    <div>
+      <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+      {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
+      <div className="flex items-center space-x-2">
+        <input
+          type="number"
+          value={value}
+          onChange={e => onChange(Number(e.target.value))}
+          min={min}
+          max={max}
+          step={step}
+          className={`flex-1 bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
+            error
+              ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
+              : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
+          }`}
+          aria-invalid={!!error}
+        />
+        {suffix && <span className="text-text-muted text-sm">{suffix}</span>}
+      </div>
+      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
     </div>
-    {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
-  </div>
-));
+  )
+);
 
 interface SelectInputProps {
   label: string;
@@ -139,29 +141,31 @@ interface SelectInputProps {
   error?: string;
 }
 
-const SelectInput = memo(({ label, value, onChange, options, description, error }: SelectInputProps) => (
-  <div>
-    <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-    {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className={`w-full bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
-        error
-          ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
-          : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
-      }`}
-      aria-invalid={!!error}
-    >
-      {options.map(option => (
-        <option key={option} value={option}>
-          {option}
-        </option>
-      ))}
-    </select>
-    {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
-  </div>
-));
+const SelectInput = memo(
+  ({ label, value, onChange, options, description, error }: SelectInputProps) => (
+    <div>
+      <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+      {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={`w-full bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
+          error
+            ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
+            : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
+        }`}
+        aria-invalid={!!error}
+      >
+        {options.map(option => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+    </div>
+  )
+);
 
 interface TextInputProps {
   label: string;
@@ -172,25 +176,27 @@ interface TextInputProps {
   error?: string;
 }
 
-const TextInput = memo(({ label, value, onChange, description, placeholder, error }: TextInputProps) => (
-  <div>
-    <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-    {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
-    <input
-      type="text"
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      placeholder={placeholder}
-      className={`w-full bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
-        error
-          ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
-          : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
-      }`}
-      aria-invalid={!!error}
-    />
-    {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
-  </div>
-));
+const TextInput = memo(
+  ({ label, value, onChange, description, placeholder, error }: TextInputProps) => (
+    <div>
+      <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+      {description && <p className="text-xs text-gray-500 mb-2">{description}</p>}
+      <input
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`w-full bg-surface-raised border rounded-lg px-3 py-2 text-text-base focus:outline-none focus:ring-2 transition-all ${
+          error
+            ? 'border-red-500 focus:ring-red-500/50 focus:border-red-500'
+            : 'border-gray-600 focus:ring-blue-500/50 focus:border-blue-500'
+        }`}
+        aria-invalid={!!error}
+      />
+      {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
+    </div>
+  )
+);
 
 export const Settings = () => {
   const queryClient = useQueryClient();
@@ -270,26 +276,29 @@ export const Settings = () => {
     },
   });
 
-  const updateField = useCallback(<K extends keyof OrchestratorConfig>(
-    section: K,
-    field: keyof OrchestratorConfig[K] | null,
-    value: unknown
-  ) => {
-    setEditedConfig(prev => {
-      const base = prev || config || {};
-      if (field === null) {
-        // Top-level field
-        return { ...base, [section]: value };
-      } else {
-        // Nested field
-        const sectionData = (base[section] as unknown as Record<string, unknown>) || {};
-        return {
-          ...base,
-          [section]: { ...sectionData, [field]: value },
-        };
-      }
-    });
-  }, [config]);
+  const updateField = useCallback(
+    <K extends keyof OrchestratorConfig>(
+      section: K,
+      field: keyof OrchestratorConfig[K] | null,
+      value: unknown
+    ) => {
+      setEditedConfig(prev => {
+        const base = prev || config || {};
+        if (field === null) {
+          // Top-level field
+          return { ...base, [section]: value };
+        } else {
+          // Nested field
+          const sectionData = (base[section] as unknown as Record<string, unknown>) || {};
+          return {
+            ...base,
+            [section]: { ...sectionData, [field]: value },
+          };
+        }
+      });
+    },
+    [config]
+  );
 
   const handleSave = () => {
     if (editedConfig) {
@@ -440,10 +449,7 @@ export const Settings = () => {
           <div className="bg-surface rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto border border-surface-border">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-semibold text-text-base">Import Configuration</h3>
-              <button
-                onClick={handleImportCancel}
-                className="text-text-muted hover:text-text-base"
-              >
+              <button onClick={handleImportCancel} className="text-text-muted hover:text-text-base">
                 <AlertCircle className="w-5 h-5" />
               </button>
             </div>
@@ -893,13 +899,6 @@ export const Settings = () => {
                 onChange={value => updateField('circuitBreaker', 'recoverySuccessThreshold', value)}
                 min={1}
                 description="Successes needed to close circuit"
-              />
-              <NumberInput
-                label="Half-Open Max Requests"
-                value={currentConfig.circuitBreaker?.halfOpenMaxRequests ?? 5}
-                onChange={value => updateField('circuitBreaker', 'halfOpenMaxRequests', value)}
-                min={1}
-                description="Test requests allowed in half-open state"
               />
               <NumberInput
                 label="Error Rate Window"

@@ -10,9 +10,23 @@ import {
   AreaChart,
   Area,
   Legend,
-  Cell,
+  Rectangle,
 } from 'recharts';
 import { GitBranch, Target } from 'lucide-react';
+
+interface PieCellProps {
+  cx?: number;
+  cy?: number;
+  midAngle?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  fill?: string;
+  index?: number;
+}
+
+const ColoredPieCell = (props: PieCellProps) => (
+  <Rectangle {...props} fill={COLORS[props.index ?? 0 % COLORS.length]} />
+);
 
 const COLORS = ['#60A5FA', '#34D399', '#A78BFA', '#F472B6', '#FBBF24', '#F87171'];
 
@@ -110,11 +124,8 @@ export const DecisionsTab = ({
                     fill="#8884d8"
                     paddingAngle={5}
                     dataKey="count"
-                  >
-                    {algorithmData.map((_entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    shape={<ColoredPieCell />}
+                  ></Pie>
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#1F2937',
