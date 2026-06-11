@@ -4,6 +4,8 @@
  * @module tests/utils/mock-express
  */
 
+import { vi } from 'vitest';
+
 /**
  * Creates a mock Express Request object for route testing.
  *
@@ -26,7 +28,7 @@ export function createMockReq(overrides: any = {}): any {
     method: 'GET',
     ip: '127.0.0.1',
     currentUser: undefined,
-    get: () => undefined,
+    get: vi.fn(),
     ...overrides,
   };
 }
@@ -50,24 +52,24 @@ export function createMockRes(): any {
     _json: undefined as any,
     _body: undefined as any,
     headers: {} as Record<string, string>,
-    status(code: number): any {
+    status: vi.fn(function (this: any, code: number): any {
       this.statusCode = code;
       return this;
-    },
-    json(body: any): any {
+    }),
+    json: vi.fn(function (this: any, body: any): any {
       this._json = body;
       return this;
-    },
-    send(body: any): any {
+    }),
+    send: vi.fn(function (this: any, body: any): any {
       this._body = body;
       return this;
-    },
-    setHeader(name: string, value: string): any {
+    }),
+    setHeader: vi.fn(function (this: any, name: string, value: string): any {
       this.headers[name] = value;
       return this;
-    },
-    end(): any {
+    }),
+    end: vi.fn(function (this: any): any {
       return this;
-    },
+    }),
   };
 }

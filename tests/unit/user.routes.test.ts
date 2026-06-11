@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createMockReq, createMockRes } from '../utils/mock-express.js';
 
 vi.mock('../../src/middleware/csrf.js');
 vi.mock('../../src/utils/jwt.js');
@@ -17,61 +18,42 @@ const mockJwt = vi.mocked(jwtModule);
 const mockUserStore = vi.mocked(userStoreModule);
 const mockCsrf = vi.mocked(csrfModule);
 
-function createMockReq(
-  overrides: Partial<Request> & { params?: Record<string, string> } = {}
-): Request {
-  return {
-    params: {},
-    query: {},
-    body: {},
-    headers: {},
-    cookies: {},
-    protocol: 'http',
-    path: '/',
-    method: 'GET',
-    ip: '127.0.0.1',
-    get: vi.fn(),
-    currentUser: undefined,
-    ...overrides,
-  } as unknown as Request;
-}
-
-function createMockRes(): Response {
-  return {
-    status: vi.fn().mockReturnThis(),
-    json: vi.fn().mockReturnThis(),
-    cookie: vi.fn().mockReturnThis(),
-    send: vi.fn().mockReturnThis(),
-    setHeader: vi.fn().mockReturnThis(),
-  } as unknown as Response;
-}
-
 function findRouteIndex(router: any, method: string, path: string): number {
   const methodLower = method.toLowerCase();
   const segments = path.split('/').filter(Boolean);
 
   for (let i = 0; i < router.stack.length; i++) {
     const layer = router.stack[i];
-    if (!layer.route) {continue;}
+    if (!layer.route) {
+      continue;
+    }
 
     const routePath = layer.route.path;
     const routeMethod = Object.keys(layer.route.methods)[0];
 
-    if (routeMethod !== methodLower) {continue;}
+    if (routeMethod !== methodLower) {
+      continue;
+    }
 
     const routeSegments = routePath.split('/').filter(Boolean);
-    if (routeSegments.length !== segments.length) {continue;}
+    if (routeSegments.length !== segments.length) {
+      continue;
+    }
 
     let match = true;
     for (let j = 0; j < routeSegments.length; j++) {
-      if (routeSegments[j].startsWith(':')) {continue;}
+      if (routeSegments[j].startsWith(':')) {
+        continue;
+      }
       if (routeSegments[j] !== segments[j]) {
         match = false;
         break;
       }
     }
 
-    if (match) {return i;}
+    if (match) {
+      return i;
+    }
   }
   return -1;
 }
@@ -84,7 +66,9 @@ function runHandlerSync(
   res: Response
 ): void {
   const routeIndex = findRouteIndex(router, method, path);
-  if (routeIndex < 0) {throw new Error(`Route ${method} ${path} not found`);}
+  if (routeIndex < 0) {
+    throw new Error(`Route ${method} ${path} not found`);
+  }
 
   const routeLayer = router.stack[routeIndex];
   const routeSegments = routeLayer.route.path.split('/').filter(Boolean);

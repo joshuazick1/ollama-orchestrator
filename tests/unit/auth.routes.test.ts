@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createMockReq, createMockRes } from '../utils/mock-express.js';
 
 vi.mock('../../src/middleware/csrf.js');
 vi.mock('../../src/middleware/auth.js', () => ({
@@ -26,46 +27,26 @@ const mockJwt = vi.mocked(jwtModule);
 const mockUserStore = vi.mocked(userStoreModule);
 const mockCsrf = vi.mocked(csrfModule);
 
-function createMockReq(overrides: Partial<Request> = {}): Request {
-  return {
-    params: {},
-    query: {},
-    body: {},
-    headers: {},
-    cookies: {},
-    protocol: 'http',
-    path: '/',
-    method: 'GET',
-    ip: '127.0.0.1',
-    get: vi.fn(),
-    ...overrides,
-  } as unknown as Request;
-}
-
-function createMockRes(): Response {
-  return {
-    status: vi.fn().mockReturnThis(),
-    json: vi.fn().mockReturnThis(),
-    cookie: vi.fn().mockReturnThis(),
-    send: vi.fn().mockReturnThis(),
-    setHeader: vi.fn().mockReturnThis(),
-  } as unknown as Response;
-}
-
 function findRouteHandler(router: any, method: string, path: string) {
   const methodLower = method.toLowerCase();
   const segments = path.split('/').filter(Boolean);
 
   for (const layer of router.stack) {
-    if (!layer.route) {continue;}
+    if (!layer.route) {
+      continue;
+    }
 
     const routePath = layer.route.path;
     const routeMethod = Object.keys(layer.route.methods)[0];
 
-    if (routeMethod !== methodLower) {continue;}
+    if (routeMethod !== methodLower) {
+      continue;
+    }
 
     const routeSegments = routePath.split('/').filter(Boolean);
-    if (routeSegments.length !== segments.length) {continue;}
+    if (routeSegments.length !== segments.length) {
+      continue;
+    }
 
     let match = true;
     const params: Record<string, string> = {};
@@ -79,7 +60,9 @@ function findRouteHandler(router: any, method: string, path: string) {
       }
     }
 
-    if (match) {return { layer, params };}
+    if (match) {
+      return { layer, params };
+    }
   }
   return null;
 }
@@ -92,7 +75,9 @@ function runHandlerSync(
   res: Response
 ): void {
   const route = findRouteHandler(router, method, path);
-  if (!route) {throw new Error(`Route ${method} ${path} not found`);}
+  if (!route) {
+    throw new Error(`Route ${method} ${path} not found`);
+  }
 
   const handlers = route.layer.route.stack;
   let idx = 0;
