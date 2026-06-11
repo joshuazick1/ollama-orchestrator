@@ -44,8 +44,8 @@ import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
 import { sleep } from '../utils/async-helpers.js';
-import { BanManager } from '../utils/ban-manager.js';
 import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
+import { BanManager } from '../utils/ban-manager.js';
 import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
 import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
@@ -222,6 +222,10 @@ export class AIOrchestrator {
 
   public getTagsCache(): typeof this.tagsCache {
     return this.tagsCache;
+  }
+
+  public getInferenceTimeoutMs(): number {
+    return this.config.inferenceTimeoutMs;
   }
 
   public setTagsCache(

@@ -211,6 +211,8 @@ export interface OrchestratorConfig {
   enableStreaming: boolean;
   enablePersistence: boolean;
 
+  inferenceTimeoutMs: number;
+
   // Sub-configurations
   loadBalancer: LoadBalancerConfig;
   circuitBreaker: CircuitBreakerConfig;
@@ -249,6 +251,8 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   enableMetrics: true,
   enableStreaming: true,
   enablePersistence: true,
+
+  inferenceTimeoutMs: 90000,
 
   loadBalancer: {
     weights: {
@@ -919,6 +923,7 @@ export class ConfigManager {
       enableMetrics: partial.enableMetrics ?? DEFAULT_CONFIG.enableMetrics,
       enableStreaming: partial.enableStreaming ?? DEFAULT_CONFIG.enableStreaming,
       enablePersistence: partial.enablePersistence ?? DEFAULT_CONFIG.enablePersistence,
+      inferenceTimeoutMs: partial.inferenceTimeoutMs ?? DEFAULT_CONFIG.inferenceTimeoutMs,
       loadBalancer: { ...DEFAULT_CONFIG.loadBalancer, ...partial.loadBalancer },
       circuitBreaker: { ...DEFAULT_CONFIG.circuitBreaker, ...partial.circuitBreaker },
       security: { ...DEFAULT_CONFIG.security, ...partial.security },

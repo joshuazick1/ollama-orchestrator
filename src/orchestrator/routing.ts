@@ -42,7 +42,7 @@ export class OrchestratorRouter {
     );
 
     const startTime = Date.now();
-    const totalBudgetMs = (this.orchestrator.getConfig() as any).inferenceTimeoutMs ?? 90000;
+    const totalBudgetMs = this.orchestrator.getInferenceTimeoutMs() ?? 90000;
     const checkTotalBudget = (): boolean => Date.now() - startTime < totalBudgetMs;
 
     const executeFailoverPhase = async (
