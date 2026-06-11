@@ -136,7 +136,7 @@ export class ActiveTestScheduler {
 
       const timer = setTimeout(() => {
         this.scheduledTimers.delete(breakerName);
-        this.triggerTest(server, breakerName);
+        void this.triggerTest(server, breakerName);
       }, delay);
 
       this.scheduledTimers.set(breakerName, timer);
@@ -256,7 +256,7 @@ export class ActiveTestScheduler {
         clearTimeout(existingTimer);
         this.scheduledTimers.delete(bestEntry.breakerName);
       }
-      this.triggerTest(server, bestEntry.breakerName);
+      void this.triggerTest(server, bestEntry.breakerName);
     }
 
     // Clean up cooldowns for models no longer tracked
