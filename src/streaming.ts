@@ -6,6 +6,7 @@
 import type { Response } from 'express';
 
 import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
+import { calculateBackoff } from './utils/backoff/index.js';
 import { sleep } from './utils/async-helpers.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
@@ -927,7 +928,14 @@ export async function handleStreamWithRetry<T>(
       if (attempt < maxRetries) {
         onRetry?.(attempt, lastError);
         // Exponential backoff
-        await sleep(Math.pow(2, attempt) * 100);
+        const result = calculateBackoff('exponential', {
+          attempt: attempt,
+          baseDelayMs: 100,
+          maxDelayMs: Infinity,
+          multiplier: 2,
+          jitterFactor: 0,
+        });
+        await sleep(result.delayMs);
       }
     }
   }

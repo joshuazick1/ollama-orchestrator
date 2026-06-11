@@ -10,6 +10,7 @@ import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { sleep } from '../utils/async-helpers.js';
+import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
 import { classifyError } from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 import { RetryBudget } from '../utils/retry-budget.js';
@@ -50,8 +51,12 @@ export class OrchestratorRouter {
       phaseIsRetry: boolean
     ): Promise<{ success: boolean; result?: T; serverId?: string }> => {
       for (const server of phaseCandidates) {
-        if (signal?.aborted) {throw new Error('Request aborted');}
-        if (!checkTotalBudget()) {throw new Error('Total timeout exceeded');}
+        if (signal?.aborted) {
+          throw new Error('Request aborted');
+        }
+        if (!checkTotalBudget()) {
+          throw new Error('Total timeout exceeded');
+        }
         const maxConcurrency =
           server.maxConcurrency ?? this.orchestrator.getConfig().cooldown.defaultMaxConcurrency;
         if (
@@ -114,7 +119,9 @@ export class OrchestratorRouter {
             routingContext.failoverPhase = phaseNum;
             routingContext.failoverCount = retryCount;
             routingContext.failoverOccurred = retryCount > 0;
-            if (failoverErrors.length > 0) {routingContext.failoverErrors = failoverErrors;}
+            if (failoverErrors.length > 0) {
+              routingContext.failoverErrors = failoverErrors;
+            }
           }
           const serverMaxConcurrency =
             server.maxConcurrency ?? this.orchestrator.getConfig().cooldown.defaultMaxConcurrency;
@@ -148,12 +155,13 @@ export class OrchestratorRouter {
           latencyMs: attemptLatency,
         });
         allServersTried.push(server.id);
-        if (lastError)
-          {failoverErrors.push({
+        if (lastError) {
+          failoverErrors.push({
             serverId: server.id,
             error: lastError.error,
             errorType: lastError.type,
-          });}
+          });
+        }
         retryCount++;
         retryBudget.recordAttempt(server.id);
         if (retryBudget.isExhausted()) {
@@ -177,15 +185,21 @@ export class OrchestratorRouter {
     );
 
     const eligibleForBackoff = this.orchestrator.getServers().filter(s => {
-      if (requiredCapability === 'ollama' && s.supportsOllama === false) {return false;}
+      if (requiredCapability === 'ollama' && s.supportsOllama === false) {
+        return false;
+      }
       if (requiredCapability === 'openai') {
         const hasV1Evidence =
           s.supportsV1 === true ||
           (s.v1Models && s.v1Models.length > 0) ||
           (s.discoveredV1Models && s.discoveredV1Models.length > 0);
-        if (!hasV1Evidence) {return false;}
+        if (!hasV1Evidence) {
+          return false;
+        }
       }
-      if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) {return false;}
+      if (requiredCapability === 'anthropic' && s.supportsAnthropic === false) {
+        return false;
+      }
       return (
         s.healthy &&
         !this.orchestrator.isInCooldown(s.id, model) &&
@@ -1177,11 +1191,12 @@ export class OrchestratorRouter {
         });
 
         if (isRetryableOnSameServer && retryCount < retryConfig.maxRetriesPerServer) {
-          const baseDelay = Math.min(
-            retryConfig.retryDelayMs * Math.pow(retryConfig.backoffMultiplier, retryCount),
-            retryConfig.maxRetryDelayMs
-          );
-          const delay = Math.round(baseDelay * (0.5 + Math.random() * 0.5));
+          const adapter = fromRetryConfig(retryConfig);
+          const result = calculateBackoff('exponential', {
+            ...adapter.options,
+            attempt: retryCount,
+          });
+          const delay = result.delayMs;
 
           logger.info(
             `Will retry on same server ${server.id} for model ${model} in ${delay}ms (attempt ${retryCount + 1}/${retryConfig.maxRetriesPerServer})`,
