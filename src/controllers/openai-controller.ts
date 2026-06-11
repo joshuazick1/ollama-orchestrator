@@ -22,7 +22,11 @@ import type {
 import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
-import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
+import {
+  fetchWithTimeout,
+  fetchWithActivityTimeout,
+  parseResponse,
+} from '../utils/fetch-with-timeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -30,7 +34,10 @@ import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-erro
 import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 // import { performStreamHandoff } from '../utils/stream-handoff.js';
-import { createStreamingStallHandler } from '../utils/streaming-response-handler.js';
+import {
+  computeStallThresholds,
+  createStreamingStallHandler,
+} from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 /**
@@ -629,11 +636,10 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
-          const stallThreshold = Math.min(
-            Math.max(timeoutMs * _config.timeout.stallThresholdMultiplier, 10_000),
-            _config.timeout.stallThresholdCapMs
-          );
-          const stallCheckInterval = Math.min(timeoutMs / 8, 3_000);
+          const { stallThreshold, stallCheckInterval } = computeStallThresholds(timeoutMs, {
+            factor: _config.timeout.stallThresholdMultiplier,
+            upperBound: _config.timeout.stallThresholdCapMs,
+          });
 
           logger.info('STREAM_REQUEST_START', {
             requestId,
@@ -928,7 +934,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           throw new Error(errorMessage);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       stream,
       'generate',
@@ -1114,7 +1120,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
           throw new Error(errorMessage);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       stream,
       'generate',
@@ -1223,7 +1229,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
           throw new Error(errorMessage);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       false,
       'embeddings',

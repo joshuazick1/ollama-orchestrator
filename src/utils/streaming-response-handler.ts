@@ -17,6 +17,22 @@ export interface StallHandlerResult {
   error?: string;
 }
 
+export interface ComputeStallThresholdsOptions {
+  factor?: number;
+  upperBound?: number;
+}
+
+export function computeStallThresholds(
+  timeoutMs: number,
+  options?: ComputeStallThresholdsOptions
+): { stallThreshold: number; stallCheckInterval: number } {
+  const factor = options?.factor ?? 1.5;
+  const upperBound = options?.upperBound ?? 120_000;
+  const stallThreshold = Math.min(Math.max(timeoutMs * factor, 10_000), upperBound);
+  const stallCheckInterval = Math.min(timeoutMs / 8, 3_000);
+  return { stallThreshold, stallCheckInterval };
+}
+
 export interface StreamingResponseContext {
   server: AIServer;
   requestId: string;
@@ -73,10 +89,18 @@ export function createStreamingStallHandler(ctx: StreamingResponseContext): {
 
     const requestProtocol = ctx.protocol;
     const newServer = allServers.find(s => {
-      if (s.id === ctx.server.id) {return false;}
-      if (!s.healthy) {return false;}
-      if (!s.models.includes(ctx.model)) {return false;}
-      if (!orchestrator.isCircuitAllowed(s.id)) {return false;}
+      if (s.id === ctx.server.id) {
+        return false;
+      }
+      if (!s.healthy) {
+        return false;
+      }
+      if (!s.models.includes(ctx.model)) {
+        return false;
+      }
+      if (!orchestrator.isCircuitAllowed(s.id)) {
+        return false;
+      }
 
       if (requestProtocol === 'ollama') {
         return s.supportsOllama !== false;
@@ -154,7 +178,9 @@ export function createSharedStallDetector(
   const { onStall } = createStreamingStallHandler(ctx);
 
   const checkForStall = () => {
-    if (stallTriggered) {return;}
+    if (stallTriggered) {
+      return;
+    }
 
     const timeSinceLastChunk = Date.now() - lastChunkTime;
     if (timeSinceLastChunk > ctx.stallThreshold) {

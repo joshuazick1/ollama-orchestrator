@@ -31,7 +31,11 @@ import type {
 } from '../types/api-request.types.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
-import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
+import {
+  fetchWithTimeout,
+  fetchWithActivityTimeout,
+  parseResponse,
+} from '../utils/fetch-with-timeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -39,7 +43,10 @@ import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-erro
 import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 import { performStreamHandoff } from '../utils/stream-handoff.js';
-import { createStreamingStallHandler } from '../utils/streaming-response-handler.js';
+import {
+  computeStallThresholds,
+  createStreamingStallHandler,
+} from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 import { APP_VERSION } from '../utils/version.js';
 
@@ -113,11 +120,10 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           );
           const requestId = context?.requestId;
 
-          const stallThreshold = Math.min(
-            Math.max(timeoutMs * _config.timeout.stallThresholdMultiplier, 10000),
-            _config.timeout.stallThresholdCapMs
-          );
-          const stallCheckInterval = Math.min(timeoutMs / 8, 3000);
+          const { stallThreshold, stallCheckInterval } = computeStallThresholds(timeoutMs, {
+            factor: _config.timeout.stallThresholdMultiplier,
+            upperBound: _config.timeout.stallThresholdCapMs,
+          });
 
           logger.info('STREAM_REQUEST_START', {
             requestId,
@@ -403,7 +409,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           throw new Error(errorMessage);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       useStreaming,
       'generate',
@@ -526,11 +532,10 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
-          const stallThreshold = Math.min(
-            Math.max(timeoutMs * _config.timeout.stallThresholdMultiplier, 10000),
-            _config.timeout.stallThresholdCapMs
-          );
-          const stallCheckInterval = Math.min(timeoutMs / 8, 3000);
+          const { stallThreshold, stallCheckInterval } = computeStallThresholds(timeoutMs, {
+            factor: _config.timeout.stallThresholdMultiplier,
+            upperBound: _config.timeout.stallThresholdCapMs,
+          });
 
           logger.info('STREAM_REQUEST_START', {
             requestId,
@@ -876,7 +881,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
           throw new Error(errorMessage);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       useStreaming,
       'generate',
@@ -993,7 +998,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
           throw new Error(errorMessage);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       false,
       'embeddings',
@@ -1072,7 +1077,7 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
           return [];
         }
 
-        const data = (await response.json()) as PsResponse;
+        const data = (await parseResponse<PsResponse>(response))!;
         if (data.models && Array.isArray(data.models)) {
           // Add server info to each model entry
           return data.models.map(model => ({
@@ -1139,7 +1144,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
           throw new Error(errorMessage);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       false,
       'generate',
@@ -1271,7 +1276,11 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const data = (await response.json()) as Record<string, unknown>;
+    const data = (await parseResponse<Record<string, unknown>>(response))!;
+    if (data === null) {
+      res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+      return;
+    }
     res.json(data);
   } catch (error) {
     logger.error('Error in handleEmbed:', error);
