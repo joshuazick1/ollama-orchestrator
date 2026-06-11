@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createServer } from '../fixtures/factories.js';
 
 vi.mock('../../src/storage/operational-store.js', () => ({
   getOperationalStore: () => ({
@@ -41,11 +42,7 @@ describe('AIOrchestrator', () => {
 
   describe('Server Management', () => {
     it('should add a server with default values', () => {
-      orchestrator.addServer({
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        type: 'ollama',
-      });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const servers = orchestrator.getServers();
       expect(servers).toHaveLength(1);
@@ -57,36 +54,36 @@ describe('AIOrchestrator', () => {
     });
 
     it('should prevent duplicate server by id', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:1', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:2', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1', url: 'http://localhost:1' }));
+      orchestrator.addServer(createServer({ id: 'server-1', url: 'http://localhost:2' }));
 
       expect(orchestrator.getServers()).toHaveLength(1);
     });
 
     it('should prevent duplicate server by url', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2' }));
 
       expect(orchestrator.getServers()).toHaveLength(1);
     });
 
     it('should remove a server', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       orchestrator.removeServer('server-1');
 
       expect(orchestrator.getServers()).toHaveLength(0);
     });
 
     it('should handle multiple servers', () => {
-      orchestrator.addServer({ id: 's1', url: 'http://localhost:1', type: 'ollama' });
-      orchestrator.addServer({ id: 's2', url: 'http://localhost:2', type: 'ollama' });
-      orchestrator.addServer({ id: 's3', url: 'http://localhost:3', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 's1', url: 'http://localhost:1' }));
+      orchestrator.addServer(createServer({ id: 's2', url: 'http://localhost:2' }));
+      orchestrator.addServer(createServer({ id: 's3', url: 'http://localhost:3' }));
 
       expect(orchestrator.getServers()).toHaveLength(3);
     });
 
     it('should get server by id', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const server = orchestrator.getServer('server-1');
       expect(server).toBeDefined();
@@ -99,7 +96,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should update server maxConcurrency', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const result = orchestrator.updateServer('server-1', { maxConcurrency: 8 });
 
@@ -191,8 +188,8 @@ describe('AIOrchestrator', () => {
     });
 
     it('should count servers in stats', () => {
-      orchestrator.addServer({ id: 's1', url: 'http://localhost:1', type: 'ollama' });
-      orchestrator.addServer({ id: 's2', url: 'http://localhost:2', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 's1', url: 'http://localhost:1' }));
+      orchestrator.addServer(createServer({ id: 's2', url: 'http://localhost:2' }));
 
       const stats = orchestrator.getStats();
       expect(stats.totalServers).toBe(2);
@@ -280,7 +277,7 @@ describe('AIOrchestrator', () => {
 
     it('should aggregate tags from single server', async () => {
       // Add a healthy server
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       // Mock successful fetch response
       (global.fetch as any).mockResolvedValueOnce({
@@ -309,8 +306,8 @@ describe('AIOrchestrator', () => {
 
     it('should aggregate tags from multiple servers', async () => {
       // Add multiple healthy servers
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       // Mock responses for both servers
       (global.fetch as any)
@@ -343,7 +340,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should deduplicate models by name:digest', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
@@ -366,8 +363,8 @@ describe('AIOrchestrator', () => {
     });
 
     it('should handle server errors gracefully', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       // Mock one success and one failure
       (global.fetch as any)
@@ -391,7 +388,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should handle network timeouts', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       (global.fetch as any).mockImplementationOnce(() => {
         return new Promise((_, reject) => {
@@ -406,7 +403,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should use cached results when available and fresh', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       // First call - should fetch
       await orchestrator.getAggregatedTags();
@@ -422,13 +419,13 @@ describe('AIOrchestrator', () => {
 
     it('should invalidate cache when server is added', async () => {
       // First add server and cache result
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       await orchestrator.getAggregatedTags();
       const callsAfterFirstFetch = (global.fetch as any).mock.calls.length;
 
       // Add second server - should invalidate cache
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       const result = await orchestrator.getAggregatedTags();
 
@@ -438,8 +435,8 @@ describe('AIOrchestrator', () => {
     });
 
     it('should invalidate cache when server is removed', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       await orchestrator.getAggregatedTags();
       const callsAfterFirstFetch = (global.fetch as any).mock.calls.length;
@@ -455,7 +452,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should clear cache when requested', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       await orchestrator.getAggregatedTags();
       const callsAfterFirstFetch = (global.fetch as any).mock.calls.length;
@@ -470,7 +467,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should return cached data even when stale if no healthy servers', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       (global.fetch as any).mockResolvedValueOnce({
         ok: true,
@@ -658,7 +655,7 @@ describe('AIOrchestrator', () => {
 
   describe('Metrics Methods', () => {
     it('should get global metrics (line 1018)', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const metrics = orchestrator.getGlobalMetrics();
 
@@ -668,7 +665,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should export metrics (lines 1024-1025)', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const exported = orchestrator.exportMetrics();
 
@@ -679,7 +676,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should get detailed metrics for server:model (lines 1003-1004)', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const metrics = orchestrator.getDetailedMetrics('server-1', 'llama3:latest');
 
@@ -690,7 +687,7 @@ describe('AIOrchestrator', () => {
 
   describe('getStats with in-flight requests (lines 977-988)', () => {
     it('should count in-flight requests correctly', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       // Mock in-flight requests
       for (let i = 0; i < 3; i++) {
@@ -706,7 +703,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should include circuit breaker stats', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const stats = orchestrator.getStats();
 
@@ -717,7 +714,7 @@ describe('AIOrchestrator', () => {
 
   describe('getAllDetailedMetrics (line 1010)', () => {
     it('should get all detailed metrics', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       const allMetrics = orchestrator.getAllDetailedMetrics();
 
@@ -728,7 +725,7 @@ describe('AIOrchestrator', () => {
 
   describe('shouldSkipServer (lines 942-946)', () => {
     it('should return true when circuit breaker is open', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       // Get circuit breaker and force it open
       const cb = orchestrator['getCircuitBreaker']('server-1');
@@ -744,7 +741,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should return false when circuit breaker is closed', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       // Should not skip server when circuit breaker is closed
       const shouldSkip = orchestrator['shouldSkipServer']('server-1');
@@ -754,8 +751,8 @@ describe('AIOrchestrator', () => {
 
   describe('getStats circuit breaker stats (lines 984-988)', () => {
     it('should include circuit breaker stats with actual state', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       // Record failures on server-1 to change its circuit breaker state
       const cb1 = orchestrator['getCircuitBreaker']('server-1');
@@ -780,7 +777,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should return model map from healthy servers', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const server = orchestrator.getServer('server-1');
       if (server) {
         server.healthy = true;
@@ -795,7 +792,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should exclude unhealthy servers', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const server = orchestrator.getServer('server-1');
       if (server) {
         server.healthy = false;
@@ -813,8 +810,8 @@ describe('AIOrchestrator', () => {
     });
 
     it('should return all unique models from healthy servers', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       const s1 = orchestrator.getServer('server-1');
       const s2 = orchestrator.getServer('server-2');
@@ -836,8 +833,8 @@ describe('AIOrchestrator', () => {
 
   describe('getCurrentModelList', () => {
     it('should return models from all servers regardless of health', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       const s1 = orchestrator.getServer('server-1');
       const s2 = orchestrator.getServer('server-2');
@@ -858,8 +855,8 @@ describe('AIOrchestrator', () => {
 
   describe('getBestServerForModel', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       const s1 = orchestrator.getServer('server-1');
       const s2 = orchestrator.getServer('server-2');
@@ -1003,7 +1000,7 @@ describe('AIOrchestrator', () => {
 
   describe('getServerScores', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -1024,7 +1021,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should return sorted scores by totalScore descending', () => {
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
       const s2 = orchestrator.getServer('server-2');
       if (s2) {
         s2.healthy = true;
@@ -1045,7 +1042,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should return models from v1-enabled servers', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -1059,7 +1056,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should exclude unhealthy servers', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = false;
@@ -1072,7 +1069,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should exclude servers without v1 support', () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -1087,7 +1084,7 @@ describe('AIOrchestrator', () => {
 
   describe('Ban Management', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       orchestrator['banManager'].addBan('server-1', 'llama2');
       orchestrator['banManager'].addBan('server-1', 'mistral');
       orchestrator['banManager'].addBan('server-2', 'codellama');
@@ -1144,7 +1141,7 @@ describe('AIOrchestrator', () => {
 
   describe('requestToServer', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -1273,8 +1270,8 @@ describe('AIOrchestrator', () => {
 
   describe('updateAllStatus', () => {
     it('should update status for all servers', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       // Mock fetch
       global.fetch = vi.fn().mockImplementation((url: string) => {
@@ -1300,7 +1297,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should skip banned servers', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.models = ['model1'];
@@ -1315,7 +1312,7 @@ describe('AIOrchestrator', () => {
 
   describe('Circuit Breaker Public API', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should get server circuit breaker', () => {
@@ -1350,7 +1347,7 @@ describe('AIOrchestrator', () => {
 
   describe('manualTriggerRecoveryTest', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should return error when breaker not found', async () => {
@@ -1370,7 +1367,7 @@ describe('AIOrchestrator', () => {
 
   describe('removeModelCircuitBreaker', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should remove model circuit breaker', () => {
@@ -1389,7 +1386,7 @@ describe('AIOrchestrator', () => {
 
   describe('getCircuitBreakerStats', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should get all circuit breaker stats', () => {
@@ -1401,7 +1398,7 @@ describe('AIOrchestrator', () => {
 
   describe('Health check handlers', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -1535,7 +1532,7 @@ describe('AIOrchestrator', () => {
 
   describe('Timeout management', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       // Clear timeouts to ensure clean state
       orchestrator['timeoutManager'].clearAll();
     });
@@ -1567,8 +1564,8 @@ describe('AIOrchestrator', () => {
 
   describe('tryRequestWithFailover', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       const s1 = orchestrator.getServer('server-1');
       const s2 = orchestrator.getServer('server-2');
@@ -1654,7 +1651,7 @@ describe('AIOrchestrator', () => {
 
   describe('shutdown', () => {
     it('should shutdown gracefully', async () => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
 
       // Mock the methods that interact with external systems
       const stopSpy = vi.spyOn(orchestrator['healthCheckScheduler'], 'stop');
@@ -1671,7 +1668,7 @@ describe('AIOrchestrator', () => {
 
   describe('forceOpenServerBreaker', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should force open server breaker', () => {
@@ -1696,7 +1693,7 @@ describe('AIOrchestrator', () => {
 
   describe('checkModelBreakerEscalation', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.models = ['llama2', 'mistral', 'codellama'];
@@ -1724,7 +1721,7 @@ describe('AIOrchestrator', () => {
 
   describe('getCircuitBreakerHealth', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should return circuit breaker health', () => {
@@ -1743,7 +1740,7 @@ describe('AIOrchestrator', () => {
 
   describe('updateServerStatus', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should update server status successfully', async () => {
@@ -1885,8 +1882,8 @@ describe('AIOrchestrator', () => {
 
   describe('hasClosedCircuitBreaker', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
     });
 
     it('should return true when no circuit breaker exists', () => {
@@ -2006,7 +2003,7 @@ describe('AIOrchestrator', () => {
 
   describe('shouldSkipServerModel', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.models = ['llama2', 'nomic-embed-text'];
@@ -2040,7 +2037,7 @@ describe('AIOrchestrator', () => {
 
   describe('countHalfOpenCircuits', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should count half-open circuits', () => {
@@ -2056,7 +2053,7 @@ describe('AIOrchestrator', () => {
 
   describe('closeAllModelCircuits', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.models = ['llama2', 'mistral'];
@@ -2081,7 +2078,7 @@ describe('AIOrchestrator', () => {
 
   describe('performRecoveryHealthCheck', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should perform recovery health check successfully', async () => {
@@ -2135,7 +2132,7 @@ describe('AIOrchestrator', () => {
 
   describe('onHealthCheckResult with circuit breaker open', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should force close circuit breaker on recovery', () => {
@@ -2196,7 +2193,7 @@ describe('AIOrchestrator', () => {
 
   describe('handleServerError - permanent errors', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2233,7 +2230,7 @@ describe('AIOrchestrator', () => {
 
   describe('handleServerError - non-retryable errors', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2256,7 +2253,7 @@ describe('AIOrchestrator', () => {
 
   describe('handleServerError - transient errors', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2280,7 +2277,7 @@ describe('AIOrchestrator', () => {
 
   describe('handleServerError - unknown errors', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should handle unknown error type', () => {
@@ -2299,7 +2296,7 @@ describe('AIOrchestrator', () => {
 
   describe('tryRequestOnServerNoRetry - token metrics', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2342,7 +2339,7 @@ describe('AIOrchestrator', () => {
 
   describe('tryRequestOnServerWithRetries', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2423,7 +2420,7 @@ describe('AIOrchestrator', () => {
 
   describe('drain', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should drain successfully', async () => {
@@ -2437,8 +2434,8 @@ describe('AIOrchestrator', () => {
 
   describe('tryRequestWithFailover - multiple phases', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
       const s1 = orchestrator.getServer('server-1');
       const s2 = orchestrator.getServer('server-2');
@@ -2474,7 +2471,7 @@ describe('AIOrchestrator', () => {
 
   describe('tryRequestOnServerNoRetry - failure paths', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2565,7 +2562,10 @@ describe('AIOrchestrator', () => {
       const serverAttempts: string[] = [];
 
       const servers = orchestrator.getServers();
-      console.log('SERVERS AT TEST START:', servers.map(s => ({ id: s.id, healthy: s.healthy, models: s.models })));
+      console.log(
+        'SERVERS AT TEST START:',
+        servers.map(s => ({ id: s.id, healthy: s.healthy, models: s.models }))
+      );
 
       try {
         await orchestrator.tryRequestWithFailover('llama2', async server => {
@@ -2608,7 +2608,7 @@ describe('AIOrchestrator', () => {
 
   describe('Circuit breaker half-open recovery', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2647,7 +2647,7 @@ describe('AIOrchestrator', () => {
 
   describe('handleServerError comprehensive scenarios', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2697,7 +2697,7 @@ describe('AIOrchestrator', () => {
 
   describe('Aggregated tags with filtering', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2727,7 +2727,7 @@ describe('AIOrchestrator', () => {
 
   describe('Model circuit breaker operations', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should remove model circuit breaker', () => {
@@ -2807,7 +2807,7 @@ describe('AIOrchestrator', () => {
 
   describe('Request context with streaming', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -2840,7 +2840,7 @@ describe('AIOrchestrator', () => {
 
   describe('Recovery health check', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should succeed with 200 response', async () => {
@@ -2915,7 +2915,7 @@ describe('AIOrchestrator', () => {
 
   describe('Server update operations', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should update server maxConcurrency', () => {
@@ -2932,8 +2932,8 @@ describe('AIOrchestrator', () => {
 
   describe('Model map and list operations', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
     });
 
     it('should get model map with multiple servers', () => {
@@ -2973,7 +2973,7 @@ describe('AIOrchestrator', () => {
 
   describe('onHealthCheckResult comprehensive', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -3117,7 +3117,7 @@ describe('AIOrchestrator', () => {
 
   describe('scheduleCircuitBreakerSave', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should schedule save with model type updates', () => {
@@ -3137,7 +3137,7 @@ describe('AIOrchestrator', () => {
 
   describe('fetchServerTags', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -3245,7 +3245,7 @@ describe('AIOrchestrator', () => {
 
   describe('tryRequestOnServerWithRetries - max retries exhausted', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = true;
@@ -3305,8 +3305,8 @@ describe('AIOrchestrator', () => {
 
   describe('getAggregatedOpenAIModels', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
-      orchestrator.addServer({ id: 'server-2', url: 'http://localhost:11435', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
     });
 
     it('should aggregate OpenAI models from multiple servers', () => {
@@ -3350,7 +3350,7 @@ describe('AIOrchestrator', () => {
 
   describe('Server circuit breaker limits', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should enforce max half-open circuits per server', () => {
@@ -3369,7 +3369,7 @@ describe('AIOrchestrator', () => {
 
   describe('updateServerStatus edge cases', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should extract models from string array', async () => {
@@ -3443,7 +3443,7 @@ describe('AIOrchestrator', () => {
 
   describe('getAggregatedTags edge cases', () => {
     beforeEach(() => {
-      orchestrator.addServer({ id: 'server-1', url: 'http://localhost:11434', type: 'ollama' });
+      orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
     it('should return cached data when healthy', async () => {
