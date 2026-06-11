@@ -21,6 +21,7 @@ import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-ins
 import { fetchWithTimeout, fetchWithActivityTimeout } from '../../src/utils/fetch-with-timeout.js';
 import { logger } from '../../src/utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../../src/utils/ollama-error.js';
+import { createServer } from '../fixtures/factories.js';
 
 // Mock dependencies
 vi.mock('../../src/orchestrator/orchestrator-instance.js');
@@ -517,11 +518,7 @@ describe('OpenAI Controller', () => {
         dimensions: 512,
       };
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        apiKey: undefined,
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       mockOrchestrator.tryRequestWithFailover.mockImplementation(async (model, callback) => {
         return await callback(mockServer);
@@ -958,11 +955,7 @@ describe('OpenAI Controller', () => {
         response_format: { type: 'json_object' },
       };
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        apiKey: undefined,
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       const mockResponse = {
         ok: true,
@@ -1309,11 +1302,7 @@ describe('OpenAI Controller', () => {
         stream: false,
       };
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        apiKey: undefined,
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       const mockResponse = {
         ok: true,
@@ -1348,11 +1337,7 @@ describe('OpenAI Controller', () => {
         stream: false,
       };
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        apiKey: undefined,
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       const mockResponse = {
         ok: true,
@@ -1563,10 +1548,7 @@ describe('OpenAI Controller', () => {
       mockReq.params = { serverId: 'server-1' };
       mockReq.query = {};
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       const mockResponse = {
         ok: true,
@@ -1799,11 +1781,7 @@ describe('OpenAI Controller', () => {
         stream: true,
       };
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        apiKey: undefined,
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       mockOrchestrator.tryRequestWithFailover.mockImplementation(
         async (model, callback, stream) => {
@@ -1830,11 +1808,7 @@ describe('OpenAI Controller', () => {
         stream: true,
       };
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        apiKey: undefined,
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       mockOrchestrator.tryRequestWithFailover.mockImplementation(
         async (model, callback, stream) => {
@@ -1861,11 +1835,7 @@ describe('OpenAI Controller', () => {
         stream: true,
       };
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        apiKey: undefined,
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       const mockActivityController = {
         clearTimeout: vi.fn(),
@@ -1900,10 +1870,7 @@ describe('OpenAI Controller', () => {
       mockReq.params = { serverId: 'server-1' };
       mockReq.query = {};
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       mockOrchestrator.requestToServer.mockImplementation(async (serverId, model, callback) => {
         return await callback(mockServer);
@@ -1928,10 +1895,7 @@ describe('OpenAI Controller', () => {
       mockReq.params = { serverId: 'server-1' };
       mockReq.query = {};
 
-      const mockServer = {
-        id: 'server-1',
-        url: 'http://localhost:11434',
-      };
+      const mockServer = createServer({ id: 'server-1', url: 'http://localhost:11434' });
 
       mockOrchestrator.requestToServer.mockImplementation(async (serverId, model, callback) => {
         return await callback(mockServer);

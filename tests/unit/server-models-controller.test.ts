@@ -21,6 +21,7 @@ import {
 } from '../../src/controllers/server-models-controller.js';
 import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import { fetchWithTimeout, parseResponse } from '../../src/utils/fetch-with-timeout.js';
+import { createServer } from '../fixtures/factories.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 const mockFetchWithTimeout = fetchWithTimeout as Mock;
@@ -87,14 +88,15 @@ describe('serverModelsController', () => {
     };
   });
 
-  const createMockServer = (overrides = {}) => ({
-    id: 'server-1',
-    url: 'http://localhost:11434',
-    healthy: true,
-    supportsOllama: true,
-    models: ['llama3:latest', 'mistral:latest'],
-    ...overrides,
-  });
+  const createMockServer = (overrides = {}) =>
+    createServer({
+      id: 'server-1',
+      url: 'http://localhost:11434',
+      healthy: true,
+      supportsOllama: true,
+      models: ['llama3:latest', 'mistral:latest'],
+      ...overrides,
+    });
 
   describe('listServerModels', () => {
     it('should list models for a healthy server', async () => {

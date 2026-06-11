@@ -13,6 +13,7 @@ import {
 import { resetModelManager, getModelManager } from '../../src/model-manager.js';
 import { ModelManager } from '../../src/model-manager.js';
 import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
+import { createServer } from '../fixtures/factories.js';
 
 describe('Phase 4 Integration', () => {
   let orchestrator: AIOrchestrator;
@@ -48,22 +49,26 @@ describe('Phase 4 Integration', () => {
 
   describe('Model Manager Integration', () => {
     it('should track model states across servers', () => {
-      orchestrator.addServer({
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        type: 'ollama',
-        maxConcurrency: 4,
-      });
+      orchestrator.addServer(
+        createServer({
+          id: 'server-1',
+          url: 'http://localhost:11434',
+          type: 'ollama',
+          maxConcurrency: 4,
+        })
+      );
 
-      modelManager.registerServer({
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        type: 'ollama',
-        healthy: true,
-        lastResponseTime: 100,
-        models: ['llama3:latest'],
-        maxConcurrency: 4,
-      });
+      modelManager.registerServer(
+        createServer({
+          id: 'server-1',
+          url: 'http://localhost:11434',
+          type: 'ollama',
+          healthy: true,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+          maxConcurrency: 4,
+        })
+      );
 
       modelManager.updateModelState('server-1', 'llama3:latest', {
         loaded: true,
@@ -75,7 +80,7 @@ describe('Phase 4 Integration', () => {
 
     it('should find servers with model loaded', () => {
       // Create server objects directly for model manager testing
-      const server1 = {
+      const server1 = createServer({
         id: 'server-1',
         url: 'http://localhost:11434',
         type: 'ollama' as const,
@@ -83,8 +88,8 @@ describe('Phase 4 Integration', () => {
         lastResponseTime: 100,
         models: ['llama3:latest'],
         maxConcurrency: 4,
-      };
-      const server2 = {
+      });
+      const server2 = createServer({
         id: 'server-2',
         url: 'http://localhost:11435',
         type: 'ollama' as const,
@@ -92,7 +97,7 @@ describe('Phase 4 Integration', () => {
         lastResponseTime: 100,
         models: ['llama3:latest'],
         maxConcurrency: 4,
-      };
+      });
 
       modelManager.registerServer(server1);
       modelManager.registerServer(server2);
@@ -107,7 +112,7 @@ describe('Phase 4 Integration', () => {
 
     it('should recommend models for warmup', () => {
       // Create server object directly for model manager testing
-      const server1 = {
+      const server1 = createServer({
         id: 'server-1',
         url: 'http://localhost:11434',
         type: 'ollama' as const,
@@ -115,7 +120,7 @@ describe('Phase 4 Integration', () => {
         lastResponseTime: 100,
         models: ['popular-model'],
         maxConcurrency: 4,
-      };
+      });
 
       modelManager.registerServer(server1);
 
@@ -132,12 +137,14 @@ describe('Phase 4 Integration', () => {
 
   describe('Analytics Engine Integration', () => {
     it('should analyze metrics from orchestrator', () => {
-      orchestrator.addServer({
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        type: 'ollama',
-        maxConcurrency: 4,
-      });
+      orchestrator.addServer(
+        createServer({
+          id: 'server-1',
+          url: 'http://localhost:11434',
+          type: 'ollama',
+          maxConcurrency: 4,
+        })
+      );
 
       // Update analytics with orchestrator metrics
       analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
@@ -174,12 +181,14 @@ describe('Phase 4 Integration', () => {
     });
 
     it('should calculate capacity analysis', () => {
-      orchestrator.addServer({
-        id: 'server-1',
-        url: 'http://localhost:11434',
-        type: 'ollama',
-        maxConcurrency: 4,
-      });
+      orchestrator.addServer(
+        createServer({
+          id: 'server-1',
+          url: 'http://localhost:11434',
+          type: 'ollama',
+          maxConcurrency: 4,
+        })
+      );
 
       analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
       const capacity = analytics.getCapacityAnalysis(0, '24h');
@@ -212,7 +221,7 @@ describe('Phase 4 Integration', () => {
   describe('End-to-End Phase 4 Flow', () => {
     it('should integrate model warmup with analytics', async () => {
       // Create server object directly for model manager testing
-      const server1 = {
+      const server1 = createServer({
         id: 'server-1',
         url: 'http://localhost:11434',
         type: 'ollama' as const,
@@ -220,7 +229,7 @@ describe('Phase 4 Integration', () => {
         lastResponseTime: 100,
         models: ['llama3:latest'],
         maxConcurrency: 4,
-      };
+      });
 
       modelManager.registerServer(server1);
 

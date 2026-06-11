@@ -1,18 +1,19 @@
 import { describe, it, expect } from 'vitest';
 
-import { calculateServerScore, selectBestServer, LoadBalancer } from '../../src/load-balancer/load-balancer.js';
+import {
+  calculateServerScore,
+  selectBestServer,
+  LoadBalancer,
+} from '../../src/load-balancer/load-balancer.js';
 import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
+import { createServer } from '../fixtures/factories.js';
 
 describe('Load Balancer', () => {
-  const mockServer: AIServer = {
+  const mockServer: AIServer = createServer({
     id: 'server-1',
-    url: 'http://localhost:11434',
-    type: 'ollama',
-    healthy: true,
     lastResponseTime: 100,
     models: ['llama3:latest'],
-    maxConcurrency: 4,
-  };
+  });
 
   describe('Server Score Calculation', () => {
     it('should calculate score with metrics', () => {
@@ -140,17 +141,29 @@ describe('Load Balancer', () => {
     it('should select server with highest score', () => {
       const scores = [
         {
-          server: { ...mockServer, id: 'server-1' },
+          server: createServer({
+            id: 'server-1',
+            lastResponseTime: 100,
+            models: ['llama3:latest'],
+          }),
           totalScore: 50,
           breakdown: {} as any,
         },
         {
-          server: { ...mockServer, id: 'server-2' },
+          server: createServer({
+            id: 'server-2',
+            lastResponseTime: 100,
+            models: ['llama3:latest'],
+          }),
           totalScore: 80,
           breakdown: {} as any,
         },
         {
-          server: { ...mockServer, id: 'server-3' },
+          server: createServer({
+            id: 'server-3',
+            lastResponseTime: 100,
+            models: ['llama3:latest'],
+          }),
           totalScore: 30,
           breakdown: {} as any,
         },
@@ -194,8 +207,8 @@ describe('Load Balancer', () => {
     it('should select with weighted algorithm using metrics', () => {
       const lb = new LoadBalancer();
       const servers = [
-        { ...mockServer, id: 'fast-server', lastResponseTime: 50 },
-        { ...mockServer, id: 'slow-server', lastResponseTime: 500 },
+        createServer({ id: 'fast-server', lastResponseTime: 50, models: ['llama3:latest'] }),
+        createServer({ id: 'slow-server', lastResponseTime: 500, models: ['llama3:latest'] }),
       ];
 
       const getLoad = () => 0;
@@ -213,9 +226,9 @@ describe('Load Balancer', () => {
       lb.setAlgorithm('round-robin');
 
       const servers = [
-        { ...mockServer, id: 'server-1' },
-        { ...mockServer, id: 'server-2' },
-        { ...mockServer, id: 'server-3' },
+        createServer({ id: 'server-1', lastResponseTime: 100, models: ['llama3:latest'] }),
+        createServer({ id: 'server-2', lastResponseTime: 100, models: ['llama3:latest'] }),
+        createServer({ id: 'server-3', lastResponseTime: 100, models: ['llama3:latest'] }),
       ];
 
       const getLoad = () => 0;
@@ -239,9 +252,9 @@ describe('Load Balancer', () => {
       lb.setAlgorithm('least-connections');
 
       const servers = [
-        { ...mockServer, id: 'server-1' },
-        { ...mockServer, id: 'server-2' },
-        { ...mockServer, id: 'server-3' },
+        createServer({ id: 'server-1', lastResponseTime: 100, models: ['llama3:latest'] }),
+        createServer({ id: 'server-2', lastResponseTime: 100, models: ['llama3:latest'] }),
+        createServer({ id: 'server-3', lastResponseTime: 100, models: ['llama3:latest'] }),
       ];
 
       const loadMap = new Map<string, number>([

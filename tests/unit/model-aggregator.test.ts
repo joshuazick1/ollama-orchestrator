@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 import { ModelAggregator } from '../../src/utils/model-aggregator.js';
+import { createServer } from '../fixtures/factories.js';
 
 describe('ModelAggregator', () => {
   let aggregator: ModelAggregator;
-  const healthyServer: AIServer = {
+  const healthyServer: AIServer = createServer({
     id: 'server-1',
     url: 'http://localhost:11434',
     type: 'ollama',
@@ -13,9 +14,9 @@ describe('ModelAggregator', () => {
     maxConcurrency: 4,
     models: ['llama2', 'mistral'],
     lastResponseTime: 100,
-  };
+  });
 
-  const unhealthyServer: AIServer = {
+  const unhealthyServer: AIServer = createServer({
     id: 'server-2',
     url: 'http://localhost:11435',
     type: 'ollama',
@@ -23,7 +24,7 @@ describe('ModelAggregator', () => {
     maxConcurrency: 4,
     models: ['codellama'],
     lastResponseTime: 500,
-  };
+  });
 
   beforeEach(() => {
     aggregator = new ModelAggregator();
@@ -123,8 +124,18 @@ describe('ModelAggregator', () => {
     });
 
     it('should not duplicate server for same model', () => {
-      const server1: AIServer = { ...healthyServer, id: 'server-1', models: ['llama2'] };
-      const server2: AIServer = { ...healthyServer, id: 'server-2', models: ['llama2'] };
+      const server1: AIServer = createServer({
+        id: 'server-1',
+        models: ['llama2'],
+        healthy: true,
+        lastResponseTime: 100,
+      });
+      const server2: AIServer = createServer({
+        id: 'server-2',
+        models: ['llama2'],
+        healthy: true,
+        lastResponseTime: 100,
+      });
       aggregator.addServer(server1);
       aggregator.addServer(server2);
       const map = aggregator.getModelMap();

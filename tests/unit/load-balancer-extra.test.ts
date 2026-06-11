@@ -8,16 +8,13 @@ import {
   CircuitBreakerHealth,
 } from '../../src/load-balancer/load-balancer.js';
 import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
+import { createServer } from '../fixtures/factories.js';
 
-const mockServer: AIServer = {
+const mockServer: AIServer = createServer({
   id: 'server-1',
-  url: 'http://localhost:11434',
-  type: 'ollama',
-  healthy: true,
   lastResponseTime: 100,
   models: ['llama3:latest'],
-  maxConcurrency: 4,
-};
+});
 
 describe('Load Balancer - Additional Tests', () => {
   describe('Circuit Breaker in Score Calculation', () => {
@@ -222,9 +219,9 @@ describe('Load Balancer - Additional Tests', () => {
       lb.setAlgorithm('random');
 
       const servers = [
-        { ...mockServer, id: 'server-1' },
-        { ...mockServer, id: 'server-2' },
-        { ...mockServer, id: 'server-3' },
+        createServer({ id: 'server-1', lastResponseTime: 100, models: ['llama3:latest'] }),
+        createServer({ id: 'server-2', lastResponseTime: 100, models: ['llama3:latest'] }),
+        createServer({ id: 'server-3', lastResponseTime: 100, models: ['llama3:latest'] }),
       ];
 
       const getLoad = () => 0;
@@ -255,8 +252,8 @@ describe('Load Balancer - Additional Tests', () => {
       lb.setAlgorithm('streaming-optimized');
 
       const servers = [
-        { ...mockServer, id: 'fast-server', lastResponseTime: 50 },
-        { ...mockServer, id: 'slow-server', lastResponseTime: 500 },
+        createServer({ id: 'fast-server', lastResponseTime: 50, models: ['llama3:latest'] }),
+        createServer({ id: 'slow-server', lastResponseTime: 500, models: ['llama3:latest'] }),
       ];
 
       const getLoad = () => 0;
@@ -293,8 +290,20 @@ describe('Load Balancer - Additional Tests', () => {
       lb.setAlgorithm('round-robin');
 
       const servers = [
-        { ...mockServer, id: 'server-1', healthy: true, maxConcurrency: 4 },
-        { ...mockServer, id: 'server-2', healthy: true, maxConcurrency: 4 },
+        createServer({
+          id: 'server-1',
+          healthy: true,
+          maxConcurrency: 4,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
+        createServer({
+          id: 'server-2',
+          healthy: true,
+          maxConcurrency: 4,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
       ];
 
       const getLoad = () => 0;
@@ -393,9 +402,24 @@ describe('Load Balancer - Additional Tests', () => {
       lb.setAlgorithm('round-robin');
 
       const servers = [
-        { ...mockServer, id: 'server-1', healthy: false },
-        { ...mockServer, id: 'server-2', healthy: true },
-        { ...mockServer, id: 'server-3', healthy: true },
+        createServer({
+          id: 'server-1',
+          healthy: false,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
+        createServer({
+          id: 'server-2',
+          healthy: true,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
+        createServer({
+          id: 'server-3',
+          healthy: true,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
       ];
 
       const getLoad = () => 0;
@@ -418,9 +442,24 @@ describe('Load Balancer - Additional Tests', () => {
       lb.setAlgorithm('round-robin');
 
       const servers = [
-        { ...mockServer, id: 'server-1', maxConcurrency: 4 },
-        { ...mockServer, id: 'server-2', maxConcurrency: 4 },
-        { ...mockServer, id: 'server-3', maxConcurrency: 4 },
+        createServer({
+          id: 'server-1',
+          maxConcurrency: 4,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
+        createServer({
+          id: 'server-2',
+          maxConcurrency: 4,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
+        createServer({
+          id: 'server-3',
+          maxConcurrency: 4,
+          lastResponseTime: 100,
+          models: ['llama3:latest'],
+        }),
       ];
 
       const loadMap = new Map<string, number>([
