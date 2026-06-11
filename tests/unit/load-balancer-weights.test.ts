@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
+import { createServer as createTestServer } from '../fixtures/factories.js';
 
 // Mock logger
 vi.mock('../../src/utils/logger.js', () => ({
@@ -464,40 +465,34 @@ describe('Load Balancer Weight Verification Tests', () => {
   // ============================================================================
 
   describe('Dual-Protocol Scoring Tests', () => {
-    const ollamaServer: AIServer = {
+    const ollamaServer = createTestServer({
       id: 'ollama-1',
       url: 'http://ollama-1:11434',
-      type: 'ollama',
-      healthy: true,
       lastResponseTime: 100,
       models: ['llama3:latest'],
       supportsOllama: true,
       supportsV1: false,
-    };
+    });
 
-    const openaiServer: AIServer = {
+    const openaiServer = createTestServer({
       id: 'openai-1',
       url: 'http://openai-1:8000',
-      type: 'ollama',
-      healthy: true,
       lastResponseTime: 80,
       models: [],
       v1Models: ['gpt-4'],
       supportsOllama: false,
       supportsV1: true,
-    };
+    });
 
-    const dualServer: AIServer = {
+    const dualServer = createTestServer({
       id: 'dual-1',
       url: 'http://dual-1:11435',
-      type: 'ollama',
-      healthy: true,
       lastResponseTime: 90,
       models: ['llama3:latest'],
       v1Models: ['llama3'],
       supportsOllama: true,
       supportsV1: true,
-    };
+    });
 
     it('should verify Ollama servers scored correctly', () => {
       expect(ollamaServer.supportsOllama).toBe(true);

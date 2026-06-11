@@ -9,7 +9,13 @@ import { ErrorState } from './EmptyState';
 
 type ErrorType = 'retryable' | 'non_retryable' | 'transient' | 'rate_limited' | 'permanent';
 
-const ERROR_TYPES: ErrorType[] = ['retryable', 'non_retryable', 'transient', 'rate_limited', 'permanent'];
+const ERROR_TYPES: ErrorType[] = [
+  'retryable',
+  'non_retryable',
+  'transient',
+  'rate_limited',
+  'permanent',
+];
 
 const getErrorTypeColor = (errorType: string): string => {
   switch (errorType) {
@@ -54,8 +60,20 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
     return params.toString();
   };
 
-  const { data: errors, isLoading, error, refetch } = useQuery({
-    queryKey: ['errors', serverFilter, circuitFilter, startTimeFilter, endTimeFilter, errorTypeFilter],
+  const {
+    data: errors,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: [
+      'errors',
+      serverFilter,
+      circuitFilter,
+      startTimeFilter,
+      endTimeFilter,
+      errorTypeFilter,
+    ],
     queryFn: () => getErrors(buildQueryParams() ? `?${buildQueryParams()}` : ''),
     refetchInterval: 10000,
   });
@@ -99,7 +117,9 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
         </div>
         <ErrorState
           title="Failed to load errors"
-          message={error instanceof Error ? error.message : 'An error occurred while loading errors'}
+          message={
+            error instanceof Error ? error.message : 'An error occurred while loading errors'
+          }
           action={{ label: 'Retry', onClick: () => refetch() }}
         />
       </div>
@@ -138,7 +158,9 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
         >
           <option value="">All Servers</option>
           {serverOptions.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
           ))}
         </select>
 
@@ -149,9 +171,14 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
           className="bg-surface text-text-base px-3 py-2 rounded-lg text-sm border border-gray-600 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">All Circuits</option>
-          {serverFilter && servers?.find(s => s.id === serverFilter)?.models.map(model => (
-            <option key={model} value={model}>{model}</option>
-          ))}
+          {serverFilter &&
+            servers
+              ?.find(s => s.id === serverFilter)
+              ?.models.map(model => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
         </select>
 
         <input
@@ -175,7 +202,9 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
         >
           <option value="">All Error Types</option>
           {ERROR_TYPES.map(type => (
-            <option key={type} value={type}>{type}</option>
+            <option key={type} value={type}>
+              {type}
+            </option>
           ))}
         </select>
 
@@ -241,12 +270,8 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
                     <td className="px-6 py-4 text-sm text-text-base font-mono whitespace-nowrap">
                       {formatTimestamp(err.timestamp)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-text-base font-mono">
-                      {err.serverId}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-text-base font-mono">
-                      {err.circuitId}
-                    </td>
+                    <td className="px-6 py-4 text-sm text-text-base font-mono">{err.serverId}</td>
+                    <td className="px-6 py-4 text-sm text-text-base font-mono">{err.circuitId}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 py-1 rounded text-xs font-medium ${getErrorTypeColor(err.errorType)}`}
@@ -254,7 +279,10 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
                         {err.errorType}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-text-base max-w-md truncate" title={err.errorMessage}>
+                    <td
+                      className="px-6 py-4 text-sm text-text-base max-w-md truncate"
+                      title={err.errorMessage}
+                    >
                       {err.errorMessage}
                     </td>
                   </tr>
@@ -266,9 +294,7 @@ export const ErrorLog = ({ className }: ErrorLogProps) => {
           <div className="flex flex-col items-center justify-center h-64 text-text-subtle">
             <AlertCircle className="w-12 h-12 mb-4 opacity-20" />
             <p>No errors found matching your search.</p>
-            {searchQuery && (
-              <p className="text-sm mt-2">Try adjusting your search query</p>
-            )}
+            {searchQuery && <p className="text-sm mt-2">Try adjusting your search query</p>}
           </div>
         )}
       </div>

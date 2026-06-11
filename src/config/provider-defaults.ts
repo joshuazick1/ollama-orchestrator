@@ -9,8 +9,8 @@ export const PROVIDER_DEFAULTS = {
       chat: '/v1/chat/completions',
       completions: '/v1/completions',
       embeddings: '/v1/embeddings',
-      messages: '/v1/messages'
-    }
+      messages: '/v1/messages',
+    },
   },
   anthropic: {
     name: 'Anthropic',
@@ -20,8 +20,8 @@ export const PROVIDER_DEFAULTS = {
     authPrefix: '',
     endpoints: {
       messages: '/v1/messages',
-      models: '/v1/models'
-    }
+      models: '/v1/models',
+    },
   },
   minimax: {
     name: 'MiniMax',
@@ -33,8 +33,8 @@ export const PROVIDER_DEFAULTS = {
       chat: '/v1/text/chatcompletion_v2',
       chatAlt: '/v1/chat/completions',
       embeddings: '/v1/embeddings',
-      anthropic: '/anthropic/v1/messages'
-    }
+      anthropic: '/anthropic/v1/messages',
+    },
   },
   azure: {
     name: 'Azure OpenAI',
@@ -44,8 +44,8 @@ export const PROVIDER_DEFAULTS = {
     authPrefix: '',
     endpoints: {
       chat: '/chat/completions',
-      embeddings: '/embeddings'
-    }
+      embeddings: '/embeddings',
+    },
   },
   bedrock: {
     name: 'AWS Bedrock',
@@ -53,7 +53,7 @@ export const PROVIDER_DEFAULTS = {
     authType: 'aws',
     authHeader: '',
     authPrefix: '',
-    endpoints: {}
+    endpoints: {},
   },
   vertex: {
     name: 'Google Vertex AI',
@@ -62,9 +62,9 @@ export const PROVIDER_DEFAULTS = {
     authHeader: 'Authorization',
     authPrefix: 'Bearer',
     endpoints: {
-      chat: '/publishers/google/models/{model}:generateContent'
-    }
-  }
+      chat: '/publishers/google/models/{model}:generateContent',
+    },
+  },
 } as const;
 
 export type ProviderType = keyof typeof PROVIDER_DEFAULTS;

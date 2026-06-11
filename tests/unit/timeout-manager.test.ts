@@ -132,7 +132,9 @@ describe('TimeoutManager', () => {
     });
 
     it('should handle unknown server:model gracefully', () => {
-      expect(() => manager.recordActiveTestTimeout('server-1', 'llama3:latest', 300000)).not.toThrow();
+      expect(() =>
+        manager.recordActiveTestTimeout('server-1', 'llama3:latest', 300000)
+      ).not.toThrow();
     });
   });
 

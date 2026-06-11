@@ -62,27 +62,30 @@ export function useServerEvents() {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
 
-  const handleEvent = useCallback((event: MessageEvent) => {
-    try {
-      const data = JSON.parse(event.data) as ServerEvent;
+  const handleEvent = useCallback(
+    (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data) as ServerEvent;
 
-      if (data.type === 'metrics') {
-        queryClient.setQueryData(['stats'], { stats: data.stats });
-        queryClient.setQueryData(['metrics'], {
-          timestamp: data.metrics.timestamp,
-          global: data.metrics.global,
-        });
-        queryClient.setQueryData(['circuitBreakers'], {
-          circuitBreakers: data.circuitBreakers,
-        });
-        queryClient.setQueryData(['servers'], data.servers);
-        queryClient.setQueryData(['modelMap'], data.modelMap.modelToServers);
-        queryClient.setQueryData(['in-flight'], data.inFlight);
+        if (data.type === 'metrics') {
+          queryClient.setQueryData(['stats'], { stats: data.stats });
+          queryClient.setQueryData(['metrics'], {
+            timestamp: data.metrics.timestamp,
+            global: data.metrics.global,
+          });
+          queryClient.setQueryData(['circuitBreakers'], {
+            circuitBreakers: data.circuitBreakers,
+          });
+          queryClient.setQueryData(['servers'], data.servers);
+          queryClient.setQueryData(['modelMap'], data.modelMap.modelToServers);
+          queryClient.setQueryData(['in-flight'], data.inFlight);
+        }
+      } catch (error) {
+        console.error('Failed to parse server event:', error);
       }
-    } catch (error) {
-      console.error('Failed to parse server event:', error);
-    }
-  }, [queryClient]);
+    },
+    [queryClient]
+  );
 
   useEffect(() => {
     if (eventSourceRef.current) {

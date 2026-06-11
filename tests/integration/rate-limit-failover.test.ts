@@ -1,11 +1,11 @@
 /**
  * Rate Limit Failover Integration Tests
- * 
+ *
  * Tests the full failover flow with rate limits:
  * 1. Server 1 returns 429 -> failover to Server 2 succeeds
  * 2. Server 2 returns 429 -> failover to Server 3 succeeds
  * 3. Server 3 returns 429 -> all servers correctly marked and request fails
- * 
+ *
  * Also verifies:
  * - ErrorAggregator tracks cluster-wide rate limits
  * - Circuit breakers open for each server after rate limits
@@ -78,7 +78,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       clusterBackoffMs: 30000,
     });
     errorAggregator.startPeriodicCleanup(60000);
-    
+
     inFlightManager = new InFlightManager();
     circuitBreakerRegistry = new CircuitBreakerRegistry();
   });
@@ -192,7 +192,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       errorAggregator.recordError('server-3', 'rateLimited');
 
       expect(errorAggregator.isClusterRateLimited()).toBe(true);
-      
+
       const backoff = errorAggregator.getBackoffForCluster();
       expect(backoff).toBe(30000); // clusterBackoffMs
     });
@@ -239,17 +239,18 @@ describe('Rate Limit Failover Integration Tests', () => {
 
   describe('Full Failover Flow with Rate Limits', () => {
     it('should failover from Server 1 (429) to Server 2 (success)', async () => {
-      const failoverSequence: { serverId: string; shouldSucceed: boolean; statusCode?: number }[] = [
-        { serverId: 'server-1', shouldSucceed: false, statusCode: 429 },
-        { serverId: 'server-2', shouldSucceed: true },
-      ];
+      const failoverSequence: { serverId: string; shouldSucceed: boolean; statusCode?: number }[] =
+        [
+          { serverId: 'server-1', shouldSucceed: false, statusCode: 429 },
+          { serverId: 'server-2', shouldSucceed: true },
+        ];
 
       let selectedServer: string | null = null;
       const errors: Array<{ serverId: string; error: string; errorType: ErrorType }> = [];
 
       for (const attempt of failoverSequence) {
         selectedServer = attempt.serverId;
-        
+
         if (!attempt.shouldSucceed) {
           const errorMsg = `HTTP 429: Too Many Requests on ${attempt.serverId}`;
           const errorType = classifyError(errorMsg).type;
@@ -265,7 +266,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].serverId).toBe('server-1');
       expect(errors[0].errorType).toBe('rateLimited');
-      
+
       const status = errorAggregator.getClusterStatus();
       expect(status.rateLimitServerCount).toBe(1);
       expect(status.isRateLimited).toBe(false);
@@ -281,7 +282,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       const budget = new RetryBudget(10);
 
       expect(budget.canRetry()).toBe(true);
-      
+
       budget.recordAttempt('server-1');
       expect(budget.getAttemptsUsed()).toBe(1);
       expect(budget.getAttemptsRemaining()).toBe(9);
@@ -410,14 +411,14 @@ describe('Rate Limit Failover Integration Tests', () => {
   describe('Full Orchestrator Failover Simulation', () => {
     it('should simulate complete failover flow with all components', async () => {
       // This test simulates the full flow without actually calling HTTP servers
-      
+
       const model = 'llama3:latest';
       const servers = [...testServers];
-      
+
       // Track states
       const serverStates = new Map<string, 'success' | 'rate-limited' | 'error'>();
       const circuitBreakers = new Map<string, 'closed' | 'open' | 'half-open'>();
-      
+
       // Initialize circuit breakers for all servers
       for (const server of servers) {
         const cb = circuitBreakerRegistry.getOrCreate(`${server.id}:${model}`, {
@@ -430,7 +431,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       // Simulate the failover sequence
       const simulateFailover = async () => {
         const errors: Array<{ server: string; error: string; type: ErrorType }> = [];
-        
+
         for (const server of servers) {
           // Check circuit breaker
           const cb = circuitBreakerRegistry.getOrCreate(`${server.id}:${model}`);
@@ -457,22 +458,22 @@ describe('Rate Limit Failover Integration Tests', () => {
           // Simulate making the request
           // In real code, this would be an HTTP call that returns 429
           const simulatedResponse = serverStates.get(server.id);
-          
+
           if (simulatedResponse === 'rate-limited') {
             // Record failure in circuit breaker (2x to open)
             cb.recordFailure(new Error('HTTP 429: Too Many Requests'), 'rateLimited');
             cb.recordFailure(new Error('HTTP 429: Too Many Requests'), 'rateLimited');
-            
+
             // Record in error aggregator
             errorAggregator.recordError(server.id, 'rateLimited');
-            
+
             // Record error
             errors.push({
               server: server.id,
               error: `HTTP 429: Too Many Requests`,
               type: 'rateLimited',
             });
-            
+
             inFlightManager.decrementInFlight(server.id, model);
             circuitBreakers.set(server.id, cb.getState());
             continue;
@@ -486,7 +487,12 @@ describe('Rate Limit Failover Integration Tests', () => {
         // All servers failed
         throw new Error(
           `All servers failed. Errors: ${errors.map(e => e.error).join('; ')}. ` +
-          `Rate limited servers: ${errors.filter(e => e.type === 'rateLimited').map(e => e.server).join(', ') || 'none'}`
+            `Rate limited servers: ${
+              errors
+                .filter(e => e.type === 'rateLimited')
+                .map(e => e.server)
+                .join(', ') || 'none'
+            }`
         );
       };
 
@@ -524,13 +530,13 @@ describe('Rate Limit Failover Integration Tests', () => {
     it('should succeed on second server after first returns 429', async () => {
       const model = 'llama3:latest';
       const servers = [...testServers];
-      
+
       const serverStates = new Map<string, 'success' | 'rate-limited' | 'error'>();
-      
+
       const simulateFailover = async () => {
         for (const server of servers) {
           const cb = circuitBreakerRegistry.getOrCreate(`${server.id}:${model}`);
-          
+
           // Check circuit breaker
           if (!cb.canExecute()) {
             continue; // Skip to next server
@@ -543,7 +549,7 @@ describe('Rate Limit Failover Integration Tests', () => {
           }
 
           const simulatedResponse = serverStates.get(server.id);
-          
+
           if (simulatedResponse === 'rate-limited') {
             // Record failure - need 2 to open circuit
             cb.recordFailure(new Error('HTTP 429: Too Many Requests'), 'rateLimited');
@@ -557,7 +563,7 @@ describe('Rate Limit Failover Integration Tests', () => {
           inFlightManager.decrementInFlight(server.id, model);
           return { success: true, server: server.id };
         }
-        
+
         throw new Error('All servers failed');
       };
 
@@ -567,10 +573,10 @@ describe('Rate Limit Failover Integration Tests', () => {
       serverStates.set('server-3', 'success'); // Not reached
 
       const result = await simulateFailover();
-      
+
       expect(result.success).toBe(true);
       expect(result.server).toBe('server-2');
-      
+
       // Verify only server-1 was marked as rate limited
       const clusterStatus = errorAggregator.getClusterStatus();
       expect(clusterStatus.rateLimitServerCount).toBe(1);
@@ -580,11 +586,11 @@ describe('Rate Limit Failover Integration Tests', () => {
     it('should fail with clear error when all servers exhausted', async () => {
       const model = 'llama3:latest';
       const servers = [...testServers];
-      
+
       // Track errors
       const allErrors: Array<{ server: string; error: string; type: ErrorType }> = [];
       const serverStates = new Map<string, 'success' | 'rate-limited' | 'error'>();
-      
+
       // Set all to rate limited
       serverStates.set('server-1', 'rate-limited');
       serverStates.set('server-2', 'rate-limited');
@@ -593,7 +599,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       const simulateFailover = async () => {
         for (const server of servers) {
           const cb = circuitBreakerRegistry.getOrCreate(`${server.id}:${model}`);
-          
+
           if (!cb.canExecute()) {
             allErrors.push({
               server: server.id,
@@ -614,18 +620,18 @@ describe('Rate Limit Failover Integration Tests', () => {
           }
 
           const simulatedResponse = serverStates.get(server.id);
-          
+
           if (simulatedResponse === 'rate-limited') {
             cb.recordFailure(new Error('HTTP 429: Too Many Requests'), 'rateLimited');
             cb.recordFailure(new Error('HTTP 429: Too Many Requests'), 'rateLimited');
             errorAggregator.recordError(server.id, 'rateLimited');
-            
+
             allErrors.push({
               server: server.id,
               error: 'HTTP 429: Too Many Requests',
               type: 'rateLimited',
             });
-            
+
             inFlightManager.decrementInFlight(server.id, model);
             continue;
           }
@@ -633,16 +639,16 @@ describe('Rate Limit Failover Integration Tests', () => {
           inFlightManager.decrementInFlight(server.id, model);
           return { success: true, server: server.id };
         }
-        
+
         // Build clear error message
         const rateLimitedServers = allErrors
           .filter(e => e.type === 'rateLimited')
           .map(e => e.server);
-        
+
         throw new Error(
           `Request failed after exhausting all servers. ` +
-          `Rate limited: ${rateLimitedServers.join(', ') || 'none'}. ` +
-          `Total errors: ${allErrors.length}`
+            `Rate limited: ${rateLimitedServers.join(', ') || 'none'}. ` +
+            `Total errors: ${allErrors.length}`
         );
       };
 
@@ -657,7 +663,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       expect(finalError).not.toBeNull();
       expect(finalError!.message).toContain('Rate limited: server-1, server-2, server-3');
       expect(finalError!.message).toContain('exhausting all servers');
-      
+
       // Verify cluster-wide rate limit triggered
       expect(errorAggregator.isClusterRateLimited()).toBe(true);
     });
@@ -679,7 +685,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       errorAggregatorWithThreshold2.startPeriodicCleanup(60000);
 
       const model = 'llama3:latest';
-      
+
       // Initialize circuit breakers for all servers
       for (const server of testServers) {
         circuitBreakerRegistry.getOrCreate(`${server.id}:${model}`, {
@@ -697,7 +703,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       const simulateFailover = async () => {
         for (const server of testServers) {
           const cb = circuitBreakerRegistry.getOrCreate(`${server.id}:${model}`);
-          
+
           // Check circuit breaker - skip if open
           if (!cb.canExecute()) {
             continue;
@@ -710,7 +716,7 @@ describe('Rate Limit Failover Integration Tests', () => {
           }
 
           const simulatedResponse = serverStates.get(server.id);
-          
+
           if (simulatedResponse === 'rate-limited') {
             // Record 2 failures to open circuit breaker
             cb.recordFailure(new Error('HTTP 429: Too Many Requests'), 'rateLimited');
@@ -725,7 +731,7 @@ describe('Rate Limit Failover Integration Tests', () => {
           inFlightManager.decrementInFlight(server.id, model);
           return { success: true, server: server.id };
         }
-        
+
         throw new Error('All servers failed');
       };
 
@@ -747,7 +753,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       // Verify cluster rate limit detection triggered when threshold=2 reached
       // (server-1 and server-2 both hit rate limits = 2 servers = threshold met)
       expect(errorAggregatorWithThreshold2.isClusterRateLimited()).toBe(true);
-      
+
       const clusterStatus = errorAggregatorWithThreshold2.getClusterStatus();
       expect(clusterStatus.isRateLimited).toBe(true);
       expect(clusterStatus.rateLimitServerCount).toBe(2);
@@ -771,7 +777,7 @@ describe('Rate Limit Failover Integration Tests', () => {
       errorAggregatorWithThreshold2.startPeriodicCleanup(60000);
 
       const model = 'llama3:latest';
-      
+
       // Initialize circuit breaker for server-1
       circuitBreakerRegistry.getOrCreate('server-1:llama3', {
         rateLimitFailureThreshold: 2,

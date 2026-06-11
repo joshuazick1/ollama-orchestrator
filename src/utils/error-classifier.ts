@@ -247,10 +247,7 @@ function mapErrorTypeToEvent(type: ErrorType): import('../types/error-event.js')
  * Fire-and-forget error event recording
  * Records error to ErrorEventStore without blocking classification
  */
-function recordErrorEvent(
-  errorMessage: string,
-  classification: ErrorClassification
-): void {
+function recordErrorEvent(errorMessage: string, classification: ErrorClassification): void {
   const event: ErrorEvent = {
     id: crypto.randomUUID(),
     serverId: 'unknown',
@@ -267,8 +264,11 @@ function recordErrorEvent(
   // Fire-and-forget - do not await
   getErrorEventStore()
     .recordError(event)
-    .catch((err) => {
-      logger.warn('[ErrorClassifier] Failed to record error event', { error: err, eventId: event.id });
+    .catch(err => {
+      logger.warn('[ErrorClassifier] Failed to record error event', {
+        error: err,
+        eventId: event.id,
+      });
     });
 }
 

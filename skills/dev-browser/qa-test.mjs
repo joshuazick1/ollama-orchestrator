@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 const server = spawn('npm', ['run', 'preview'], {
   cwd: '/root/ollama-orchestrator/frontend',
   detached: true,
-  stdio: 'ignore'
+  stdio: 'ignore',
 });
 server.unref();
 
@@ -60,7 +60,6 @@ try {
     console.log('Error details:');
     errors.forEach(e => console.log('  -', e));
   }
-
 } catch (err) {
   console.error('Test failed:', err.message);
   console.error('Errors collected:', errors);

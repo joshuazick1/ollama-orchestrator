@@ -376,7 +376,7 @@ async function createIntermittentServer(port: number): Promise<Server> {
         available = !available;
       }, 500);
 
-      (server).availabilityInterval = interval;
+      server.availabilityInterval = interval;
       resolve(server);
     });
   });

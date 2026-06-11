@@ -35,6 +35,14 @@ v1Router.get('/models', optionalAuth(), asyncHandler(handleListModels));
 v1Router.get('/models/:model', optionalAuth(), asyncHandler(handleGetModel));
 
 // Server-specific routes (/v1/:endpoint--$serverid) for testing/debugging
-v1Router.post('/chat/completions--:serverId', requireAuth(), asyncHandler(handleChatCompletionsToServer));
+v1Router.post(
+  '/chat/completions--:serverId',
+  requireAuth(),
+  asyncHandler(handleChatCompletionsToServer)
+);
 v1Router.post('/completions--:serverId', requireAuth(), asyncHandler(handleCompletionsToServer));
-v1Router.post('/embeddings--:serverId', requireAuth(), asyncHandler(handleOpenAIEmbeddingsToServer));
+v1Router.post(
+  '/embeddings--:serverId',
+  requireAuth(),
+  asyncHandler(handleOpenAIEmbeddingsToServer)
+);

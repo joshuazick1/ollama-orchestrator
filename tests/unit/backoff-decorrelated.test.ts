@@ -51,9 +51,13 @@ describe('decorrelatedStrategy - AWS Architecture Blog formula', () => {
       let i = 0;
       while (i < indexed.length) {
         let j = i;
-        while (j < indexed.length && indexed[j].v === indexed[i].v) {j++;}
+        while (j < indexed.length && indexed[j].v === indexed[i].v) {
+          j++;
+        }
         const avgRank = (i + 1 + j) / 2;
-        for (let k = i; k < j; k++) {ranks[indexed[k].i] = avgRank;}
+        for (let k = i; k < j; k++) {
+          ranks[indexed[k].i] = avgRank;
+        }
         i = j;
       }
 

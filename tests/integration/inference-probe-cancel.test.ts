@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InferenceProbeScheduler } from '../../src/inference-probe-scheduler.js';
 import { createMockOllamaServer } from '../utils/mock-server-factory.js';
 
-
 async function startServer(
   server: http.Server
 ): Promise<{ port: number; close: () => Promise<void> }> {

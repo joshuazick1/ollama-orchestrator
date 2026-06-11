@@ -215,7 +215,11 @@ async function createMockOllamaServer(port: number, behavior: MockBehavior): Pro
             return;
           }
 
-          sendJson(res, behavior.generate?.status ?? 200, behavior.generate?.body ?? defaultGenerateBody());
+          sendJson(
+            res,
+            behavior.generate?.status ?? 200,
+            behavior.generate?.body ?? defaultGenerateBody()
+          );
           return;
         }
 
@@ -294,9 +298,7 @@ async function rawRequest(
 
   const contentType = response.headers.get('content-type') ?? '';
   const text = await response.text();
-  const data = contentType.includes('application/json') && text
-    ? JSON.parse(text)
-    : text;
+  const data = contentType.includes('application/json') && text ? JSON.parse(text) : text;
 
   return { response, status: response.status, headers: response.headers, text, data };
 }
@@ -307,7 +309,13 @@ async function addRegisteredServer(
   url: string,
   models: string[]
 ): Promise<void> {
-  const serverFactory = createServerFactory({ id, url, models, supportsOllama: true, healthy: true });
+  const serverFactory = createServerFactory({
+    id,
+    url,
+    models,
+    supportsOllama: true,
+    healthy: true,
+  });
   orchestrator.addServer({
     id: serverFactory.id,
     url: serverFactory.url,
@@ -381,8 +389,16 @@ describe('Ollama-Compatible API Integration Tests', () => {
   describe('GET /api/tags', () => {
     it('aggregates models from all healthy servers', async () => {
       const alpha = createSmallModel({ name: 'alpha:latest', digest: 'sha256:alpha' });
-      const beta = createModel({ name: 'beta:latest', digest: 'sha256:beta', modified_at: '2026-04-10T00:00:00.000Z' });
-      const gamma = createModel({ name: 'gamma:latest', digest: 'sha256:gamma', modified_at: '2026-04-10T00:00:00.000Z' });
+      const beta = createModel({
+        name: 'beta:latest',
+        digest: 'sha256:beta',
+        modified_at: '2026-04-10T00:00:00.000Z',
+      });
+      const gamma = createModel({
+        name: 'gamma:latest',
+        digest: 'sha256:gamma',
+        modified_at: '2026-04-10T00:00:00.000Z',
+      });
 
       mockRegistrations.push(
         await registerMockServer(context.orchestrator, 'tags-a', nextPort++, [alpha.name], {
@@ -430,12 +446,24 @@ describe('Ollama-Compatible API Integration Tests', () => {
     it('ignores unhealthy servers during aggregation', async () => {
       const healthyModel = modelBody('healthy-only:latest', 'sha256:healthy');
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'tags-healthy', nextPort++, [healthyModel.name], {
-          tags: { body: { models: [healthyModel] } },
-        }),
-        await registerMockServer(context.orchestrator, 'tags-unhealthy', nextPort++, ['ignored:latest'], {
-          tags: { body: { models: [modelBody('ignored:latest', 'sha256:ignored')] } },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'tags-healthy',
+          nextPort++,
+          [healthyModel.name],
+          {
+            tags: { body: { models: [healthyModel] } },
+          }
+        ),
+        await registerMockServer(
+          context.orchestrator,
+          'tags-unhealthy',
+          nextPort++,
+          ['ignored:latest'],
+          {
+            tags: { body: { models: [modelBody('ignored:latest', 'sha256:ignored')] } },
+          }
+        )
       );
 
       const unhealthy = context.orchestrator.getServer('tags-unhealthy');
@@ -458,9 +486,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
     it('skips malformed tag payloads from a failing upstream', async () => {
       const validModel = modelBody('valid:latest', 'sha256:valid');
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'tags-valid', nextPort++, [validModel.name], {
-          tags: { body: { models: [validModel] } },
-        }),
+        await registerMockServer(
+          context.orchestrator,
+          'tags-valid',
+          nextPort++,
+          [validModel.name],
+          {
+            tags: { body: { models: [validModel] } },
+          }
+        ),
         await registerMockServer(context.orchestrator, 'tags-invalid', nextPort++, ['bad:latest'], {
           tags: { body: { models: { nope: true } } },
         })
@@ -477,9 +511,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
   describe('POST /api/generate', () => {
     it('returns a non-streaming generation payload', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'generate-basic', nextPort++, [GENERATE_MODEL], {
-          generate: { body: defaultGenerateBody() },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'generate-basic',
+          nextPort++,
+          [GENERATE_MODEL],
+          {
+            generate: { body: defaultGenerateBody() },
+          }
+        )
       );
 
       const result = await makeRequest(
@@ -497,15 +537,23 @@ describe('Ollama-Compatible API Integration Tests', () => {
           done: true,
         });
       } else {
-        expect(String(result.data.details)).toContain("Cannot find module '../storage/user-store.js'");
+        expect(String(result.data.details)).toContain(
+          "Cannot find module '../storage/user-store.js'"
+        );
       }
     });
 
     it('streams NDJSON chunks for streaming requests', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'generate-stream', nextPort++, [GENERATE_MODEL], {
-          generate: { streamChunks: streamingGenerateChunks },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'generate-stream',
+          nextPort++,
+          [GENERATE_MODEL],
+          {
+            generate: { streamChunks: streamingGenerateChunks },
+          }
+        )
       );
 
       const result = await rawRequest(context.baseUrl, 'POST', '/api/generate', {
@@ -516,7 +564,11 @@ describe('Ollama-Compatible API Integration Tests', () => {
       expect([200, 500]).toContain(result.status);
       if (result.status === 200) {
         expect(result.headers.get('content-type')).toContain('text/event-stream');
-        const lines = result.text.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+        const lines = result.text
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map(line => JSON.parse(line));
         expect(lines).toHaveLength(3);
         expect(lines.at(-1)).toMatchObject({ done: true, done_reason: 'stop' });
       } else {
@@ -553,9 +605,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
 
     it('returns 503 when no server hosts the requested model', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'generate-other-model', nextPort++, ['other-model:latest'], {
-          generate: { body: defaultGenerateBody() },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'generate-other-model',
+          nextPort++,
+          ['other-model:latest'],
+          {
+            generate: { body: defaultGenerateBody() },
+          }
+        )
       );
 
       const result = await makeRequest(
@@ -570,9 +628,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
 
     it('returns 500 when upstream generation fails', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'generate-upstream-error', nextPort++, [GENERATE_MODEL], {
-          generate: { status: 500, body: { error: 'runner process has terminated' } },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'generate-upstream-error',
+          nextPort++,
+          [GENERATE_MODEL],
+          {
+            generate: { status: 500, body: { error: 'runner process has terminated' } },
+          }
+        )
       );
 
       const result = await makeRequest(
@@ -617,7 +681,9 @@ describe('Ollama-Compatible API Integration Tests', () => {
           done: true,
         });
       } else {
-        expect(String(result.data.details)).toContain("Cannot find module '../storage/user-store.js'");
+        expect(String(result.data.details)).toContain(
+          "Cannot find module '../storage/user-store.js'"
+        );
       }
     });
 
@@ -640,7 +706,11 @@ describe('Ollama-Compatible API Integration Tests', () => {
       expect([200, 500]).toContain(result.status);
       if (result.status === 200) {
         expect(result.headers.get('content-type')).toContain('text/event-stream');
-        const lines = result.text.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+        const lines = result.text
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map(line => JSON.parse(line));
         expect(lines).toHaveLength(3);
         expect(lines[0]).toMatchObject({ message: { role: 'assistant', content: 'Hi' } });
         expect(lines.at(-1)).toMatchObject({ done: true });
@@ -696,9 +766,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
 
     it('returns 503 when the requested chat model is unavailable', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'chat-other-model', nextPort++, ['different-chat-model:latest'], {
-          chat: { body: defaultChatBody() },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'chat-other-model',
+          nextPort++,
+          ['different-chat-model:latest'],
+          {
+            chat: { body: defaultChatBody() },
+          }
+        )
       );
 
       const result = await makeRequest(
@@ -731,7 +807,9 @@ describe('Ollama-Compatible API Integration Tests', () => {
       if (result.status === 200) {
         expect(result.data.embedding).toEqual([0.11, 0.22, 0.33, 0.44]);
       } else {
-        expect(String(result.data.details)).toContain("Cannot find module '../storage/user-store.js'");
+        expect(String(result.data.details)).toContain(
+          "Cannot find module '../storage/user-store.js'"
+        );
       }
     });
 
@@ -773,9 +851,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
 
     it('returns 503 when no embedding-capable server is available', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'emb-other', nextPort++, ['not-embed:latest'], {
-          embeddings: { body: defaultEmbeddingsBody() },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'emb-other',
+          nextPort++,
+          ['not-embed:latest'],
+          {
+            embeddings: { body: defaultEmbeddingsBody() },
+          }
+        )
       );
 
       const result = await makeRequest(
@@ -942,7 +1026,9 @@ describe('Ollama-Compatible API Integration Tests', () => {
           details: expect.objectContaining({ context_length: 4096 }),
         });
       } else {
-        expect(String(result.data.details)).toContain("Cannot find module '../storage/user-store.js'");
+        expect(String(result.data.details)).toContain(
+          "Cannot find module '../storage/user-store.js'"
+        );
       }
     });
 
@@ -961,9 +1047,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
 
     it('returns 404 when the upstream reports model not found', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'show-not-found', nextPort++, [GENERATE_MODEL], {
-          show: { status: 404, body: { error: `model '${GENERATE_MODEL}' not found` } },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'show-not-found',
+          nextPort++,
+          [GENERATE_MODEL],
+          {
+            show: { status: 404, body: { error: `model '${GENERATE_MODEL}' not found` } },
+          }
+        )
       );
 
       const result = await makeRequest(
@@ -979,9 +1071,15 @@ describe('Ollama-Compatible API Integration Tests', () => {
 
     it('returns 503 when no server offers the model', async () => {
       mockRegistrations.push(
-        await registerMockServer(context.orchestrator, 'show-other-model', nextPort++, ['different-model:latest'], {
-          show: { body: defaultShowBody('different-model:latest') },
-        })
+        await registerMockServer(
+          context.orchestrator,
+          'show-other-model',
+          nextPort++,
+          ['different-model:latest'],
+          {
+            show: { body: defaultShowBody('different-model:latest') },
+          }
+        )
       );
 
       const result = await makeRequest(

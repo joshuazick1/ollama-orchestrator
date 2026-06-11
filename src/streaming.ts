@@ -6,8 +6,8 @@
 import type { Response } from 'express';
 
 import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
-import { calculateBackoff } from './utils/backoff/index.js';
 import { sleep } from './utils/async-helpers.js';
+import { calculateBackoff } from './utils/backoff/index.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';

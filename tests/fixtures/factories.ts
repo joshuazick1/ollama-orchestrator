@@ -12,11 +12,7 @@ import type {
   MetricsWindow,
   RequestContext,
 } from '../../src/orchestrator/orchestrator.types.js';
-import type {
-  RequestRow,
-  DecisionRow,
-  DecisionCandidateRow,
-} from '../../src/storage/types.js';
+import type { RequestRow, DecisionRow, DecisionCandidateRow } from '../../src/storage/types.js';
 
 // ============================================================
 // Server Factory
@@ -474,7 +470,9 @@ export function createMetricsWindow(options: Partial<MetricsWindow> = {}): Metri
   };
 }
 
-export function createLatencyPercentiles(options: Partial<LatencyPercentiles> = {}): LatencyPercentiles {
+export function createLatencyPercentiles(
+  options: Partial<LatencyPercentiles> = {}
+): LatencyPercentiles {
   return {
     p50: options.p50 ?? 50,
     p95: options.p95 ?? 150,
@@ -522,7 +520,9 @@ export function createHighLatencyMetrics(options: MetricsFactoryOptions = {}): S
   });
 }
 
-export function createLowSuccessRateMetrics(options: MetricsFactoryOptions = {}): ServerModelMetrics {
+export function createLowSuccessRateMetrics(
+  options: MetricsFactoryOptions = {}
+): ServerModelMetrics {
   const metrics = createServerModelMetrics(options);
   metrics.successRate = 0.7;
   metrics.windows['1m'].errors = 30;
@@ -557,15 +557,33 @@ export function createConfig(options: ConfigFactoryOptions = {}): OrchestratorCo
 
   const config = { ...DEFAULT_CONFIG };
 
-  if (options.port !== undefined) {config.port = options.port;}
-  if (options.host !== undefined) {config.host = options.host;}
-  if (options.logLevel !== undefined) {config.logLevel = options.logLevel;}
-  if (options.enableQueue !== undefined) {config.enableQueue = options.enableQueue;}
-  if (options.enableCircuitBreaker !== undefined) {config.enableCircuitBreaker = options.enableCircuitBreaker;}
-  if (options.enableMetrics !== undefined) {config.enableMetrics = options.enableMetrics;}
-  if (options.enableStreaming !== undefined) {config.enableStreaming = options.enableStreaming;}
-  if (options.enablePersistence !== undefined) {config.enablePersistence = options.enablePersistence;}
-  if (options.servers !== undefined) {config.servers = options.servers;}
+  if (options.port !== undefined) {
+    config.port = options.port;
+  }
+  if (options.host !== undefined) {
+    config.host = options.host;
+  }
+  if (options.logLevel !== undefined) {
+    config.logLevel = options.logLevel;
+  }
+  if (options.enableQueue !== undefined) {
+    config.enableQueue = options.enableQueue;
+  }
+  if (options.enableCircuitBreaker !== undefined) {
+    config.enableCircuitBreaker = options.enableCircuitBreaker;
+  }
+  if (options.enableMetrics !== undefined) {
+    config.enableMetrics = options.enableMetrics;
+  }
+  if (options.enableStreaming !== undefined) {
+    config.enableStreaming = options.enableStreaming;
+  }
+  if (options.enablePersistence !== undefined) {
+    config.enablePersistence = options.enablePersistence;
+  }
+  if (options.servers !== undefined) {
+    config.servers = options.servers;
+  }
 
   return config;
 }
@@ -596,7 +614,8 @@ export const ChaosPresets = {
 
   // Metrics chaos presets
   createHighLatencyMetrics: (options?: MetricsFactoryOptions) => createHighLatencyMetrics(options),
-  createLowSuccessRateMetrics: (options?: MetricsFactoryOptions) => createLowSuccessRateMetrics(options),
+  createLowSuccessRateMetrics: (options?: MetricsFactoryOptions) =>
+    createLowSuccessRateMetrics(options),
 
   // Request chaos presets
   createFailedRequest: (options?: RequestFactoryOptions) => createFailedRequest(options),
@@ -607,7 +626,10 @@ export const ChaosPresets = {
 // Batch Factory Helpers
 // ============================================================
 
-export function createServerBatch(count: number, baseOptions: ServerFactoryOptions = {}): AIServer[] {
+export function createServerBatch(
+  count: number,
+  baseOptions: ServerFactoryOptions = {}
+): AIServer[] {
   return Array.from({ length: count }, (_, i) =>
     createServer({
       ...baseOptions,

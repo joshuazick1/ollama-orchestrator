@@ -260,8 +260,12 @@ describe('OpenAI Server Support Comprehensive Tests', () => {
       };
 
       const redactKey = (key?: string) => {
-        if (!key) {return undefined;}
-        if (key.startsWith('env:')) {return key;}
+        if (!key) {
+          return undefined;
+        }
+        if (key.startsWith('env:')) {
+          return key;
+        }
         return '***REDACTED***';
       };
 
@@ -274,7 +278,9 @@ describe('OpenAI Server Support Comprehensive Tests', () => {
 
       // Should only show "env:SECRET_KEY" not the actual value
       const shouldLog = (key: string) => {
-        if (key.startsWith('env:')) {return key;}
+        if (key.startsWith('env:')) {
+          return key;
+        }
         return '***REDACTED***';
       };
 

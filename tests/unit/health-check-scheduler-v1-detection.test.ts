@@ -286,9 +286,7 @@ describe('HealthCheckScheduler V1 Capability Detection', () => {
     });
 
     it('should return exists=true, healthy=false, status=0 for timeout', async () => {
-      vi.mocked(fetchWithTimeout).mockRejectedValue(
-        new Error('Request timeout after 2000ms')
-      );
+      vi.mocked(fetchWithTimeout).mockRejectedValue(new Error('Request timeout after 2000ms'));
 
       const result = await scheduler.probeV1EndpointsLightweight(mockServer);
 

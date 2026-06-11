@@ -118,7 +118,7 @@ describe('Error Handling Integration Tests', () => {
   describe('ErrorEventStore Recording', () => {
     it('should record error event to file', async () => {
       const store = getErrorEventStore(TEST_ERROR_EVENTS_DIR);
-      
+
       const event = {
         id: 'test-error-1',
         serverId: 'server-1',
@@ -147,7 +147,7 @@ describe('Error Handling Integration Tests', () => {
 
     it('should record multiple errors and query them', async () => {
       const store = getErrorEventStore(TEST_ERROR_EVENTS_DIR);
-      
+
       const event1 = {
         id: 'test-error-2',
         serverId: 'server-1',
@@ -194,7 +194,7 @@ describe('Error Handling Integration Tests', () => {
 
     it('should query errors with time range filter', async () => {
       const store = getErrorEventStore(TEST_ERROR_EVENTS_DIR);
-      
+
       const now = new Date();
       const pastEvent = {
         id: 'test-error-past',
@@ -242,7 +242,7 @@ describe('Error Handling Integration Tests', () => {
   describe('Error API Endpoints', () => {
     it('should retrieve recorded errors via API', async () => {
       const store = getErrorEventStore(TEST_ERROR_EVENTS_DIR);
-      
+
       const event = {
         id: 'api-test-error-1',
         serverId: 'test-server',
@@ -260,11 +260,11 @@ describe('Error Handling Integration Tests', () => {
 
       // Query via API
       const response = await makeRequest('GET', '/api/orchestrator/errors');
-      
+
       expect(response.status).toBe(200);
       expect(response.data.success).toBe(true);
       expect(response.data.count).toBeGreaterThan(0);
-      
+
       // Find our specific error
       const foundError = response.data.errors.find((e: any) => e.id === 'api-test-error-1');
       expect(foundError).toBeDefined();
@@ -273,7 +273,7 @@ describe('Error Handling Integration Tests', () => {
 
     it('should filter errors by serverId via API', async () => {
       const store = getErrorEventStore(TEST_ERROR_EVENTS_DIR);
-      
+
       const event1 = {
         id: 'api-test-error-2',
         serverId: 'server-a',
@@ -305,7 +305,7 @@ describe('Error Handling Integration Tests', () => {
 
       // Query specific server
       const response = await makeRequest('GET', '/api/orchestrator/errors/server-a');
-      
+
       expect(response.status).toBe(200);
       expect(response.data.success).toBe(true);
       expect(response.data.serverId).toBe('server-a');
@@ -315,7 +315,7 @@ describe('Error Handling Integration Tests', () => {
 
     it('should filter errors by circuitId via API', async () => {
       const store = getErrorEventStore(TEST_ERROR_EVENTS_DIR);
-      
+
       const event = {
         id: 'api-test-error-4',
         serverId: 'server-x',
@@ -332,8 +332,11 @@ describe('Error Handling Integration Tests', () => {
       await store.recordError(event);
 
       // Query specific circuit
-      const response = await makeRequest('GET', '/api/orchestrator/errors/server-x/server-x:llama2:7b');
-      
+      const response = await makeRequest(
+        'GET',
+        '/api/orchestrator/errors/server-x/server-x:llama2:7b'
+      );
+
       expect(response.status).toBe(200);
       expect(response.data.success).toBe(true);
       expect(response.data.circuitId).toBe('server-x:llama2:7b');
@@ -349,7 +352,7 @@ describe('Error Handling Integration Tests', () => {
   describe('parseRetryAfter', () => {
     it('should parse delta-seconds format', () => {
       expect(parseRetryAfter('120')).toBe(120000); // 120 seconds = 120000 ms
-      expect(parseRetryAfter('60')).toBe(60000);  // 60 seconds = 60000 ms
+      expect(parseRetryAfter('60')).toBe(60000); // 60 seconds = 60000 ms
       expect(parseRetryAfter('0')).toBe(0);
     });
 
@@ -357,7 +360,7 @@ describe('Error Handling Integration Tests', () => {
       // Future date: 1 hour from now
       const futureDate = new Date(Date.now() + 3600000);
       const httpDateStr = futureDate.toUTCString();
-      
+
       const result = parseRetryAfter(httpDateStr);
       expect(result).toBeGreaterThan(0);
       expect(result).toBeLessThanOrEqual(3600000 + 1000); // Allow 1 second tolerance
@@ -367,7 +370,7 @@ describe('Error Handling Integration Tests', () => {
       // Past date: 1 hour ago
       const pastDate = new Date(Date.now() - 3600000);
       const httpDateStr = pastDate.toUTCString();
-      
+
       expect(parseRetryAfter(httpDateStr)).toBe(0);
     });
 
@@ -389,8 +392,8 @@ describe('Error Handling Integration Tests', () => {
 
   describe('calculateRateLimitBackoff', () => {
     const defaultConfig: RateLimitConfig = {
-      defaultRetryAfterMs: 60000,  // 1 minute
-      maxRetryAfterMs: 300000,     // 5 minutes
+      defaultRetryAfterMs: 60000, // 1 minute
+      maxRetryAfterMs: 300000, // 5 minutes
       enableRetryAfterHeader: true,
       jitterFactor: 0.25,
     };
@@ -401,36 +404,36 @@ describe('Error Handling Integration Tests', () => {
       const delay1 = calculateRateLimitBackoff('ollama', '120', defaultConfig, 1);
       const delay2 = calculateRateLimitBackoff('ollama', '120', defaultConfig, 2);
 
-      expect(delay0).toBe(60000);   // base * 2^0 = 60000
-      expect(delay1).toBe(120000);  // base * 2^1 = 120000
+      expect(delay0).toBe(60000); // base * 2^0 = 60000
+      expect(delay1).toBe(120000); // base * 2^1 = 120000
       expect(delay2).toBe(240000); // base * 2^2 = 240000
     });
 
     it('should honor Retry-After header for OpenAI when enabled', () => {
       // With Retry-After header of 120 seconds (120000ms)
       const delay = calculateRateLimitBackoff('openai', '120', defaultConfig, 0);
-      
+
       // Should use the Retry-After value (120000ms), capped at maxRetryAfterMs
       expect(delay).toBe(120000);
     });
 
     it('should honor Retry-After header for Anthropic when enabled', () => {
       const delay = calculateRateLimitBackoff('anthropic', '60', defaultConfig, 0);
-      
+
       expect(delay).toBe(60000);
     });
 
     it('should cap Retry-After at maxRetryAfterMs', () => {
       // Retry-After of 600 seconds (600000ms) should be capped to 300000ms
       const delay = calculateRateLimitBackoff('openai', '600', defaultConfig, 0);
-      
+
       expect(delay).toBe(300000);
     });
 
     it('should fall back to exponential backoff when Retry-After is invalid', () => {
       // Invalid Retry-After should fall back to exponential backoff
       const delay = calculateRateLimitBackoff('openai', 'invalid', defaultConfig, 1);
-      
+
       expect(delay).toBe(120000); // base * 2^1 = 120000
     });
 
@@ -441,7 +444,7 @@ describe('Error Handling Integration Tests', () => {
       };
 
       const delay = calculateRateLimitBackoff('openai', '120', configWithDisabledHeader, 0);
-      
+
       // Should use base delay, not Retry-After value
       expect(delay).toBe(60000);
     });
@@ -449,13 +452,13 @@ describe('Error Handling Integration Tests', () => {
     it('should respect maxRetryAfterMs cap in exponential backoff', () => {
       // Multiple retries should cap at maxRetryAfterMs
       const delay = calculateRateLimitBackoff('ollama', undefined, defaultConfig, 10);
-      
+
       expect(delay).toBe(300000); // Should be capped at max
     });
 
     it('should handle undefined Retry-After gracefully', () => {
       const delay = calculateRateLimitBackoff('openai', undefined, defaultConfig, 0);
-      
+
       expect(delay).toBe(60000); // Falls back to base delay
     });
   });
@@ -472,7 +475,7 @@ describe('Error Handling Integration Tests', () => {
       // Step 2: Error is classified
       const classifier = new ErrorClassifier();
       const classification = classifier.classify(errorMessage);
-      
+
       expect(classification.type).toBe('rateLimited');
       expect(classification.isRetryable).toBe(true);
       expect(classification.shouldCircuitBreak).toBe(true);

@@ -90,7 +90,9 @@ describe('LoadBalancer - roundRobinIndex bounds', () => {
         },
       ];
       const selected = lb.select(servers, 'llama3', getLoad, getTotalLoad, getMetrics);
-      if (selected) {selectedIds.add(selected.id);}
+      if (selected) {
+        selectedIds.add(selected.id);
+      }
     }
 
     expect(selectedIds.size).toBe(3);

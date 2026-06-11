@@ -4,12 +4,12 @@ import { API_ENDPOINTS } from './constants/api-endpoints.js';
 import { MetricsAggregator } from './metrics/index.js';
 import type { AIServer, RequestContext } from './orchestrator/orchestrator.types.js';
 import type { MetricsStore } from './storage/metrics-store.js';
+import { calculateBackoff } from './utils/backoff/index.js';
 import type { ErrorAggregator } from './utils/error-aggregator.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { logger } from './utils/logger.js';
 import { probeCoordinator } from './utils/probe-coordinator.js';
-import { calculateBackoff } from './utils/backoff/index.js';
 
 export type { ProbeSchedulerConfig };
 

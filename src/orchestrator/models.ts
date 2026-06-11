@@ -62,7 +62,7 @@ export class OrchestratorModels {
       for (const result of batchResults) {
         totalRequests++;
         if (result.status === 'fulfilled') {
-          const fetchResult = result.value as FetchServerTagsResult;
+          const fetchResult = result.value;
           if (fetchResult.success && fetchResult.data) {
             successfulRequests++;
             this.mergeTagsData(allTags, fetchResult.data, fetchResult.serverId);

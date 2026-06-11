@@ -7,12 +7,12 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { ActiveTestScheduler } from '../../src/active-test-scheduler.js';
-import { probeCoordinator } from '../../src/utils/probe-coordinator.js';
 import type {
   CircuitBreakerRegistry,
   CircuitBreakerStats,
 } from '../../src/circuit-breaker/circuit-breaker.js';
 import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
+import { probeCoordinator } from '../../src/utils/probe-coordinator.js';
 
 /* ---------- helpers ---------- */
 

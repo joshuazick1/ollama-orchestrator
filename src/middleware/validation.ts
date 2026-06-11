@@ -84,19 +84,25 @@ export const updateServerSchema = z.object({
 export const updateServerConfigSchema = z.object({
   type: z.enum(['ollama', 'openai', 'auto']).optional(),
   v1Models: z.array(z.string()).optional(),
-  forcedCapabilities: z.object({
-    supportsOllama: z.boolean().optional(),
-    supportsV1: z.boolean().optional(),
-    supportsAnthropic: z.boolean().optional()
-  }).optional(),
-  endpointOverrides: z.object({
-    anthropic_messages: z.string().optional(),
-    anthropic_auth: z.object({
-      headerName: z.string().optional(),
-      headerPrefix: z.string().optional()
-    }).optional(),
-    modelPrefix: z.string().optional()
-  }).optional()
+  forcedCapabilities: z
+    .object({
+      supportsOllama: z.boolean().optional(),
+      supportsV1: z.boolean().optional(),
+      supportsAnthropic: z.boolean().optional(),
+    })
+    .optional(),
+  endpointOverrides: z
+    .object({
+      anthropic_messages: z.string().optional(),
+      anthropic_auth: z
+        .object({
+          headerName: z.string().optional(),
+          headerPrefix: z.string().optional(),
+        })
+        .optional(),
+      modelPrefix: z.string().optional(),
+    })
+    .optional(),
 });
 
 // Model validation schemas

@@ -3,16 +3,16 @@
  * Periodic health check scheduler with configurable intervals and concurrency
  */
 
-import { API_ENDPOINTS } from './constants/api-endpoints.js';
 import type { HealthCheckConfig } from './config/config.js';
+import { API_ENDPOINTS } from './constants/api-endpoints.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
 import { resolveApiKey } from './utils/api-keys.js';
 import { sleep } from './utils/async-helpers.js';
+import { calculateBackoff } from './utils/backoff/index.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { logger } from './utils/logger.js';
 import { probeCoordinator } from './utils/probe-coordinator.js';
 import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
-import { calculateBackoff } from './utils/backoff/index.js';
 import { Timer } from './utils/timer.js';
 
 const PROBE_MODEL = '__probe_nonexistent_model_000000__';

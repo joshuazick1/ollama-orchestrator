@@ -9,7 +9,7 @@ import { v1Router } from '../../src/routes/v1.routes.js';
 let server: ReturnType<typeof createServer>;
 let baseUrl: string;
 
-const AUTH_HEADER = { 'Authorization': 'Bearer sk-test-openai-key-12345' };
+const AUTH_HEADER = { Authorization: 'Bearer sk-test-openai-key-12345' };
 
 beforeAll(async () => {
   const app = express();
@@ -84,9 +84,7 @@ async function get(path: string, headers: Record<string, string> = {}) {
 describe('POST /v1/chat/completions', () => {
   const validChatRequest = {
     model: 'llama3:latest',
-    messages: [
-      { role: 'user', content: 'Hello, how are you?' },
-    ],
+    messages: [{ role: 'user', content: 'Hello, how are you?' }],
   };
 
   it('returns 400 when model is missing', async () => {
@@ -95,7 +93,9 @@ describe('POST /v1/chat/completions', () => {
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).error).toBeDefined();
-    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe('invalid_request_error');
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe(
+      'invalid_request_error'
+    );
   });
 
   it('returns 400 when messages is missing', async () => {
@@ -107,10 +107,14 @@ describe('POST /v1/chat/completions', () => {
   });
 
   it('returns 400 when messages is not an array', async () => {
-    const { status, data } = await post('/v1/chat/completions', {
-      model: 'llama3:latest',
-      messages: 'not an array',
-    }, AUTH_HEADER);
+    const { status, data } = await post(
+      '/v1/chat/completions',
+      {
+        model: 'llama3:latest',
+        messages: 'not an array',
+      },
+      AUTH_HEADER
+    );
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).error).toBeDefined();
@@ -155,9 +159,7 @@ describe('POST /v1/chat/completions', () => {
 describe('POST /v1/chat/completions with function calling', () => {
   const functionCallingRequest = {
     model: 'llama3:latest',
-    messages: [
-      { role: 'user', content: 'What is the weather in New York?' },
-    ],
+    messages: [{ role: 'user', content: 'What is the weather in New York?' }],
     tools: [
       {
         type: 'function',
@@ -272,7 +274,9 @@ describe('POST /v1/completions', () => {
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).error).toBeDefined();
-    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe('invalid_request_error');
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe(
+      'invalid_request_error'
+    );
   });
 
   it('returns 4xx when prompt is missing', async () => {
@@ -328,7 +332,9 @@ describe('POST /v1/embeddings', () => {
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).error).toBeDefined();
-    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe('invalid_request_error');
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe(
+      'invalid_request_error'
+    );
   });
 
   it('returns 400 when input is missing', async () => {

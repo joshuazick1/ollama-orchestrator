@@ -4,7 +4,6 @@ import { AddressInfo } from 'net';
 import express from 'express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-
 import {
   getOrchestratorInstance,
   resetOrchestratorInstance,
@@ -157,7 +156,10 @@ describe('API edge cases integration tests', () => {
         requestRaw('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ model: 'llama3:latest', messages: [{ role: 'user', content: 'hi' }] }),
+          body: JSON.stringify({
+            model: 'llama3:latest',
+            messages: [{ role: 'user', content: 'hi' }],
+          }),
         }),
         requestRaw('/v1/chat/completions', {
           method: 'POST',
@@ -170,7 +172,11 @@ describe('API edge cases integration tests', () => {
             'Content-Type': 'text/plain',
             'anthropic-version': '2023-06-01',
           },
-          body: JSON.stringify({ model: 'claude-test', messages: [{ role: 'user', content: 'hi' }], max_tokens: 16 }),
+          body: JSON.stringify({
+            model: 'claude-test',
+            messages: [{ role: 'user', content: 'hi' }],
+            max_tokens: 16,
+          }),
         }),
       ]);
 
@@ -341,23 +347,27 @@ async function startRootApiServer(): Promise<void> {
   app.use('/v1', v1Router);
   app.use('/', anthropicRouter);
 
-  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (isPayloadTooLarge(err)) {
-      res.status(413).json({ error: 'Payload too large' });
-      return;
+  app.use(
+    (err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (isPayloadTooLarge(err)) {
+        res.status(413).json({ error: 'Payload too large' });
+        return;
+      }
+
+      if (isJsonSyntaxError(err)) {
+        res.status(400).json({ error: 'Invalid JSON payload' });
+        return;
+      }
+
+      next(err);
     }
+  );
 
-    if (isJsonSyntaxError(err)) {
-      res.status(400).json({ error: 'Invalid JSON payload' });
-      return;
+  app.use(
+    (_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      res.status(500).json({ error: 'Internal server error' });
     }
-
-    next(err);
-  });
-
-  app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(500).json({ error: 'Internal server error' });
-  });
+  );
 
   rootServer = createServer(app);
   await new Promise<void>(resolve => rootServer.listen(0, '127.0.0.1', () => resolve()));
@@ -368,7 +378,9 @@ async function startRootApiServer(): Promise<void> {
 async function requestRaw(path: string, init: RequestInit): Promise<ParsedResponse> {
   const response = await fetch(`${rootBaseUrl}${path}`, init);
   const contentType = response.headers.get('content-type') ?? '';
-  const data = contentType.includes('application/json') ? await response.json() : await response.text();
+  const data = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
 
   return {
     status: response.status,
@@ -461,9 +473,9 @@ function clearRegisteredServers(): void {
 
 async function closeBackendServers(): Promise<void> {
   await Promise.all(
-    backendServers.splice(0).map(
-      server => new Promise<void>(resolve => server.close(() => resolve()))
-    )
+    backendServers
+      .splice(0)
+      .map(server => new Promise<void>(resolve => server.close(() => resolve())))
   );
 }
 

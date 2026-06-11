@@ -58,7 +58,9 @@ export const Login = () => {
             <div className="mb-6 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
               <div className="flex items-center gap-3 mb-2">
                 <ShieldOff className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                <span className="text-yellow-400 font-medium text-sm">Development Mode — Auth Disabled</span>
+                <span className="text-yellow-400 font-medium text-sm">
+                  Development Mode — Auth Disabled
+                </span>
               </div>
               <p className="text-text-muted text-sm mb-3">
                 Authentication is not required in this environment.

@@ -604,9 +604,7 @@ export class UserStore {
     this.stmtClearUserAccess.run(userId);
 
     // Clear model access
-    this.db
-      .prepare(`DELETE FROM user_model_access WHERE user_id = ?`)
-      .run(userId);
+    this.db.prepare(`DELETE FROM user_model_access WHERE user_id = ?`).run(userId);
   }
 }
 

@@ -66,7 +66,10 @@ describe('ErrorEventStore', () => {
       await store.recordError(event2);
 
       const filePath = store.getDailyFilePath(new Date(event1.timestamp));
-      const lines = fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim());
+      const lines = fs
+        .readFileSync(filePath, 'utf8')
+        .split('\n')
+        .filter(l => l.trim());
 
       expect(lines.length).toBe(2);
       expect(JSON.parse(lines[0]).id).toBe('evt_001');

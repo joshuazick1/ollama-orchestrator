@@ -25,7 +25,9 @@ export const RecoveryTab = ({ recoverySummary, recoveryStats }: RecoveryTabProps
           <div className="flex items-center justify-between">
             <div>
               <p className="text-text-muted text-sm">Total Servers</p>
-              <p className="text-3xl font-bold text-text-base">{recoverySummary?.totalServers || 0}</p>
+              <p className="text-3xl font-bold text-text-base">
+                {recoverySummary?.totalServers || 0}
+              </p>
             </div>
             <Server className="w-10 h-10 text-blue-500/50" />
           </div>
@@ -45,7 +47,9 @@ export const RecoveryTab = ({ recoverySummary, recoveryStats }: RecoveryTabProps
           <div className="flex items-center justify-between">
             <div>
               <p className="text-text-muted text-sm">Total Failures</p>
-              <p className="text-3xl font-bold text-text-base">{recoverySummary?.totalFailures || 0}</p>
+              <p className="text-3xl font-bold text-text-base">
+                {recoverySummary?.totalFailures || 0}
+              </p>
             </div>
             <Minus className="w-10 h-10 text-text-subtle/50" />
           </div>

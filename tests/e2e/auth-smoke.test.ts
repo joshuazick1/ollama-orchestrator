@@ -50,7 +50,9 @@ test.describe('Auth Smoke Tests', () => {
     await page.getByLabel(/password/i).fill('wrongpassword123');
     await page.getByRole('button', { name: /sign in/i }).click();
 
-    await expect(page.getByText(/invalid|failed|error|authentication/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/invalid|failed|error|authentication/i)).toBeVisible({
+      timeout: 5000,
+    });
     await expect(page).toHaveURL(/\/login/);
   });
 
@@ -71,9 +73,12 @@ test.describe('Auth Smoke Tests', () => {
 
     await expect(page).toHaveURL(/\/$|\/dashboard/i, { timeout: 10000 });
 
-    const response = await page.request.get(`${TEST_CONFIG.ORCHESTRATOR_URL}/api/orchestrator/health`, {
-      headers: { Authorization: 'Bearer invalid-token' },
-    });
+    const response = await page.request.get(
+      `${TEST_CONFIG.ORCHESTRATOR_URL}/api/orchestrator/health`,
+      {
+        headers: { Authorization: 'Bearer invalid-token' },
+      }
+    );
 
     if (response.status() === 401) {
       expect(true).toBeTruthy();

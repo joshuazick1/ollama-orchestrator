@@ -633,7 +633,9 @@ describe('Server-Specific Routes Tests', () => {
 
         const handler = async (req: Request, res: Response) => {
           const svr = mockOrchestrator.getServer(req.params.serverId);
-          if (!svr) {return res.status(404).json({ error: 'Not found' });}
+          if (!svr) {
+            return res.status(404).json({ error: 'Not found' });
+          }
           await mockOrchestrator.requestToServer(svr, 'generate', req.body);
           return res.status(200).json({ success: true });
         };

@@ -7,6 +7,7 @@ Create a structured telemetry log file that captures **every timeout-relevant ev
 ## Problem
 
 Currently, timeout tuning is guesswork. You can't answer:
+
 - What's the actual p95 response time for server X, model Y?
 - How often do timeouts fire vs. complete successfully?
 - Is the 60s activity timeout too aggressive for streaming?
@@ -21,12 +22,12 @@ A dedicated telemetry writer that appends structured JSON entries to a **separat
 
 ### Log File
 
-| Property | Value |
-|----------|-------|
-| Path | `logs/timeout-tuning.log` (configurable via `TIMEOUT_TELEMETRY_LOG`) |
-| Format | One JSON object per line (NDJSON) |
-| Rotation | Daily — file named `timeout-tuning-YYYY-MM-DD.log` |
-| Control | Enabled by default, disabled via `TIMEOUT_TELEMETRY_ENABLED=false` |
+| Property | Value                                                                |
+| -------- | -------------------------------------------------------------------- |
+| Path     | `logs/timeout-tuning.log` (configurable via `TIMEOUT_TELEMETRY_LOG`) |
+| Format   | One JSON object per line (NDJSON)                                    |
+| Rotation | Daily — file named `timeout-tuning-YYYY-MM-DD.log`                   |
+| Control  | Enabled by default, disabled via `TIMEOUT_TELEMETRY_ENABLED=false`   |
 
 ### Telemetry Event Types
 
@@ -37,21 +38,21 @@ Emitted when a non-streaming request finishes or a streaming request ends.
 ```typescript
 interface RequestCompleteEvent {
   type: 'REQUEST_COMPLETE';
-  timestamp: string;           // ISO 8601
+  timestamp: string; // ISO 8601
   serverId: string;
   model: string;
   protocol: 'ollama' | 'openai' | 'anthropic';
-  endpoint: string;            // e.g., '/api/generate', '/v1/chat/completions'
+  endpoint: string; // e.g., '/api/generate', '/v1/chat/completions'
   isStreaming: boolean;
 
   // Timeout configuration at time of request
   configuredTimeoutMs: number; // What TimeoutManager returned
   clientHeaderTimeoutMs?: number; // X-Request-Timeout if supplied
-  effectiveTimeoutMs: number;  // After header clamping
+  effectiveTimeoutMs: number; // After header clamping
 
   // Actual timing
   timeToFirstTokenMs?: number; // Streaming only
-  totalDurationMs: number;     // From request start to completion
+  totalDurationMs: number; // From request start to completion
   tokensGenerated?: number;
   tokensPrompt?: number;
 
@@ -61,8 +62,8 @@ interface RequestCompleteEvent {
   errorMessage?: string;
 
   // Retry context
-  retryAttempt: number;        // 0 = first attempt
-  failoverServer?: string;     // If this was a failover target
+  retryAttempt: number; // 0 = first attempt
+  failoverServer?: string; // If this was a failover target
 }
 ```
 
@@ -112,7 +113,7 @@ interface TimeoutFiredEvent {
   // Which timeout layer fired
   timeoutType: 'connection' | 'activity' | 'non_streaming';
   configuredTimeoutMs: number;
-  elapsedMs: number;           // How long the request ran before timeout
+  elapsedMs: number; // How long the request ran before timeout
 
   // Context
   retryAttempt: number;
@@ -185,13 +186,13 @@ interface StreamingChunkGapEvent {
 
 ### Where to emit events
 
-| Event | Location | Trigger |
-|-------|----------|---------|
-| `REQUEST_COMPLETE` | `orchestrator.ts` — after `tryRequestWithFailover` resolves | Every request completion |
-| `TIMEOUT_ADAPTED` | `timeout-manager.ts` — in `updateFromResponseTime`, `recordFailure`, `applyDecay`, `reset` | Every timeout value change |
-| `TIMEOUT_FIRED` | `fetch-with-timeout.ts` — in catch block for AbortError | Every timeout abort |
-| `STALL_DETECTED` | `streaming.ts` — in stall detection interval callback | Every stall trigger |
-| `STREAMING_CHUNK_GAP` | `streaming.ts` — in existing 30s progress log | Every 30s during active stream |
+| Event                 | Location                                                                                   | Trigger                        |
+| --------------------- | ------------------------------------------------------------------------------------------ | ------------------------------ |
+| `REQUEST_COMPLETE`    | `orchestrator.ts` — after `tryRequestWithFailover` resolves                                | Every request completion       |
+| `TIMEOUT_ADAPTED`     | `timeout-manager.ts` — in `updateFromResponseTime`, `recordFailure`, `applyDecay`, `reset` | Every timeout value change     |
+| `TIMEOUT_FIRED`       | `fetch-with-timeout.ts` — in catch block for AbortError                                    | Every timeout abort            |
+| `STALL_DETECTED`      | `streaming.ts` — in stall detection interval callback                                      | Every stall trigger            |
+| `STREAMING_CHUNK_GAP` | `streaming.ts` — in existing 30s progress log                                              | Every 30s during active stream |
 
 ### Minimal instrumentation in controllers
 
@@ -223,6 +224,7 @@ recordRequestComplete({
 With this telemetry, you can answer:
 
 ### "What timeout should I set for server X?"
+
 ```
 # Filter by serverId, compute p95 totalDurationMs for non-streaming
 # Set timeout = p95 * 2x (matching slowRequestMultiplier)
@@ -233,6 +235,7 @@ grep '"serverId":"my-slow-server"' timeout-tuning.log \
 ```
 
 ### "Is my activity timeout too aggressive?"
+
 ```
 # Count how many successful streams had approachingTimeout=true
 grep '"STREAMING_CHUNK_GAP"' timeout-tuning.log \
@@ -242,6 +245,7 @@ grep '"STREAMING_CHUNK_GAP"' timeout-tuning.log \
 ```
 
 ### "How often do timeouts actually fire?"
+
 ```
 grep '"TIMEOUT_FIRED"' timeout-tuning.log | wc -l
 grep '"REQUEST_COMPLETE"' timeout-tuning.log | wc -l
@@ -249,6 +253,7 @@ grep '"REQUEST_COMPLETE"' timeout-tuning.log | wc -l
 ```
 
 ### "What's the natural chunk gap distribution?"
+
 ```
 grep '"STREAMING_CHUNK_GAP"' timeout-tuning.log \
   | jq '.maxChunkGapMs' \
@@ -257,6 +262,7 @@ grep '"STREAMING_CHUNK_GAP"' timeout-tuning.log \
 ```
 
 ### "Is TimeoutManager converging properly?"
+
 ```
 grep '"TIMEOUT_ADAPTED"' timeout-tuning.log \
   | jq '{ts: .timestamp, server: .serverId, model: .model, before: .previousTimeoutMs, after: .newTimeoutMs, trigger: .trigger}'
@@ -268,21 +274,25 @@ grep '"TIMEOUT_ADAPTED"' timeout-tuning.log \
 ## Implementation Plan
 
 ### Phase 1: Telemetry Module
+
 1. Create `src/utils/timeout-telemetry.ts` — structured NDJSON writer with daily rotation
 2. Add `TIMEOUT_TELEMETRY_ENABLED` env var (default: `true`)
 3. Add `TIMEOUT_TELEMETRY_LOG` env var for custom path
 
 ### Phase 2: Instrumentation
+
 4. Instrument `timeout-manager.ts` — emit `TIMEOUT_ADAPTED` on every state change
 5. Instrument `fetch-with-timeout.ts` — emit `TIMEOUT_FIRED` on AbortError
 6. Instrument `streaming.ts` — emit `STALL_DETECTED` and `STREAMING_CHUNK_GAP`
 7. Instrument `orchestrator.ts` — emit `REQUEST_COMPLETE` after every request
 
 ### Phase 3: Controller Integration
+
 8. Add telemetry calls to all controller endpoints (Ollama, OpenAI, Anthropic)
 9. Ensure `handleEmbed` gets the fix from T1 + telemetry
 
 ### Phase 4: Verification
+
 10. Run load test, verify `logs/timeout-tuning.log` contains expected events
 11. Validate NDJSON is parseable and queryable
 
@@ -313,8 +323,8 @@ logs/
 
 ## Configuration
 
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `TIMEOUT_TELEMETRY_ENABLED` | `true` | Enable/disable telemetry logging |
-| `TIMEOUT_TELEMETRY_LOG` | `./logs/timeout-tuning.log` | Base path for telemetry log |
-| `TIMEOUT_TELEMETRY_CHUNK_GAP_INTERVAL_MS` | `30000` | How often to sample chunk gaps during streaming |
+| Env Var                                   | Default                     | Description                                     |
+| ----------------------------------------- | --------------------------- | ----------------------------------------------- |
+| `TIMEOUT_TELEMETRY_ENABLED`               | `true`                      | Enable/disable telemetry logging                |
+| `TIMEOUT_TELEMETRY_LOG`                   | `./logs/timeout-tuning.log` | Base path for telemetry log                     |
+| `TIMEOUT_TELEMETRY_CHUNK_GAP_INTERVAL_MS` | `30000`                     | How often to sample chunk gaps during streaming |

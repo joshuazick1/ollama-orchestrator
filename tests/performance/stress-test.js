@@ -5,8 +5,8 @@
  * Pushes the system beyond normal operating limits to find breaking points.
  */
 
-import http from 'k6/http';
 import { check, sleep } from 'k6';
+import http from 'k6/http';
 import { Rate, Trend } from 'k6/metrics';
 
 // Custom metrics

@@ -186,7 +186,10 @@ export const InFlight = () => {
                           className={`rounded-lg p-3 ${req.isStalled ? 'bg-red-900/30 border border-red-500/50' : 'bg-surface-raised'}`}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="text-sm text-text-base truncate font-mono" title={req.id}>
+                            <div
+                              className="text-sm text-text-base truncate font-mono"
+                              title={req.id}
+                            >
                               {req.id.slice(0, 8)}...
                             </div>
                             {req.isStalled && (

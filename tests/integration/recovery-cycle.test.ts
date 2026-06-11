@@ -25,7 +25,11 @@ async function startServer(
 }
 
 describe('recovery-cycle integration – open→half-open→probe→close', () => {
-  let mockServer: { server: http.Server; getRequestLog: () => string[]; getRequestCount: () => number };
+  let mockServer: {
+    server: http.Server;
+    getRequestLog: () => string[];
+    getRequestCount: () => number;
+  };
   let serverPort: number;
   let closeServer: () => Promise<void>;
   let coordinator: RecoveryTestCoordinator;

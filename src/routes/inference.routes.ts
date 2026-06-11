@@ -46,7 +46,12 @@ inferenceRouter.post(
   validateRequest(generateRequestSchema),
   asyncHandler(handleGenerate)
 );
-inferenceRouter.post('/chat', requireAuth(), validateRequest(chatRequestSchema), asyncHandler(handleChat));
+inferenceRouter.post(
+  '/chat',
+  requireAuth(),
+  validateRequest(chatRequestSchema),
+  asyncHandler(handleChat)
+);
 inferenceRouter.post(
   '/embeddings',
   requireAuth(),
@@ -57,7 +62,12 @@ inferenceRouter.get('/ps', optionalAuth(), asyncHandler(handlePs));
 inferenceRouter.get('/version', optionalAuth(), handleVersion);
 
 inferenceRouter.post('/show', requireAuth(), asyncHandler(handleShow));
-inferenceRouter.post('/embed', requireAuth(), validateRequest(embedRequestSchema), asyncHandler(handleEmbed));
+inferenceRouter.post(
+  '/embed',
+  requireAuth(),
+  validateRequest(embedRequestSchema),
+  asyncHandler(handleEmbed)
+);
 
 // Multi-node incompatible endpoints - always reject with helpful message
 inferenceRouter.post('/pull', handleUnsupported);
@@ -71,4 +81,8 @@ inferenceRouter.post('/push', handleUnsupported);
 // Server-specific routes (/:endpoint--$serverid) for testing/debugging
 inferenceRouter.post('/generate--:serverId', requireAuth(), asyncHandler(handleGenerateToServer));
 inferenceRouter.post('/chat--:serverId', requireAuth(), asyncHandler(handleChatToServer));
-inferenceRouter.post('/embeddings--:serverId', requireAuth(), asyncHandler(handleEmbeddingsToServer));
+inferenceRouter.post(
+  '/embeddings--:serverId',
+  requireAuth(),
+  asyncHandler(handleEmbeddingsToServer)
+);

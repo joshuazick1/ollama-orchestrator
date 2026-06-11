@@ -3,6 +3,7 @@
 **Date:** April 2026
 **Status:** Complete
 **Files Analyzed:**
+
 - `src/circuit-breaker/circuit-breaker.ts` (1262 lines)
 - `src/utils/error-classifier.ts` (732 lines)
 - `src/utils/recovery-backoff.ts` (196 lines)
@@ -12,6 +13,7 @@
 ## 1. Architecture Overview
 
 The circuit breaker implements a **three-state machine** (closed → open → half-open → closed) with:
+
 - Adaptive failure thresholds
 - Error-type-aware backoff calculation
 - Sliding window error rate tracking
@@ -39,14 +41,14 @@ The circuit breaker implements a **three-state machine** (closed → open → ha
 
 ### 1.2 Key Components
 
-| Component | Purpose |
-|-----------|---------|
-| `CircuitBreaker` | Core state machine and threshold logic |
-| `CircuitBreakerRegistry` | Manages multiple breakers by name |
-| `SlidingWindow` | Tracks errors/successes with time-based eviction |
-| `ErrorClassifier` | Classifies errors to determine circuit-breaking behavior |
-| `RecoveryTestCoordinator` | Coordinates half-open recovery tests |
-| `calculateCircuitBreakerBackoff()` | Computes open→half-open delay |
+| Component                          | Purpose                                                  |
+| ---------------------------------- | -------------------------------------------------------- |
+| `CircuitBreaker`                   | Core state machine and threshold logic                   |
+| `CircuitBreakerRegistry`           | Manages multiple breakers by name                        |
+| `SlidingWindow`                    | Tracks errors/successes with time-based eviction         |
+| `ErrorClassifier`                  | Classifies errors to determine circuit-breaking behavior |
+| `RecoveryTestCoordinator`          | Coordinates half-open recovery tests                     |
+| `calculateCircuitBreakerBackoff()` | Computes open→half-open delay                            |
 
 ---
 
@@ -77,16 +79,16 @@ type ErrorType = 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'ra
 
 Errors are checked in priority order:
 
-| Priority | Pattern Category | Error Type | shouldCircuitBreak | Example |
-|----------|-----------------|------------|-------------------|---------|
-| 1 | `ignore` | `non-retryable` | **false** | "does not support generate" |
-| 2 | `nonRetryable` | `non-retryable` | **true** | "not found", "invalid", "out of memory" |
-| 3 | `rateLimit` | `rateLimited` | **true** | "rate limit", "too many requests" |
-| 4 | `transient` | `transient` | **false** | "timeout", "temporarily unavailable" |
-| 5 | `network` | `transient` | **false** | "econnrefused", "connection reset" |
-| 6 | `resource` | `retryable` | **false** | "busy", "overloaded", "capacity" |
-| 7 | HTTP status | Varies | Varies | 4xx → non-retryable, 5xx retryable |
-| 8 | Default | `retryable` | **true** | Unknown errors |
+| Priority | Pattern Category | Error Type      | shouldCircuitBreak | Example                                 |
+| -------- | ---------------- | --------------- | ------------------ | --------------------------------------- |
+| 1        | `ignore`         | `non-retryable` | **false**          | "does not support generate"             |
+| 2        | `nonRetryable`   | `non-retryable` | **true**           | "not found", "invalid", "out of memory" |
+| 3        | `rateLimit`      | `rateLimited`   | **true**           | "rate limit", "too many requests"       |
+| 4        | `transient`      | `transient`     | **false**          | "timeout", "temporarily unavailable"    |
+| 5        | `network`        | `transient`     | **false**          | "econnrefused", "connection reset"      |
+| 6        | `resource`       | `retryable`     | **false**          | "busy", "overloaded", "capacity"        |
+| 7        | HTTP status      | Varies          | Varies             | 4xx → non-retryable, 5xx retryable      |
+| 8        | Default          | `retryable`     | **true**           | Unknown errors                          |
 
 ### 2.4 Critical Behavior
 
@@ -110,6 +112,7 @@ if (!classification.shouldCircuitBreak) {
 **Location:** `error-classifier.ts:166-175`
 
 These errors should NOT open circuits:
+
 - Embedding model errors ("does not support generate", "cannot generate embeddings")
 - Wrong model type errors
 
@@ -211,6 +214,7 @@ Conditions:
 ```
 
 **Starvation Guard (GAP-CB-5):**
+
 ```typescript
 if (this.consecutiveFailedRecoveries >= 3) {
   let baseTimeout = this.config.openTimeout;
@@ -235,6 +239,7 @@ Conditions:
 ```
 
 **On success:**
+
 - Resets `failureCount`, `consecutiveSuccesses`, `halfOpenRequestCount`, `activeTestsInProgress`
 - Resets `consecutiveFailedRecoveries` to 0
 - Learns rate limit backoff if recovered from rate limit
@@ -249,6 +254,7 @@ Condition:
 ```
 
 **Behavior:**
+
 - Increments `consecutiveFailedRecoveries`
 - Applies error-type-specific backoff (48h for non-retryable, 24h for permanent, etc.)
 - Resets half-open tracking
@@ -264,18 +270,19 @@ Condition:
 ```
 
 **Behavior:**
+
 - Calls `recordFailure()` to increment `consecutiveFailedRecoveries`
 - Transitions to OPEN
 
 ### 4.6 State Transition Summary Table
 
-| From | To | Trigger | Location |
-|------|-----|---------|----------|
-| CLOSED | OPEN | `failureCount >= threshold` OR `errorRate > threshold` | :547-568 |
-| OPEN | HALF-OPEN | `now >= nextRetryAt` AND `consecutiveFailedRecoveries < max` | :310-364 |
-| HALF-OPEN | CLOSED | `consecutiveSuccesses >= recoverySuccessThreshold` | :427-467 |
-| HALF-OPEN | OPEN | Circuit-breaking failure | :516-546 |
-| HALF-OPEN | OPEN | `halfOpenTimeout` expired | :794-824 |
+| From      | To        | Trigger                                                      | Location |
+| --------- | --------- | ------------------------------------------------------------ | -------- |
+| CLOSED    | OPEN      | `failureCount >= threshold` OR `errorRate > threshold`       | :547-568 |
+| OPEN      | HALF-OPEN | `now >= nextRetryAt` AND `consecutiveFailedRecoveries < max` | :310-364 |
+| HALF-OPEN | CLOSED    | `consecutiveSuccesses >= recoverySuccessThreshold`           | :427-467 |
+| HALF-OPEN | OPEN      | Circuit-breaking failure                                     | :516-546 |
+| HALF-OPEN | OPEN      | `halfOpenTimeout` expired                                    | :794-824 |
 
 ---
 
@@ -295,16 +302,16 @@ export function calculateCircuitBreakerBackoff(
 ): number {
   switch (errorType) {
     case 'permanent':
-      return 24 * 60 * 60 * 1000;      // 24 hours
+      return 24 * 60 * 60 * 1000; // 24 hours
     case 'non-retryable':
-      return 48 * 60 * 60 * 1000;      // 48 hours
+      return 48 * 60 * 60 * 1000; // 48 hours
     case 'retryable':
-      return 12 * 60 * 60 * 1000;       // 12 hours
+      return 12 * 60 * 60 * 1000; // 12 hours
     case 'rateLimited':
       return retryAfterMs ?? Math.min(300000 * Math.pow(3, consecutiveFailures), 3600000);
     case 'transient':
     default:
-      return 2 * 60 * 1000;             // 2 minutes
+      return 2 * 60 * 1000; // 2 minutes
   }
 }
 ```
@@ -462,25 +469,25 @@ if (newState === 'half-open') {
 
 ### 7.1 Hardcoded Values
 
-| Value | Location | Hardcoded | Configurable | Default |
-|-------|----------|-----------|--------------|---------|
-| `baseFailureThreshold` | circuit-breaker.ts:114 | Yes | Yes | 3 (test), 5 (prod) |
-| `maxFailureThreshold` | circuit-breaker.ts:115 | Yes | Yes | 8 (test), 10 (prod) |
-| `minFailureThreshold` | circuit-breaker.ts:116 | Yes | Yes | 2 (test), 3 (prod) |
-| `openTimeout` | circuit-breaker.ts:117 | Yes | Yes | 120000ms (2 min) |
-| `halfOpenTimeout` | circuit-breaker.ts:118 | Yes | Yes | 300000ms (5 min) |
-| `halfOpenMaxRequests` | circuit-breaker.ts:119 | Yes | Yes | 3 |
-| `recoverySuccessThreshold` | circuit-breaker.ts:120 | Yes | Yes | 5 |
-| `activeTestTimeout` | circuit-breaker.ts:121 | Yes | Yes | 300000ms (5 min) |
-| `maxHalfOpenPerServer` | circuit-breaker.ts:122 | Yes | Yes | 3 |
-| `maxConsecutiveFailedRecoveries` | circuit-breaker.ts:123 | Yes | Yes | 5 |
-| `errorRateWindow` | circuit-breaker.ts:124 | Yes | Yes | 60000ms (1 min) |
-| `errorRateThreshold` | circuit-breaker.ts:127 | Yes | Yes | 1.0 (test), 0.3 (prod) |
-| `adaptiveThresholds` | circuit-breaker.ts:131 | Yes | Yes | false (test), true (prod) |
-| `errorRateSmoothing` | circuit-breaker.ts:132 | Yes | Yes | 0.3 |
-| `adaptiveThresholdAdjustment` | circuit-breaker.ts:158 | Yes | Yes | 2 |
-| `nonRetryableRatioThreshold` | circuit-breaker.ts:159 | Yes | Yes | 0.5 |
-| `transientRatioThreshold` | circuit-breaker.ts:160 | Yes | Yes | 0.7 |
+| Value                            | Location               | Hardcoded | Configurable | Default                   |
+| -------------------------------- | ---------------------- | --------- | ------------ | ------------------------- |
+| `baseFailureThreshold`           | circuit-breaker.ts:114 | Yes       | Yes          | 3 (test), 5 (prod)        |
+| `maxFailureThreshold`            | circuit-breaker.ts:115 | Yes       | Yes          | 8 (test), 10 (prod)       |
+| `minFailureThreshold`            | circuit-breaker.ts:116 | Yes       | Yes          | 2 (test), 3 (prod)        |
+| `openTimeout`                    | circuit-breaker.ts:117 | Yes       | Yes          | 120000ms (2 min)          |
+| `halfOpenTimeout`                | circuit-breaker.ts:118 | Yes       | Yes          | 300000ms (5 min)          |
+| `halfOpenMaxRequests`            | circuit-breaker.ts:119 | Yes       | Yes          | 3                         |
+| `recoverySuccessThreshold`       | circuit-breaker.ts:120 | Yes       | Yes          | 5                         |
+| `activeTestTimeout`              | circuit-breaker.ts:121 | Yes       | Yes          | 300000ms (5 min)          |
+| `maxHalfOpenPerServer`           | circuit-breaker.ts:122 | Yes       | Yes          | 3                         |
+| `maxConsecutiveFailedRecoveries` | circuit-breaker.ts:123 | Yes       | Yes          | 5                         |
+| `errorRateWindow`                | circuit-breaker.ts:124 | Yes       | Yes          | 60000ms (1 min)           |
+| `errorRateThreshold`             | circuit-breaker.ts:127 | Yes       | Yes          | 1.0 (test), 0.3 (prod)    |
+| `adaptiveThresholds`             | circuit-breaker.ts:131 | Yes       | Yes          | false (test), true (prod) |
+| `errorRateSmoothing`             | circuit-breaker.ts:132 | Yes       | Yes          | 0.3                       |
+| `adaptiveThresholdAdjustment`    | circuit-breaker.ts:158 | Yes       | Yes          | 2                         |
+| `nonRetryableRatioThreshold`     | circuit-breaker.ts:159 | Yes       | Yes          | 0.5                       |
+| `transientRatioThreshold`        | circuit-breaker.ts:160 | Yes       | Yes          | 0.7                       |
 
 ### 7.2 Hardcoded Error Backoffs (Non-Configurable)
 
@@ -514,6 +521,7 @@ if (errorType === 'non-retryable' || errorType === 'permanent') {
 ### 7.4 Config Points Summary
 
 **Configurable via `CircuitBreakerConfig`:**
+
 - ✅ All threshold values (baseFailureThreshold, minFailureThreshold, maxFailureThreshold)
 - ✅ All timeout values (openTimeout, halfOpenTimeout, activeTestTimeout)
 - ✅ All ratio thresholds (nonRetryableRatioThreshold, transientRatioThreshold)
@@ -523,6 +531,7 @@ if (errorType === 'non-retryable' || errorType === 'permanent') {
 - ✅ Model escalation settings (modelEscalation object)
 
 **NOT Configurable (Hardcoded):**
+
 - ❌ Error-type-specific backoff durations (permanent=24h, non-retryable=48h, etc.)
 - ❌ Active test timeouts (model capability=5s, permanent=15s)
 - ❌ Jitter range (0-30s hardcoded)
@@ -538,6 +547,7 @@ if (errorType === 'non-retryable' || errorType === 'permanent') {
 **Location:** `circuit-breaker.ts:318-349`
 
 The starvation guard uses hardcoded `3` as the threshold to start extending backoff:
+
 ```typescript
 if (this.consecutiveFailedRecoveries >= 3) {
   // Start extending backoff
@@ -578,6 +588,7 @@ The circuit breaker uses hardcoded 24h/48h/12h backoffs for permanent/non-retrya
 **Location:** `circuit-breaker.ts:261-280`
 
 The microtask-chain lock (`_lockTail`) serializes state-modifying methods. This is an internal implementation detail but worth noting:
+
 - `canExecute()` is sync-only and uses `_transitioning` guard
 - `recordSuccess()` and `recordFailure()` use `withStateLock()`
 - `restoreState()` uses `_restoring` flag with `setImmediate()` deferral
@@ -587,6 +598,7 @@ The microtask-chain lock (`_lockTail`) serializes state-modifying methods. This 
 **Location:** `circuit-breaker.ts:1139`
 
 The jitter is **not persisted** in `restoreState()`. On restart, if a breaker was in half-open, the `halfOpenStartedAt` is either:
+
 - Kept as persisted value (if valid)
 - Set to `Date.now()` (if invalid/0)
 
@@ -600,46 +612,47 @@ Based on this analysis, the following could be made configurable:
 
 ### 9.1 Currently Hardcoded, Should Be Configurable
 
-| Item | Current | Suggested Config Key |
-|------|---------|---------------------|
-| Starvation guard trigger | `>= 3` hardcoded | `starvationGuardThreshold` |
-| Flapping timeout multiplier | `2` hardcoded | `flappingTimeoutMultiplier` |
-| Flapping threshold increase | `+2` hardcoded | `flappingThresholdIncrease` |
-| Active test timeout (capability) | `5000` hardcoded | `capabilityTestTimeoutMs` |
-| Active test timeout (permanent) | `15000` hardcoded | `permanentTestTimeoutMs` |
-| Jitter max | `30000` hardcoded | `halfOpenJitterMaxMs` |
+| Item                             | Current           | Suggested Config Key        |
+| -------------------------------- | ----------------- | --------------------------- |
+| Starvation guard trigger         | `>= 3` hardcoded  | `starvationGuardThreshold`  |
+| Flapping timeout multiplier      | `2` hardcoded     | `flappingTimeoutMultiplier` |
+| Flapping threshold increase      | `+2` hardcoded    | `flappingThresholdIncrease` |
+| Active test timeout (capability) | `5000` hardcoded  | `capabilityTestTimeoutMs`   |
+| Active test timeout (permanent)  | `15000` hardcoded | `permanentTestTimeoutMs`    |
+| Jitter max                       | `30000` hardcoded | `halfOpenJitterMaxMs`       |
 
 ### 9.2 Error-Type Backoffs (Currently Hardcoded in recovery-backoff.ts)
 
-| Error Type | Current | Suggested Config Key |
-|------------|---------|---------------------|
-| permanent | 24 hours | `backoff.permanentMs` |
-| non-retryable | 48 hours | `backoff.nonRetryableMs` |
-| retryable | 12 hours | `backoff.retryableMs` |
-| transient | 2 minutes | `backoff.transientMs` |
+| Error Type    | Current   | Suggested Config Key     |
+| ------------- | --------- | ------------------------ |
+| permanent     | 24 hours  | `backoff.permanentMs`    |
+| non-retryable | 48 hours  | `backoff.nonRetryableMs` |
+| retryable     | 12 hours  | `backoff.retryableMs`    |
+| transient     | 2 minutes | `backoff.transientMs`    |
 
 ---
 
 ## 10. File Locations Quick Reference
 
-| Component | File | Lines |
-|-----------|------|-------|
-| CircuitBreaker class | circuit-breaker.ts | 233-1156 |
-| CircuitBreakerRegistry | circuit-breaker.ts | 1161-1262 |
-| SlidingWindow | circuit-breaker.ts | 176-231 |
-| canExecute() | circuit-breaker.ts | 302-377 |
-| recordFailure() | circuit-breaker.ts | 479-570 |
-| recordSuccess() | circuit-breaker.ts | 418-474 |
-| getBackoffForErrorType() | circuit-breaker.ts | 940-952 |
-| calculateCircuitBreakerBackoff() | recovery-backoff.ts | 163-196 |
-| ErrorClassifier.classify() | error-classifier.ts | 344-478 |
-| DEFAULT_CIRCUIT_BREAKER_CONFIG | circuit-breaker.ts | 113-174 |
+| Component                        | File                | Lines     |
+| -------------------------------- | ------------------- | --------- |
+| CircuitBreaker class             | circuit-breaker.ts  | 233-1156  |
+| CircuitBreakerRegistry           | circuit-breaker.ts  | 1161-1262 |
+| SlidingWindow                    | circuit-breaker.ts  | 176-231   |
+| canExecute()                     | circuit-breaker.ts  | 302-377   |
+| recordFailure()                  | circuit-breaker.ts  | 479-570   |
+| recordSuccess()                  | circuit-breaker.ts  | 418-474   |
+| getBackoffForErrorType()         | circuit-breaker.ts  | 940-952   |
+| calculateCircuitBreakerBackoff() | recovery-backoff.ts | 163-196   |
+| ErrorClassifier.classify()       | error-classifier.ts | 344-478   |
+| DEFAULT_CIRCUIT_BREAKER_CONFIG   | circuit-breaker.ts  | 113-174   |
 
 ---
 
 ## 11. Summary
 
 ### Strengths
+
 - Clean three-state machine with well-defined transitions
 - Error classification integration properly gates circuit-breaking decisions
 - Adaptive threshold logic is configurable and opt-in
@@ -648,6 +661,7 @@ Based on this analysis, the following could be made configurable:
 - Recovery test coordination via dedicated coordinator
 
 ### Areas for Improvement
+
 1. **Hardcoded magic numbers** scattered throughout (3, 10, 5000, 15000, etc.)
 2. **Unused config** (`halfOpenMaxRequests`) indicates design drift
 3. **Error-type backoffs hardcoded** in `calculateCircuitBreakerBackoff()`
@@ -655,6 +669,7 @@ Based on this analysis, the following could be made configurable:
 5. **No jitter persistence** could cause post-restart behavior differences
 
 ### Configurability Status
+
 - **Most thresholds ARE configurable** via `CircuitBreakerConfig`
 - **Backoff delays ARE configurable** via `backoff` object
 - **Error-type backoffs are NOT configurable** (hardcoded in recovery-backoff.ts)

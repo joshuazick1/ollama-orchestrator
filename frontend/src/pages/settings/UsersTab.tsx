@@ -204,8 +204,15 @@ export const UsersTab = () => {
   } | null>(null);
 
   const grantModelAccessMutation = useMutation({
-    mutationFn: ({ userId, serverId, model }: { userId: string; serverId: string; model: string }) =>
-      grantModelAccess(userId, serverId, model),
+    mutationFn: ({
+      userId,
+      serverId,
+      model,
+    }: {
+      userId: string;
+      serverId: string;
+      model: string;
+    }) => grantModelAccess(userId, serverId, model),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toastSuccess('Model access granted');
@@ -242,14 +249,10 @@ export const UsersTab = () => {
     try {
       const access = await getUserAccess(userId);
       setUsers(prev =>
-        prev.map(u =>
-          u.id === userId ? { ...u, access, accessLoading: false } : u
-        )
+        prev.map(u => (u.id === userId ? { ...u, access, accessLoading: false } : u))
       );
     } catch {
-      setUsers(prev =>
-        prev.map(u => (u.id === userId ? { ...u, accessLoading: false } : u))
-      );
+      setUsers(prev => prev.map(u => (u.id === userId ? { ...u, accessLoading: false } : u)));
     }
   };
 
@@ -265,9 +268,7 @@ export const UsersTab = () => {
 
       const user = users.find(u => u.id === userId);
       if (user && !user.access) {
-        setUsers(prev =>
-          prev.map(u => (u.id === userId ? { ...u, accessLoading: true } : u))
-        );
+        setUsers(prev => prev.map(u => (u.id === userId ? { ...u, accessLoading: true } : u)));
         await refreshUserAccess(userId);
       }
     }
@@ -284,7 +285,8 @@ export const UsersTab = () => {
     if (!data.email.trim()) errors.email = 'Email is required';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) errors.email = 'Invalid email format';
     if (!editingUser && !data.password) errors.password = 'Password is required';
-    else if (data.password && data.password.length < 8) errors.password = 'Password must be at least 8 characters';
+    else if (data.password && data.password.length < 8)
+      errors.password = 'Password must be at least 8 characters';
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -373,12 +375,24 @@ export const UsersTab = () => {
         <table className="w-full">
           <thead className="bg-surface-raised/50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">User</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Role</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">API Key</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Last Login</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">Actions</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">
+                User
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">
+                Role
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">
+                API Key
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">
+                Last Login
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">
+                Status
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-700">
@@ -471,7 +485,9 @@ export const UsersTab = () => {
                                 <button
                                   onClick={() => {
                                     setAvailableServers(
-                                      serversData?.map(s => s.id).filter(id => !user.access?.serverAccess.includes(id)) || []
+                                      serversData
+                                        ?.map(s => s.id)
+                                        .filter(id => !user.access?.serverAccess.includes(id)) || []
                                     );
                                     setServerAccessModal({ userId: user.id, mode: 'add' });
                                   }}
@@ -490,7 +506,9 @@ export const UsersTab = () => {
                                     >
                                       <span className="text-sm text-gray-300">{serverId}</span>
                                       <button
-                                        onClick={() => setRevokeServerAccessModal({ userId: user.id, serverId })}
+                                        onClick={() =>
+                                          setRevokeServerAccessModal({ userId: user.id, serverId })
+                                        }
                                         className="text-text-muted hover:text-red-400"
                                       >
                                         <X className="w-3 h-3" />
@@ -513,14 +531,19 @@ export const UsersTab = () => {
                               {user.access?.modelAccess && user.access.modelAccess.length > 0 ? (
                                 <div className="space-y-2">
                                   {Object.entries(
-                                    user.access.modelAccess.reduce<Record<string, string[]>>((acc, { serverId, model }) => {
-                                      if (!acc[serverId]) acc[serverId] = [];
-                                      acc[serverId].push(model);
-                                      return acc;
-                                    }, {})
+                                    user.access.modelAccess.reduce<Record<string, string[]>>(
+                                      (acc, { serverId, model }) => {
+                                        if (!acc[serverId]) acc[serverId] = [];
+                                        acc[serverId].push(model);
+                                        return acc;
+                                      },
+                                      {}
+                                    )
                                   ).map(([serverId, models]) => (
                                     <div key={serverId} className="bg-gray-700/30 rounded-lg p-3">
-                                      <div className="text-xs text-text-subtle mb-2">{serverId}</div>
+                                      <div className="text-xs text-text-subtle mb-2">
+                                        {serverId}
+                                      </div>
                                       <div className="flex flex-wrap gap-2">
                                         {models.map(model => (
                                           <div
@@ -530,7 +553,12 @@ export const UsersTab = () => {
                                             <span className="text-sm text-gray-300">{model}</span>
                                             <button
                                               onClick={() =>
-                                                setModelAccessModal({ userId: user.id, serverId, mode: 'remove', model })
+                                                setModelAccessModal({
+                                                  userId: user.id,
+                                                  serverId,
+                                                  mode: 'remove',
+                                                  model,
+                                                })
                                               }
                                               className="text-text-muted hover:text-red-400"
                                             >
@@ -540,7 +568,11 @@ export const UsersTab = () => {
                                         ))}
                                         <button
                                           onClick={() =>
-                                            setModelAccessModal({ userId: user.id, serverId, mode: 'add' })
+                                            setModelAccessModal({
+                                              userId: user.id,
+                                              serverId,
+                                              mode: 'add',
+                                            })
                                           }
                                           className="text-xs text-blue-400 hover:text-blue-300 flex items-center space-x-1 px-2 py-1"
                                         >
@@ -592,10 +624,14 @@ export const UsersTab = () => {
               value={formData.username}
               onChange={e => setFormData(prev => ({ ...prev, username: e.target.value }))}
               className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
-                formErrors.username ? 'border-red-500 focus:ring-red-500' : 'border-gray-600 focus:ring-blue-500'
+                formErrors.username
+                  ? 'border-red-500 focus:ring-red-500'
+                  : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
-            {formErrors.username && <p className="mt-1 text-sm text-red-400">{formErrors.username}</p>}
+            {formErrors.username && (
+              <p className="mt-1 text-sm text-red-400">{formErrors.username}</p>
+            )}
           </div>
 
           <div>
@@ -605,7 +641,9 @@ export const UsersTab = () => {
               value={formData.email}
               onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
               className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
-                formErrors.email ? 'border-red-500 focus:ring-red-500' : 'border-gray-600 focus:ring-blue-500'
+                formErrors.email
+                  ? 'border-red-500 focus:ring-red-500'
+                  : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
             {formErrors.email && <p className="mt-1 text-sm text-red-400">{formErrors.email}</p>}
@@ -620,17 +658,23 @@ export const UsersTab = () => {
               value={formData.password}
               onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
               className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
-                formErrors.password ? 'border-red-500 focus:ring-red-500' : 'border-gray-600 focus:ring-blue-500'
+                formErrors.password
+                  ? 'border-red-500 focus:ring-red-500'
+                  : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
-            {formErrors.password && <p className="mt-1 text-sm text-red-400">{formErrors.password}</p>}
+            {formErrors.password && (
+              <p className="mt-1 text-sm text-red-400">{formErrors.password}</p>
+            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">Role</label>
             <select
               value={formData.role}
-              onChange={e => setFormData(prev => ({ ...prev, role: e.target.value as 'user' | 'admin' }))}
+              onChange={e =>
+                setFormData(prev => ({ ...prev, role: e.target.value as 'user' | 'admin' }))
+              }
               className="w-full bg-surface-raised border border-gray-600 rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="user">User</option>
@@ -687,7 +731,11 @@ export const UsersTab = () => {
               className="ml-4 p-2 text-text-muted hover:text-text-base transition-colors flex-shrink-0"
               title="Copy to clipboard"
             >
-              {copiedKey ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5" />}
+              {copiedKey ? (
+                <Check className="w-5 h-5 text-green-400" />
+              ) : (
+                <Copy className="w-5 h-5" />
+              )}
             </button>
           </div>
           <div className="flex justify-end">

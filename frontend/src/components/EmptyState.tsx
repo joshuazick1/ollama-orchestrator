@@ -55,7 +55,7 @@ export const EmptyState = ({ type, title, message, action }: EmptyStateProps) =>
     return (
       <div className="flex flex-col items-center justify-center py-16 px-4">
         <Icon className="w-12 h-12 text-primary animate-spin mb-4" />
-<h3 className="text-lg font-medium text-text-base mb-2">{title ?? config.title}</h3>
+        <h3 className="text-lg font-medium text-text-base mb-2">{title ?? config.title}</h3>
         <p className="text-text-muted text-center">{message ?? config.message}</p>
       </div>
     );

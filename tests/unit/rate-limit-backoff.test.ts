@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
 import type { RateLimitConfig } from '../../src/config/schema.js';
-import { calculateRateLimitBackoff, calculateExponentialBackoff } from '../../src/utils/rate-limit-backoff.js';
+import {
+  calculateRateLimitBackoff,
+  calculateExponentialBackoff,
+} from '../../src/utils/rate-limit-backoff.js';
 
 describe('calculateRateLimitBackoff', () => {
   const defaultConfig: RateLimitConfig = {
@@ -147,7 +150,9 @@ describe('calculateExponentialBackoff', () => {
 
   it('should return jittered value between ±25% of expected', () => {
     const baseDelay = 1000;
-    const results = Array.from({ length: 10 }, () => calculateExponentialBackoff(0, baseDelay, 5000));
+    const results = Array.from({ length: 10 }, () =>
+      calculateExponentialBackoff(0, baseDelay, 5000)
+    );
     results.forEach(result => {
       expect(result).toBeGreaterThanOrEqual(750);
       expect(result).toBeLessThanOrEqual(1250);
@@ -155,7 +160,9 @@ describe('calculateExponentialBackoff', () => {
   });
 
   it('should produce different values on consecutive calls (jitter working)', () => {
-    const results = new Set(Array.from({ length: 20 }, () => calculateExponentialBackoff(0, 1000, 5000)));
+    const results = new Set(
+      Array.from({ length: 20 }, () => calculateExponentialBackoff(0, 1000, 5000))
+    );
     expect(results.size).toBeGreaterThan(1);
   });
 

@@ -26,7 +26,6 @@ vi.mock('../../src/utils/logger.js', () => ({
   },
 }));
 
-
 describe('Failover - total request timeout', () => {
   beforeEach(() => {
     resetInFlightManager();

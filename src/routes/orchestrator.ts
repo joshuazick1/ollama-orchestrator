@@ -8,7 +8,15 @@ import { monitoringRouter } from './monitoring.routes.js';
 import { userRouter } from './user.routes.js';
 import { v1Router } from './v1.routes.js';
 
-export { monitoringRouter, adminRouter, inferenceRouter, v1Router, anthropicRouter, authRouter, userRouter };
+export {
+  monitoringRouter,
+  adminRouter,
+  inferenceRouter,
+  v1Router,
+  anthropicRouter,
+  authRouter,
+  userRouter,
+};
 
 const router = Router();
 router.use('/', monitoringRouter);

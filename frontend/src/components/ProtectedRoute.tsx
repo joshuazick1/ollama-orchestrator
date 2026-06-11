@@ -33,7 +33,9 @@ export const ProtectedRoute = ({ children, adminOnly }: ProtectedRouteProps) => 
         <div className="text-center">
           <h1 className="text-4xl font-bold text-text-base mb-2">403</h1>
           <p className="text-text-muted mb-4">Access Forbidden</p>
-          <p className="text-gray-500 text-sm">You don&apos;t have permission to access this page.</p>
+          <p className="text-gray-500 text-sm">
+            You don&apos;t have permission to access this page.
+          </p>
         </div>
       </div>
     );

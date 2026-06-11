@@ -326,7 +326,9 @@ export class CircuitBreaker {
               }
 
               const backoffMultiplier = Math.min(
-                this.lastErrorType === 'permanent' || this.lastErrorType === 'non-retryable' ? 5 : 10,
+                this.lastErrorType === 'permanent' || this.lastErrorType === 'non-retryable'
+                  ? 5
+                  : 10,
                 Math.pow(2, this.consecutiveFailedRecoveries - 3)
               );
               const extendedTimeout = baseTimeout * backoffMultiplier;
@@ -550,12 +552,16 @@ export class CircuitBreaker {
       );
     } else if (this.state === 'closed') {
       // Special handling for rate limit errors - open faster after 2 consecutive failures
-      if (classifiedType === 'rateLimited' && this.rateLimitConsecutiveFailures >= this.config.rateLimitFailureThreshold) {
+      if (
+        classifiedType === 'rateLimited' &&
+        this.rateLimitConsecutiveFailures >= this.config.rateLimitFailureThreshold
+      ) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         this.lastFailureReason = errorMsg;
         this.lastErrorType = classifiedType;
         this.transitionTo('open');
-        this.nextRetryAt = now + this.getBackoffForErrorType(classifiedType, retryAfterMs, errorMsg);
+        this.nextRetryAt =
+          now + this.getBackoffForErrorType(classifiedType, retryAfterMs, errorMsg);
         logger.warn(
           `Circuit breaker opened for rate limit: ${this.rateLimitConsecutiveFailures} consecutive failures`,
           {

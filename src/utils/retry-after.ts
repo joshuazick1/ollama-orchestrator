@@ -10,11 +10,9 @@ import { logger } from './logger.js';
  * Regular expression to match HTTP-date format (RFC 7231)
  * Example: "Sat, 01 Jan 2026 00:00:00 GMT"
  */
-const HTTP_DATE_PATTERN =
-  /^[A-Za-z]{3},?\s+\d{2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT$/;
+const HTTP_DATE_PATTERN = /^[A-Za-z]{3},?\s+\d{2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT$/;
 
-const HTTP_DATE_NO_DAY_PATTERN =
-  /^\d{2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT$/;
+const HTTP_DATE_NO_DAY_PATTERN = /^\d{2}\s+[A-Za-z]{3}\s+\d{4}\s+\d{2}:\d{2}:\d{2}\s+GMT$/;
 
 function isHttpDate(dateStr: string): boolean {
   return HTTP_DATE_PATTERN.test(dateStr) || HTTP_DATE_NO_DAY_PATTERN.test(dateStr);

@@ -66,12 +66,12 @@ describe('POST /v1/messages', () => {
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).type).toBe('error');
-    expect(
-      ((data as Record<string, unknown>).error as Record<string, unknown>).type
-    ).toBe('invalid_request_error');
-    expect(
-      ((data as Record<string, unknown>).error as Record<string, unknown>).message
-    ).toMatch(/anthropic-version/i);
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe(
+      'invalid_request_error'
+    );
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).message).toMatch(
+      /anthropic-version/i
+    );
   });
 
   it('returns 400 when thinking field is present', async () => {
@@ -83,9 +83,9 @@ describe('POST /v1/messages', () => {
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).type).toBe('error');
-    expect(
-      ((data as Record<string, unknown>).error as Record<string, unknown>).message
-    ).toMatch(/thinking/i);
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).message).toMatch(
+      /thinking/i
+    );
   });
 
   it('returns 400 when cache_control field is present', async () => {
@@ -97,9 +97,9 @@ describe('POST /v1/messages', () => {
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).type).toBe('error');
-    expect(
-      ((data as Record<string, unknown>).error as Record<string, unknown>).message
-    ).toMatch(/cache_control/i);
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).message).toMatch(
+      /cache_control/i
+    );
   });
 
   it('returns 400 when model is missing', async () => {
@@ -108,9 +108,9 @@ describe('POST /v1/messages', () => {
 
     expect(status).toBe(400);
     expect((data as Record<string, unknown>).type).toBe('error');
-    expect(
-      ((data as Record<string, unknown>).error as Record<string, unknown>).type
-    ).toBe('invalid_request_error');
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe(
+      'invalid_request_error'
+    );
   });
 
   it('returns 503 when no healthy Anthropic servers are available', async () => {
@@ -118,9 +118,9 @@ describe('POST /v1/messages', () => {
 
     expect(status).toBe(503);
     expect((data as Record<string, unknown>).type).toBe('error');
-    expect(
-      ((data as Record<string, unknown>).error as Record<string, unknown>).type
-    ).toBe('overloaded_error');
+    expect(((data as Record<string, unknown>).error as Record<string, unknown>).type).toBe(
+      'overloaded_error'
+    );
   });
 
   it('passes validation and reaches orchestrator for syntactically valid requests', async () => {

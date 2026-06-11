@@ -141,7 +141,9 @@ describe('HealthCheckScheduler v1 timeout mock', () => {
           return {
             ok: true,
             json: async () => ({
-              models: [{ name: 'llama3:8b', model: 'llama3:8b', details: { parameter_size: '8b' } }],
+              models: [
+                { name: 'llama3:8b', model: 'llama3:8b', details: { parameter_size: '8b' } },
+              ],
             }),
           };
         }

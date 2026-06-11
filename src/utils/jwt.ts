@@ -75,9 +75,7 @@ export function validateJwtSecret(): void {
 
   if (secret.length < 32) {
     logger.error('JWT_SECRET is too short', { length: secret.length });
-    throw new Error(
-      `JWT_SECRET must be at least 32 characters. Current length: ${secret.length}`
-    );
+    throw new Error(`JWT_SECRET must be at least 32 characters. Current length: ${secret.length}`);
   }
 
   secretValidated = true;
@@ -106,7 +104,11 @@ function getJwtSecret(): string {
  * @param expiresIn - Token expiry time (default: '15m')
  * @returns Signed JWT string
  */
-export function signToken(userId: string, role: Role, expiresIn: string = ACCESS_TOKEN_EXPIRY): string {
+export function signToken(
+  userId: string,
+  role: Role,
+  expiresIn: string = ACCESS_TOKEN_EXPIRY
+): string {
   const secret = getJwtSecret();
 
   const payload = {

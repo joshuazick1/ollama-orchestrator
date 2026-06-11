@@ -105,10 +105,16 @@ export class ErrorAggregator {
     const windowStart = now - this.config.timeWindowMs;
     const existing = this.rateLimitTimestamps.get(serverId) ?? [];
     existing.push(now);
-    this.rateLimitTimestamps.set(serverId, existing.filter(ts => ts >= windowStart));
+    this.rateLimitTimestamps.set(
+      serverId,
+      existing.filter(ts => ts >= windowStart)
+    );
 
     const distinctServersInWindow = this.countDistinctRateLimitServers();
-    if (distinctServersInWindow >= this.config.rateLimitThreshold && !this.clusterRateLimitTriggeredAt) {
+    if (
+      distinctServersInWindow >= this.config.rateLimitThreshold &&
+      !this.clusterRateLimitTriggeredAt
+    ) {
       this.clusterRateLimitTriggeredAt = now;
       logger.warn(
         `[ErrorAggregator] Cluster-wide rate limit detected: ${distinctServersInWindow} servers ` +
@@ -138,7 +144,8 @@ export class ErrorAggregator {
   getClusterStatus(): ClusterStatus {
     this.pruneExpiredEntries();
     const rateLimitServerCount = this.countDistinctRateLimitServers();
-    const isRateLimited = this.config.enabled && rateLimitServerCount >= this.config.rateLimitThreshold;
+    const isRateLimited =
+      this.config.enabled && rateLimitServerCount >= this.config.rateLimitThreshold;
 
     if (!isRateLimited && this.clusterRateLimitTriggeredAt !== undefined) {
       this.clusterRateLimitTriggeredAt = undefined;

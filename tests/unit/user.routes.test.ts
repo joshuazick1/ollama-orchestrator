@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createMockReq, createMockRes } from '../utils/mock-express.js';
 
 vi.mock('../../src/middleware/csrf.js');
 vi.mock('../../src/utils/jwt.js');
@@ -13,6 +12,7 @@ import * as csrfModule from '../../src/middleware/csrf.js';
 import { userRouter } from '../../src/routes/user.routes.js';
 import * as userStoreModule from '../../src/storage/user-store.js';
 import * as jwtModule from '../../src/utils/jwt.js';
+import { createMockReq, createMockRes } from '../utils/mock-express.js';
 
 const mockJwt = vi.mocked(jwtModule);
 const mockUserStore = vi.mocked(userStoreModule);

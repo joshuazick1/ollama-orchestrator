@@ -108,7 +108,9 @@ export async function getCsrfToken(): Promise<string> {
   });
   const setCookie = response.headers.get('set-cookie') ?? '';
   const match = setCookie.match(/csrf-token=([^;]+)/);
-  if (!match) {throw new Error('CSRF token not returned by /csrf-token endpoint');}
+  if (!match) {
+    throw new Error('CSRF token not returned by /csrf-token endpoint');
+  }
   return match[1];
 }
 

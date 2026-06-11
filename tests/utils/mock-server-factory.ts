@@ -781,7 +781,7 @@ export function createMockOllamaServer(
   let requestCount = 0;
   const requestLog: string[] = [];
 
-  const server = (require('http') as any).createServer((req: any, res: any) => {
+  const server = require('http').createServer((req: any, res: any) => {
     const path = req.url ?? '/';
     requestLog.push(`${req.method} ${path}`);
 

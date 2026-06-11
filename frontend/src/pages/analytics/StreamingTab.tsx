@@ -146,7 +146,10 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
                     ).streamingMetrics;
                     if (!streaming) return null;
                     return (
-                      <div key={`${serverId}:${model}`} className="bg-surface-raised rounded-lg p-3">
+                      <div
+                        key={`${serverId}:${model}`}
+                        className="bg-surface-raised rounded-lg p-3"
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-text-base text-sm font-medium truncate">
                             {serverId}:{model}

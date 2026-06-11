@@ -755,7 +755,9 @@ describe('Dual-Capability Server Tests', () => {
 
       // Simulate redaction
       const redactKey = (key?: string) => {
-        if (!key) {return undefined;}
+        if (!key) {
+          return undefined;
+        }
         return key.startsWith('env:') ? key : '***REDACTED***';
       };
 

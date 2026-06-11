@@ -1,4 +1,5 @@
 import type { SSECopy } from '../sse-stream-base.js';
+
 import { formatSSE, writeSSE } from './_base.js';
 
 export function formatOllamaChunk(data: string): string {

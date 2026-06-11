@@ -876,8 +876,12 @@ describe('Stalled Streaming Handler - InFlightManager', () => {
       const oldTime = Date.now() - 400000; // 6+ minutes ago
       const progress1 = manager.getStreamingRequestProgress('req-1');
       const progress3 = manager.getStreamingRequestProgress('req-3');
-      if (progress1) {progress1.lastChunkTime = oldTime;}
-      if (progress3) {progress3.lastChunkTime = oldTime;}
+      if (progress1) {
+        progress1.lastChunkTime = oldTime;
+      }
+      if (progress3) {
+        progress3.lastChunkTime = oldTime;
+      }
 
       // 5 minute threshold
       const potentiallyStalled = manager.getPotentiallyStalledRequests(300000);
@@ -896,7 +900,9 @@ describe('Stalled Streaming Handler - InFlightManager', () => {
       // Set old timestamp for req-1
       const oldTime = Date.now() - 400000;
       const progress1 = manager.getStreamingRequestProgress('req-1');
-      if (progress1) {progress1.lastChunkTime = oldTime;}
+      if (progress1) {
+        progress1.lastChunkTime = oldTime;
+      }
 
       const potentiallyStalled = manager.getPotentiallyStalledRequests(300000);
 
@@ -912,7 +918,9 @@ describe('Stalled Streaming Handler - InFlightManager', () => {
       // Set old timestamp
       const oldTime = Date.now() - 400000;
       const progress1 = manager.getStreamingRequestProgress('req-1');
-      if (progress1) {progress1.lastChunkTime = oldTime;}
+      if (progress1) {
+        progress1.lastChunkTime = oldTime;
+      }
 
       // Mark as already stalled
       manager.markStalled('req-1');

@@ -6,7 +6,6 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
-
 import {
   getTopModels,
   getServerPerformance,
@@ -32,7 +31,11 @@ import {
   getTemporalProfile,
   getTemporalAdjustment,
 } from '../controllers/analytics-controller.js';
-import { getErrors, getServerErrors, getCircuitErrors } from '../controllers/error-events-controller.js';
+import {
+  getErrors,
+  getServerErrors,
+  getCircuitErrors,
+} from '../controllers/error-events-controller.js';
 import {
   getMetrics,
   getServerModelMetrics,
@@ -96,7 +99,11 @@ monitoringRouter.get('/in-flight', requireAuth(), getInFlight);
 
 // Recovery Test Metrics
 monitoringRouter.get('/metrics/recovery-tests', requireAuth(), getRecoveryTestMetrics);
-monitoringRouter.get('/metrics/recovery-tests/:breakerName', requireAuth(), getBreakerRecoveryMetrics);
+monitoringRouter.get(
+  '/metrics/recovery-tests/:breakerName',
+  requireAuth(),
+  getBreakerRecoveryMetrics
+);
 
 // Model monitoring
 monitoringRouter.get('/models/status', requireAuth(), getAllModelsStatus);
@@ -117,7 +124,11 @@ monitoringRouter.get('/analytics/summary', requireAuth(), getAnalyticsSummary);
 
 // Decision History
 monitoringRouter.get('/analytics/decisions', requireAuth(), getDecisionHistory);
-monitoringRouter.get('/analytics/decisions/trends/:serverId/:model', requireAuth(), getServerModelDecisionTrend);
+monitoringRouter.get(
+  '/analytics/decisions/trends/:serverId/:model',
+  requireAuth(),
+  getServerModelDecisionTrend
+);
 monitoringRouter.get('/analytics/selection-stats', requireAuth(), getSelectionStats);
 monitoringRouter.get('/analytics/algorithms', requireAuth(), getAlgorithmStats);
 monitoringRouter.get('/analytics/score-timeline', requireAuth(), getScoreTimeline);
@@ -142,7 +153,11 @@ monitoringRouter.get('/analytics/temporal-profile', requireAuth(), getTemporalPr
 monitoringRouter.get('/analytics/temporal-adjustment', requireAuth(), getTemporalAdjustment);
 
 // Get detailed circuit breaker info for a server:model (monitoring)
-monitoringRouter.get('/servers/:serverId/models/:model/circuit-breaker', requireAuth(), getCircuitBreakerDetails);
+monitoringRouter.get(
+  '/servers/:serverId/models/:model/circuit-breaker',
+  requireAuth(),
+  getCircuitBreakerDetails
+);
 
 monitoringRouter.get('/errors', requireAuth(), getErrors);
 monitoringRouter.get('/errors/:serverId', requireAuth(), getServerErrors);

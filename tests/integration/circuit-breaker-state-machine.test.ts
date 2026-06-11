@@ -15,7 +15,6 @@
 
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach, expect } from 'vitest';
 
-
 import { createServer } from '../fixtures/factories.js';
 import {
   createDiverseMockServer,
@@ -25,11 +24,7 @@ import {
 
 import { delay } from '../utils/test-helpers.js';
 
-import {
-  setupIntegrationTest,
-  teardownIntegrationTest,
-  makeRequest,
-} from './setup.js';
+import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 
 // Unique server ID generator for test isolation
 let serverCounter = 0;
