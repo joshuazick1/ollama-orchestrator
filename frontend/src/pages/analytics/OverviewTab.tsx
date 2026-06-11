@@ -13,8 +13,9 @@ import {
 import { Zap, Activity, Shield, Server, BarChart2 } from 'lucide-react';
 import type { CircuitBreakerInfo } from '../../api';
 import { safeArray } from '../../utils/safeArray';
+import { chartColors, CHART_PALETTE, uiColors } from '../../constants/colors';
 
-const COLORS = ['#60A5FA', '#34D399', '#A78BFA', '#F472B6', '#FBBF24', '#F87171'];
+const COLORS = CHART_PALETTE;
 
 interface BarShapeProps {
   x?: number;
@@ -86,7 +87,7 @@ export const OverviewTab = ({
               <span className="text-3xl font-bold text-text-base tracking-tight">
                 {summary?.global?.requestsPerSecond?.toFixed(2)}
               </span>
-              <span className="text-xs text-blue-400 font-medium bg-blue-400/10 px-2 py-0.5 rounded-full">
+              <span className="text-xs text-blue-500 font-medium bg-blue-500/10 px-2 py-0.5 rounded-full">
                 Live
               </span>
             </div>
@@ -106,10 +107,10 @@ export const OverviewTab = ({
               <span
                 className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                   (summary?.global?.errorRate || 0) > 0.1
-                    ? 'text-red-400 bg-red-400/10'
+                    ? 'text-red-500 bg-red-500/10'
                     : (summary?.global?.errorRate || 0) > 0.05
-                      ? 'text-yellow-400 bg-yellow-400/10'
-                      : 'text-green-400 bg-green-400/10'
+                      ? 'text-yellow-500 bg-yellow-500/10'
+                      : 'text-green-500 bg-green-500/10'
                 }`}
               >
                 {(summary?.global?.errorRate || 0) > 0.1
@@ -134,7 +135,7 @@ export const OverviewTab = ({
               </span>
               <span
                 className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  openBreakers > 0 ? 'text-red-400 bg-red-400/10' : 'text-green-400 bg-green-400/10'
+                  openBreakers > 0 ? 'text-red-500 bg-red-500/10' : 'text-green-500 bg-green-500/10'
                 }`}
               >
                 {openBreakers > 0 ? 'Active' : 'All Clear'}
@@ -175,7 +176,7 @@ export const OverviewTab = ({
         {/* Top Models */}
         <div className="bg-surface rounded-xl border border-surface-border shadow-sm p-6">
           <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-blue-400" />
+            <BarChart2 className="w-5 h-5 text-blue-500" />
             Most Used Models
           </h3>
           <div className="h-80 w-full">
@@ -183,33 +184,33 @@ export const OverviewTab = ({
               <BarChart data={topModelsData} layout="vertical" margin={{ left: 20 }}>
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="#374151"
+                  stroke={uiColors.gridLine}
                   horizontal={true}
                   vertical={false}
                 />
-                <XAxis type="number" stroke="#9CA3AF" />
+                <XAxis type="number" stroke={uiColors.axisLabel} />
                 <YAxis
                   dataKey="name"
                   type="category"
-                  stroke="#9CA3AF"
+                  stroke={uiColors.axisLabel}
                   width={100}
                   tick={{ fontSize: 12 }}
                 />
                 <Tooltip
                   cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                   contentStyle={{
-                    backgroundColor: '#1F2937',
-                    borderColor: '#374151',
-                    color: '#F3F4F6',
+                    backgroundColor: uiColors.surfaceDark,
+                    borderColor: uiColors.surfaceBorder,
+                    color: uiColors.textLight,
                     borderRadius: '0.5rem',
                     boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)',
                   }}
-                  itemStyle={{ color: '#F3F4F6' }}
+                  itemStyle={{ color: uiColors.textLight }}
                 />
                 <Bar
                   dataKey="requests"
                   shape={<ColoredBar />}
-                  fill="#60A5FA"
+                  fill={chartColors.sky}
                   radius={[0, 4, 4, 0]}
                 />
               </BarChart>
@@ -220,7 +221,7 @@ export const OverviewTab = ({
         {/* Request Volume Trend */}
         <div className="bg-surface rounded-xl border border-surface-border shadow-sm p-6">
           <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-purple-400" />
+            <Activity className="w-5 h-5 text-purple-500" />
             Request Volume
           </h3>
           <div className="h-80 w-full">
@@ -228,31 +229,31 @@ export const OverviewTab = ({
               <AreaChart data={requestData}>
                 <defs>
                   <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0} />
+                    <stop offset="5%" stopColor={chartColors.violet} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={chartColors.violet} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={uiColors.gridLine} vertical={false} />
                 <XAxis
                   dataKey="timestamp"
-                  stroke="#9CA3AF"
+                  stroke={uiColors.axisLabel}
                   fontSize={12}
                   tickMargin={10}
                   minTickGap={30}
                 />
-                <YAxis stroke="#9CA3AF" fontSize={12} />
+                <YAxis stroke={uiColors.axisLabel} fontSize={12} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#1F2937',
-                    borderColor: '#374151',
-                    color: '#F3F4F6',
+                    backgroundColor: uiColors.surfaceDark,
+                    borderColor: uiColors.surfaceBorder,
+                    color: uiColors.textLight,
                     borderRadius: '0.5rem',
                   }}
                 />
                 <Area
                   type="monotone"
                   dataKey="count"
-                  stroke="#8B5CF6"
+                  stroke={chartColors.violet}
                   fillOpacity={1}
                   fill="url(#colorCount)"
                   strokeWidth={2}

@@ -8,22 +8,23 @@ import { SkeletonTable } from '../components/skeletons';
 import { ErrorState } from '../components/EmptyState';
 import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
+import { logLevelColors } from '../constants/colors';
 
 type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
 
-const LEVEL_COLORS = {
-  ERROR: '#F2495C',
-  WARN: '#FF9830',
-  INFO: '#5794F2',
-  DEBUG: '#73BF69',
+const LEVEL_COLORS: Record<LogLevel, string> = {
+  ERROR: logLevelColors.error,
+  WARN: logLevelColors.warn,
+  INFO: logLevelColors.info,
+  DEBUG: logLevelColors.debug,
 };
 
 const getLogStyle = (level: LogLevel): React.CSSProperties => {
   switch (level) {
     case 'ERROR':
-      return { backgroundColor: 'rgba(242,73,92,0.15)' };
+      return { backgroundColor: 'rgba(239,68,68,0.15)' };
     case 'WARN':
-      return { backgroundColor: 'rgba(255,152,48,0.12)' };
+      return { backgroundColor: 'rgba(245,158,11,0.12)' };
     default:
       return {};
   }

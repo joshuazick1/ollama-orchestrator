@@ -13,6 +13,7 @@ import {
   Rectangle,
 } from 'recharts';
 import { GitBranch, Target } from 'lucide-react';
+import { CHART_PALETTE, chartColors, uiColors } from '../../constants/colors';
 
 interface PieCellProps {
   cx?: number;
@@ -25,10 +26,8 @@ interface PieCellProps {
 }
 
 const ColoredPieCell = (props: PieCellProps) => (
-  <Rectangle {...props} fill={COLORS[props.index ?? 0 % COLORS.length]} />
+  <Rectangle {...props} fill={CHART_PALETTE[props.index ?? 0 % CHART_PALETTE.length]} />
 );
-
-const COLORS = ['#60A5FA', '#34D399', '#A78BFA', '#F472B6', '#FBBF24', '#F87171'];
 
 interface DecisionsTabProps {
   decisionHistory?: {
@@ -108,7 +107,7 @@ export const DecisionsTab = ({
         {/* Algorithm Usage */}
         <div className="bg-surface rounded-xl border border-surface-border p-6">
           <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
-            <GitBranch className="w-5 h-5 text-blue-400" />
+            <GitBranch className="w-5 h-5 text-blue-500" />
             Algorithm Distribution
           </h3>
           <div className="h-64 flex items-center justify-center">
@@ -121,16 +120,16 @@ export const DecisionsTab = ({
                     cy="50%"
                     innerRadius={60}
                     outerRadius={80}
-                    fill="#8884d8"
+                    fill={chartColors.purple}
                     paddingAngle={5}
                     dataKey="count"
                     shape={<ColoredPieCell />}
                   ></Pie>
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#1F2937',
-                      borderColor: '#374151',
-                      color: '#F3F4F6',
+                      backgroundColor: uiColors.surfaceDark,
+                      borderColor: uiColors.surfaceBorder,
+                      color: uiColors.textLight,
                     }}
                   />
                   <Legend />
@@ -145,7 +144,7 @@ export const DecisionsTab = ({
         {/* Score Timeline */}
         <div className="bg-surface rounded-xl border border-surface-border p-6">
           <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
-            <Target className="w-5 h-5 text-green-400" />
+            <Target className="w-5 h-5 text-green-500" />
             Server Score Trends
           </h3>
           <div className="h-64">
@@ -153,24 +152,24 @@ export const DecisionsTab = ({
               <AreaChart data={scoreData}>
                 <defs>
                   <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
+                    <stop offset="5%" stopColor={chartColors.teal} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={chartColors.teal} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="timestamp" stroke="#9CA3AF" />
-                <YAxis stroke="#9CA3AF" domain={[0, 100]} />
+                <CartesianGrid strokeDasharray="3 3" stroke={uiColors.gridLine} vertical={false} />
+                <XAxis dataKey="timestamp" stroke={uiColors.axisLabel} />
+                <YAxis stroke={uiColors.axisLabel} domain={[0, 100]} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#1F2937',
-                    borderColor: '#374151',
-                    color: '#F3F4F6',
+                    backgroundColor: uiColors.surfaceDark,
+                    borderColor: uiColors.surfaceBorder,
+                    color: uiColors.textLight,
                   }}
                 />
                 <Area
                   type="monotone"
                   dataKey="avgScore"
-                  stroke="#10B981"
+                  stroke={chartColors.teal}
                   fillOpacity={1}
                   fill="url(#colorScore)"
                 />

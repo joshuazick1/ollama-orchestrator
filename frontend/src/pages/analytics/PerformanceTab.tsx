@@ -8,6 +8,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Clock } from 'lucide-react';
+import { chartColors, uiColors } from '../../constants/colors';
 
 interface PerformanceTabProps {
   serverPerformance?: Array<{
@@ -64,12 +65,14 @@ export const PerformanceTab = ({ serverPerformance, requestData }: PerformanceTa
               {serverPerformance?.map(server => (
                 <tr key={server.id} className="hover:bg-surface/30 transition-colors">
                   <td className="text-text-base py-4 pl-4 font-mono font-medium">{server.id}</td>
-                  <td className="text-right text-text-base py-4">{server.requests.toLocaleString()}</td>
+                  <td className="text-right text-text-base py-4">
+                    {server.requests.toLocaleString()}
+                  </td>
                   <td className="text-right text-text-base py-4">{server.avgLatency}ms</td>
                   <td className="text-right text-gray-300 py-4">{server.p95Latency}ms</td>
                   <td className="text-right py-4">
                     <span
-                      className={`px-2 py-1 rounded text-xs font-medium ${server.errorRate > 0.05 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}
+                      className={`px-2 py-1 rounded text-xs font-medium ${server.errorRate > 0.05 ? 'bg-red-500/20 text-red-500' : 'bg-green-500/20 text-green-500'}`}
                     >
                       {(server.errorRate * 100).toFixed(1)}%
                     </span>
@@ -104,26 +107,26 @@ export const PerformanceTab = ({ serverPerformance, requestData }: PerformanceTa
 
       <div className="bg-surface rounded-xl border border-surface-border p-6">
         <h3 className="text-lg font-semibold text-text-base mb-6 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-indigo-400" />
+          <Clock className="w-5 h-5 text-indigo-500" />
           Latency Distribution Over Time
         </h3>
         <div className="h-80 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={requestData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-              <XAxis dataKey="timestamp" stroke="#9CA3AF" />
-              <YAxis stroke="#9CA3AF" />
+              <CartesianGrid strokeDasharray="3 3" stroke={uiColors.gridLine} vertical={false} />
+              <XAxis dataKey="timestamp" stroke={uiColors.axisLabel} />
+              <YAxis stroke={uiColors.axisLabel} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#1F2937',
-                  borderColor: '#374151',
-                  color: '#F3F4F6',
+                  backgroundColor: uiColors.surfaceDark,
+                  borderColor: uiColors.surfaceBorder,
+                  color: uiColors.textLight,
                 }}
               />
               <Line
                 type="monotone"
                 dataKey="avgDuration"
-                stroke="#818CF8"
+                stroke={chartColors.violet}
                 strokeWidth={2}
                 dot={false}
                 name="Avg Latency (ms)"

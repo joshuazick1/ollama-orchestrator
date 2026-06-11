@@ -11,6 +11,7 @@ import {
   Area,
 } from 'recharts';
 import { TrendingUp, Activity, Clock, AlertTriangle } from 'lucide-react';
+import { chartColors, uiColors } from '../../constants/colors';
 
 interface TrendsTabProps {
   summarySnapshotsData?: {
@@ -92,7 +93,7 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
           {/* Request Volume Trend */}
           <div className="bg-surface rounded-xl border border-surface-border p-6">
             <h4 className="text-base font-semibold text-text-base mb-4 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-blue-400" />
+              <Activity className="w-4 h-4 text-blue-500" />
               Request Volume Over Time
             </h4>
             <div className="h-64">
@@ -100,25 +101,34 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
                 <AreaChart data={trendPoints}>
                   <defs>
                     <linearGradient id="trendRequests" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                      <stop offset="5%" stopColor={chartColors.blue} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={chartColors.blue} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                  <XAxis dataKey="timestamp" stroke="#9CA3AF" fontSize={11} minTickGap={40} />
-                  <YAxis stroke="#9CA3AF" fontSize={12} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={uiColors.gridLine}
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="timestamp"
+                    stroke={uiColors.axisLabel}
+                    fontSize={11}
+                    minTickGap={40}
+                  />
+                  <YAxis stroke={uiColors.axisLabel} fontSize={12} />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#1F2937',
-                      borderColor: '#374151',
-                      color: '#F3F4F6',
+                      backgroundColor: uiColors.surfaceDark,
+                      borderColor: uiColors.surfaceBorder,
+                      color: uiColors.textLight,
                       borderRadius: '0.5rem',
                     }}
                   />
                   <Area
                     type="monotone"
                     dataKey="requests"
-                    stroke="#3B82F6"
+                    stroke={chartColors.blue}
                     fillOpacity={1}
                     fill="url(#trendRequests)"
                     strokeWidth={2}
@@ -133,27 +143,36 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
             {/* Latency Trend */}
             <div className="bg-surface rounded-xl border border-surface-border p-6">
               <h4 className="text-base font-semibold text-text-base mb-4 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-purple-400" />
+                <Clock className="w-4 h-4 text-purple-500" />
                 Avg Latency Over Time
               </h4>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={trendPoints}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                    <XAxis dataKey="timestamp" stroke="#9CA3AF" fontSize={11} minTickGap={40} />
-                    <YAxis stroke="#9CA3AF" fontSize={12} unit="ms" />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke={uiColors.gridLine}
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="timestamp"
+                      stroke={uiColors.axisLabel}
+                      fontSize={11}
+                      minTickGap={40}
+                    />
+                    <YAxis stroke={uiColors.axisLabel} fontSize={12} unit="ms" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#1F2937',
-                        borderColor: '#374151',
-                        color: '#F3F4F6',
+                        backgroundColor: uiColors.surfaceDark,
+                        borderColor: uiColors.surfaceBorder,
+                        color: uiColors.textLight,
                         borderRadius: '0.5rem',
                       }}
                     />
                     <Line
                       type="monotone"
                       dataKey="avgLatency"
-                      stroke="#A78BFA"
+                      stroke={chartColors.purple}
                       strokeWidth={2}
                       dot={false}
                       name="Avg Latency (ms)"
@@ -166,7 +185,7 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
             {/* Error Rate Trend */}
             <div className="bg-surface rounded-xl border border-surface-border p-6">
               <h4 className="text-base font-semibold text-text-base mb-4 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <AlertTriangle className="w-4 h-4 text-red-500" />
                 Error Rate Over Time
               </h4>
               <div className="h-56">
@@ -174,25 +193,34 @@ export const TrendsTab = ({ summarySnapshotsData }: TrendsTabProps) => {
                   <AreaChart data={trendPoints}>
                     <defs>
                       <linearGradient id="trendErrors" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#EF4444" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
+                        <stop offset="5%" stopColor={chartColors.red} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={chartColors.red} stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                    <XAxis dataKey="timestamp" stroke="#9CA3AF" fontSize={11} minTickGap={40} />
-                    <YAxis stroke="#9CA3AF" fontSize={12} unit="%" />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke={uiColors.gridLine}
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="timestamp"
+                      stroke={uiColors.axisLabel}
+                      fontSize={11}
+                      minTickGap={40}
+                    />
+                    <YAxis stroke={uiColors.axisLabel} fontSize={12} unit="%" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#1F2937',
-                        borderColor: '#374151',
-                        color: '#F3F4F6',
+                        backgroundColor: uiColors.surfaceDark,
+                        borderColor: uiColors.surfaceBorder,
+                        color: uiColors.textLight,
                         borderRadius: '0.5rem',
                       }}
                     />
                     <Area
                       type="monotone"
                       dataKey="errorRate"
-                      stroke="#EF4444"
+                      stroke={chartColors.red}
                       fillOpacity={1}
                       fill="url(#trendErrors)"
                       strokeWidth={2}
