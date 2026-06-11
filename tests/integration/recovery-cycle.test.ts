@@ -11,43 +11,7 @@ import {
   RecoveryTestCoordinator,
   resetRecoveryTestCoordinator,
 } from '../../src/recovery-test-coordinator.js';
-
-function createMockOllamaServer(failGenerateFor: number) {
-  let requestCount = 0;
-  const requestLog: string[] = [];
-
-  const server = http.createServer((req, res) => {
-    const path = req.url ?? '/';
-    requestLog.push(`${req.method} ${path}`);
-
-    if (path === '/api/tags') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ models: [] }));
-      return;
-    }
-
-    if (path === '/api/generate') {
-      requestCount++;
-      if (requestCount <= failGenerateFor) {
-        res.writeHead(503, { 'Content-Type': 'text/plain' });
-        res.end('Service Unavailable');
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ response: 'test response', done: true }));
-      return;
-    }
-
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
-  });
-
-  return {
-    server,
-    getRequestLog: () => [...requestLog],
-    getRequestCount: () => requestCount,
-  };
-}
+import { createMockOllamaServer } from '../utils/mock-server-factory.js';
 
 async function startServer(
   server: http.Server
@@ -61,7 +25,7 @@ async function startServer(
 }
 
 describe('recovery-cycle integration – open→half-open→probe→close', () => {
-  let mockServer: ReturnType<typeof createMockOllamaServer>;
+  let mockServer: { server: http.Server; getRequestLog: () => string[]; getRequestCount: () => number };
   let serverPort: number;
   let closeServer: () => Promise<void>;
   let coordinator: RecoveryTestCoordinator;
@@ -69,7 +33,7 @@ describe('recovery-cycle integration – open→half-open→probe→close', () =
 
   beforeEach(async () => {
     resetRecoveryTestCoordinator();
-    mockServer = createMockOllamaServer(0);
+    mockServer = createMockOllamaServer(0, { failGenerateFor: 0 });
     const started = await startServer(mockServer.server);
     serverPort = started.port;
     closeServer = started.close;
@@ -115,7 +79,7 @@ describe('recovery-cycle integration – open→half-open→probe→close', () =
 
   it('returns false when server returns 503 for generate', async () => {
     await closeServer();
-    mockServer = createMockOllamaServer(999);
+    mockServer = createMockOllamaServer(0, { failGenerateFor: 999 });
     const started = await startServer(mockServer.server);
     serverPort = started.port;
     closeServer = started.close;
