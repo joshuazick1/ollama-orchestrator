@@ -3,6 +3,7 @@
  * Periodic health check scheduler with configurable intervals and concurrency
  */
 
+import { API_ENDPOINTS } from './constants/api-endpoints.js';
 import type { HealthCheckConfig } from './config/config.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
 import { resolveApiKey } from './utils/api-keys.js';
@@ -11,6 +12,7 @@ import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { logger } from './utils/logger.js';
 import { probeCoordinator } from './utils/probe-coordinator.js';
 import { calculateActiveTestTimeout, calculateRecoveryBackoff } from './utils/recovery-backoff.js';
+import { calculateBackoff } from './utils/backoff/index.js';
 import { Timer } from './utils/timer.js';
 
 const PROBE_MODEL = '__probe_nonexistent_model_000000__';
@@ -354,7 +356,7 @@ export class HealthCheckScheduler {
 
       const [tagsResponse, psResponse, v1Response] = await Promise.all([
         probeOllama
-          ? fetchWithAuth(`${server.url}/api/tags`, server.apiKey, {
+          ? fetchWithAuth(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, server.apiKey, {
               timeout: this.config.timeoutMs,
             }).catch((err: unknown) => {
               logger.warn('Health probe failed for /api/tags', {
@@ -365,7 +367,7 @@ export class HealthCheckScheduler {
             })
           : Promise.resolve(null),
         probeOllama
-          ? fetchWithAuth(`${server.url}/api/ps`, server.apiKey, {
+          ? fetchWithAuth(`${server.url}${API_ENDPOINTS.OLLAMA.PS}`, server.apiKey, {
               timeout: 5000,
             }).catch((err: unknown) => {
               logger.warn('Health probe failed for /api/ps', {
@@ -539,9 +541,14 @@ export class HealthCheckScheduler {
         logger.debug(`Retrying health check for ${server.id} (attempt ${retryCount + 1})`);
 
         // Exponential backoff
-        const delay =
-          this.config.retryDelayMs * Math.pow(this.config.backoffMultiplier, retryCount);
-        await sleep(delay);
+        const result = calculateBackoff('exponential', {
+          attempt: retryCount,
+          baseDelayMs: this.config.retryDelayMs,
+          maxDelayMs: Infinity,
+          multiplier: this.config.backoffMultiplier,
+          jitterFactor: 0,
+        });
+        await sleep(result.delayMs);
 
         probeCoordinator.release(server.id);
         return this.checkServerHealth(server, retryCount + 1);
@@ -620,11 +627,18 @@ export class HealthCheckScheduler {
     // - 422 = validation error = exists (good)
     // - Other 4xx = exists but other issues (good)
     // - Network error = doesn't exist (bad)
-    if (status >= 200 && status < 300) {return 'exists';}
-    if (status === 400 || status === 401 || status === 403 || status === 422 || status === 429)
-      {return 'exists';}
-    if (status === 404 || status === 405 || status === 410) {return 'not_exists';}
-    if (status >= 400) {return 'exists';} // Other 4xx = exists but issues
+    if (status >= 200 && status < 300) {
+      return 'exists';
+    }
+    if (status === 400 || status === 401 || status === 403 || status === 422 || status === 429) {
+      return 'exists';
+    }
+    if (status === 404 || status === 405 || status === 410) {
+      return 'not_exists';
+    }
+    if (status >= 400) {
+      return 'exists';
+    } // Other 4xx = exists but issues
     return 'error';
   }
 
@@ -768,19 +782,19 @@ export class HealthCheckScheduler {
       anthropicMessages,
     ] = await Promise.all([
       this.probeInferenceEndpoint(
-        `${base}/api/chat`,
+        `${base}${API_ENDPOINTS.OLLAMA.CHAT}`,
         'POST',
         { model: PROBE_MODEL, messages: [{ role: 'user', content: 'probe' }], stream: false },
         key
       ),
       this.probeInferenceEndpoint(
-        `${base}/api/generate`,
+        `${base}${API_ENDPOINTS.OLLAMA.GENERATE}`,
         'POST',
         { model: PROBE_MODEL, prompt: 'probe', stream: false },
         key
       ),
       this.probeInferenceEndpoint(
-        `${base}/api/embeddings`,
+        `${base}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`,
         'POST',
         { model: PROBE_MODEL, prompt: 'probe' },
         key

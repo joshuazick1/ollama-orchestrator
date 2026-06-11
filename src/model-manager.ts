@@ -4,7 +4,7 @@
  */
 
 import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
-import { ERROR_MESSAGES } from './constants/index.js';
+import { API_ENDPOINTS, ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
 import type {
   OllamaGenerateResponse,
@@ -12,11 +12,11 @@ import type {
   OllamaProcessListResponse,
 } from './types/ollama/index.js';
 import { sleep } from './utils/async-helpers.js';
+import { calculateBackoff } from './utils/backoff/index.js';
 import { getErrorClassifier } from './utils/error-classifier.js';
 import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
-
 
 /** Server status entry in warmup status result */
 interface ServerWarmupStatusEntry {
@@ -543,7 +543,7 @@ export class ModelManager {
 
       // Make actual request to Ollama server to load the model
       // Use empty prompt with minimal tokens to force model loading without heavy computation
-      const response = await fetchWithTimeout(`${serverUrl}/api/generate`, {
+      const response = await fetchWithTimeout(`${serverUrl}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: safeJsonStringify({
@@ -582,7 +582,14 @@ export class ModelManager {
 
       if (isRetryable && attempt < this.config.maxRetries) {
         // Calculate exponential backoff delay
-        const delay = this.config.retryDelayBaseMs * Math.pow(2, attempt - 1);
+        const result = calculateBackoff('exponential', {
+          attempt: attempt - 1,
+          baseDelayMs: this.config.retryDelayBaseMs,
+          maxDelayMs: Infinity,
+          multiplier: 2,
+          jitterFactor: 0,
+        });
+        const delay = result.delayMs;
         logger.warn(
           `Warmup attempt ${attempt} failed for ${job.model}, retrying in ${delay}ms: ${errorMessage}`
         );
@@ -692,7 +699,7 @@ export class ModelManager {
     modelInfo?: Record<string, number | string | boolean>; // Full model_info from API
   }> {
     try {
-      const response = await fetchWithTimeout(`${serverUrl}/api/show`, {
+      const response = await fetchWithTimeout(`${serverUrl}${API_ENDPOINTS.OLLAMA.SHOW}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: safeJsonStringify({ model }),
@@ -753,11 +760,14 @@ export class ModelManager {
 
     try {
       // Check running models via /api/ps
-      const response = await fetchWithTimeout(`${serverState.serverUrl}/api/ps`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10000, // 10 second timeout
-      });
+      const response = await fetchWithTimeout(
+        `${serverState.serverUrl}${API_ENDPOINTS.OLLAMA.PS}`,
+        {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000, // 10 second timeout
+        }
+      );
 
       if (!response.ok) {
         logger.debug(`Failed to get process list from ${serverId}: ${response.statusText}`);
@@ -980,21 +990,24 @@ export class ModelManager {
     try {
       // Call Ollama API to actually unload the model
       // Using generate endpoint with keep_alive: 0 forces immediate unload
-      const response = await fetchWithTimeout(`${serverState.serverUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({
-          model,
-          prompt: '', // Empty prompt
-          stream: false,
-          options: {
-            temperature: 0,
-            num_predict: 1,
-          },
-          keep_alive: 0, // Unload immediately after request
-        }),
-        timeout: 30000, // 30 second timeout
-      });
+      const response = await fetchWithTimeout(
+        `${serverState.serverUrl}${API_ENDPOINTS.OLLAMA.GENERATE}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: safeJsonStringify({
+            model,
+            prompt: '', // Empty prompt
+            stream: false,
+            options: {
+              temperature: 0,
+              num_predict: 1,
+            },
+            keep_alive: 0, // Unload immediately after request
+          }),
+          timeout: 30000, // 30 second timeout
+        }
+      );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => response.statusText);

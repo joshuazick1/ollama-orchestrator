@@ -11,6 +11,7 @@
  */
 
 import { CircuitBreaker } from './circuit-breaker/circuit-breaker.js';
+import { API_ENDPOINTS } from './constants/api-endpoints.js';
 import { sleep } from './utils/async-helpers.js';
 import { fetchWithTimeout, parseResponse } from './utils/fetch-with-timeout.js';
 import { safeJsonStringify } from './utils/json-utils.js';
@@ -575,7 +576,7 @@ export class RecoveryTestCoordinator {
       }
 
       // Lightweight /api/tags test
-      const response = await fetchWithTimeout(`${serverUrl}/api/tags`, {
+      const response = await fetchWithTimeout(`${serverUrl}${API_ENDPOINTS.OLLAMA.TAGS}`, {
         timeout: this.config.tagsTestTimeoutMs,
       });
 
@@ -730,7 +731,7 @@ export class RecoveryTestCoordinator {
       const testPrompt = baseText.repeat(repetitions).trim();
 
       // Perform full inference test with context
-      const response = await fetchWithTimeout(`${serverUrl}/api/generate`, {
+      const response = await fetchWithTimeout(`${serverUrl}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: safeJsonStringify({
@@ -942,7 +943,7 @@ export class RecoveryTestCoordinator {
       });
 
       // Perform embedding test
-      const response = await fetchWithTimeout(`${serverUrl}/api/embeddings`, {
+      const response = await fetchWithTimeout(`${serverUrl}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: safeJsonStringify({
@@ -1410,7 +1411,7 @@ export class RecoveryTestCoordinator {
         return false;
       }
 
-      const response = await fetchWithTimeout(`${serverUrl}/api/tags`, {
+      const response = await fetchWithTimeout(`${serverUrl}${API_ENDPOINTS.OLLAMA.TAGS}`, {
         timeout: this.config.tagsTestTimeoutMs,
         signal,
       });

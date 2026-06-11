@@ -5,7 +5,7 @@
 
 import type { Request, Response } from 'express';
 
-import { ERROR_MESSAGES } from '../constants/index.js';
+import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type {
   ModelRequestBody,
@@ -56,16 +56,16 @@ export async function listServerModels(req: Request, res: Response): Promise<voi
   }
 
   try {
-    const response = await fetchWithTimeout(`${server.url}/api/tags`, {
+    const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, {
       timeout: 10000, // 10 second timeout
     });
     if (!response.ok) {
       throw new Error(`Failed to fetch models: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as {
+    const data = (await parseResponse<{
       models?: Array<{ name: string; modified_at?: string; size?: number; digest?: string }>;
-    };
+    }>(response))!;
     const models = data.models ?? [];
 
     res.status(200).json({
@@ -262,7 +262,7 @@ export async function pullModelToServer(req: Request, res: Response): Promise<vo
     const controller = new AbortController();
     const connectionTimeout = setTimeout(() => controller.abort(), 30000);
 
-    const response = await fetch(`${server.url}/api/pull`, {
+    const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.PULL}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: safeJsonStringify({ name: model, stream: true }),
@@ -438,7 +438,7 @@ export async function copyModelToServer(req: Request, res: Response): Promise<vo
     const controller = new AbortController();
     const connectionTimeout = setTimeout(() => controller.abort(), 30000);
 
-    const response = await fetch(`${targetServer.url}/api/pull`, {
+    const response = await fetch(`${targetServer.url}${API_ENDPOINTS.OLLAMA.PULL}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: safeJsonStringify({ name: model, stream: true }),

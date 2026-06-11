@@ -21,7 +21,7 @@ import {
 } from '../circuit-breaker/circuit-breaker.js';
 import type { HealthCheckConfig, OrchestratorConfig, RetryConfig } from '../config/config.js';
 import { DEFAULT_CONFIG, getConfigManager } from '../config/config.js';
-import { ERROR_MESSAGES } from '../constants/index.js';
+import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import { getDecisionHistory } from '../decision-history.js';
 import { HealthCheckScheduler, type HealthCheckResult } from '../health-check-scheduler.js';
 import { InferenceProbeScheduler } from '../inference-probe-scheduler.js';
@@ -45,6 +45,7 @@ import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
 import { sleep } from '../utils/async-helpers.js';
 import { BanManager } from '../utils/ban-manager.js';
+import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
 import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
 import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
@@ -870,7 +871,7 @@ export class AIOrchestrator {
 
       const [response, versionResponse, v1Response] = await Promise.all([
         probeOllama
-          ? fetch(`${server.url}/api/tags`, {
+          ? fetch(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, {
               signal: controller.signal,
             }).catch((err: unknown) => {
               logger.debug('Probe fetch failed for /api/tags', {
@@ -881,7 +882,7 @@ export class AIOrchestrator {
             })
           : Promise.resolve(null),
         probeOllama
-          ? fetch(`${server.url}/api/version`, {
+          ? fetch(`${server.url}${API_ENDPOINTS.OLLAMA.VERSION}`, {
               signal: controller.signal,
             }).catch((err: unknown) => {
               logger.debug('Probe fetch failed for /api/version', {
@@ -892,7 +893,7 @@ export class AIOrchestrator {
             })
           : Promise.resolve(null),
         probeV1
-          ? fetch(`${server.url}/v1/models`, {
+          ? fetch(`${server.url}${API_ENDPOINTS.OPENAI.MODELS}`, {
               signal: controller.signal,
             }).catch((err: unknown) => {
               logger.debug('Probe fetch failed for /v1/models', {
@@ -2937,11 +2938,12 @@ export class AIOrchestrator {
 
         if (isRetryableOnSameServer && retryCount < retryConfig.maxRetriesPerServer) {
           // Calculate delay with exponential backoff + jitter to prevent thundering herd
-          const baseDelay = Math.min(
-            retryConfig.retryDelayMs * Math.pow(retryConfig.backoffMultiplier, retryCount),
-            retryConfig.maxRetryDelayMs
-          );
-          const delay = Math.round(baseDelay * (0.5 + Math.random() * 0.5));
+          const adapter = fromRetryConfig(retryConfig);
+          const result = calculateBackoff('exponential', {
+            ...adapter.options,
+            attempt: retryCount,
+          });
+          const delay = result.delayMs;
 
           logger.info(
             `Will retry on same server ${server.id} for model ${model} in ${delay}ms (attempt ${retryCount + 1}/${retryConfig.maxRetriesPerServer})`,
@@ -3914,7 +3916,7 @@ export class AIOrchestrator {
     server: AIServer
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      const response = await fetch(`${server.url}/api/tags`, {
+      const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(5000), // 5 second timeout for recovery check

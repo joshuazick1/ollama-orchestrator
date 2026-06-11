@@ -3,6 +3,7 @@
  * Orchestrator Models - Handles model aggregation, tag fetching, and model resolution
  */
 
+import { API_ENDPOINTS } from '../constants/api-endpoints.js';
 import { sleep } from '../utils/async-helpers.js';
 import { fetchWithTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
@@ -132,7 +133,7 @@ export class OrchestratorModels {
     const timeoutMs = config.tags?.requestTimeoutMs ?? 5000;
 
     try {
-      const response = await fetchWithTimeout(`${server.url}/api/tags`, {
+      const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, {
         timeout: timeoutMs,
         headers: {
           'User-Agent': 'ollama-orchestrator/1.0.0',

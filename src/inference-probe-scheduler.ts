@@ -1,5 +1,6 @@
 import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import type { ProbeSchedulerConfig } from './config/config.js';
+import { API_ENDPOINTS } from './constants/api-endpoints.js';
 import { MetricsAggregator } from './metrics/index.js';
 import type { AIServer, RequestContext } from './orchestrator/orchestrator.types.js';
 import type { MetricsStore } from './storage/metrics-store.js';
@@ -8,6 +9,7 @@ import { fetchWithTimeout } from './utils/fetch-with-timeout.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { logger } from './utils/logger.js';
 import { probeCoordinator } from './utils/probe-coordinator.js';
+import { calculateBackoff } from './utils/backoff/index.js';
 
 export type { ProbeSchedulerConfig };
 
@@ -401,7 +403,7 @@ export class InferenceProbeScheduler {
     };
 
     try {
-      const url = `${serverUrl.replace(/\/$/, '')}/api/generate`;
+      const url = `${serverUrl.replace(/\/$/, '')}${API_ENDPOINTS.OLLAMA.GENERATE}`;
       const body = JSON.stringify({
         model,
         prompt: 'Count from 1 to 10:',
@@ -508,7 +510,14 @@ export class InferenceProbeScheduler {
   private recordProbeFailure(key: string): void {
     const count = (this.failureCount.get(key) ?? 0) + 1;
     this.failureCount.set(key, count);
-    const delay = Math.min(BACKOFF_INITIAL_MS * Math.pow(2, count - 1), BACKOFF_MAX_MS);
+    const result = calculateBackoff('exponential', {
+      attempt: count - 1,
+      baseDelayMs: BACKOFF_INITIAL_MS,
+      maxDelayMs: BACKOFF_MAX_MS,
+      multiplier: 2,
+      jitterFactor: 0,
+    });
+    const delay = result.delayMs;
     this.failureBackoff.set(key, Date.now() + delay);
     logger.debug(`InferenceProbeScheduler: backoff set for ${key}`, {
       failureCount: count,
