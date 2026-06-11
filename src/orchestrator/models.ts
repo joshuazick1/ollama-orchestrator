@@ -24,14 +24,14 @@ export class OrchestratorModels {
     const orchestrator = this.orchestrator;
     const now = Date.now();
 
-    const tagsCache = (orchestrator as any).tagsCache;
-    const config = (orchestrator as any).config;
+    const tagsCache = orchestrator.getTagsCache();
+    const config = orchestrator.getConfig();
 
     if (tagsCache && now - tagsCache.timestamp < config.tags.cacheTtlMs) {
       return { models: tagsCache.data };
     }
 
-    const servers = (orchestrator as any).servers;
+    const servers = orchestrator.getServers();
     const healthyServers = servers.filter((s: any) => s.healthy && s.supportsOllama !== false);
 
     if (healthyServers.length === 0) {
@@ -86,25 +86,21 @@ export class OrchestratorModels {
     }
 
     const models = Array.from(allTags.values());
-    const circuitBreakerRegistry = (orchestrator as any).circuitBreakerRegistry;
+    const circuitBreakerRegistry = orchestrator.getCircuitBreakerRegistry();
     const filteredModels = models.filter(model => {
       const servers = model.servers as string[];
       const modelName = (model.name as string) ?? (model.model as string);
       return this.hasClosedCircuitBreaker(modelName, servers, circuitBreakerRegistry);
     });
 
-    (orchestrator as any).tagsCache = {
-      data: filteredModels,
-      timestamp: now,
-      metadata: {
-        totalRequests,
-        successfulRequests,
-        failedRequests,
-        serverCount: healthyServers.length,
-        modelCount: filteredModels.length,
-        errors: errors.slice(0, 10),
-      },
-    };
+    orchestrator.setTagsCache(filteredModels, {
+      totalRequests,
+      successfulRequests,
+      failedRequests,
+      serverCount: healthyServers.length,
+      modelCount: filteredModels.length,
+      errors: errors.slice(0, 10),
+    });
 
     logger.debug(
       `Tags aggregation completed: ${successfulRequests}/${totalRequests} successful requests, ${filteredModels.length} unique models`
@@ -129,7 +125,7 @@ export class OrchestratorModels {
   }
 
   async fetchServerTags(server: any): Promise<FetchServerTagsResult> {
-    const config = (this.orchestrator as any).config;
+    const config = this.orchestrator.getConfig();
     const timeoutMs = config.tags?.requestTimeoutMs ?? 5000;
 
     try {
@@ -192,10 +188,7 @@ export class OrchestratorModels {
         };
       }
 
-      const recordSuccess = (this.orchestrator as any).recordSuccess;
-      if (recordSuccess) {
-        recordSuccess.call(this.orchestrator, server.id);
-      }
+      this.orchestrator.recordSuccess(server.id);
 
       return {
         success: true,
@@ -223,14 +216,10 @@ export class OrchestratorModels {
       }
 
       if (errorType !== 'network') {
-        const recordFailure = (this.orchestrator as any).recordFailure;
-        if (recordFailure) {
-          recordFailure.call(
-            this.orchestrator,
-            server.id,
-            error instanceof Error ? error.message : String(error)
-          );
-        }
+        this.orchestrator.recordFailure(
+          server.id,
+          error instanceof Error ? error.message : String(error)
+        );
       }
 
       return {

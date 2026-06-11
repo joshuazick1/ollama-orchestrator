@@ -220,6 +220,28 @@ export class AIOrchestrator {
     return RetryBudget;
   }
 
+  public getTagsCache(): typeof this.tagsCache {
+    return this.tagsCache;
+  }
+
+  public setTagsCache(
+    data: any[],
+    metadata: {
+      totalRequests: number;
+      successfulRequests: number;
+      failedRequests: number;
+      serverCount: number;
+      modelCount: number;
+      errors: Array<{
+        serverId: string;
+        error: string;
+        type: 'network' | 'server' | 'timeout' | 'unknown';
+      }>;
+    }
+  ): void {
+    this.tagsCache = { data, timestamp: Date.now(), metadata };
+  }
+
   public populateRoutingContext(
     context: RoutingContext | undefined,
     serverId: string,
