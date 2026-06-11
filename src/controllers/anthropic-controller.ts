@@ -6,7 +6,11 @@ import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.j
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import type { StreamingTelemetryMeta } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
-import { fetchWithTimeout, fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
+import {
+  fetchWithTimeout,
+  fetchWithActivityTimeout,
+  parseResponse,
+} from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
 import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
@@ -73,7 +77,9 @@ async function passthroughAnthropicSSE(
           await new Promise<void>(resolve => {
             let settled = false;
             const cleanup = () => {
-              if (settled) {return;}
+              if (settled) {
+                return;
+              }
               settled = true;
               clientResponse.removeListener('drain', onDrain);
               clientResponse.removeListener('close', onClose);
@@ -117,7 +123,9 @@ async function passthroughAnthropicSSE(
         await new Promise<void>(resolve => {
           let settled = false;
           const cleanup = () => {
-            if (settled) {return;}
+            if (settled) {
+              return;
+            }
             settled = true;
             clientResponse.removeListener('drain', onDrain);
             clientResponse.removeListener('close', onClose);
@@ -313,7 +321,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           throw new Error(errorText || `Upstream returned ${String(response.status)}`);
         }
 
-        return (await response.json()) as Record<string, unknown>;
+        return (await parseResponse<Record<string, unknown>>(response))!;
       },
       stream,
       'generate',
