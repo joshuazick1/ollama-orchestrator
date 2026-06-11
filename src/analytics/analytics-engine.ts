@@ -17,6 +17,7 @@ import type {
 import { getRequestHistory, type RequestRecord, type RequestStats } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
+import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
 
@@ -185,39 +186,47 @@ export class AnalyticsEngine {
   }
 
   /**
-   * Classify error type from error message
+   * Classify error type using centralized ErrorClassifier
    */
   private classifyError(error: Error): string {
+    const result = classifyError(error);
     const message = error.message.toLowerCase();
 
-    if (message.includes('timeout')) {
-      return 'timeout';
-    }
-    if (
-      message.includes('oom') ||
-      message.includes('out of memory') ||
-      message.includes('not enough ram')
-    ) {
-      return 'oom';
-    }
-    if (
-      message.includes('connection') ||
-      message.includes('refused') ||
-      message.includes('econnrefused')
-    ) {
-      return 'connection_refused';
-    }
-    if (message.includes('model') && message.includes('not found')) {
-      return 'model_not_found';
-    }
+    // Handle circuit_breaker explicitly (circuit breaker errors have special handling)
     if (message.includes('circuit breaker')) {
       return 'circuit_breaker';
     }
-    if (message.includes('load') || message.includes('capacity')) {
-      return 'capacity_exceeded';
-    }
 
-    return 'unknown';
+    // Map ErrorCategory back to original string values
+    switch (result.category) {
+      case ErrorCategory.NETWORK:
+        // Distinguish between timeout and connection using matchedPattern or message
+        if (result.matchedPattern && result.matchedPattern.toLowerCase().includes('timeout')) {
+          return 'timeout';
+        }
+        if (message.includes('timeout')) {
+          return 'timeout';
+        }
+        return 'connection_refused';
+      case ErrorCategory.RESOURCE:
+        // Distinguish between oom and capacity using matchedPattern or message
+        if (result.matchedPattern && /memory|ram|oom/.test(result.matchedPattern.toLowerCase())) {
+          return 'oom';
+        }
+        if (
+          message.includes('oom') ||
+          message.includes('out of memory') ||
+          message.includes('not enough ram')
+        ) {
+          return 'oom';
+        }
+        return 'capacity_exceeded';
+      case ErrorCategory.CONFIGURATION:
+        return 'model_not_found';
+      case ErrorCategory.UNKNOWN:
+      default:
+        return 'unknown';
+    }
   }
 
   /**
