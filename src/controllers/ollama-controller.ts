@@ -40,7 +40,7 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
-import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
+import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 import { performStreamHandoff } from '../utils/stream-handoff.js';
 import {
@@ -450,7 +450,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
-        classifyOrchestratorError(errorMessage);
+        classifyOrchestratorRoutingError(errorMessage);
 
       // Include routing context in error responses when debug is requested
       const debugPayload = isDebugRequested(req)
@@ -922,7 +922,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
-        classifyOrchestratorError(errorMessage);
+        classifyOrchestratorRoutingError(errorMessage);
 
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1025,7 +1025,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
 
     const errorMessage = error instanceof Error ? error.message : String(error);
     const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
-      classifyOrchestratorError(errorMessage);
+      classifyOrchestratorRoutingError(errorMessage);
 
     const debugPayload = isDebugRequested(req)
       ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1180,7 +1180,8 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const { isNoServersError, isConcurrencySaturated } = classifyOrchestratorError(errorMessage);
+      const { isNoServersError, isConcurrencySaturated } =
+        classifyOrchestratorRoutingError(errorMessage);
 
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1285,7 +1286,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
   } catch (error) {
     logger.error('Error in handleEmbed:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const { isAccessDenied } = classifyOrchestratorError(errorMessage);
+    const { isAccessDenied } = classifyOrchestratorRoutingError(errorMessage);
     if (isAccessDenied) {
       res.status(403).json({ error: errorMessage });
     } else {

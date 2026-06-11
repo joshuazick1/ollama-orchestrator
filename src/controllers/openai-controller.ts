@@ -31,7 +31,7 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
-import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
+import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 // import { performStreamHandoff } from '../utils/stream-handoff.js';
 import {
@@ -968,7 +968,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
       const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
-        classifyOrchestratorError(errorMessage);
+        classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1150,7 +1150,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
       const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
-        classifyOrchestratorError(errorMessage);
+        classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
@@ -1258,7 +1258,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
       const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
-        classifyOrchestratorError(errorMessage);
+        classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })

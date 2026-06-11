@@ -4,7 +4,9 @@ export interface OrchestratorErrorClassification {
   isAccessDenied: boolean;
 }
 
-export function classifyOrchestratorError(errorMessage: string): OrchestratorErrorClassification {
+export function classifyOrchestratorRoutingError(
+  errorMessage: string
+): OrchestratorErrorClassification {
   const isNoServersError =
     (errorMessage.includes('No') && errorMessage.includes('servers available')) ||
     errorMessage.includes('circuit breaker') ||

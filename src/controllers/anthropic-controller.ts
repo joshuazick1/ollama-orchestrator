@@ -12,7 +12,7 @@ import {
   parseResponse,
 } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
-import { classifyOrchestratorError } from '../utils/orchestrator-error-classifier.js';
+import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 const anthropicMessagesRequestSchema = z
@@ -343,7 +343,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const { isNoServersError } = classifyOrchestratorError(errorMessage);
+      const { isNoServersError } = classifyOrchestratorRoutingError(errorMessage);
       const isNoServers = isNoServersError;
 
       res.status(isNoServers ? 503 : 500).json({
