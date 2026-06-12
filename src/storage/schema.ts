@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 /**
  * All DDL statements for schema version 1.
@@ -481,11 +481,41 @@ CREATE INDEX IF NOT EXISTS idx_user_model_access_user ON user_model_access(user_
 CREATE INDEX IF NOT EXISTS idx_user_model_access_server ON user_model_access(server_id);
 `;
 
+export const SCHEMA_V5_MIGRATION = `
+-- ============================================================
+-- V5: Drop old circuit_breaker tables, create probe WAL
+-- ============================================================
+DROP TABLE IF EXISTS circuit_breaker_state;
+DROP TABLE IF EXISTS circuit_breaker_transitions;
+
+-- probe_state_wal: append-only write-ahead log for probe state transitions
+CREATE TABLE IF NOT EXISTS probe_state_wal (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  tuple_key   TEXT NOT NULL,
+  event_type  TEXT NOT NULL,
+  from_state  TEXT,
+  to_state    TEXT,
+  reason      TEXT,
+  metadata    TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_probe_wal_tuple ON probe_state_wal (tuple_key, id);
+CREATE INDEX IF NOT EXISTS idx_probe_wal_created ON probe_state_wal (created_at);
+
+-- probe_state_snapshots: periodic snapshots of full probe state
+CREATE TABLE IF NOT EXISTS probe_state_snapshots (
+  id             INTEGER PRIMARY KEY,
+  snapshot_data  TEXT,
+  created_at     INTEGER NOT NULL
+);
+`;
+
 export const MIGRATIONS: Record<number, string> = {
   // Version 1 is applied as a full schema creation on empty databases.
   2: SCHEMA_V2_MIGRATION,
   3: SCHEMA_V3_MIGRATION,
   4: SCHEMA_V4_MIGRATION,
+  5: SCHEMA_V5_MIGRATION,
 };
 
 /**
