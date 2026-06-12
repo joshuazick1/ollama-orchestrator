@@ -5,6 +5,7 @@
  *
  * Task 10: BackoffSchedule — per-tuple exponential backoff for recovery probes.
  * Task 11: RecoveryDriver — probe scheduling + execution (separate task).
+ * Task 12: RecoveryDriver + ProbeOrchestrator integration.
  *
  * ## Backoff Algorithm
  *
@@ -20,10 +21,25 @@
  * The schedule is fully deterministic (no jitter). Per-tuple state is held in
  * an in-memory Map and is NOT persisted — it is recovered from the WAL by the
  * ProbeOrchestrator on startup.
+ *
+ * ## RecoveryDriver Integration (Task 12)
+ *
+ * RecoveryDriver wires into ProbeOrchestrator's onStateChange event to keep the
+ * BackoffSchedule counter in sync with the state machine:
+ *
+ * - On UNHEALTHY transition: backoff.recordRecoveryAttempt(tuple)
+ * - On RECOVERING → HEALTHY transition: backoff.resetRecoveryAttempts(tuple)
+ *
+ * The ProbeOrchestrator independently sets nextProbeAt via its own _getRecoveryBackoff
+ * (to avoid a synchronous dependency on BackoffSchedule during state transitions).
+ * RecoveryDriver's BackoffSchedule is the authoritative source for the recoveryAttempts
+ * counter used by the recovery probe scheduler.
  */
 
-import type { ProbeConfig, Tuple, TupleKey } from './types.js';
+import type { ProbeConfig, Tuple, TupleKey, Classification } from './types.js';
 import { tupleKey } from './types.js';
+import type { ProbeOrchestrator } from './probe-orchestrator.js';
+import type { EndpointRegistry } from './endpoint-registry.js';
 
 /** 1 hour in milliseconds */
 const ONE_HOUR_MS = 3_600_000;
@@ -105,5 +121,178 @@ export class BackoffSchedule {
     }
 
     return delay;
+  }
+}
+
+/**
+ * Probe executor signature — injected by the caller (production = real HTTP probe,
+ * tests = mock function).
+ */
+export type ProbeExecutor = (
+  tuple: Tuple
+) => Promise<{ success: boolean; classification?: Classification }>;
+
+/**
+ * RecoveryDriver — 1-second tick loop that finds UNHEALTHY tuples whose
+ * nextProbeAt is due and fires a probe against each.
+ *
+ * Concurrency control: uses ProbeOrchestrator.markProbing() for atomic
+ * check-and-set to prevent two drivers from probing the same tuple in the
+ * same window. In-flight probes are tracked in a private Set.
+ *
+ * Backoff integration: after a failed probe, calls backoff.recordRecoveryAttempt.
+ * After a successful probe that transitions the tuple to RECOVERING (and only
+ * when it ultimately reaches HEALTHY), calls backoff.resetRecoveryAttempts.
+ */
+export class RecoveryDriver {
+  private intervalHandle: NodeJS.Timeout | null = null;
+  private probing = new Set<TupleKey>();
+  private unsubscribe: () => void;
+
+  constructor(
+    private orchestrator: ProbeOrchestrator,
+    private endpointRegistry: EndpointRegistry,
+    private backoff: BackoffSchedule,
+    private config: ProbeConfig,
+    private probeExecutor?: ProbeExecutor
+  ) {
+    this.unsubscribe = orchestrator.onStateChange((tuple, from, to) => {
+      if (to === 'UNHEALTHY') {
+        this.backoff.recordRecoveryAttempt(tuple);
+      } else if (from === 'RECOVERING' && to === 'HEALTHY') {
+        this.backoff.resetRecoveryAttempts(tuple);
+      }
+    });
+  }
+
+  /**
+   * Start the 1-second tick interval.
+   * Clears any existing interval before setting a new one.
+   */
+  start(): void {
+    if (this.intervalHandle !== null) {
+      clearInterval(this.intervalHandle);
+    }
+    this.intervalHandle = setInterval(() => {
+      // Fire-and-forget: tick() is async but we don't await in the interval callback
+      this.tick().catch(() => {
+        // Swallow errors in the interval callback — errors are recorded inside tick/executeProbe
+      });
+    }, 1000);
+  }
+
+  /**
+   * Stop the tick interval and clear any in-flight probe tracking.
+   */
+  stop(): void {
+    if (this.intervalHandle !== null) {
+      clearInterval(this.intervalHandle);
+      this.intervalHandle = null;
+    }
+    this.probing.clear();
+    this.unsubscribe();
+  }
+
+  /**
+   * Manually trigger a tick (for tests — does not use real timers).
+   *
+   * On each tick:
+   * - Find all UNHEALTHY tuples where nextProbeAt <= now
+   * - For each, call markProbing (atomic); if false, skip (already probing)
+   * - If true, fire executeProbe (fire-and-forget, don't await)
+   */
+  async tick(): Promise<void> {
+    const now = Date.now();
+    const allStates = this.orchestrator.getAllStates();
+
+    for (const [tupleKey, ts] of allStates) {
+      if (ts.state !== 'UNHEALTHY') continue;
+      if (ts.nextProbeAt > now) continue;
+
+      // Parse tuple key back to Tuple for markProbing
+      const tuple = this.#parseTupleKey(tupleKey);
+
+      // Atomic check-and-set — returns false if already being probed by someone else
+      if (!this.orchestrator.markProbing(tuple)) continue;
+
+      this.probing.add(tupleKey);
+      // Fire-and-forget: execute probe without awaiting
+      this.executeProbe(tuple).catch(() => {
+        // Error is handled inside executeProbe — nothing to do here
+      });
+    }
+  }
+
+  /**
+   * Execute a probe against a specific tuple.
+   *
+   * Calls probeExecutor (or no-op stub), then records the result with the
+   * orchestrator. Updates backoff on success/failure.
+   *
+   * @param tuple - the tuple to probe
+   */
+  async executeProbe(tuple: Tuple): Promise<void> {
+    const key = tupleKey(tuple);
+    try {
+      const result = await (this.probeExecutor ?? this.#defaultProbeExecutor)(tuple);
+      this.orchestrator.recordProbeResult(tuple, result.success, result.classification);
+
+      if (result.success) {
+        this.backoff.resetRecoveryAttempts(tuple);
+      } else {
+        this.backoff.recordRecoveryAttempt(tuple);
+      }
+    } catch (err) {
+      // Probe executor threw — treat as a transient failure
+      this.orchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+      this.backoff.recordRecoveryAttempt(tuple);
+    } finally {
+      this.probing.delete(key);
+    }
+  }
+
+  /**
+   * Inject a custom probe executor (dependency injection for tests).
+   */
+  setProbeExecutor(fn: ProbeExecutor): void {
+    this.probeExecutor = fn;
+  }
+
+  /**
+   * Check if a tuple is currently being probed.
+   */
+  isProbing(tuple: Tuple): boolean {
+    return this.probing.has(tupleKey(tuple));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Default no-op probe executor used when none is injected.
+   * Always returns success: true (healthy endpoint).
+   */
+  #defaultProbeExecutor: ProbeExecutor = async () => {
+    return { success: true };
+  };
+
+  /**
+   * Parse a TupleKey string back into its component Tuple.
+   * @throws Error if the key does not have exactly 3 colon-separated parts
+   */
+  #parseTupleKey(k: TupleKey): Tuple {
+    const parts = k.split(':');
+    if (parts.length !== 3) {
+      throw new Error(`Invalid tuple key: "${k}" (expected "serverId:model:endpoint")`);
+    }
+    return {
+      serverId: parts[0],
+      model: parts[1],
+      endpoint: parts[2] as Tuple['endpoint'],
+    };
   }
 }
