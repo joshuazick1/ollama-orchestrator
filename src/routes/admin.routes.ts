@@ -14,6 +14,10 @@ import {
   forceHalfOpenBreaker,
 } from '../controllers/circuit-breaker-controller.js';
 import {
+  getServerCircuitBreaker,
+  resetServerCircuitBreaker,
+} from '../controllers/servers-controller.js';
+import {
   getConfig,
   updateConfig,
   updateConfigSection,
@@ -35,8 +39,6 @@ import {
   getAllServerRecoveryStats,
   getRecentFailureRecords,
   resetServerRecoveryStats,
-  resetServerCircuitBreaker,
-  getServerCircuitBreaker,
 } from '../controllers/recovery-failure-controller.js';
 import {
   listServerModels,
