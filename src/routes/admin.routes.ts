@@ -6,7 +6,13 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
-import { resetBreaker, getBreakerDetails } from '../controllers/circuit-breaker-controller.js';
+import {
+  resetBreaker,
+  getBreakerDetails,
+  forceOpenBreaker,
+  forceCloseBreaker,
+  forceHalfOpenBreaker,
+} from '../controllers/circuit-breaker-controller.js';
 import {
   getConfig,
   updateConfig,
@@ -50,9 +56,6 @@ import {
   removeBansByModel,
   clearAllBans,
   manualRecoveryTest,
-  forceOpenBreaker,
-  forceCloseBreaker,
-  forceHalfOpenBreaker,
   getServersCircuitBreakers,
   getCircuitBreakersByModel,
 } from '../controllers/servers-controller.js';
