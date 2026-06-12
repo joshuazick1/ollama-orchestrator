@@ -69,6 +69,14 @@ import type {
 import { OrchestratorPersistence } from './persistence.js';
 import { TagsCacheStore } from './tags-cache.js';
 
+import type { Tuple } from '../probe/types.js';
+import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
+import { BackoffSchedule } from '../probe/recovery-driver.js';
+import { EndpointRegistry } from '../probe/endpoint-registry.js';
+import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import { RecoveryDriver } from '../probe/recovery-driver.js';
+import { WALStore } from '../probe/wal-store.js';
+
 export type { AIServer } from './orchestrator.types.js';
 
 /** Routing context for debug output - tracks which server was selected and routing reasoning */
@@ -128,6 +136,11 @@ export class AIOrchestrator {
   private healthCheckScheduler: HealthCheckScheduler;
   private activeTestScheduler: ActiveTestScheduler;
   private probeScheduler: InferenceProbeScheduler;
+  private probeOrchestrator: ProbeOrchestrator;
+  private recoveryDriver: RecoveryDriver;
+  private backoffSchedule: BackoffSchedule;
+  private endpointRegistry: EndpointRegistry;
+  private walStore: WALStore;
   private draining = false;
   private config: OrchestratorConfig;
   private readonly tagsCacheStore: TagsCacheStore;
@@ -183,6 +196,15 @@ export class AIOrchestrator {
   }
   public getActiveTestScheduler(): ActiveTestScheduler {
     return this.activeTestScheduler;
+  }
+  public getProbeOrchestrator(): ProbeOrchestrator {
+    return this.probeOrchestrator;
+  }
+  public getEndpointRegistry(): EndpointRegistry {
+    return this.endpointRegistry;
+  }
+  public getRecoveryDriver(): RecoveryDriver {
+    return this.recoveryDriver;
   }
   public getMetricsStore() {
     return getMetricsStore();
@@ -383,6 +405,11 @@ export class AIOrchestrator {
       () => this.errorAggregator
     );
 
+    // Initialize probe subsystem (ProbeOrchestrator + EndpointRegistry + WALStore)
+    this.walStore = new WALStore(getOperationalStore());
+    this.probeOrchestrator = new ProbeOrchestrator(DEFAULT_PROBE_CONFIG, this.walStore);
+    this.endpointRegistry = new EndpointRegistry();
+
     // Initialize TimeoutManager with config defaults
     const currentConfig = getConfigManager().getConfig();
     this.timeoutManager = new TimeoutManager({
@@ -425,6 +452,35 @@ export class AIOrchestrator {
     );
 
     this.models = new OrchestratorModels(this);
+
+    this.walStore = new WALStore(getOperationalStore());
+    this.endpointRegistry = new EndpointRegistry();
+    const probeConfig =
+      (this.config as { probe?: typeof DEFAULT_PROBE_CONFIG }).probe ?? DEFAULT_PROBE_CONFIG;
+    this.probeOrchestrator = new ProbeOrchestrator(probeConfig, this.walStore);
+    this.backoffSchedule = new BackoffSchedule(probeConfig);
+    this.recoveryDriver = new RecoveryDriver(
+      this.probeOrchestrator,
+      this.endpointRegistry,
+      this.backoffSchedule,
+      probeConfig,
+      async tuple => {
+        const server = this.servers.find(s => s.id === tuple.serverId);
+        if (!server)
+          return { success: false, classification: { kind: 'transient', retryable: true } };
+        const { probeExecutor } = await import('./probe-executor.js');
+        return probeExecutor(tuple, { serverUrl: server.url, apiKey: server.apiKey });
+      }
+    );
+    this.probeOrchestrator.onStateChange((tuple, from, to, reason) => {
+      failureTracker.recordCircuitBreakerTransition(
+        tuple.serverId,
+        tuple.model,
+        from === 'HEALTHY' ? 'closed' : from === 'UNHEALTHY' ? 'open' : 'half-open',
+        to === 'HEALTHY' ? 'closed' : to === 'UNHEALTHY' ? 'open' : 'half-open',
+        reason
+      );
+    });
   }
 
   /**
@@ -445,222 +501,11 @@ export class AIOrchestrator {
 
   /**
    * Handle individual health check result
+   * @deprecated RecoveryDriver now handles probe results; this is a no-op stub
    */
-  private onHealthCheckResult(result: HealthCheckResult): void {
-    const server = this.servers.find(s => s.id === result.serverId);
-    if (!server) {
-      logger.warn(`Health check result for unknown server: ${result.serverId}`);
-      return;
-    }
-
-    const wasHealthy = server.healthy;
-    const previousModelCount = server.models.length;
-
-    if (result.success) {
-      // Only mark server healthy if circuit breakers are not open
-      // Active testing should be the ONLY way to recover from open circuit breakers
-      const serverCb = this.getCircuitBreaker(server.id);
-      if (serverCb.getState() !== 'open') {
-        server.healthy = true;
-        server.lastResponseTime = result.responseTime ?? Infinity;
-
-        // Track if anything changed that needs persistence
-        let needsPersistence = false;
-
-        // Update models from health check result
-        if (
-          result.models &&
-          safeJsonStringify(result.models) !== safeJsonStringify(server.models)
-        ) {
-          const previousModelSet = new Set(server.models);
-          server.models = result.models;
-          needsPersistence = true;
-          for (const model of result.models) {
-            if (!previousModelSet.has(model)) {
-              this.probeScheduler.onModelDiscovered(server.id, model);
-            }
-          }
-        }
-
-        // Update endpoint capability flags
-        if (
-          result.supportsOllama !== undefined &&
-          result.supportsOllama !== server.supportsOllama
-        ) {
-          server.supportsOllama = result.supportsOllama;
-          logger.info(`Server ${server.id} Ollama support updated to: ${result.supportsOllama}`);
-          needsPersistence = true;
-        }
-        if (result.supportsV1 !== undefined && result.supportsV1 !== server.supportsV1) {
-          server.supportsV1 = result.supportsV1;
-          logger.info(`Server ${server.id} /v1/* support updated to: ${result.supportsV1}`);
-          needsPersistence = true;
-        }
-
-        // Update OpenAI models from health check result
-        // Don't overwrite manually configured v1Models with empty probe results
-        // This preserves manually configured models for servers like MiniMax that don't expose /v1/models
-        if (
-          result.v1Models &&
-          safeJsonStringify(result.v1Models) !== safeJsonStringify(server.v1Models)
-        ) {
-          // Only update if result has models OR server doesn't have models yet
-          // This prevents empty probe results from overwriting manually configured models
-          if (result.v1Models.length > 0 || !server.v1Models || server.v1Models.length === 0) {
-            server.v1Models = result.v1Models;
-            needsPersistence = true;
-          }
-        }
-
-        // Save to disk when anything changes
-        if (needsPersistence && this.config.enablePersistence) {
-          this.persistence.saveServersToDisk(this.servers);
-        }
-
-        // Update loaded model information from /api/ps
-        if (result.loadedModels !== undefined) {
-          server.hardware = {
-            loadedModels: result.loadedModels,
-            usedVram: result.totalVramUsed ?? 0,
-            lastUpdated: new Date(),
-          };
-        }
-
-        this.recordSuccess(server.id);
-
-        // Pre-create circuit breakers for all known models on this server
-        // This ensures they appear in monitoring UI even before first use
-        for (const model of server.models) {
-          // This will create the circuit breaker if it doesn't exist
-          this.getModelCircuitBreaker(server.id, model);
-        }
-
-        if (result.modelDetails) {
-          for (const detail of result.modelDetails) {
-            const parameterSize = detail.parameterSize || extractParameterSizeFromName(detail.name);
-            const family = detail.family || undefined;
-            const quantization = detail.quantization || undefined;
-            if (parameterSize ?? family ?? quantization) {
-              this.metricsAggregator.updateModelMetadata(server.id, detail.name, {
-                parameterSize,
-                family,
-                quantization,
-              });
-            }
-          }
-        }
-
-        const modelCountChanged = server.models.length !== previousModelCount;
-        if (modelCountChanged || !wasHealthy) {
-          logger.debug(`Health check passed for ${server.id}`, {
-            responseTime: result.responseTime,
-            modelCount: server.models.length,
-            modelCountChanged,
-          });
-
-          // Record successful recovery if server was previously unhealthy
-          if (!wasHealthy) {
-            getRecoveryFailureTracker().recordRecoverySuccess(server.id, result.responseTime);
-            logger.info(`Server ${server.id} successfully recovered after being unhealthy`);
-            // REC-20: clear any cooldown penalties so the server is immediately eligible
-            this.banManager.clearCooldown(server.id, '');
-            // REC-14: immediately queue model-level active tests so we don't wait for the next
-            // health-check cycle to discover which model breakers can also be closed
-            void this.runActiveTestsForServer(server);
-          }
-        }
-
-        // Invalidate cache if server was previously unhealthy or models changed
-        if (!wasHealthy || modelCountChanged) {
-          this.invalidateServerTagsCache(server.id);
-        }
-      } else {
-        logger.debug(
-          `Health check passed for ${server.id} but circuit breaker is open - attempting recovery`,
-          {
-            responseTime: result.responseTime,
-            breakerState: serverCb.getState(),
-          }
-        );
-
-        // Force close circuit breaker on successful recovery health check
-        // This allows the server to become healthy again after recovery
-        serverCb.forceClose();
-        logger.info(
-          `Circuit breaker force-closed for ${server.id} after successful recovery health check`
-        );
-
-        // Now mark server as healthy since circuit breaker is closed
-        server.healthy = true;
-        server.lastResponseTime = result.responseTime ?? Infinity;
-
-        // Update models from health check result
-        if (result.models) {
-          server.models = result.models;
-        }
-
-        // Update loaded model information from /api/ps
-        if (result.loadedModels !== undefined) {
-          server.hardware = {
-            loadedModels: result.loadedModels,
-            usedVram: result.totalVramUsed ?? 0,
-            lastUpdated: new Date(),
-          };
-        }
-
-        this.recordSuccess(server.id);
-
-        // Pre-create circuit breakers for all known models on this server
-        for (const model of server.models) {
-          this.getModelCircuitBreaker(server.id, model);
-        }
-
-        // Record successful recovery
-        getRecoveryFailureTracker().recordRecoverySuccess(server.id, result.responseTime);
-        logger.info(`Server ${server.id} successfully recovered after being unhealthy`);
-        // REC-20: clear any cooldown penalties so the server is immediately eligible
-        this.banManager.clearCooldown(server.id, '');
-        // REC-14: immediately queue model-level active tests
-        void this.runActiveTestsForServer(server);
-
-        // Invalidate cache since server is now healthy
-        this.invalidateServerTagsCache(server.id);
-      }
-    } else {
-      server.healthy = false;
-      server.models = []; // Clear models on failure
-      this.recordFailure(server.id, result.error || 'Health check failed');
-
-      this.modelAggregator.removeServer(server.id);
-
-      // Get circuit breaker state for tracking
-      const serverCb = this.getCircuitBreaker(server.id);
-
-      // Record recovery failure
-      const errorType = this.classifyRecoveryError(result.error || 'Unknown error');
-      getRecoveryFailureTracker().recordRecoveryFailure(
-        server.id,
-        result.error || 'Health check failed',
-        errorType,
-        result.responseTime,
-        { source: 'health_check', circuitBreakerState: serverCb.getState() }
-      );
-
-      // REC-6: detect flapping and adjust circuit breaker thresholds
-      const trackerStats = getRecoveryFailureTracker().getServerRecoveryStats(server.id);
-      if (trackerStats?.pattern === 'flapping') {
-        serverCb.handleFlappingDetected();
-      }
-
-      logger.warn(`Health check failed for ${server.id}:`, {
-        error: result.error,
-      });
-
-      // Invalidate cache if server was previously healthy
-      if (wasHealthy) {
-        this.invalidateServerTagsCache(server.id);
-      }
-    }
+  private onHealthCheckResult(_result: HealthCheckResult): void {
+    // No-op: probe subsystem (RecoveryDriver) now handles probe result processing
+    // The old HealthCheckScheduler still calls this but the result is handled by the new probe system
   }
 
   /**
@@ -728,6 +573,10 @@ export class AIOrchestrator {
     this.errorAggregator.setClusterSize(this.servers.length);
     logger.info(`Added server ${server.id} at ${normalizedUrl}`);
 
+    for (const endpoint of [...GENERATION_ENDPOINTS, ...EMBEDDING_ENDPOINTS]) {
+      this.endpointRegistry.declare(newServer.id, endpoint);
+    }
+
     // Invalidate cache since we added a new server
     this.invalidateTagsCache();
 
@@ -738,6 +587,7 @@ export class AIOrchestrator {
   }
   removeServer(serverId: string): void {
     const initialCount = this.servers.length;
+    const removedServer = this.servers.find(s => s.id === serverId);
     this.servers = this.servers.filter(s => s.id !== serverId);
     this.modelAggregator.removeServer(serverId);
 
@@ -754,6 +604,16 @@ export class AIOrchestrator {
       this.banManager.clearCooldown(serverId, '');
       this.timeoutManager.reset(serverId);
       getModelManager().unregisterServer(serverId);
+
+      // Evict probe tuples for this server
+      this.endpointRegistry.revokeAll(serverId);
+      if (removedServer) {
+        for (const model of removedServer.models) {
+          for (const endpoint of [...GENERATION_ENDPOINTS, ...EMBEDDING_ENDPOINTS]) {
+            this.probeOrchestrator.evictTuple({ serverId, model, endpoint });
+          }
+        }
+      }
 
       // Persist servers to disk if enabled
       if (this.config.enablePersistence) {
@@ -3577,6 +3437,10 @@ export class AIOrchestrator {
 
       logger.info('Orchestrator: Recovery test coordinator callbacks have been set up');
 
+      // Restore probe state from WAL and start recovery driver
+      await this.probeOrchestrator.restoreFromWAL();
+      this.recoveryDriver.start();
+
       // Start health check scheduler
       this.healthCheckScheduler.start();
       this.activeTestScheduler.start();
@@ -4408,6 +4272,9 @@ export class AIOrchestrator {
     };
     await this.circuitBreakerPersistence.shutdown(breakerData);
 
+    // Save probe state snapshot
+    await this.probeOrchestrator.createSnapshot();
+
     // Persist timeouts on shutdown to ensure they're saved
     if (this.config.enablePersistence) {
       const persistedData = this.timeoutManager.toPersistedData();
@@ -4441,5 +4308,6 @@ export class AIOrchestrator {
   // Stop background schedulers. Idempotent.
   public stop(): void {
     this.metricsAggregator.stopPruneScheduler();
+    this.recoveryDriver.stop();
   }
 }

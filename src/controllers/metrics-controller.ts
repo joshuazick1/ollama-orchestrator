@@ -8,7 +8,8 @@ import type { Request, Response } from 'express';
 import type { MetricsAggregator } from '../metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../metrics/prometheus-exporter.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
+import { getOperationalStore } from '../storage/operational-store.js';
+import { WALStore } from '../probe/wal-store.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 
 /**
@@ -113,27 +114,64 @@ export function getPrometheusMetrics(req: Request, res: Response): void {
 /**
  * Get recovery test metrics and statistics
  * GET /api/orchestrator/metrics/recovery-tests
+ *
+ * Queries WAL events for recovery-related state transitions:
+ * - UNHEALTHY → RECOVERING: recovery attempt started
+ * - RECOVERING → HEALTHY: recovery succeeded
+ * - RECOVERING → UNHEALTHY: recovery failed
  */
-export function getRecoveryTestMetrics(req: Request, res: Response): void {
+export async function getRecoveryTestMetrics(req: Request, res: Response): Promise<void> {
   try {
-    const coordinator = getRecoveryTestCoordinator();
-    const stats = coordinator.getTestStats();
+    const wal = new WALStore(getOperationalStore());
 
-    const breakerNames = new Set<string>();
-    for (const metric of coordinator.getTestMetrics()) {
-      breakerNames.add(metric.breakerName);
+    const allEvents = await wal.getEventsAfter(0);
+
+    const recoveryAttempts = { count: 0, byTuple: new Map<string, number>() };
+    const recoverySuccesses = { count: 0, byTuple: new Map<string, number>() };
+    const recoveryFailures = { count: 0, byTuple: new Map<string, number>() };
+    const allTuples = new Set<string>();
+
+    for (const event of allEvents) {
+      const { tupleKey, fromState, toState } = event;
+      allTuples.add(tupleKey);
+
+      if (fromState === 'UNHEALTHY' && toState === 'RECOVERING') {
+        recoveryAttempts.count++;
+        recoveryAttempts.byTuple.set(tupleKey, (recoveryAttempts.byTuple.get(tupleKey) ?? 0) + 1);
+      }
+
+      if (fromState === 'RECOVERING' && toState === 'HEALTHY') {
+        recoverySuccesses.count++;
+        recoverySuccesses.byTuple.set(tupleKey, (recoverySuccesses.byTuple.get(tupleKey) ?? 0) + 1);
+      }
+
+      if (fromState === 'RECOVERING' && toState === 'UNHEALTHY') {
+        recoveryFailures.count++;
+        recoveryFailures.byTuple.set(tupleKey, (recoveryFailures.byTuple.get(tupleKey) ?? 0) + 1);
+      }
     }
 
-    const breakerProbabilities: Record<string, number> = {};
-    for (const name of breakerNames) {
-      breakerProbabilities[name] = coordinator.getRecoveryProbability(name);
+    const recoveryProbabilities: Record<string, number> = {};
+    for (const tupleKey of allTuples) {
+      const attempts = recoveryAttempts.byTuple.get(tupleKey) ?? 0;
+      const successes = recoverySuccesses.byTuple.get(tupleKey) ?? 0;
+      recoveryProbabilities[tupleKey] = attempts > 0 ? successes / attempts : -1;
     }
+
+    const totalRecoveryAttempts = recoveryAttempts.count;
+    const totalRecoverySuccesses = recoverySuccesses.count;
+    const totalRecoveryFailures = recoveryFailures.count;
 
     res.status(200).json({
       success: true,
       timestamp: Date.now(),
-      aggregate: stats,
-      recoveryProbabilities: breakerProbabilities,
+      aggregate: {
+        totalRecoveryAttempts,
+        totalRecoverySuccesses,
+        totalRecoveryFailures,
+        successRate: totalRecoveryAttempts > 0 ? totalRecoverySuccesses / totalRecoveryAttempts : 0,
+      },
+      recoveryProbabilities,
     });
   } catch (error) {
     res.status(500).json({
@@ -146,22 +184,58 @@ export function getRecoveryTestMetrics(req: Request, res: Response): void {
 /**
  * Get recovery test metrics for a specific breaker
  * GET /api/orchestrator/metrics/recovery-tests/:breakerName
+ *
+ * Queries WAL events for the specific tuple and returns chronological
+ * list of recovery events with timestamps.
  */
-export function getBreakerRecoveryMetrics(req: Request, res: Response): void {
+export async function getBreakerRecoveryMetrics(req: Request, res: Response): Promise<void> {
   try {
     const breakerName = decodeURIComponent(req.params.breakerName as string);
-    const coordinator = getRecoveryTestCoordinator();
+    const wal = new WALStore(getOperationalStore());
 
-    const metrics = coordinator.getMetricsForBreaker(breakerName);
-    const probability = coordinator.getRecoveryProbability(breakerName);
+    const events = await wal.getEventsForTuple(breakerName);
+
+    const recoveryEvents: Array<{
+      timestamp: number;
+      fromState: string;
+      toState: string;
+      eventType: string;
+      reason: string | null;
+    }> = [];
+
+    for (const event of events) {
+      const isRecoveryTransition =
+        (event.fromState === 'UNHEALTHY' && event.toState === 'RECOVERING') ||
+        (event.fromState === 'RECOVERING' && event.toState === 'HEALTHY') ||
+        (event.fromState === 'RECOVERING' && event.toState === 'UNHEALTHY');
+
+      if (isRecoveryTransition) {
+        recoveryEvents.push({
+          timestamp: event.createdAt,
+          fromState: event.fromState ?? '',
+          toState: event.toState ?? '',
+          eventType: event.eventType,
+          reason: event.reason,
+        });
+      }
+    }
+
+    const attempts = events.filter(
+      e => e.fromState === 'UNHEALTHY' && e.toState === 'RECOVERING'
+    ).length;
+    const successes = events.filter(
+      e => e.fromState === 'RECOVERING' && e.toState === 'HEALTHY'
+    ).length;
+    const probability = attempts > 0 ? successes / attempts : -1;
 
     res.status(200).json({
       success: true,
       timestamp: Date.now(),
       breakerName,
-      metrics,
+      recoveryEvents,
       recoveryProbability: probability,
-      totalTests: metrics.length,
+      totalRecoveryAttempts: attempts,
+      totalRecoverySuccesses: successes,
     });
   } catch (error) {
     res.status(500).json({
