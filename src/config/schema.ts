@@ -80,18 +80,18 @@ export const streamingConfigSchema = z.object({
 /**
  * Health check configuration schema
  */
-export const healthCheckConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-  intervalMs: z.number().int().min(1000).default(30000), // 30 seconds
-  timeoutMs: z.number().int().min(1000).default(5000), // 5 seconds
-  maxConcurrentChecks: z.number().int().min(1).default(10),
-  retryAttempts: z.number().int().min(0).default(2),
-  retryDelayMs: z.number().int().min(100).default(1000),
-  recoveryIntervalMs: z.number().int().min(1000).default(60000),
-  failureThreshold: z.number().int().min(1).default(3),
-  successThreshold: z.number().int().min(1).default(2),
-  backoffMultiplier: z.number().min(1).default(1.5),
-});
+export const healthCheckConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    intervalMs: z.number().int().min(1000).default(30000), // 30 seconds
+    timeoutMs: z.number().int().min(1000).default(5000), // 5 seconds
+    maxConcurrentChecks: z.number().int().min(1).default(10),
+    retryAttempts: z.number().int().min(0).default(2),
+    retryDelayMs: z.number().int().min(100).default(1000),
+    recoveryIntervalMs: z.number().int().min(1000).default(60000),
+    backoffMultiplier: z.number().min(1).default(1.5),
+  })
+  .strict();
 
 /**
  * Tags aggregation configuration schema
@@ -285,15 +285,6 @@ export const circuitBreakerConfigSchema = z.object({
   nonRetryableRatioThreshold: z.number().min(0).max(1).default(0.5),
   transientRatioThreshold: z.number().min(0).max(1).default(0.7),
   rateLimitFailureThreshold: z.number().int().min(1).default(2),
-  // Model-to-server breaker escalation settings
-  modelEscalation: z
-    .object({
-      enabled: z.boolean().default(true),
-      ratioThreshold: z.number().min(0).max(1).default(0.5),
-      durationThresholdMs: z.number().int().min(1000).default(300000), // 5 minutes
-      checkIntervalMs: z.number().int().min(1000).default(300000), // 5 minutes
-    })
-    .optional(),
   backoff: z
     .object({
       standardDelaysMs: z
@@ -467,6 +458,27 @@ export const probeSchedulerConfigSchema = z.object({
   lowTrafficThreshold: z.number().min(0).max(1).default(0.3),
 });
 
+/**
+ * Probe configuration schema (replaces circuitBreaker per-server health probing)
+ */
+export const probeConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  intervalMs: z.number().int().positive().default(30000),
+  suspectAfterFailures: z.number().int().positive().default(1),
+  unhealthyAfterFailures: z.number().int().positive().default(3),
+  errorRateSuspectThreshold: z.number().min(0).max(1).default(0.3),
+  errorRateUnhealthyThreshold: z.number().min(0).max(1).default(0.7),
+  suspectWindowMs: z.number().int().positive().default(60000),
+  recoveryBackoffMs: z
+    .array(z.number().int().positive())
+    .default([10000, 30000, 60000, 300000, 900000]),
+  recoverySuccessThreshold: z.number().int().positive().default(5),
+  probeTimeoutMs: z.number().int().positive().default(5000),
+  maxConcurrentProbes: z.number().int().positive().default(10),
+  snapshotIntervalMs: z.number().int().positive().default(300000),
+  walTruncateThreshold: z.number().int().positive().default(10000),
+});
+
 export const errorAggregatorConfigSchema = z.object({
   enabled: z.boolean().default(true),
   rateLimitThreshold: z.number().int().min(2).default(5),
@@ -532,6 +544,7 @@ export const orchestratorConfigSchema = z.object({
   timeout: timeoutConfigSchema,
   storage: storageConfigSchema,
   probeScheduler: probeSchedulerConfigSchema,
+  probe: probeConfigSchema.optional(),
   anthropic: anthropicConfigSchema,
   errorAggregator: errorAggregatorConfigSchema,
   adaptiveWeightTuner: z.object({
@@ -569,6 +582,7 @@ export type StoragePerformanceConfig = z.infer<typeof storagePerformanceConfigSc
 export type StorageTemporalConfig = z.infer<typeof storageTemporalConfigSchema>;
 export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
+export type ProbeConfig = z.infer<typeof probeConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type ErrorAggregatorConfig = z.infer<typeof errorAggregatorConfigSchema>;
 export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;
