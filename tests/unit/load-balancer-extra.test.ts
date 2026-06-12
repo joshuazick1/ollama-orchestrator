@@ -333,6 +333,61 @@ describe('Load Balancer - Additional Tests', () => {
     });
   });
 
+  describe('Sticky Sessions LRU Eviction', () => {
+    let lb: LoadBalancer;
+
+    afterEach(() => {
+      lb.stopCleanup();
+    });
+
+    it('caps stickySessions at maxStickySessions and evicts oldest', () => {
+      lb = new LoadBalancer({
+        roundRobin: {
+          stickySessionsTtlMs: 60000, // TTL enabled so entries are created; cap=3 tests LRU
+          maxStickySessions: 3,
+          skipUnhealthy: true,
+          checkCapacity: true,
+        },
+      });
+      lb.setAlgorithm('round-robin');
+
+      const servers = [
+        createServer({
+          id: 'server-1',
+          healthy: true,
+          maxConcurrency: 4,
+          lastResponseTime: 100,
+          models: ['m'],
+        }),
+        createServer({
+          id: 'server-2',
+          healthy: true,
+          maxConcurrency: 4,
+          lastResponseTime: 100,
+          models: ['m'],
+        }),
+      ];
+
+      const getLoad = () => 0;
+      const getTotalLoad = () => 0;
+      const getMetrics = () => undefined;
+
+      // Use 5 unique clientIds (more than maxStickySessions=3)
+      lb.select(servers, 'm', getLoad, getTotalLoad, getMetrics, false, 'client-1');
+      lb.select(servers, 'm', getLoad, getTotalLoad, getMetrics, false, 'client-2');
+      lb.select(servers, 'm', getLoad, getTotalLoad, getMetrics, false, 'client-3');
+      lb.select(servers, 'm', getLoad, getTotalLoad, getMetrics, false, 'client-4');
+      lb.select(servers, 'm', getLoad, getTotalLoad, getMetrics, false, 'client-5');
+
+      expect(lb['stickySessions'].size).toBe(3);
+      expect(lb['stickySessions'].has('client-1')).toBe(false);
+      expect(lb['stickySessions'].has('client-2')).toBe(false);
+      expect(lb['stickySessions'].has('client-3')).toBe(true);
+      expect(lb['stickySessions'].has('client-4')).toBe(true);
+      expect(lb['stickySessions'].has('client-5')).toBe(true);
+    });
+  });
+
   describe('Least Connections with Failure Rate', () => {
     it('should penalize servers with low success rate', () => {
       const lb = new LoadBalancer();

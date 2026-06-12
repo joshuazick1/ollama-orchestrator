@@ -292,6 +292,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       skipUnhealthy: true,
       checkCapacity: true,
       stickySessionsTtlMs: 0, // Disabled by default
+      maxStickySessions: 10000, // LRU cap; T5 exposes via env/config
     },
     leastConnections: {
       skipUnhealthy: true,

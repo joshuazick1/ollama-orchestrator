@@ -5,6 +5,7 @@
 
 import type { AIServer, ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
 import { getUserStore } from '../storage/user-store.js';
+import { BoundedMap } from '../utils/bounded-map.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
 
@@ -88,6 +89,7 @@ export interface LoadBalancerConfig {
     skipUnhealthy: boolean; // Skip unhealthy servers (default: true)
     checkCapacity: boolean; // Skip servers at capacity (default: true)
     stickySessionsTtlMs: number; // TTL for sticky sessions, 0 to disable (default: 0)
+    maxStickySessions: number; // LRU cap for sticky sessions (default: 10000)
   };
   // Least-connections algorithm settings
   leastConnections: {
@@ -146,6 +148,7 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     skipUnhealthy: true,
     checkCapacity: true,
     stickySessionsTtlMs: 0, // Disabled by default
+    maxStickySessions: 10000, // LRU cap; T5 exposes this via env/config
   },
   leastConnections: {
     skipUnhealthy: true,
@@ -477,7 +480,13 @@ export class LoadBalancer {
   private algorithm: LoadBalancerAlgorithm = 'fastest-response';
   private config: LoadBalancerConfig;
   private roundRobinIndex: number = 0;
-  private stickySessions: Map<string, StickySessionEntry> = new Map();
+  /**
+   * LRU-bounded sticky session cache.
+   * Cap is set at construction time from `config.roundRobin.maxStickySessions`
+   * (default 10000 if not set). Changing maxStickySessions at runtime requires
+   * re-instantiating the LoadBalancer — the cap is NOT hot-reloaded.
+   */
+  private stickySessions!: BoundedMap<string, StickySessionEntry>;
   private stickySessionCleanupInterval?: NodeJS.Timeout;
 
   constructor(config: Partial<LoadBalancerConfig> = {}) {
@@ -487,6 +496,9 @@ export class LoadBalancer {
       roundRobin: { ...DEFAULT_LB_CONFIG.roundRobin, ...config.roundRobin },
       leastConnections: { ...DEFAULT_LB_CONFIG.leastConnections, ...config.leastConnections },
     };
+
+    // Initialize LRU-bounded sticky sessions after config merge so maxStickySessions is available
+    this.stickySessions = new BoundedMap(this.config.roundRobin.maxStickySessions ?? 10000);
 
     // Start sticky session cleanup if enabled
     if (this.config.roundRobin.stickySessionsTtlMs > 0) {
@@ -590,6 +602,8 @@ export class LoadBalancer {
 
     const ttl = this.config.roundRobin.stickySessionsTtlMs;
     // Cleanup every TTL/2 to ensure timely removal
+    // Note: LRU cap enforcement (when maxStickySessions is set) happens
+    // automatically on every set() inside selectRoundRobin — no extra work needed here.
     this.stickySessionCleanupInterval = setInterval(() => {
       const now = Date.now();
       // Snapshot keys to avoid iterator issues during concurrent modification
