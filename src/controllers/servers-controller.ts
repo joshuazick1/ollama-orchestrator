@@ -11,6 +11,7 @@ import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.j
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
+import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 
 /**
  * Add a new server
@@ -245,6 +246,16 @@ export function getModels(req: Request, res: Response): void {
  */
 export function getHealth(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const allStates = probeOrchestrator.getAllStates();
+
+  let healthy = 0;
+  for (const [, tupleState] of allStates.entries()) {
+    if (tupleState.state === 'HEALTHY') {
+      healthy++;
+    }
+  }
+
   const globalMetrics = orchestrator.getGlobalMetrics();
 
   res.status(200).json({
@@ -254,6 +265,8 @@ export function getHealth(req: Request, res: Response): void {
     version: '1.0.0',
     servers: orchestrator.getServers().length,
     requestsPerSecond: Math.round(globalMetrics.requestsPerSecond * 100) / 100,
+    healthy,
+    total: allStates.size,
   });
 }
 
@@ -307,40 +320,50 @@ export function getCircuitBreakers(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
 
   try {
-    const circuitBreakers = orchestrator.getCircuitBreakerStats();
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    const endpointRegistry = orchestrator.getEndpointRegistry();
+    const allStates = probeOrchestrator.getAllStates();
 
-    // Convert to array format for API response
-    const breakerArray = Object.entries(circuitBreakers).map(([name, stats]) => {
-      // Extract serverId and model from breaker name (format: serverId:model)
-      const colonIndex = name.indexOf(':');
-      const serverId = colonIndex > 0 ? name.substring(0, colonIndex) : name;
-      const model = colonIndex > 0 ? name.substring(colonIndex + 1) : '';
-
-      // Calculate LB score as if circuit was closed (for "what-if" display)
+    const breakerArray = Array.from(allStates.entries()).map(([tupleKey, tupleState]) => {
+      const { serverId, model, endpoint } = parseTupleKey(tupleKey);
       const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
+      const errorRate =
+        tupleState.errorWindow.length > 0
+          ? tupleState.errorWindow.length /
+            Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
+          : 0;
 
       return {
-        serverId: name, // Use full breaker key (server:model) as serverId for frontend grouping
+        serverId: tupleKey,
         serverIdOnly: serverId,
         model,
-        state: stats.state.toUpperCase(),
-        failureCount: stats.failureCount,
-        successCount: stats.successCount,
-        totalRequestCount: stats.totalRequestCount || 0,
-        blockedRequestCount: stats.blockedRequestCount || 0,
-        lastFailure: stats.lastFailure,
-        lastSuccess: stats.lastSuccess,
-        nextRetryAt: stats.nextRetryAt,
-        errorRate: Math.round(stats.errorRate * 100) / 100, // Round to 2 decimal places
-        errorCounts: stats.errorCounts,
-        consecutiveSuccesses: stats.consecutiveSuccesses,
-        modelType: stats.modelType,
-        lastFailureReason: stats.lastFailureReason,
-        halfOpenStartedAt: stats.halfOpenStartedAt,
-        halfOpenAttempts: stats.halfOpenAttempts,
-        lastErrorType: stats.lastErrorType,
-        activeTestsInProgress: stats.activeTestsInProgress,
-        // LB score calculated as if circuit was closed
+        endpoint,
+        tupleKey,
+        state: tupleState.state,
+        uiState: probeStateToUIState(tupleState.state),
+        failureCount: tupleState.consecutiveFailures,
+        successCount: tupleState.consecutiveSuccesses,
+        totalRequestCount: 0,
+        blockedRequestCount: 0,
+        lastFailure: 0,
+        lastSuccess: 0,
+        nextRetryAt: tupleState.nextProbeAt,
+        halfOpenStartedAt:
+          tupleState.state === 'RECOVERING' ? tupleState.lastTransition : undefined,
+        errorRate: Math.round(errorRate * 100) / 100,
+        errorCounts: {
+          retryable: 0,
+          'non-retryable': 0,
+          transient: 0,
+          permanent: 0,
+          rateLimited: 0,
+        },
+        consecutiveSuccesses: tupleState.consecutiveSuccesses,
+        modelType: endpointRegistry.isEmbeddingModel(model) ? 'embedding' : 'generation',
+        lastFailureReason: tupleState.lastErrorKind ?? undefined,
+        lastErrorType: tupleState.lastErrorKind ?? undefined,
+        halfOpenAttempts: tupleState.recoveryAttempts,
+        activeTestsInProgress: undefined,
         lbScore: lbScore
           ? {
               totalScore: lbScore.totalScore,
@@ -367,36 +390,75 @@ export function getCircuitBreakers(req: Request, res: Response): void {
   }
 }
 
+/**
+ * Get aggregate circuit breaker status per server (fleet-wide view)
+ * GET /api/orchestrator/servers/circuit-breakers
+ */
 export function getServersCircuitBreakers(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
 
   try {
-    const circuitBreakers = orchestrator.getCircuitBreakerStats();
-    const serverBreakers = new Map<string, any>();
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    const endpointRegistry = orchestrator.getEndpointRegistry();
+    const allStates = probeOrchestrator.getAllStates();
 
-    for (const [name, stats] of Object.entries(circuitBreakers)) {
-      const colonIndex = name.indexOf(':');
-      const serverId = colonIndex > 0 ? name.substring(0, colonIndex) : name;
-      const model = colonIndex > 0 ? name.substring(colonIndex + 1) : '';
+    // Group by serverId, aggregate worst state per server
+    const serverBreakers = new Map<
+      string,
+      {
+        serverId: string;
+        state: string;
+        failureCount: number;
+        successCount: number;
+        totalRequestCount: number;
+        blockedRequestCount: number;
+        lastFailure: number;
+        lastSuccess: number;
+        nextRetryAt: number;
+        errorRate: number;
+        consecutiveSuccesses: number;
+        lastFailureReason: string | undefined;
+        halfOpenStartedAt: number | undefined;
+        halfOpenAttempts: number | undefined;
+        activeTestsInProgress: number | undefined;
+        lbScore: {
+          totalScore: number;
+          latencyScore: number;
+          successRateScore: number;
+          loadScore: number;
+          capacityScore: number;
+          circuitBreakerScore: number;
+          timeoutScore: number;
+        } | null;
+      }
+    >();
 
+    for (const [tupleKey, tupleState] of allStates.entries()) {
+      const { serverId, model } = parseTupleKey(tupleKey);
       const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
+      const errorRate =
+        tupleState.errorWindow.length > 0
+          ? tupleState.errorWindow.length /
+            Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
+          : 0;
 
-      const breakerInfo: any = {
+      const breakerInfo = {
         serverId,
-        state: stats.state.toUpperCase(),
-        failureCount: stats.failureCount,
-        successCount: stats.successCount,
-        totalRequestCount: stats.totalRequestCount || 0,
-        blockedRequestCount: stats.blockedRequestCount || 0,
-        lastFailure: stats.lastFailure,
-        lastSuccess: stats.lastSuccess,
-        nextRetryAt: stats.nextRetryAt,
-        errorRate: Math.round(stats.errorRate * 100) / 100,
-        consecutiveSuccesses: stats.consecutiveSuccesses,
-        lastFailureReason: stats.lastFailureReason,
-        halfOpenStartedAt: stats.halfOpenStartedAt,
-        halfOpenAttempts: stats.halfOpenAttempts,
-        activeTestsInProgress: stats.activeTestsInProgress,
+        state: tupleState.state,
+        failureCount: tupleState.consecutiveFailures,
+        successCount: tupleState.consecutiveSuccesses,
+        totalRequestCount: tupleState.consecutiveSuccesses + tupleState.consecutiveFailures,
+        blockedRequestCount: 0,
+        lastFailure: tupleState.lastProbeAt,
+        lastSuccess: tupleState.lastProbeAt,
+        nextRetryAt: tupleState.nextProbeAt,
+        errorRate: Math.round(errorRate * 100) / 100,
+        consecutiveSuccesses: tupleState.consecutiveSuccesses,
+        lastFailureReason: tupleState.lastErrorKind ?? undefined,
+        halfOpenStartedAt:
+          tupleState.state === 'RECOVERING' ? tupleState.lastTransition : undefined,
+        halfOpenAttempts: tupleState.recoveryAttempts,
+        activeTestsInProgress: undefined,
         lbScore: lbScore
           ? {
               totalScore: lbScore.totalScore,
@@ -412,9 +474,15 @@ export function getServersCircuitBreakers(req: Request, res: Response): void {
 
       const existing = serverBreakers.get(serverId);
       if (existing) {
-        const statePriority = { OPEN: 3, HALF_OPEN: 2, CLOSED: 1 };
-        const existingPriority = statePriority[existing.state as keyof typeof statePriority] || 0;
-        const newPriority = statePriority[breakerInfo.state as keyof typeof statePriority] || 0;
+        // Aggregate: worst state wins (UNHEALTHY > RECOVERING > SUSPECT > HEALTHY)
+        const statePriority: Record<string, number> = {
+          UNHEALTHY: 4,
+          RECOVERING: 3,
+          SUSPECT: 2,
+          HEALTHY: 1,
+        };
+        const existingPriority = statePriority[existing.state] || 0;
+        const newPriority = statePriority[breakerInfo.state] || 0;
 
         if (newPriority > existingPriority) {
           existing.state = breakerInfo.state;
@@ -451,33 +519,40 @@ export function getCircuitBreakersByModel(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
 
   try {
-    const circuitBreakers = orchestrator.getCircuitBreakerStats();
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    const endpointRegistry = orchestrator.getEndpointRegistry();
+    const allStates = probeOrchestrator.getAllStates();
     const modelBreakers = new Map<string, any[]>();
 
-    for (const [name, stats] of Object.entries(circuitBreakers)) {
-      const colonIndex = name.indexOf(':');
-      const serverId = colonIndex > 0 ? name.substring(0, colonIndex) : name;
-      const model = colonIndex > 0 ? name.substring(colonIndex + 1) : '';
-
+    for (const [tupleKey, tupleState] of allStates.entries()) {
+      const { serverId, model, endpoint } = parseTupleKey(tupleKey);
       const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
+      const errorRate =
+        tupleState.errorWindow.length > 0
+          ? tupleState.errorWindow.length /
+            Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
+          : 0;
 
       const breakerInfo: any = {
         serverId,
-        state: stats.state.toUpperCase(),
-        failureCount: stats.failureCount,
-        successCount: stats.successCount,
-        totalRequestCount: stats.totalRequestCount || 0,
-        blockedRequestCount: stats.blockedRequestCount || 0,
-        lastFailure: stats.lastFailure,
-        lastSuccess: stats.lastSuccess,
-        nextRetryAt: stats.nextRetryAt,
-        errorRate: Math.round(stats.errorRate * 100) / 100,
-        consecutiveSuccesses: stats.consecutiveSuccesses,
-        lastFailureReason: stats.lastFailureReason,
-        halfOpenStartedAt: stats.halfOpenStartedAt,
-        halfOpenAttempts: stats.halfOpenAttempts,
-        activeTestsInProgress: stats.activeTestsInProgress,
+        state: tupleState.state,
+        uiState: probeStateToUIState(tupleState.state),
+        failureCount: tupleState.consecutiveFailures,
+        successCount: tupleState.consecutiveSuccesses,
+        totalRequestCount: 0,
+        blockedRequestCount: 0,
+        lastFailure: 0,
+        lastSuccess: 0,
+        nextRetryAt: tupleState.nextProbeAt,
+        errorRate: Math.round(errorRate * 100) / 100,
+        consecutiveSuccesses: tupleState.consecutiveSuccesses,
+        lastFailureReason: tupleState.lastErrorKind ?? undefined,
+        halfOpenStartedAt:
+          tupleState.state === 'RECOVERING' ? tupleState.lastTransition : undefined,
+        halfOpenAttempts: tupleState.recoveryAttempts,
+        activeTestsInProgress: undefined,
         model,
+        endpoint,
         lbScore: lbScore
           ? {
               totalScore: lbScore.totalScore,
@@ -633,27 +708,35 @@ export async function manualRecoveryTest(req: Request, res: Response): Promise<v
   }
 
   const orchestrator = getOrchestratorInstance();
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const recoveryDriver = orchestrator.getRecoveryDriver();
+  const decodedModel = decodeURIComponent(model);
 
   try {
-    const result = await orchestrator.manualTriggerRecoveryTest(
-      serverId,
-      decodeURIComponent(model)
-    );
-
-    if (result.success) {
-      res.status(200).json({
-        success: true,
-        message: `Recovery test passed for ${serverId}:${model}`,
-        breakerState: result.breakerState,
-      });
-    } else {
-      res.status(200).json({
+    const activeEndpoints = endpointRegistry.getActiveEndpoints(serverId, decodedModel);
+    if (activeEndpoints.length === 0) {
+      res.status(404).json({
         success: false,
-        error: result.error,
-        breakerState: result.breakerState,
-        message: `Recovery test failed for ${serverId}:${model}`,
+        error: `No active endpoints found for ${serverId}:${decodedModel}`,
       });
+      return;
     }
+
+    await recoveryDriver.tick();
+
+    const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
+    const tupleState = probeOrchestrator.getTupleState({
+      serverId,
+      model: decodedModel,
+      endpoint: activeEndpoints[0],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Recovery test initiated for ${serverId}:${decodedModel}`,
+      breakerState: tupleState?.state ?? 'UNKNOWN',
+    });
   } catch (error) {
     res.status(500).json({
       error: 'Manual recovery test failed',
@@ -676,24 +759,86 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
   }
 
   const orchestrator = getOrchestratorInstance();
-  const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const allStates = probeOrchestrator.getAllStates();
+  const decodedModel = decodeURIComponent(model);
 
-  if (!breaker) {
+  const matchingTuples: Array<{
+    tupleKey: string;
+    tupleState: ReturnType<typeof probeOrchestrator.getAllStates> extends Map<string, infer T>
+      ? T
+      : never;
+  }> = [];
+
+  for (const [tupleKey, tupleState] of allStates.entries()) {
+    const parsed = parseTupleKey(tupleKey);
+    if (parsed.serverId === serverId && parsed.model === decodedModel) {
+      matchingTuples.push({ tupleKey, tupleState });
+    }
+  }
+
+  if (matchingTuples.length === 0) {
     res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
-  const stats = breaker.getStats();
+  const { tupleKey, tupleState } = matchingTuples[0];
+  const { endpoint } = parseTupleKey(tupleKey);
+  const lbScore = orchestrator.getLBScoreForServerModel(serverId, decodedModel);
+  const errorRate =
+    tupleState.errorWindow.length > 0
+      ? tupleState.errorWindow.length /
+        Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
+      : 0;
 
   res.status(200).json({
     success: true,
     serverId,
-    model,
+    model: decodedModel,
     circuitBreaker: {
-      name: `${serverId}:${model}`,
-      ...stats,
-      state: stats.state.toUpperCase(),
-      errorRatePercent: Math.round(stats.errorRate * 10000) / 100,
+      name: tupleKey,
+      serverId: tupleKey,
+      serverIdOnly: serverId,
+      model: decodedModel,
+      endpoint,
+      tupleKey,
+      state: tupleState.state,
+      uiState: probeStateToUIState(tupleState.state),
+      failureCount: tupleState.consecutiveFailures,
+      successCount: tupleState.consecutiveSuccesses,
+      totalRequestCount: 0,
+      blockedRequestCount: 0,
+      lastFailure: 0,
+      lastSuccess: 0,
+      nextRetryAt: tupleState.nextProbeAt,
+      halfOpenStartedAt: tupleState.state === 'RECOVERING' ? tupleState.lastTransition : undefined,
+      errorRate: Math.round(errorRate * 100) / 100,
+      errorCounts: {
+        retryable: 0,
+        'non-retryable': 0,
+        transient: 0,
+        permanent: 0,
+        rateLimited: 0,
+      },
+      consecutiveSuccesses: tupleState.consecutiveSuccesses,
+      modelType: endpointRegistry.isEmbeddingModel(decodedModel) ? 'embedding' : 'generation',
+      lastFailureReason: tupleState.lastErrorKind ?? undefined,
+      lastErrorType: tupleState.lastErrorKind ?? undefined,
+      halfOpenAttempts: tupleState.recoveryAttempts,
+      activeTestsInProgress: undefined,
+      errorRatePercent: Math.round(errorRate * 10000) / 100,
+      lbScore: lbScore
+        ? {
+            totalScore: lbScore.totalScore,
+            latencyScore: lbScore.breakdown.latencyScore,
+            successRateScore: lbScore.breakdown.successRateScore,
+            loadScore: lbScore.breakdown.loadScore,
+            capacityScore: lbScore.breakdown.capacityScore,
+            circuitBreakerScore: lbScore.breakdown.circuitBreakerScore,
+            timeoutScore: lbScore.breakdown.timeoutScore,
+          }
+        : null,
     },
   });
 }
@@ -712,31 +857,44 @@ export function forceOpenBreaker(req: Request, res: Response): void {
   }
 
   const orchestrator = getOrchestratorInstance();
-  const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const decodedModel = decodeURIComponent(model);
 
-  if (!breaker) {
+  const activeEndpoints = endpointRegistry.getActiveEndpoints(serverId, decodedModel);
+  if (activeEndpoints.length === 0) {
     res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
-  breaker.forceOpen();
-  const stats = breaker.getStats();
+  for (const endpoint of activeEndpoints) {
+    probeOrchestrator.setStateForTesting({ serverId, model: decodedModel, endpoint }, 'UNHEALTHY');
+  }
 
   logger.info('admin_force_breaker', {
     adminUserId: req.user?.id ?? 'unknown',
     action: 'force_open',
     serverId,
-    model,
+    model: decodedModel,
     timestamp: new Date().toISOString(),
+  });
+
+  const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
+  const tupleState = probeOrchestrator.getTupleState({
+    serverId,
+    model: decodedModel,
+    endpoint: activeEndpoints[0],
   });
 
   res.status(200).json({
     success: true,
-    message: `Circuit breaker force-opened for ${serverId}:${model}`,
+    message: `Circuit breaker force-opened for ${serverId}:${decodedModel}`,
     circuitBreaker: {
-      name: `${serverId}:${model}`,
-      ...stats,
-      state: stats.state.toUpperCase(),
+      name: `${serverId}:${decodedModel}`,
+      state: 'UNHEALTHY',
+      uiState: 'OPEN',
+      tupleKey,
+      tupleState,
     },
   });
 }
@@ -755,31 +913,44 @@ export function forceCloseBreaker(req: Request, res: Response): void {
   }
 
   const orchestrator = getOrchestratorInstance();
-  const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const decodedModel = decodeURIComponent(model);
 
-  if (!breaker) {
+  const activeEndpoints = endpointRegistry.getActiveEndpoints(serverId, decodedModel);
+  if (activeEndpoints.length === 0) {
     res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
-  breaker.forceClose();
-  const stats = breaker.getStats();
+  for (const endpoint of activeEndpoints) {
+    probeOrchestrator.setStateForTesting({ serverId, model: decodedModel, endpoint }, 'HEALTHY');
+  }
 
   logger.info('admin_force_breaker', {
     adminUserId: req.user?.id ?? 'unknown',
     action: 'force_close',
     serverId,
-    model,
+    model: decodedModel,
     timestamp: new Date().toISOString(),
+  });
+
+  const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
+  const tupleState = probeOrchestrator.getTupleState({
+    serverId,
+    model: decodedModel,
+    endpoint: activeEndpoints[0],
   });
 
   res.status(200).json({
     success: true,
-    message: `Circuit breaker force-closed for ${serverId}:${model}`,
+    message: `Circuit breaker force-closed for ${serverId}:${decodedModel}`,
     circuitBreaker: {
-      name: `${serverId}:${model}`,
-      ...stats,
-      state: stats.state.toUpperCase(),
+      name: `${serverId}:${decodedModel}`,
+      state: 'HEALTHY',
+      uiState: 'CLOSED',
+      tupleKey,
+      tupleState,
     },
   });
 }
@@ -798,31 +969,182 @@ export function forceHalfOpenBreaker(req: Request, res: Response): void {
   }
 
   const orchestrator = getOrchestratorInstance();
-  const breaker = orchestrator.getModelCircuitBreakerPublic(serverId, decodeURIComponent(model));
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const decodedModel = decodeURIComponent(model);
 
-  if (!breaker) {
+  const activeEndpoints = endpointRegistry.getActiveEndpoints(serverId, decodedModel);
+  if (activeEndpoints.length === 0) {
     res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
-  breaker.forceHalfOpen();
-  const stats = breaker.getStats();
+  for (const endpoint of activeEndpoints) {
+    probeOrchestrator.setStateForTesting({ serverId, model: decodedModel, endpoint }, 'RECOVERING');
+  }
 
   logger.info('admin_force_breaker', {
     adminUserId: req.user?.id ?? 'unknown',
     action: 'force_half_open',
     serverId,
-    model,
+    model: decodedModel,
+    timestamp: new Date().toISOString(),
+  });
+
+  const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
+  const tupleState = probeOrchestrator.getTupleState({
+    serverId,
+    model: decodedModel,
+    endpoint: activeEndpoints[0],
+  });
+
+  res.status(200).json({
+    success: true,
+    message: `Circuit breaker force-half-open for ${serverId}:${decodedModel}`,
+    circuitBreaker: {
+      name: `${serverId}:${decodedModel}`,
+      state: 'RECOVERING',
+      uiState: 'HALF-OPEN',
+      tupleKey,
+      tupleState,
+    },
+  });
+}
+
+/**
+ * Get aggregate circuit breaker status for a specific server
+ * GET /api/orchestrator/servers/:serverId/circuit-breaker
+ */
+export function getServerCircuitBreaker(req: Request, res: Response): void {
+  const serverId = req.params.serverId as string;
+
+  if (!serverId) {
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_REQUIRED });
+    return;
+  }
+
+  const orchestrator = getOrchestratorInstance();
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const allStates = probeOrchestrator.getAllStates();
+
+  const serverTuples: Array<{
+    tupleKey: string;
+    tupleState: ReturnType<typeof probeOrchestrator.getAllStates> extends Map<string, infer T>
+      ? T
+      : never;
+  }> = [];
+
+  for (const [tupleKey, tupleState] of allStates.entries()) {
+    const parsed = parseTupleKey(tupleKey);
+    if (parsed.serverId === serverId) {
+      serverTuples.push({ tupleKey, tupleState });
+    }
+  }
+
+  if (serverTuples.length === 0) {
+    res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, 'server') });
+    return;
+  }
+
+  const statePriority: Record<string, number> = {
+    UNHEALTHY: 4,
+    RECOVERING: 3,
+    SUSPECT: 2,
+    HEALTHY: 1,
+  };
+
+  let worstState = 'HEALTHY';
+  let worstPriority = 1;
+  let totalFailureCount = 0;
+  let totalSuccessCount = 0;
+  let totalErrorRate = 0;
+
+  for (const { tupleState } of serverTuples) {
+    const priority = statePriority[tupleState.state] || 0;
+    if (priority > worstPriority) {
+      worstPriority = priority;
+      worstState = tupleState.state;
+    }
+    totalFailureCount += tupleState.consecutiveFailures;
+    totalSuccessCount += tupleState.consecutiveSuccesses;
+    const errorRate =
+      tupleState.errorWindow.length > 0
+        ? tupleState.errorWindow.length /
+          Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
+        : 0;
+    totalErrorRate += errorRate;
+  }
+
+  const avgErrorRate = serverTuples.length > 0 ? totalErrorRate / serverTuples.length : 0;
+  const lbScore = orchestrator.getLBScoreForServerModel(serverId, '');
+
+  res.status(200).json({
+    success: true,
+    serverId,
+    state: worstState,
+    uiState: probeStateToUIState(worstState as any),
+    tupleCount: serverTuples.length,
+    failureCount: totalFailureCount,
+    successCount: totalSuccessCount,
+    totalRequestCount: totalFailureCount + totalSuccessCount,
+    blockedRequestCount: 0,
+    lastFailure: 0,
+    lastSuccess: 0,
+    nextRetryAt: 0,
+    errorRate: Math.round(avgErrorRate * 100) / 100,
+    consecutiveSuccesses: totalSuccessCount,
+    lastFailureReason: undefined,
+    halfOpenStartedAt: undefined,
+    halfOpenAttempts: undefined,
+    activeTestsInProgress: undefined,
+    lbScore: lbScore
+      ? {
+          totalScore: lbScore.totalScore,
+          latencyScore: lbScore.breakdown.latencyScore,
+          successRateScore: lbScore.breakdown.successRateScore,
+          loadScore: lbScore.breakdown.loadScore,
+          capacityScore: lbScore.breakdown.capacityScore,
+          circuitBreakerScore: lbScore.breakdown.circuitBreakerScore,
+          timeoutScore: lbScore.breakdown.timeoutScore,
+        }
+      : null,
+  });
+}
+
+/**
+ * Reset all circuit breakers for a specific server
+ * POST /api/orchestrator/servers/:serverId/circuit-breaker/reset
+ */
+export function resetServerCircuitBreaker(req: Request, res: Response): void {
+  const serverId = req.params.serverId as string;
+  if (!serverId) {
+    res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_REQUIRED });
+    return;
+  }
+
+  const orchestrator = getOrchestratorInstance();
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const allStates = probeOrchestrator.getAllStates();
+
+  let resetCount = 0;
+  for (const [tupleKey] of allStates.entries()) {
+    const parsed = parseTupleKey(tupleKey);
+    if (parsed.serverId === serverId) {
+      probeOrchestrator.resetTuple({ serverId, model: parsed.model, endpoint: parsed.endpoint });
+      resetCount++;
+    }
+  }
+
+  logger.info('admin_reset_server_circuit_breakers', {
+    adminUserId: req.user?.id ?? 'unknown',
+    serverId,
+    resetCount,
     timestamp: new Date().toISOString(),
   });
 
   res.status(200).json({
     success: true,
-    message: `Circuit breaker force-half-open for ${serverId}:${model}`,
-    circuitBreaker: {
-      name: `${serverId}:${model}`,
-      ...stats,
-      state: stats.state.toUpperCase(),
-    },
+    message: `Reset ${resetCount} circuit breaker(s) for server ${serverId}`,
+    resetCount,
   });
 }
