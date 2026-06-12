@@ -43,6 +43,9 @@ export interface MetricsConfig {
   enabled: boolean;
   prometheusEnabled: boolean;
   prometheusPort: number;
+  batchFlushIntervalMs: number;
+  pruneIntervalMs: number;
+  maxEntries: number;
   decay: MetricsDecayConfig;
 }
 
@@ -75,7 +78,7 @@ export interface TagsConfig {
   maxConcurrentRequests: number; // Max servers to query concurrently for tags
   batchDelayMs: number; // Delay between batches of concurrent requests
   requestTimeoutMs: number; // Timeout for individual tag requests
-  maxCachedModels?: number; // Max entries in tags cache (T5 will formalize default)
+  maxCachedModels: number; // FIFO slice cap for tags cache
 }
 
 export interface RetryConfig {
@@ -378,6 +381,9 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     enabled: true,
     prometheusEnabled: true,
     prometheusPort: 9090,
+    batchFlushIntervalMs: 100,
+    pruneIntervalMs: 300000,
+    maxEntries: 100000,
     decay: {
       enabled: true,
       halfLifeMs: 300000, // 5 minutes
@@ -415,6 +421,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     maxConcurrentRequests: 10,
     batchDelayMs: 50, // 50ms delay between batches
     requestTimeoutMs: 5000, // 5 seconds
+    maxCachedModels: 1000,
   },
 
   retry: {

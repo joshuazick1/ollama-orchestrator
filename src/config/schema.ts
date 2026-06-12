@@ -56,6 +56,8 @@ export const metricsConfigSchema = z.object({
   prometheusEnabled: z.boolean().default(true),
   prometheusPort: z.number().int().min(1).max(65535).default(9090),
   batchFlushIntervalMs: z.number().int().min(100).default(100),
+  pruneIntervalMs: z.number().int().min(0).default(300000), // 5 min; 0 disables
+  maxEntries: z.number().int().min(1).default(100000), // reserved cap; prune scheduler is primary
   decay: metricsDecayConfigSchema,
 });
 
@@ -99,6 +101,7 @@ export const tagsConfigSchema = z.object({
   maxConcurrentRequests: z.number().int().min(1).default(10),
   batchDelayMs: z.number().int().min(0).default(50),
   requestTimeoutMs: z.number().int().min(1000).default(5000),
+  maxCachedModels: z.number().int().min(1).default(1000), // FIFO slice cap for tags cache
 });
 
 /**
@@ -200,6 +203,7 @@ export const loadBalancerConfigSchema = z.object({
     skipUnhealthy: z.boolean().default(true), // Skip unhealthy servers
     checkCapacity: z.boolean().default(true), // Skip servers at capacity
     stickySessionsTtlMs: z.number().int().min(0).default(0), // TTL for sticky sessions, 0 to disable
+    maxStickySessions: z.number().int().min(1).default(10000), // LRU cap; constructor-only
   }),
   // Least-connections algorithm settings
   leastConnections: z.object({

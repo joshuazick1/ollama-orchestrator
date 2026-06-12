@@ -46,6 +46,7 @@ export interface LoadBalancerRoundRobin {
   skipUnhealthy: boolean;
   checkCapacity: boolean;
   stickySessionsTtlMs: number;
+  maxStickySessions: number;
 }
 
 export interface LoadBalancerLeastConnections {
