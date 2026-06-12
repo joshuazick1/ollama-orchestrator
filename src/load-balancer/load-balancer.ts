@@ -4,21 +4,16 @@
  */
 
 import type { AIServer, ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
+import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import type { EndpointRegistry } from '../probe/endpoint-registry.js';
+import type { Tuple, ProbeEndpoint } from '../probe/types.js';
+import { tupleKey } from '../probe/types.js';
 import { getUserStore } from '../storage/user-store.js';
 import { BoundedMap } from '../utils/bounded-map.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
 
 import { getTemporalScorer, type TemporalAdjustment } from './temporal-scorer.js';
-
-/**
- * Circuit breaker health status
- */
-export interface CircuitBreakerHealth {
-  state: 'closed' | 'open' | 'half-open';
-  failureCount: number;
-  errorRate: number;
-}
 
 /**
  * Server score with breakdown
@@ -174,7 +169,6 @@ export function calculateServerScore(
   totalLoad: number,
   metrics: ServerModelMetrics | undefined,
   config: LoadBalancerConfig = DEFAULT_LB_CONFIG,
-  circuitBreakerHealth?: CircuitBreakerHealth,
   timeoutMs?: number,
   estimatedPromptTokens?: number,
   getContextLimit?: (serverId: string, model: string) => number
@@ -265,24 +259,7 @@ export function calculateServerScore(
   // Fix §6.4: capacity can go negative - clamp to 0
   const capacityScore = Math.max(0, (availableCapacity / maxConcurrency) * 100);
 
-  // Circuit breaker score: penalize unstable or recently-failing circuits.
-  // NOTE (GAP-CB-1): Servers with open or half-open (with zero successes) circuit breakers
-  // are pre-filtered out by shouldSkipServerModel() before scoring runs, so the open=5 and
-  // half-open=20 branches below are only reached in edge cases (e.g. direct scoreCandidates()
-  // calls) or for the debug UI score breakdown. The primary routing guard is the pre-filter,
-  // not this score. The closed-state penalty (failureCount * 5) does affect routing for
-  // servers that are still passing requests but accumulating failures.
   let circuitBreakerScore = 100;
-  if (circuitBreakerHealth) {
-    if (circuitBreakerHealth.state === 'open') {
-      circuitBreakerScore = 5; // Broken - avoid completely
-    } else if (circuitBreakerHealth.state === 'half-open') {
-      circuitBreakerScore = 20; // Unstable - avoid during recovery testing
-    } else {
-      // closed - apply minor penalty for recent failures
-      circuitBreakerScore = Math.max(0, 100 - circuitBreakerHealth.failureCount * 5);
-    }
-  }
 
   // Timeout score: lower timeout is better
   // Normalize: 30s = 100, 300s = 0 (5 min timeout = worst)
@@ -488,6 +465,8 @@ export class LoadBalancer {
    */
   private stickySessions!: BoundedMap<string, StickySessionEntry>;
   private stickySessionCleanupInterval?: NodeJS.Timeout;
+  private probeOrchestrator?: ProbeOrchestrator;
+  private endpointRegistry?: EndpointRegistry;
 
   constructor(config: Partial<LoadBalancerConfig> = {}) {
     this.config = {
@@ -635,6 +614,17 @@ export class LoadBalancer {
   }
 
   /**
+   * Set probe orchestrator for canServe-based routing eligibility checks.
+   */
+  setProbeOrchestrator(probeOrchestrator: ProbeOrchestrator): void {
+    this.probeOrchestrator = probeOrchestrator;
+  }
+
+  setEndpointRegistry(endpointRegistry: EndpointRegistry): void {
+    this.endpointRegistry = endpointRegistry;
+  }
+
+  /**
    * Get current algorithm
    */
   getAlgorithm(): LoadBalancerAlgorithm {
@@ -650,7 +640,6 @@ export class LoadBalancer {
     isStreaming: boolean = false,
     clientId?: string,
     getTimeout?: (serverId: string, model: string) => number,
-    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined,
     estimatedPromptTokens?: number,
     getContextLimit?: (serverId: string, model: string) => number,
     userId?: string,
@@ -667,13 +656,12 @@ export class LoadBalancer {
           getTotalLoad,
           getMetrics,
           getTimeout,
-          getCircuitBreakerHealth,
           estimatedPromptTokens,
           getContextLimit
         );
 
       case 'round-robin':
-        return this.selectRoundRobin(filteredCandidates, getTotalLoad, clientId);
+        return this.selectRoundRobin(filteredCandidates, getTotalLoad, clientId, model);
 
       case 'least-connections':
         return this.selectLeastConnections(filteredCandidates, getTotalLoad, getMetrics, model);
@@ -708,11 +696,38 @@ export class LoadBalancer {
           getTotalLoad,
           getMetrics,
           getTimeout,
-          getCircuitBreakerHealth,
           estimatedPromptTokens,
           getContextLimit
         );
     }
+  }
+
+  /**
+   * Returns true if at least one active endpoint tuple on (serverId, model)
+   * can serve routing traffic (HEALTHY or SUSPECT probe state).
+   */
+  private canServeModel(serverId: string, model: string): boolean {
+    if (!this.probeOrchestrator || !this.endpointRegistry) {
+      return true;
+    }
+    const endpoints = this.endpointRegistry.getActiveEndpoints(serverId, model);
+    if (endpoints.length === 0) {
+      return false;
+    }
+    return endpoints.some(endpoint =>
+      this.probeOrchestrator!.canServe({ serverId, model, endpoint }, 'routing')
+    );
+  }
+
+  /**
+   * Filter candidates to only those with at least one active endpoint tuple
+   * that can serve routing traffic (HEALTHY or SUSPECT probe state).
+   */
+  private filterByProbeHealth(candidates: AIServer[], model: string): AIServer[] {
+    if (!this.probeOrchestrator || !this.endpointRegistry) {
+      return candidates;
+    }
+    return candidates.filter(server => this.canServeModel(server.id, model));
   }
 
   /**
@@ -725,21 +740,16 @@ export class LoadBalancer {
     getTotalLoad: (serverId: string) => number,
     getMetrics: (serverId: string, model: string) => ServerModelMetrics | undefined,
     getTimeout?: (serverId: string, model: string) => number,
-    getCircuitBreakerHealth?: (serverId: string) => CircuitBreakerHealth | undefined,
     estimatedPromptTokens?: number,
     getContextLimit?: (serverId: string, model: string) => number
   ): AIServer | undefined {
-    // Filter out unhealthy servers if skipUnhealthy is enabled
-    const filtered = this.config.roundRobin.skipUnhealthy
-      ? candidates.filter(s => s.healthy !== false)
-      : candidates;
+    const eligible = this.filterByProbeHealth(candidates, model);
 
-    const scores = filtered.map(server => {
+    const scores = eligible.map(server => {
       const currentLoad = getLoad(server.id, model);
       const totalLoad = getTotalLoad(server.id);
       const metrics = getMetrics(server.id, model);
       const timeoutMs = getTimeout?.(server.id, model);
-      const circuitBreakerHealth = getCircuitBreakerHealth?.(server.id);
 
       return calculateServerScore(
         server,
@@ -748,7 +758,6 @@ export class LoadBalancer {
         totalLoad,
         metrics,
         this.config,
-        circuitBreakerHealth,
         timeoutMs,
         estimatedPromptTokens,
         getContextLimit
@@ -764,7 +773,8 @@ export class LoadBalancer {
   private selectRoundRobin(
     candidates: AIServer[],
     getTotalLoad: (serverId: string) => number,
-    clientId?: string
+    clientId?: string,
+    model?: string
   ): AIServer | undefined {
     if (candidates.length === 0) {
       return undefined;
@@ -772,22 +782,22 @@ export class LoadBalancer {
 
     const { roundRobin } = this.config;
 
+    const eligibleByProbe = model ? this.filterByProbeHealth(candidates, model) : candidates;
+
     // Check for sticky session if enabled and clientId provided
     if (roundRobin.stickySessionsTtlMs > 0 && clientId) {
       const stickyEntry = this.stickySessions.get(clientId);
       if (stickyEntry) {
-        // Find the sticky server in candidates
         const stickyServer = candidates.find(s => s.id === stickyEntry.serverId);
         if (stickyServer) {
-          // Check if sticky server is still valid (healthy and has capacity)
           const isHealthy = !roundRobin.skipUnhealthy || stickyServer.healthy !== false;
           const hasCapacity =
             !roundRobin.checkCapacity ||
             getTotalLoad(stickyServer.id) <
               (stickyServer.maxConcurrency ?? this.config.defaultMaxConcurrency);
+          const isProbeHealthy = !model || this.canServeModel(stickyServer.id, model);
 
-          if (isHealthy && hasCapacity) {
-            // Update last used time and return sticky server
+          if (isHealthy && hasCapacity && isProbeHealthy) {
             stickyEntry.lastUsed = Date.now();
             logger.debug('Round-robin: using sticky session', {
               clientId,
@@ -796,13 +806,11 @@ export class LoadBalancer {
             return stickyServer;
           }
         }
-        // Sticky server no longer valid, remove entry
         this.stickySessions.delete(clientId);
       }
     }
 
-    // Filter candidates based on config
-    let eligibleServers = candidates;
+    let eligibleServers = eligibleByProbe;
 
     if (roundRobin.skipUnhealthy) {
       eligibleServers = eligibleServers.filter(s => s.healthy !== false);
@@ -820,17 +828,15 @@ export class LoadBalancer {
       logger.debug(
         'Round-robin: no eligible servers after filtering, falling back to all candidates'
       );
-      eligibleServers = candidates; // Fall back to all candidates
+      eligibleServers = candidates;
     }
 
-    // Select using round-robin from eligible servers
     const safeIndex =
       eligibleServers.length > 0 ? this.roundRobinIndex % eligibleServers.length : 0;
     const currentIndex = safeIndex;
     this.roundRobinIndex = currentIndex + 1;
     const selected = eligibleServers[currentIndex];
 
-    // Store sticky session if enabled
     if (roundRobin.stickySessionsTtlMs > 0 && clientId && selected) {
       this.stickySessions.set(clientId, {
         serverId: selected.id,
@@ -860,19 +866,7 @@ export class LoadBalancer {
 
     const { leastConnections } = this.config;
 
-    // Filter candidates based on config
-    let eligibleServers = candidates;
-
-    if (leastConnections.skipUnhealthy) {
-      eligibleServers = eligibleServers.filter(s => s.healthy !== false);
-    }
-
-    if (eligibleServers.length === 0) {
-      logger.debug(
-        'Least-connections: no eligible servers after filtering, falling back to all candidates'
-      );
-      eligibleServers = candidates;
-    }
+    const eligibleServers = this.filterByProbeHealth(candidates, model);
 
     // Score each server - lower score is better
     const scored = eligibleServers.map(server => {
@@ -947,12 +941,17 @@ export class LoadBalancer {
       return undefined;
     }
 
-    if (candidates.length === 1) {
-      return candidates[0];
+    const eligible = this.filterByProbeHealth(candidates, model);
+
+    if (eligible.length === 0) {
+      return undefined;
     }
 
-    // Score candidates based on latency
-    const scored = candidates.map(server => {
+    if (eligible.length === 1) {
+      return eligible[0];
+    }
+
+    const scored = eligible.map(server => {
       const metrics = getMetrics(server.id, model);
       const currentLoad = getLoad(server.id, model);
       const maxConcurrency = server.maxConcurrency ?? this.config.defaultMaxConcurrency;
@@ -1052,19 +1051,23 @@ export class LoadBalancer {
       return undefined;
     }
 
-    if (candidates.length === 1) {
-      return candidates[0];
+    const eligible = this.filterByProbeHealth(candidates, model);
+
+    if (eligible.length === 0) {
+      return undefined;
     }
 
-    // If not streaming, use fastest-response logic
+    if (eligible.length === 1) {
+      return eligible[0];
+    }
+
     if (!isStreaming) {
-      return this.selectFastestResponse(candidates, model, getLoad, getTotalLoad, getMetrics);
+      return this.selectFastestResponse(eligible, model, getLoad, getTotalLoad, getMetrics);
     }
 
-    // For streaming: balance TTFT vs total duration using config weights
     const { streaming } = this.config;
 
-    const scored = candidates.map(server => {
+    const scored = eligible.map(server => {
       const metrics = getMetrics(server.id, model);
       const currentLoad = getLoad(server.id, model);
       const maxConcurrency = server.maxConcurrency ?? this.config.defaultMaxConcurrency;
