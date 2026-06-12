@@ -27,3 +27,5 @@ export type {
   StreamingMetrics,
   PrometheusMetric,
 } from './orchestrator/orchestrator.types.js';
+
+export type { StateProjection, UIState } from './probe/types.js';

@@ -88,11 +88,60 @@ export interface ServerModelBenchmark {
   lastTested: number;
 }
 
-export interface CircuitBreakerState {
+export interface CircuitBreakerInfo {
+  // --- Identity ---
+  serverId: string; // tupleKey format "serverId:model:endpoint"
+  serverIdOnly?: string;
+  model?: string;
+  endpoint?: string;
+  tupleKey?: string;
+
+  // --- State ---
+  state: 'OPEN' | 'CLOSED' | 'HALF-OPEN';
+  uiState?: 'OPEN' | 'CLOSED' | 'HALF-OPEN' | 'UNKNOWN';
+
+  // --- Counts ---
   failureCount: number;
+  successCount: number;
+  totalRequestCount: number;
+  blockedRequestCount: number;
+  consecutiveSuccesses: number;
+
+  // --- Timestamps ---
   lastFailure: number;
-  state: 'closed' | 'open' | 'half-open';
+  lastSuccess: number;
   nextRetryAt: number;
+  halfOpenStartedAt?: number;
+
+  // --- Rates ---
+  errorRate: number;
+
+  // --- Error breakdown ---
+  errorCounts: {
+    retryable: number;
+    'non-retryable': number;
+    transient: number;
+    permanent: number;
+    rateLimited: number;
+  };
+
+  // --- Metadata ---
+  modelType?: 'embedding' | 'generation';
+  lastFailureReason?: string;
+  lastErrorType?: string;
+  halfOpenAttempts?: number;
+  activeTestsInProgress?: number;
+
+  // --- Load-balancer score ---
+  lbScore?: {
+    totalScore: number;
+    latencyScore: number;
+    successRateScore: number;
+    loadScore: number;
+    capacityScore: number;
+    circuitBreakerScore: number;
+    timeoutScore: number;
+  } | null;
 }
 
 // ==========================================
