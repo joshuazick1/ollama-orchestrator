@@ -920,4 +920,86 @@ describe('MetricsAggregator', () => {
       expect(config.halfLifeMs).toBe(60000);
     });
   });
+
+  describe('Prune Scheduler', () => {
+    let aggregator: MetricsAggregator;
+
+    beforeEach(() => {
+      aggregator = new MetricsAggregator();
+    });
+
+    afterEach(() => {
+      aggregator.stopPruneScheduler();
+      vi.useRealTimers();
+    });
+
+    it('is a no-op when intervalMs is 0', () => {
+      aggregator.startPruneScheduler(0);
+      expect(aggregator['pruneIntervalId']).toBeUndefined();
+    });
+
+    it('is a no-op when intervalMs is negative', () => {
+      aggregator.startPruneScheduler(-1);
+      expect(aggregator['pruneIntervalId']).toBeUndefined();
+    });
+
+    it('calls pruneOldMetrics at the configured interval', () => {
+      vi.useFakeTimers();
+      const spy = vi.spyOn(aggregator, 'pruneOldMetrics');
+      aggregator.startPruneScheduler(1000);
+      expect(spy).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1000);
+      expect(spy).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1000);
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    it('is idempotent — calling start twice does not create duplicate intervals', () => {
+      vi.useFakeTimers();
+      const spy = vi.spyOn(aggregator, 'pruneOldMetrics');
+      aggregator.startPruneScheduler(1000);
+      const firstId = aggregator['pruneIntervalId'];
+      aggregator.startPruneScheduler(1000);
+      const secondId = aggregator['pruneIntervalId'];
+      expect(secondId).toBeDefined();
+      expect(firstId).not.toBe(secondId);
+      vi.advanceTimersByTime(1000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('stopPruneScheduler clears the interval', () => {
+      vi.useFakeTimers();
+      const spy = vi.spyOn(aggregator, 'pruneOldMetrics');
+      aggregator.startPruneScheduler(1000);
+      aggregator.stopPruneScheduler();
+      expect(aggregator['pruneIntervalId']).toBeUndefined();
+      vi.advanceTimersByTime(2000);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('preserves entries with inFlight > 0 during pruning (regression)', () => {
+      // Use real timers — verify pruneOldMetrics itself skips in-flight entries
+      aggregator.stopPruneScheduler();
+      // Inject a stale entry directly into the metrics map
+      const pastTime = Date.now() - 25 * 60 * 60 * 1000; // 25h ago
+      (aggregator as any).metrics.set('server-1|model-1', {
+        serverId: 'server-1',
+        model: 'model-1',
+        inFlight: 5, // <-- must NOT be pruned
+        lastUpdated: pastTime,
+        windows: {
+          '1m': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '5m': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '15m': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '1h': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '24h': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+        },
+      });
+
+      // Prune with 24h maxAge — the stale entry has inFlight=5 so must survive
+      aggregator.pruneOldMetrics(24 * 60 * 60 * 1000);
+
+      expect((aggregator as any).metrics.has('server-1|model-1')).toBe(true);
+    });
+  });
 });

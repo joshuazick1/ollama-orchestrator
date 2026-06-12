@@ -52,6 +52,7 @@ export class MetricsAggregator {
   private maxRecentStreamingDurations = 500; // Keep last 500 streaming durations
   private persistence: MetricsPersistence;
   private decayConfig: MetricsDecayConfig;
+  private pruneIntervalId?: NodeJS.Timeout;
 
   constructor(decayConfig: Partial<MetricsDecayConfig> = {}) {
     this.persistence = new MetricsPersistence();
@@ -888,6 +889,43 @@ export class MetricsAggregator {
     }
     if (pruned > 0) {
       logger.debug(`MetricsAggregator: Pruned ${pruned} stale metrics entries`);
+    }
+  }
+
+  /**
+   * Start a periodic scheduler that calls pruneOldMetrics at the given interval.
+   * If intervalMs <= 0, the scheduler is disabled (no-op). Idempotent: calling
+   * this method twice stops the previous interval before starting a new one.
+   * The underlying Node.js.Timeout is .unref()ed so it does not keep the
+   * process alive on shutdown.
+   */
+  public startPruneScheduler(intervalMs: number, maxAgeMs: number = 24 * 60 * 60 * 1000): void {
+    // Idempotent: stop any previous interval first
+    this.stopPruneScheduler();
+
+    if (intervalMs <= 0) {
+      logger.debug('MetricsAggregator: prune scheduler disabled (intervalMs <= 0)');
+      return;
+    }
+
+    const id = setInterval(() => this.pruneOldMetrics(maxAgeMs), intervalMs);
+    // unref so the interval does not prevent process exit
+    if (typeof id.unref === 'function') {
+      id.unref();
+    }
+    this.pruneIntervalId = id;
+    logger.debug(
+      `MetricsAggregator: prune scheduler started (intervalMs=${intervalMs}, maxAgeMs=${maxAgeMs})`
+    );
+  }
+
+  /**
+   * Stop the prune scheduler (if running). Safe to call when not started.
+   */
+  public stopPruneScheduler(): void {
+    if (this.pruneIntervalId) {
+      clearInterval(this.pruneIntervalId);
+      this.pruneIntervalId = undefined;
     }
   }
 
