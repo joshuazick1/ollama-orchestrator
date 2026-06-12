@@ -6,15 +6,80 @@
 import type { TimeWindow } from '../orchestrator/orchestrator.types.js';
 
 import type { MetricsAggregator } from './metrics-aggregator.js';
+import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import type { TupleKey, ProbeState } from '../probe/types.js';
+import { tupleKey } from '../probe/types.js';
+
+interface ProbeMetrics {
+  transitions: Map<string, number>;
+  currentStates: Map<TupleKey, ProbeState>;
+  recoveryAttempts: Map<string, number>;
+}
 
 /**
  * Formats metrics for Prometheus scraping
  */
 export class PrometheusExporter {
   private aggregator: MetricsAggregator;
+  private probeOrchestrator: ProbeOrchestrator | undefined;
+  private probeMetrics: ProbeMetrics = {
+    transitions: new Map(),
+    currentStates: new Map(),
+    recoveryAttempts: new Map(),
+  };
+  private unsubscribeProbe: (() => void) | undefined;
 
-  constructor(aggregator: MetricsAggregator) {
+  constructor(aggregator: MetricsAggregator, probeOrchestrator?: ProbeOrchestrator) {
     this.aggregator = aggregator;
+    this.probeOrchestrator = probeOrchestrator;
+    if (probeOrchestrator) {
+      this.unsubscribeProbe = probeOrchestrator.onStateChange((tuple, from, to, reason) => {
+        const key = tupleKey(tuple);
+        this.#handleStateChange(key, from, to, reason);
+      });
+    }
+  }
+
+  #handleStateChange(tupleKey: string, from: ProbeState, to: ProbeState, reason: string): void {
+    const transKey = `${tupleKey}:${from}:${to}:${reason}`;
+    this.probeMetrics.transitions.set(
+      transKey,
+      (this.probeMetrics.transitions.get(transKey) ?? 0) + 1
+    );
+    this.probeMetrics.currentStates.set(tupleKey, to);
+  }
+
+  /**
+   * Record a recovery attempt (success or failure) for a tuple.
+   * Call this when a recovery probe completes.
+   */
+  recordRecoveryAttempt(tupleKey: string, success: boolean): void {
+    const result = success ? 'success' : 'failure';
+    const key = `${tupleKey}:${result}`;
+    this.probeMetrics.recoveryAttempts.set(
+      key,
+      (this.probeMetrics.recoveryAttempts.get(key) ?? 0) + 1
+    );
+  }
+
+  /**
+   * Refresh current probe states from the orchestrator.
+   * Call this before export() if you want to capture latest state.
+   */
+  refreshProbeStates(): void {
+    if (!this.probeOrchestrator) return;
+    const states = this.probeOrchestrator.getAllStates();
+    for (const [key, ts] of states) {
+      this.probeMetrics.currentStates.set(key, ts.state);
+    }
+  }
+
+  /**
+   * Stop listening to probe state changes (for cleanup).
+   */
+  destroy(): void {
+    this.unsubscribeProbe?.();
+    this.unsubscribeProbe = undefined;
   }
 
   /**
@@ -90,6 +155,47 @@ export class PrometheusExporter {
       lines.push(`orchestrator_throughput_per_min{${labels}} ${metric.throughput.toFixed(2)}`);
       lines.push(
         `orchestrator_avg_tokens_per_request{${labels}} ${metric.avgTokensPerRequest.toFixed(2)}`
+      );
+    }
+
+    // Probe metrics
+    lines.push('# HELP probe_state_transitions_total Probe state transitions');
+    lines.push('# TYPE probe_state_transitions_total counter');
+    for (const [key, count] of this.probeMetrics.transitions) {
+      const parts = key.split(':');
+      const tupleKey = parts.slice(0, 3).join(':');
+      const fromState = parts[3];
+      const toState = parts[4];
+      const reason = parts.slice(5).join(':');
+      lines.push(
+        `probe_state_transitions_total{tuple_key="${tupleKey}",from_state="${fromState}",to_state="${toState}",reason="${reason}"} ${count}`
+      );
+    }
+
+    lines.push('# HELP probe_state_current Current state of each probe tuple');
+    lines.push('# TYPE probe_state_current gauge');
+    for (const [key, state] of this.probeMetrics.currentStates) {
+      lines.push(`probe_state_current{tuple_key="${key}",state="${state}"} 1`);
+    }
+
+    lines.push('# HELP probe_health_tuples Count of tuples in each state');
+    lines.push('# TYPE probe_health_tuples gauge');
+    const stateCounts: Record<string, number> = {};
+    for (const [, state] of this.probeMetrics.currentStates) {
+      stateCounts[state] = (stateCounts[state] ?? 0) + 1;
+    }
+    for (const [state, count] of Object.entries(stateCounts)) {
+      lines.push(`probe_health_tuples{state="${state}"} ${count}`);
+    }
+
+    lines.push('# HELP probe_recovery_attempts_total Recovery attempts');
+    lines.push('# TYPE probe_recovery_attempts_total counter');
+    for (const [key, count] of this.probeMetrics.recoveryAttempts) {
+      const lastColon = key.lastIndexOf(':');
+      const tupleKey = key.substring(0, lastColon);
+      const result = key.substring(lastColon + 1);
+      lines.push(
+        `probe_recovery_attempts_total{tuple_key="${tupleKey}",result="${result}"} ${count}`
       );
     }
 
