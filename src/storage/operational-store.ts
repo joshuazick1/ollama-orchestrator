@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import Database from 'better-sqlite3';
+import Database, { Statement } from 'better-sqlite3';
 
 import { logger } from '../utils/logger.js';
 import type { TimeoutState } from '../utils/timeout-manager.js';
@@ -134,6 +134,21 @@ export class OperationalStore {
   close(): void {
     this.db.close();
     logger.info('[OperationalStore] Database closed');
+  }
+
+  /**
+   * Run a callback inside a SQLite transaction.
+   * Used by WALStore and other wrappers for atomic multi-statement operations.
+   */
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
+  }
+
+  /**
+   * Expose prepared statement access for wrappers like WALStore.
+   */
+  prepare(sql: string): Statement {
+    return this.db.prepare(sql);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
