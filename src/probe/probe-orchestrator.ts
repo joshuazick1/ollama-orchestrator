@@ -40,9 +40,16 @@ export class ProbeOrchestrator {
   private states = new Map<TupleKey, TupleState>();
   private stateChangeCallbacks: StateChangeCallback[] = [];
 
-  constructor(private config: ProbeConfig = DEFAULT_PROBE_CONFIG) {}
+  constructor(
+    private config: ProbeConfig = DEFAULT_PROBE_CONFIG,
+    private wal: WALStore | null = null
+  ) {}
 
-  recordProbeResult(tuple: Tuple, success: boolean, classification?: Classification): ProbeState {
+  async recordProbeResult(
+    tuple: Tuple,
+    success: boolean,
+    classification?: Classification
+  ): Promise<ProbeState> {
     const key = tupleKey(tuple);
     const now = Date.now();
 
@@ -66,12 +73,23 @@ export class ProbeOrchestrator {
 
     if (fromState !== toState) {
       ts.lastTransition = now;
-      this._emitStateChange(
-        tuple,
-        fromState,
-        toState,
-        this._buildTransitionReason(fromState, success, classification)
-      );
+      const reason = this._buildTransitionReason(fromState, success, classification);
+      this._emitStateChange(tuple, fromState, toState, reason);
+
+      if (this.wal) {
+        await this.wal.append({
+          tupleKey: key,
+          eventType: 'STATE_CHANGE',
+          fromState,
+          toState,
+          reason,
+          metadata: JSON.stringify({
+            consecutiveSuccesses: ts.consecutiveSuccesses,
+            consecutiveFailures: ts.consecutiveFailures,
+            recoveryAttempts: ts.recoveryAttempts,
+          }),
+        });
+      }
     }
 
     return toState;
@@ -104,8 +122,100 @@ export class ProbeOrchestrator {
     this.states.set(tupleKey(tuple), this._createInitialState());
   }
 
-  evictTuple(tuple: Tuple): void {
-    this.states.delete(tupleKey(tuple));
+  async evictTuple(tuple: Tuple): Promise<void> {
+    const key = tupleKey(tuple);
+    const ts = this.states.get(key);
+
+    if (this.wal && ts) {
+      await this.wal.append({
+        tupleKey: key,
+        eventType: 'EVICTED',
+        fromState: ts.state,
+        toState: null,
+        reason: 'evictTuple',
+        metadata: JSON.stringify({
+          consecutiveSuccesses: ts.consecutiveSuccesses,
+          consecutiveFailures: ts.consecutiveFailures,
+          recoveryAttempts: ts.recoveryAttempts,
+        }),
+      });
+    }
+
+    this.states.delete(key);
+  }
+
+  async restoreFromWAL(): Promise<void> {
+    if (!this.wal) return;
+
+    const snapshot = await this.wal.loadLatestSnapshot();
+    if (snapshot) {
+      for (const [key, snapState] of snapshot.data) {
+        const ts: TupleState = {
+          state: snapState.state as ProbeState,
+          consecutiveSuccesses: snapState.consecutiveSuccesses,
+          consecutiveFailures: snapState.consecutiveFailures,
+          errorWindow: [],
+          lastTransition: snapState.lastTransition,
+          lastProbeAt: 0,
+          nextProbeAt: 0,
+          recoveryAttempts: snapState.recoveryAttempts,
+          lastErrorKind: undefined,
+        };
+        this.states.set(key, ts);
+      }
+    }
+
+    for await (const event of this.wal.replay()) {
+      if (event.eventType === 'EVICTED') {
+        this.states.delete(event.tupleKey);
+        continue;
+      }
+
+      let ts = this.states.get(event.tupleKey);
+      if (!ts) {
+        ts = this._createInitialState();
+        this.states.set(event.tupleKey, ts);
+      }
+
+      if (event.toState) {
+        ts.state = event.toState as ProbeState;
+      }
+      if (event.fromState) {
+        ts.lastTransition = event.createdAt;
+      }
+
+      if (event.metadata) {
+        try {
+          const meta = JSON.parse(event.metadata) as {
+            consecutiveSuccesses: number;
+            consecutiveFailures: number;
+            recoveryAttempts: number;
+          };
+          ts.consecutiveSuccesses = meta.consecutiveSuccesses;
+          ts.consecutiveFailures = meta.consecutiveFailures;
+          ts.recoveryAttempts = meta.recoveryAttempts;
+        } catch {
+          // ignore parse errors
+        }
+      }
+    }
+  }
+
+  async createSnapshot(): Promise<void> {
+    if (!this.wal) return;
+
+    const data = new Map<TupleKey, TupleSnapshotState>();
+    for (const [key, ts] of this.states) {
+      data.set(key, {
+        state: ts.state,
+        consecutiveSuccesses: ts.consecutiveSuccesses,
+        consecutiveFailures: ts.consecutiveFailures,
+        lastTransition: ts.lastTransition,
+        recoveryAttempts: ts.recoveryAttempts,
+      });
+    }
+
+    await this.wal.saveSnapshot(data);
   }
 
   onStateChange(callback: StateChangeCallback): () => void {
