@@ -67,6 +67,7 @@ import type {
   MetricsExport,
 } from './orchestrator.types.js';
 import { OrchestratorPersistence } from './persistence.js';
+import { TagsCacheStore } from './tags-cache.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -129,22 +130,7 @@ export class AIOrchestrator {
   private probeScheduler: InferenceProbeScheduler;
   private draining = false;
   private config: OrchestratorConfig;
-  private tagsCache?: {
-    data: any[];
-    timestamp: number;
-    metadata: {
-      totalRequests: number;
-      successfulRequests: number;
-      failedRequests: number;
-      serverCount: number;
-      modelCount: number;
-      errors: Array<{
-        serverId: string;
-        error: string;
-        type: 'network' | 'server' | 'timeout' | 'unknown';
-      }>;
-    };
-  };
+  private readonly tagsCacheStore: TagsCacheStore;
 
   // Track per server:model timeouts via TimeoutManager
   private timeoutManager: TimeoutManager;
@@ -220,8 +206,8 @@ export class AIOrchestrator {
     return RetryBudget;
   }
 
-  public getTagsCache(): typeof this.tagsCache {
-    return this.tagsCache;
+  public getTagsCache() {
+    return this.tagsCacheStore.get();
   }
 
   public getInferenceTimeoutMs(): number {
@@ -243,7 +229,7 @@ export class AIOrchestrator {
       }>;
     }
   ): void {
-    this.tagsCache = { data, timestamp: Date.now(), metadata };
+    this.tagsCacheStore.set(data, metadata);
   }
 
   public populateRoutingContext(
@@ -293,6 +279,10 @@ export class AIOrchestrator {
     this.config = config ?? { ...DEFAULT_CONFIG };
 
     getOperationalStore().runStartupMigrations();
+
+    // Initialize tags cache store with max-entries cap from config
+    const maxCachedModels = config?.tags?.maxCachedModels ?? 1000;
+    this.tagsCacheStore = new TagsCacheStore(maxCachedModels);
 
     this.metricsAggregator = new MetricsAggregator();
     this.loadBalancer = new LoadBalancer(loadBalancerConfig ?? this.config.loadBalancer);
@@ -4357,7 +4347,7 @@ export class AIOrchestrator {
    * Clear the tags cache completely
    */
   clearTagsCache(): void {
-    this.tagsCache = undefined;
+    this.tagsCacheStore.clear();
     logger.debug('Tags cache cleared');
   }
 
@@ -4365,9 +4355,8 @@ export class AIOrchestrator {
    * Invalidate tags cache when server state changes significantly
    */
   invalidateTagsCache(): void {
-    // Only clear cache if we have one
-    if (this.tagsCache) {
-      this.tagsCache = undefined;
+    if (this.tagsCacheStore.get()) {
+      this.tagsCacheStore.invalidate();
       logger.debug('Tags cache invalidated due to server state change');
     }
   }

@@ -17,6 +17,7 @@ vi.mock('../../src/storage/operational-store.js', () => ({
 }));
 
 import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
+import { DEFAULT_CONFIG } from '../../src/config/config.js';
 import { classifyError } from '../../src/utils/error-classifier.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
@@ -525,7 +526,7 @@ describe('AIOrchestrator', () => {
   describe('Tags Cache Management', () => {
     it('should invalidate server tags cache', () => {
       // Set up cache
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [],
         timestamp: Date.now(),
         metadata: {
@@ -540,12 +541,12 @@ describe('AIOrchestrator', () => {
 
       orchestrator.invalidateServerTagsCache('server-1');
 
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
 
     it('should clear tags cache', () => {
       // Set up cache
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [],
         timestamp: Date.now(),
         metadata: {
@@ -560,12 +561,12 @@ describe('AIOrchestrator', () => {
 
       orchestrator.clearTagsCache();
 
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
 
     it('should invalidate tags cache when cache exists', () => {
       // Set up cache
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [],
         timestamp: Date.now(),
         metadata: {
@@ -580,15 +581,44 @@ describe('AIOrchestrator', () => {
 
       orchestrator.invalidateTagsCache();
 
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
 
     it('should not clear tags cache when already empty', () => {
-      orchestrator['tagsCache'] = undefined;
+      orchestrator['tagsCacheStore']['slot'] = undefined;
 
       orchestrator.invalidateTagsCache();
 
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
+    });
+  });
+
+  describe('TagsCache max-entries cap', () => {
+    it('caps cached data array at maxCachedModels (FIFO, first-N wins)', () => {
+      const orch = new AIOrchestrator(undefined, undefined, undefined, {
+        ...DEFAULT_CONFIG,
+        tags: { ...DEFAULT_CONFIG.tags, maxCachedModels: 2 },
+      });
+      const models = [
+        { name: 'model-1' },
+        { name: 'model-2' },
+        { name: 'model-3' },
+        { name: 'model-4' },
+        { name: 'model-5' },
+      ];
+      orch.setTagsCache(models, {
+        totalRequests: 5,
+        successfulRequests: 5,
+        failedRequests: 0,
+        serverCount: 1,
+        modelCount: 5,
+        errors: [],
+      });
+      const cached = orch.getTagsCache();
+      expect(cached).toBeDefined();
+      expect(cached!.data.length).toBe(2);
+      expect(cached!.data[0]).toEqual({ name: 'model-1' });
+      expect(cached!.data[1]).toEqual({ name: 'model-2' });
     });
   });
 
@@ -2165,7 +2195,7 @@ describe('AIOrchestrator', () => {
       }
 
       // Set up cache
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [{ name: 'llama2' }],
         timestamp: Date.now(),
         metadata: {
@@ -2188,7 +2218,7 @@ describe('AIOrchestrator', () => {
       orchestrator['onHealthCheckResult'](result);
 
       // Cache should be invalidated
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
   });
 
@@ -2871,7 +2901,7 @@ describe('AIOrchestrator', () => {
 
   describe('Tags cache operations', () => {
     it('should clear tags cache', () => {
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [],
         timestamp: Date.now(),
         metadata: {
@@ -2885,11 +2915,11 @@ describe('AIOrchestrator', () => {
       };
 
       orchestrator.clearTagsCache();
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
 
     it('should invalidate server tags cache', () => {
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [],
         timestamp: Date.now(),
         metadata: {
@@ -2903,14 +2933,14 @@ describe('AIOrchestrator', () => {
       };
 
       orchestrator.invalidateServerTagsCache('server-1');
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
 
     it('should handle invalidating cache when already empty', () => {
-      orchestrator['tagsCache'] = undefined;
+      orchestrator['tagsCacheStore']['slot'] = undefined;
       // Should not throw
       orchestrator.invalidateTagsCache();
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
   });
 
@@ -3008,7 +3038,7 @@ describe('AIOrchestrator', () => {
 
     it('should handle failure with previously healthy server', () => {
       // Setup cache
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [{ name: 'llama2' }],
         timestamp: Date.now(),
         metadata: {
@@ -3033,7 +3063,7 @@ describe('AIOrchestrator', () => {
       const server = orchestrator.getServer('server-1');
       expect(server?.healthy).toBe(false);
       expect(server?.models).toEqual([]);
-      expect(orchestrator['tagsCache']).toBeUndefined();
+      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
 
     it('should handle success with loaded models and VRAM', () => {
@@ -3468,7 +3498,7 @@ describe('AIOrchestrator', () => {
 
     it('should return stale cache when no healthy servers', async () => {
       // Setup cache first
-      orchestrator['tagsCache'] = {
+      orchestrator['tagsCacheStore']['slot'] = {
         data: [{ name: 'llama2' }],
         timestamp: Date.now() - 10000, // Stale
         metadata: {
@@ -3492,7 +3522,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should return empty when no cache and no healthy servers', async () => {
-      orchestrator['tagsCache'] = undefined;
+      orchestrator['tagsCacheStore']['slot'] = undefined;
       const s1 = orchestrator.getServer('server-1');
       if (s1) {
         s1.healthy = false;

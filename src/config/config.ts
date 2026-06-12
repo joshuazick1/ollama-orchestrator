@@ -75,6 +75,7 @@ export interface TagsConfig {
   maxConcurrentRequests: number; // Max servers to query concurrently for tags
   batchDelayMs: number; // Delay between batches of concurrent requests
   requestTimeoutMs: number; // Timeout for individual tag requests
+  maxCachedModels?: number; // Max entries in tags cache (T5 will formalize default)
 }
 
 export interface RetryConfig {
