@@ -285,6 +285,15 @@ export class AIOrchestrator {
     this.tagsCacheStore = new TagsCacheStore(maxCachedModels);
 
     this.metricsAggregator = new MetricsAggregator();
+    // Start automatic prune scheduler for metrics (T6).
+    // Uses config.metrics.pruneIntervalMs (default 300000 = 5 min). 0 disables.
+    this.metricsAggregator.startPruneScheduler(
+      this.config.metrics.pruneIntervalMs,
+      24 * 60 * 60 * 1000 // 24h default maxAge
+    );
+    // maxStickySessions is constructor-only — the BoundedMap cap is fixed
+    // at construction; runtime changes to this knob require LoadBalancer
+    // re-instantiation (orchestrator restart). See LoadBalancer docs.
     this.loadBalancer = new LoadBalancer(loadBalancerConfig ?? this.config.loadBalancer);
 
     const lbConfig = loadBalancerConfig ?? this.config.loadBalancer;
@@ -4427,5 +4436,10 @@ export class AIOrchestrator {
     getOperationalStore().close();
 
     logger.info('Orchestrator shutdown complete');
+  }
+
+  // Stop background schedulers. Idempotent.
+  public stop(): void {
+    this.metricsAggregator.stopPruneScheduler();
   }
 }
