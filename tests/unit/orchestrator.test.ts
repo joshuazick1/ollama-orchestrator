@@ -16,8 +16,8 @@ vi.mock('../../src/storage/operational-store.js', () => ({
   initOperationalStore: vi.fn(),
 }));
 
-import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
 import { DEFAULT_CONFIG } from '../../src/config/config.js';
+import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
 import { classifyError } from '../../src/utils/error-classifier.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
