@@ -3,7 +3,7 @@
  * Core state machine for the probe subsystem.
  * Manages (server, model, endpoint) tuple states: HEALTHY / SUSPECT / UNHEALTHY / RECOVERING.
  *
- * Task 7: state machine only. No WAL, no canServe().
+ * Task 9: WAL integration for crash-safe state persistence.
  */
 
 import type {
@@ -15,6 +15,7 @@ import type {
   FailureKind,
 } from './types.js';
 import { tupleKey, DEFAULT_PROBE_CONFIG } from './types.js';
+import type { WALStore, TupleSnapshotState } from './wal-store.js';
 
 export interface TupleState {
   state: ProbeState;
@@ -113,6 +114,65 @@ export class ProbeOrchestrator {
       const idx = this.stateChangeCallbacks.indexOf(callback);
       if (idx !== -1) this.stateChangeCallbacks.splice(idx, 1);
     };
+  }
+
+  /**
+   * Determines whether this tuple can serve traffic for a given caller.
+   *
+   * Rules (in priority order):
+   * - 'admin' caller: ALWAYS true (force actions bypass state checks)
+   * - 'probe' caller: true if state === 'RECOVERING' (for active recovery probes)
+   * - 'routing' caller: true if state === 'HEALTHY' OR state === 'SUSPECT'
+   *
+   * The function is PURE: it does not mutate state, does not transition,
+   * does not fire onStateChange. Multiple callers can call this concurrently
+   * and get consistent results because Node.js is single-threaded.
+   */
+  canServe(tuple: Tuple, caller: 'routing' | 'probe' | 'admin'): boolean {
+    const ts = this.states.get(tupleKey(tuple));
+    if (!ts) return caller === 'admin'; // unknown tuple: only admin can force
+
+    switch (caller) {
+      case 'admin':
+        return true;
+      case 'probe':
+        return ts.state === 'RECOVERING';
+      case 'routing':
+        return ts.state === 'HEALTHY' || ts.state === 'SUSPECT';
+    }
+  }
+
+  /**
+   * Determines whether the recovery driver can probe this tuple right now.
+   * True only if state is UNHEALTHY AND nextProbeAt <= now.
+   */
+  canProbe(tuple: Tuple): boolean {
+    const ts = this.states.get(tupleKey(tuple));
+    if (!ts) return false;
+    if (ts.state !== 'UNHEALTHY') return false;
+    return ts.nextProbeAt <= Date.now();
+  }
+
+  /**
+   * Atomic check-and-set: returns true if THIS caller successfully acquired
+   * the probe slot for this tuple. Subsequent calls within the same probe
+   * window return false.
+   *
+   * Implementation: reads nextProbeAt, checks UNHEALTHY + nextProbeAt <= now,
+   * then sets nextProbeAt to far future (Number.MAX_SAFE_INTEGER) in a
+   * single synchronous step — no await between read and write, so no
+   * concurrent caller can also see canProbe() as true.
+   */
+  markProbing(tuple: Tuple): boolean {
+    const key = tupleKey(tuple);
+    const ts = this.states.get(key);
+    if (!ts) return false;
+    if (ts.state !== 'UNHEALTHY') return false;
+    if (ts.nextProbeAt > Date.now()) return false;
+
+    // Atomic: no await between read and write
+    ts.nextProbeAt = Number.MAX_SAFE_INTEGER;
+    return true;
   }
 
   // -----------------------------------------------------------------------
