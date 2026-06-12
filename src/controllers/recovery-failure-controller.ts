@@ -110,12 +110,12 @@ export function analyzeServerFailures(req: Request, res: Response): void {
  * Analyze circuit breaker impact on a server
  * GET /api/orchestrator/recovery-failures/:serverId/circuit-breaker-impact
  */
-export function analyzeCircuitBreakerImpact(req: Request, res: Response): void {
+export async function analyzeCircuitBreakerImpact(req: Request, res: Response): Promise<void> {
   try {
     const serverId = req.params.serverId as string;
 
     const tracker = getRecoveryFailureTracker();
-    const analysis = tracker.analyzeCircuitBreakerImpact(serverId);
+    const analysis = await tracker.analyzeCircuitBreakerImpact(serverId);
 
     res.json({
       success: true,
@@ -132,14 +132,14 @@ export function analyzeCircuitBreakerImpact(req: Request, res: Response): void {
  * Get circuit breaker transitions for a server
  * GET /api/orchestrator/recovery-failures/:serverId/circuit-breaker-transitions
  */
-export function getCircuitBreakerTransitions(req: Request, res: Response): void {
+export async function getCircuitBreakerTransitions(req: Request, res: Response): Promise<void> {
   try {
     const serverId = req.params.serverId as string;
     const model = req.query.model as string | undefined;
     const limit = parseInt(req.query.limit as string) || 100;
 
     const tracker = getRecoveryFailureTracker();
-    const transitions = tracker.getCircuitBreakerTransitions(serverId, model, limit);
+    const transitions = await tracker.getCircuitBreakerTransitions(serverId, model, limit);
 
     res.json({
       success: true,
