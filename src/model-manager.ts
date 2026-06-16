@@ -3,7 +3,6 @@
  * Model warmup and cold start management system
  */
 
-import type { CircuitBreakerRegistry } from './circuit-breaker/circuit-breaker.js';
 import { API_ENDPOINTS, ERROR_MESSAGES } from './constants/index.js';
 import type { AIServer } from './orchestrator/orchestrator.types.js';
 import type {
@@ -129,14 +128,8 @@ export class ModelManager {
   private warmupJobs: Map<string, WarmupJob> = new Map();
   private jobCounter = 0;
   private config: ModelManagerConfig;
-  private circuitBreakerRegistry: CircuitBreakerRegistry | undefined;
-
   constructor(config: Partial<ModelManagerConfig> = {}) {
     this.config = { ...DEFAULT_MODEL_MANAGER_CONFIG, ...config };
-  }
-
-  setCircuitBreakerRegistry(registry: CircuitBreakerRegistry): void {
-    this.circuitBreakerRegistry = registry;
   }
 
   /**
@@ -519,10 +512,6 @@ export class ModelManager {
 
       logger.error(`Warmup failed for ${job.model} on ${job.serverId}: ${errorMessage}`);
 
-      if (this.circuitBreakerRegistry) {
-        const cb = this.circuitBreakerRegistry.getOrCreate(`${job.serverId}:${job.model}`);
-        cb.recordFailure(errorMessage, 'retryable');
-      }
     }
   }
 

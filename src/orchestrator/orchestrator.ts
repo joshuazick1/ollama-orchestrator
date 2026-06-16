@@ -3,43 +3,24 @@
  * Ollama Orchestrator with Historical Metrics - Server management and request routing
  */
 
-import { ActiveTestScheduler } from '../active-test-scheduler.js';
 import { getAnalyticsEngine } from '../analytics/analytics-engine.js';
 import {
   getRecoveryFailureTracker,
   type RecoveryFailureRecord,
 } from '../analytics/recovery-failure-tracker.js';
-import {
-  CircuitBreakerPersistence,
-  type CircuitBreakerData,
-} from '../circuit-breaker/circuit-breaker-persistence.js';
-import {
-  CircuitBreaker,
-  CircuitBreakerRegistry,
-  type CircuitBreakerConfig,
-  type ErrorType,
-} from '../circuit-breaker/circuit-breaker.js';
 import type { HealthCheckConfig, OrchestratorConfig, RetryConfig } from '../config/config.js';
 import { DEFAULT_CONFIG, getConfigManager } from '../config/config.js';
 import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import { getDecisionHistory } from '../decision-history.js';
-import { HealthCheckScheduler, type HealthCheckResult } from '../health-check-scheduler.js';
-import { InferenceProbeScheduler } from '../inference-probe-scheduler.js';
 import {
   LoadBalancer,
   calculateServerScore,
   type LoadBalancerConfig,
-  type CircuitBreakerHealth,
   type ServerScore,
 } from '../load-balancer/load-balancer.js';
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { MetricsAggregator } from '../metrics/index.js';
 import { getModelManager } from '../model-manager.js';
-import {
-  getRecoveryTestCoordinator,
-  RecoveryTestCoordinator,
-  setRecoveryTestCoordinator,
-} from '../recovery-test-coordinator.js';
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
@@ -128,14 +109,9 @@ export class AIOrchestrator {
   private inFlightManager: InFlightManager;
   private banManager: BanManager;
   private modelAggregator: ModelAggregator;
-  private circuitBreakerRegistry: CircuitBreakerRegistry;
-  private circuitBreakerPersistence: CircuitBreakerPersistence;
   private persistence: OrchestratorPersistence;
   private metricsAggregator: MetricsAggregator;
   private loadBalancer: LoadBalancer;
-  private healthCheckScheduler: HealthCheckScheduler;
-  private activeTestScheduler: ActiveTestScheduler;
-  private probeScheduler: InferenceProbeScheduler;
   private probeOrchestrator: ProbeOrchestrator;
   private recoveryDriver: RecoveryDriver;
   private backoffSchedule: BackoffSchedule;
@@ -179,23 +155,11 @@ export class AIOrchestrator {
   public getErrorAggregator(): ErrorAggregator {
     return this.errorAggregator;
   }
-  public getProbeScheduler(): InferenceProbeScheduler {
-    return this.probeScheduler;
-  }
   public getTimeoutManager(): TimeoutManager {
     return this.timeoutManager;
   }
-  public getCircuitBreakerRegistry(): CircuitBreakerRegistry {
-    return this.circuitBreakerRegistry;
-  }
   public getModelAggregator(): ModelAggregator {
     return this.modelAggregator;
-  }
-  public getHealthCheckScheduler(): HealthCheckScheduler {
-    return this.healthCheckScheduler;
-  }
-  public getActiveTestScheduler(): ActiveTestScheduler {
-    return this.activeTestScheduler;
   }
   public getProbeOrchestrator(): ProbeOrchestrator {
     return this.probeOrchestrator;
@@ -220,9 +184,6 @@ export class AIOrchestrator {
   }
   public getRequestHistory() {
     return getRequestHistory();
-  }
-  public getRecoveryTestCoordinator(): RecoveryTestCoordinator {
-    return getRecoveryTestCoordinator();
   }
   public getRetryBudget(): typeof RetryBudget {
     return RetryBudget;
@@ -271,7 +232,6 @@ export class AIOrchestrator {
     totalLoad: number,
     metrics: ServerModelMetrics | undefined,
     config: LoadBalancerConfig | undefined,
-    cbHealth: CircuitBreakerHealth | undefined,
     timeoutMs: number | undefined,
     estimatedPromptTokens: number | undefined,
     getContextLimit?: (serverId: string, model: string) => number
@@ -283,7 +243,6 @@ export class AIOrchestrator {
       totalLoad,
       metrics,
       config,
-      cbHealth,
       timeoutMs,
       estimatedPromptTokens,
       getContextLimit
@@ -323,15 +282,6 @@ export class AIOrchestrator {
       this.metricsAggregator.setCrossModelInferenceConfig(lbConfig.crossModelInference);
     }
 
-    this.circuitBreakerRegistry = new CircuitBreakerRegistry(
-      circuitBreakerConfig ?? this.config.circuitBreaker
-    );
-    this.circuitBreakerPersistence = new CircuitBreakerPersistence({
-      filePath: this.config.persistencePath
-        ? `${this.config.persistencePath}/circuit-breakers.json`
-        : undefined,
-    });
-
     this.persistence = new OrchestratorPersistence(this);
 
     // Initialize BanManager
@@ -357,53 +307,6 @@ export class AIOrchestrator {
 
     // Initialize ModelAggregator
     this.modelAggregator = new ModelAggregator();
-
-    // Set up circuit breaker state change tracking by wrapping registry getOrCreate
-    const registryGetOrCreate = this.circuitBreakerRegistry.getOrCreate.bind(
-      this.circuitBreakerRegistry
-    );
-    const failureTracker = getRecoveryFailureTracker();
-    (
-      this.circuitBreakerRegistry as unknown as { getOrCreate: typeof registryGetOrCreate }
-    ).getOrCreate = (
-      name: string,
-      config?: Partial<CircuitBreakerConfig>
-    ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker => {
-      return registryGetOrCreate(name, config, (oldState, newState) => {
-        const [serverId, ...modelParts] = name.split(':');
-        const model = modelParts.length > 0 ? modelParts.join(':') : undefined;
-        failureTracker.recordCircuitBreakerTransition(
-          serverId,
-          model,
-          oldState,
-          newState,
-          `State transition: ${oldState} -> ${newState}`
-        );
-      });
-    };
-
-    this.healthCheckScheduler = new HealthCheckScheduler(
-      healthCheckConfig ?? this.config.healthCheck,
-      () => [...this.servers],
-      result => this.onHealthCheckResult(result),
-      results => this.onAllHealthChecksComplete(results),
-      server => this.runActiveTestsForServer(server)
-    );
-
-    this.activeTestScheduler = new ActiveTestScheduler(
-      this.circuitBreakerRegistry,
-      () => [...this.servers],
-      server => this.runActiveTestsForServer(server)
-    );
-
-    this.probeScheduler = new InferenceProbeScheduler(
-      this.config.probeScheduler,
-      () => this.servers,
-      () => this.metricsAggregator,
-      () => getMetricsStore(),
-      () => this.circuitBreakerRegistry,
-      () => this.errorAggregator
-    );
 
     // Initialize probe subsystem (ProbeOrchestrator + EndpointRegistry + WALStore)
     this.walStore = new WALStore(getOperationalStore());
@@ -473,6 +376,7 @@ export class AIOrchestrator {
       }
     );
     this.probeOrchestrator.onStateChange((tuple, from, to, reason) => {
+      const failureTracker = getRecoveryFailureTracker();
       failureTracker.recordCircuitBreakerTransition(
         tuple.serverId,
         tuple.model,
@@ -490,8 +394,6 @@ export class AIOrchestrator {
     this.config = config;
 
     this.loadBalancer.updateConfig(config.loadBalancer);
-    this.circuitBreakerRegistry.updateAllConfig(config.circuitBreaker);
-    this.healthCheckScheduler.updateConfig(config.healthCheck);
     this.metricsAggregator.setDecayConfig(config.metrics.decay);
     getTemporalScorer().updateConfig(config.storage.temporal);
     this.banManager.updateConfig({ failureCooldownMs: config.cooldown?.failureCooldownMs });

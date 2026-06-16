@@ -6,7 +6,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { CircuitBreakerConfig } from '../circuit-breaker/circuit-breaker.js';
+import type { CircuitBreakerConfig } from './schema.js';
 import type { LoadBalancerConfig } from '../load-balancer/load-balancer.js';
 import { refreshAuthConfig } from '../middleware/auth.js';
 import type { ModelManagerConfig } from '../model-manager.js';
@@ -318,11 +318,9 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     minFailureThreshold: 3,
     openTimeout: 120000,
     halfOpenTimeout: 300000, // 5 minutes - match activeTestTimeout
-    halfOpenMaxRequests: 3,
     recoverySuccessThreshold: 3,
     activeTestTimeout: 300000, // 5 minutes
     maxHalfOpenPerServer: 1, // Sequential recovery - one model at a time per server
-    maxConsecutiveFailedRecoveries: 5, // Starvation guard threshold (GAP-CB-5)
     errorRateWindow: 60000,
     errorRateThreshold: 0.5,
     adaptiveThresholds: true,
@@ -356,12 +354,6 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     nonRetryableRatioThreshold: 0.5,
     transientRatioThreshold: 0.7,
     rateLimitFailureThreshold: 2,
-    modelEscalation: {
-      enabled: true,
-      ratioThreshold: 0.5, // 50%
-      durationThresholdMs: 600000, // 10 minutes
-      checkIntervalMs: 300000, // 5 minutes
-    },
     backoff: {
       standardDelaysMs: [30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000],
       permanentDelaysMs: [300000, 600000, 1200000, 2400000, 3600000],

@@ -86,11 +86,8 @@ export class OrchestratorModels {
     }
 
     const models = Array.from(allTags.values());
-    const circuitBreakerRegistry = orchestrator.getCircuitBreakerRegistry();
     const filteredModels = models.filter(model => {
-      const servers = model.servers as string[];
-      const modelName = (model.name as string) ?? (model.model as string);
-      return this.hasClosedCircuitBreaker(modelName, servers, circuitBreakerRegistry);
+      return true;
     });
 
     orchestrator.setTagsCache(filteredModels, {
@@ -107,21 +104,6 @@ export class OrchestratorModels {
     );
 
     return { models: filteredModels };
-  }
-
-  private hasClosedCircuitBreaker(
-    modelName: string,
-    serverIds: string[],
-    circuitBreakerRegistry: any
-  ): boolean {
-    for (const serverId of serverIds) {
-      const key = `${serverId}:${modelName}`;
-      const breaker = circuitBreakerRegistry.get(key);
-      if (!breaker || breaker.getState() === 'closed') {
-        return true;
-      }
-    }
-    return false;
   }
 
   async fetchServerTags(server: any): Promise<FetchServerTagsResult> {

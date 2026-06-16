@@ -66,11 +66,7 @@ export function getOrchestratorInstance(): AIOrchestrator {
   if (!orchestrator) {
     const configManager = getConfigManager();
     const config = configManager.getConfig();
-    orchestrator = new AIOrchestrator(
-      config.loadBalancer,
-      config.circuitBreaker,
-      config.healthCheck
-    );
+    orchestrator = new AIOrchestrator(config.loadBalancer, config);
 
     // Load persisted servers and bans synchronously
     if (config.enablePersistence) {

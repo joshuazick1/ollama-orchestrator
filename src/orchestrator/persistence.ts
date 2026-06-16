@@ -3,11 +3,6 @@
  * Orchestrator Persistence - Centralized persistence management
  */
 
-import {
-  CircuitBreakerPersistence,
-  type CircuitBreakerData,
-} from '../circuit-breaker/circuit-breaker-persistence.js';
-import type { CircuitBreakerStats } from '../circuit-breaker/circuit-breaker.js';
 import { logger } from '../utils/logger.js';
 import type { TimeoutState } from '../utils/timeout-manager.js';
 
@@ -32,21 +27,11 @@ export { loadServersFromDisk } from './orchestrator-persistence.js';
 
 /**
  * OrchestratorPersistence - Handles all persistence-related operations for the orchestrator
- * Consolidates server persistence, timeout persistence, circuit breaker persistence,
- * and routing context population.
+ * Consolidates server persistence, timeout persistence, and routing context population.
+ * Note: Circuit breaker state is now persisted via the probe subsystem's WAL (Write-Ahead Log).
  */
 export class OrchestratorPersistence {
-  private circuitBreakerPersistence: CircuitBreakerPersistence;
-
-  constructor(private readonly orchestrator: AIOrchestrator) {
-    // Initialize circuit breaker persistence with config path
-    const config = (orchestrator as unknown as { config: { persistencePath?: string } }).config;
-    this.circuitBreakerPersistence = new CircuitBreakerPersistence({
-      filePath: config?.persistencePath
-        ? `${config.persistencePath}/circuit-breakers.json`
-        : undefined,
-    });
-  }
+  constructor(private readonly orchestrator: AIOrchestrator) {}
 
   /**
    * Save servers to disk
@@ -112,41 +97,6 @@ export class OrchestratorPersistence {
   }
 
   /**
-   * Schedule a save of circuit breaker states (debounced)
-   */
-  scheduleCircuitBreakerSave(): void {
-    const circuitBreakerRegistry = this.orchestrator.getCircuitBreakerRegistry();
-
-    const rawStats = circuitBreakerRegistry.getAllStats();
-    const breakers: Record<string, CircuitBreakerStats> = {};
-    for (const [key, stats] of Object.entries(rawStats)) {
-      breakers[key] = {
-        ...stats,
-        state: stats.state,
-      };
-    }
-
-    const data: CircuitBreakerData = {
-      timestamp: Date.now(),
-      breakers,
-    };
-
-    // Debug logging for persistence triggers
-    const modelTypeUpdates = Object.entries(data.breakers)
-      .filter(([_, stats]) => stats.modelType)
-      .map(([key, stats]) => `${key}: ${stats.modelType}`)
-      .join(', ');
-
-    if (modelTypeUpdates) {
-      logger.debug(`Scheduling circuit breaker save with model type updates: ${modelTypeUpdates}`);
-    } else {
-      logger.debug('Scheduling circuit breaker save (no model type updates)');
-    }
-
-    this.circuitBreakerPersistence.scheduleSave(data);
-  }
-
-  /**
    * Populate routing context with circuit breaker and server info after successful request
    */
   populateRoutingContext(
@@ -194,12 +144,5 @@ export class OrchestratorPersistence {
     if (maxConcurrency !== undefined) {
       context.maxConcurrency = maxConcurrency;
     }
-  }
-
-  /**
-   * Get the circuit breaker persistence instance (for shutdown)
-   */
-  getCircuitBreakerPersistence(): CircuitBreakerPersistence {
-    return this.circuitBreakerPersistence;
   }
 }

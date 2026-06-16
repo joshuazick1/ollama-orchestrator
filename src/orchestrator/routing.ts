@@ -3,15 +3,13 @@
  * Orchestrator Router - Handles request routing, failover, and retry logic
  */
 
-import type { ErrorType } from '../circuit-breaker/circuit-breaker.js';
 import type { RetryConfig } from '../config/config.js';
 import { getDecisionHistory } from '../decision-history.js';
-import { getRecoveryTestCoordinator } from '../recovery-test-coordinator.js';
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { sleep } from '../utils/async-helpers.js';
 import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
-import { classifyError } from '../utils/error-classifier.js';
+import { classifyError, type ErrorType } from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 import { RetryBudget } from '../utils/retry-budget.js';
 
@@ -272,16 +270,15 @@ export class OrchestratorRouter {
       const selected = this.orchestrator.getLoadBalancer().select(
         remainingServers,
         model,
-        (serverId, model) => this.orchestrator.getModelInFlight(serverId, model),
-        serverId => this.orchestrator.getTotalInFlight(serverId),
-        (serverId, model) =>
+        (serverId: string, model: string) => this.orchestrator.getModelInFlight(serverId, model),
+        (serverId: string) => this.orchestrator.getTotalInFlight(serverId),
+        (serverId: string, model: string) =>
           this.orchestrator.getMetricsAggregator().getMetricsWithFallback(serverId, model),
         isStreaming,
         undefined,
-        (serverId, model) => this.orchestrator.getTimeout(serverId, model),
-        serverId => this.orchestrator.getCircuitBreakerHealth(serverId),
+        (serverId: string, model: string) => this.orchestrator.getTimeout(serverId, model),
         estimatedPromptTokens,
-        (serverId, model) =>
+        (serverId: string, model: string) =>
           this.orchestrator.getModelContextLimit(
             this.orchestrator.getServers().find(s => s.id === serverId)!,
             model
@@ -708,122 +705,7 @@ export class OrchestratorRouter {
     isRetry: boolean = false,
     routingContext?: RoutingContext
   ): Promise<{ success: true; value: T } | { success: false }> {
-    const serverCb = this.orchestrator.getCircuitBreaker(server.id);
-    const modelCb = this.orchestrator.getModelCircuitBreaker(server.id, model);
-
-    const serverState = serverCb.getState();
-    const modelState = modelCb.getState();
-    const isServerHalfOpen = serverState === 'half-open';
-    const isModelHalfOpen = modelState === 'half-open';
-
-    if (isServerHalfOpen || isModelHalfOpen) {
-      logger.debug(
-        `Circuit breaker half-open for ${server.id}:${model}, performing coordinated recovery test`
-      );
-
-      const now = Date.now();
-      const checkHalfOpenExpiry = (
-        cb: import('../circuit-breaker/circuit-breaker.js').CircuitBreaker
-      ): boolean => {
-        if (cb.getState() !== 'half-open') {
-          return false;
-        }
-        const stats = cb.getStats();
-        const cfg = cb.getConfig();
-        if (stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
-          const timeInHalfOpen = now - stats.halfOpenStartedAt;
-          if (timeInHalfOpen > cfg.halfOpenTimeout) {
-            logger.warn(
-              `Half-open breaker ${cb.getName()} timed out in request path after ${timeInHalfOpen}ms (limit: ${cfg.halfOpenTimeout}ms), reverting to open`
-            );
-            cb.recordFailure(new Error('Half-open timeout in request path'), 'transient');
-            return true;
-          }
-        }
-        return false;
-      };
-
-      const serverExpired = isServerHalfOpen && checkHalfOpenExpiry(serverCb);
-      const modelExpired = isModelHalfOpen && checkHalfOpenExpiry(modelCb);
-
-      if (serverExpired || modelExpired) {
-        const errorMsg = `Circuit breaker half-open timeout for ${server.id}:${model}`;
-        logger.debug(errorMsg);
-        errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-        if (alreadyIncremented) {
-          this.orchestrator.decrementInFlight(server.id, model);
-        }
-        return { success: false };
-      }
-
-      const coordinator = getRecoveryTestCoordinator();
-
-      try {
-        const recoveryPromises: Promise<boolean>[] = [];
-        const breakersToTest: import('../circuit-breaker/circuit-breaker.js').CircuitBreaker[] = [];
-
-        if (isServerHalfOpen) {
-          recoveryPromises.push(coordinator.performCoordinatedRecoveryTest(serverCb));
-          breakersToTest.push(serverCb);
-        }
-        if (isModelHalfOpen) {
-          recoveryPromises.push(coordinator.performCoordinatedRecoveryTest(modelCb));
-          breakersToTest.push(modelCb);
-        }
-
-        const recoveryResults = await Promise.all(recoveryPromises);
-        const allRecovered = recoveryResults.every(result => result);
-
-        if (allRecovered) {
-          logger.info(`Recovery test passed for ${server.id}:${model}, proceeding with request`);
-        } else {
-          for (let i = 0; i < recoveryResults.length; i++) {
-            if (!recoveryResults[i]) {
-              const failedBreaker = breakersToTest[i];
-              const errorMsg = `Circuit breaker recovery failed for ${server.id}:${model}`;
-              const errorType = failedBreaker.getLastErrorType() || 'transient';
-              failedBreaker.recordFailure(new Error(errorMsg), errorType);
-              logger.warn(`Recovery test failed for breaker, transitioning back to open`);
-            }
-          }
-
-          const errorMsg = `Circuit breaker recovery failed or deferred for ${server.id}:${model}`;
-          logger.debug(errorMsg);
-          errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-          if (alreadyIncremented) {
-            this.orchestrator.decrementInFlight(server.id, model);
-          }
-          return { success: false };
-        }
-      } catch (error) {
-        logger.warn(`Recovery test error for ${server.id}:${model}`, { error });
-        const errorMsg = `Circuit breaker recovery error for ${server.id}:${model}`;
-        errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-        if (alreadyIncremented) {
-          this.orchestrator.decrementInFlight(server.id, model);
-        }
-        return { success: false };
-      }
-    }
-
-    if (!serverCb.canExecute() || !modelCb.canExecute()) {
-      const circuitState = !serverCb.canExecute() ? serverCb.getState() : modelCb.getState();
-      const errorMsg = `Circuit breaker ${circuitState} for ${server.id}:${model}`;
-      logger.debug(errorMsg);
-      errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-      if (alreadyIncremented) {
-        this.orchestrator.decrementInFlight(server.id, model);
-      }
-      return { success: false };
-    }
-
-    const circuitStateAtStart = {
-      serverState: serverCb.getState(),
-      modelState: modelCb.getState(),
-    };
-    const wasActiveTestAtStart =
-      circuitStateAtStart.serverState === 'half-open' ||
-      circuitStateAtStart.modelState === 'half-open';
+    const wasActiveTestAtStart = false;
 
     const requestContext: RequestContext = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -921,10 +803,6 @@ export class OrchestratorRouter {
       this.orchestrator.getMetricsAggregator().recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
       getMetricsStore().recordRequest(requestContext);
-      if (!requestContext.isProbe) {
-        this.orchestrator.getProbeScheduler().recordUserRequest(server.id);
-      }
-
       if (isStreaming) {
         this.orchestrator.getInFlightManager().removeStreamingRequest(requestContext.id);
       }
@@ -1126,10 +1004,6 @@ export class OrchestratorRouter {
         this.orchestrator.getMetricsAggregator().recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
         getMetricsStore().recordRequest(requestContext);
-        if (!requestContext.isProbe) {
-          this.orchestrator.getProbeScheduler().recordUserRequest(server.id);
-        }
-
         if (isStreaming) {
           this.orchestrator.getInFlightManager().removeStreamingRequest(requestContext.id);
         }

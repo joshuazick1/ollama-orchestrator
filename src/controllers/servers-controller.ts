@@ -197,7 +197,6 @@ export function getServers(req: Request, res: Response): void {
       apiKey: s.apiKey ? '***REDACTED***' : undefined,
       forcedCapabilities: s.forcedCapabilities,
       endpointOverrides: s.endpointOverrides,
-      probedEndpoints: s.probedEndpoints,
     })),
   });
 }

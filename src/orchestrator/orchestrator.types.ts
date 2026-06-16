@@ -14,11 +14,11 @@ export interface AIServer {
   id: string;
   url: string;
   type: 'ollama' | 'openai' | 'auto';
-  healthy: boolean;
   lastResponseTime: number;
   models: string[];
   maxConcurrency?: number;
   version?: string;
+  healthy?: boolean;
   // NEW: Endpoint capabilities
   supportsOllama?: boolean; // Whether server supports /api/* Ollama endpoints
   supportsV1?: boolean; // Whether server supports /v1/* OpenAI-compatible endpoints
@@ -27,17 +27,6 @@ export interface AIServer {
   discoveredV1Models?: string[];
   // NEW: Anthropic capability
   supportsAnthropic?: boolean; // Whether server supports /v1/messages Anthropic endpoints
-
-  // NEW: Endpoint-level probe results — which specific endpoints respond
-  probedEndpoints?: {
-    ollama_chat?: boolean;
-    ollama_generate?: boolean;
-    ollama_embeddings?: boolean;
-    openai_chat?: boolean;
-    openai_completions?: boolean;
-    openai_embeddings?: boolean;
-    anthropic_messages?: boolean;
-  };
 
   // NEW: Admin override for servers behind opaque proxies that block all probes
   forcedCapabilities?: {
