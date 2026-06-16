@@ -50,8 +50,9 @@ import type {
 import { OrchestratorPersistence } from './persistence.js';
 import { TagsCacheStore } from './tags-cache.js';
 
-import type { Tuple, ProbeState } from '../probe/types.js';
+import type { Tuple, ProbeState, ProbeEndpoint } from '../probe/types.js';
 import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
+import { classify, type Classification } from '../probe/failure-classifier.js';
 import { BackoffSchedule } from '../probe/recovery-driver.js';
 import { EndpointRegistry } from '../probe/endpoint-registry.js';
 import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
@@ -1641,6 +1642,8 @@ export class AIOrchestrator {
 
       // Try request WITHOUT same-server retries (failover immediately)
       const attemptStart1 = Date.now();
+      const probeEndpoint: ProbeEndpoint =
+        endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
       const result = await this.tryRequestOnServerNoRetry(
         server,
         model,
@@ -1651,7 +1654,8 @@ export class AIOrchestrator {
         true,
         userRequestId,
         retryCount > 0,
-        routingContext
+        routingContext,
+        probeEndpoint
       );
       const attemptLatency1 = Date.now() - attemptStart1;
 
@@ -1787,6 +1791,8 @@ export class AIOrchestrator {
       }
 
       const attemptStart2 = Date.now();
+      const probeEndpoint2: ProbeEndpoint =
+        endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
       const result = await this.tryRequestOnServerNoRetry(
         server,
         model,
@@ -1797,7 +1803,8 @@ export class AIOrchestrator {
         true,
         userRequestId,
         true, // Phase 2 is always a retry
-        routingContext
+        routingContext,
+        probeEndpoint2
       );
       const attemptLatency2 = Date.now() - attemptStart2;
 
@@ -1902,6 +1909,8 @@ export class AIOrchestrator {
 
     if (totalLoad < maxConcurrency) {
       const attemptStart3 = Date.now();
+      const probeEndpoint3: ProbeEndpoint =
+        endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
       const result = await this.tryRequestOnServerWithRetries(
         initialServer,
         model,
@@ -1911,7 +1920,8 @@ export class AIOrchestrator {
         errors,
         undefined,
         userRequestId,
-        routingContext
+        routingContext,
+        probeEndpoint3
       );
       const attemptLatency3 = Date.now() - attemptStart3;
 
@@ -2141,7 +2151,8 @@ export class AIOrchestrator {
     alreadyIncremented: boolean = false,
     parentRequestId?: string,
     isRetry: boolean = false,
-    routingContext?: RoutingContext
+    routingContext?: RoutingContext,
+    endpoint: ProbeEndpoint = 'ollama_generate'
   ): Promise<{ success: true; value: T } | { success: false }> {
     const wasActiveTestAtStart = false;
 
@@ -2281,6 +2292,8 @@ export class AIOrchestrator {
         wasActiveTest: wasActiveTestAtStart,
       });
 
+      this.probeOrchestrator.recordProbeResult({ serverId: server.id, model, endpoint }, true);
+
       return { success: true, value: result };
     } catch (error) {
       this.decrementInFlight(server.id, model);
@@ -2315,7 +2328,7 @@ export class AIOrchestrator {
         duration: requestContext.duration,
       });
 
-      this.handleServerError(server, model, errorMessage, errorType, errors);
+      this.handleServerError(server, model, errorMessage, errorType, errors, endpoint);
       return { success: false };
     }
   }
@@ -2329,7 +2342,8 @@ export class AIOrchestrator {
     errors: Array<{ server: string; error: string; type?: ErrorType }>,
     _timeoutMs?: number,
     parentRequestId?: string,
-    routingContext?: RoutingContext
+    routingContext?: RoutingContext,
+    endpoint: ProbeEndpoint = 'ollama_generate'
   ): Promise<{ success: true; value: T } | { success: false }> {
     let lastError: Error | undefined;
     let retryCount = 0;
@@ -2559,7 +2573,7 @@ export class AIOrchestrator {
           );
         }
 
-        this.handleServerError(server, model, errorMessage, errorType, errors);
+        this.handleServerError(server, model, errorMessage, errorType, errors, endpoint);
         return { success: false };
       }
     }
@@ -2599,13 +2613,15 @@ export class AIOrchestrator {
     model: string,
     errorMessage: string,
     errorType: ErrorType,
-    errors: Array<{ server: string; error: string; type?: ErrorType }>
+    errors: Array<{ server: string; error: string; type?: ErrorType }>,
+    endpoint: ProbeEndpoint = 'ollama_generate'
   ): void {
     logger.info(`Handling server error for ${server.id}:${model}`, {
       errorType,
       errorMessage: errorMessage.substring(0, 200), // Truncate for logging
       currentHealthy: server.healthy,
       consecutiveFailures: this.banManager.getFailureCount(server.id),
+      endpoint,
     });
 
     switch (errorType) {
@@ -2730,6 +2746,14 @@ export class AIOrchestrator {
     }
 
     errors.push({ server: server.id, error: errorMessage, type: errorType });
+
+    // Feed the probe system with the failure result
+    const classification = classify(new Error(errorMessage));
+    this.probeOrchestrator.recordProbeResult(
+      { serverId: server.id, model, endpoint },
+      false,
+      classification
+    );
   }
 
   /**
