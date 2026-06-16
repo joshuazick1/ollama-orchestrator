@@ -118,7 +118,7 @@ describe('createConfigManager', () => {
     );
   });
 
-  it('should set and save config', () => {
+  it('should set and save config', async () => {
     const configPath = path.join(tempDir, 'test.json');
     const manager = createConfigManager({
       fileName: 'test.json',
@@ -126,14 +126,14 @@ describe('createConfigManager', () => {
       relativePath: tempDir,
     });
 
-    const result = manager.set({ value: 100 });
+    const result = await manager.set({ value: 100 });
 
     expect(result).toBe(true);
     expect(manager.get()).toEqual({ value: 100 });
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Saved config'));
   });
 
-  it('should handle set errors gracefully (lines 81-84)', () => {
+  it('should handle set errors gracefully (lines 81-84)', async () => {
     const manager = createConfigManager({
       fileName: 'test.json',
       defaults: { value: 0 },
@@ -145,7 +145,7 @@ describe('createConfigManager', () => {
       throw new Error('Write error');
     });
 
-    const result = manager.set({ value: 100 });
+    const result = await manager.set({ value: 100 });
 
     expect(result).toBe(false);
     expect(logger.error).toHaveBeenCalledWith(

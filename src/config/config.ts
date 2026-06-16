@@ -403,8 +403,6 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     retryAttempts: 2,
     retryDelayMs: 1000, // 1 second
     recoveryIntervalMs: 60000, // 1 minute
-    failureThreshold: 3,
-    successThreshold: 2,
     backoffMultiplier: 1.5,
   },
 

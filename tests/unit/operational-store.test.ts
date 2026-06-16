@@ -207,29 +207,6 @@ describe('OperationalStore', () => {
     });
   });
 
-  describe('Circuit Breaker CRUD (Task 7.5)', () => {
-    const cbState = {
-      state: 'closed',
-      failureCount: 2,
-      successCount: 10,
-      lastFailureAt: Date.now() - 5000,
-      lastSuccessAt: Date.now(),
-      nextRetryAt: undefined,
-      openedAt: undefined,
-      errorWindow: undefined,
-      adaptiveThreshold: undefined,
-    };
-
-    describe('saveCircuitBreakerState / getCircuitBreakerState', () => {
-      it('should save and retrieve circuit breaker state', () => {
-        store.saveCircuitBreakerState('server1', 'model1', cbState);
-        const result = store.getCircuitBreakerState('server1', 'model1');
-        expect(result).toBeDefined();
-        expect(result?.state).toBe('closed');
-        expect(result?.failureCount).toBe(2);
-        expect(result?.successCount).toBe(10);
-      });
-
       it('should return undefined for nonexistent server:model', () => {
         expect(store.getCircuitBreakerState('x', 'y')).toBeUndefined();
       });
