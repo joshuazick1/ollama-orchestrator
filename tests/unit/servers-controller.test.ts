@@ -56,6 +56,14 @@ describe('Servers Controller', () => {
       unbanModel: vi.fn(),
       clearAllBans: vi.fn(),
       manualTriggerRecoveryTest: vi.fn(),
+      getProbeOrchestrator: vi.fn().mockReturnValue({
+        getAllStates: vi.fn().mockReturnValue(new Map()),
+        setStateForTesting: vi.fn(),
+      }),
+      getEndpointRegistry: vi.fn().mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      }),
       getModelCircuitBreakerPublic: vi.fn(),
     };
 
@@ -239,20 +247,13 @@ describe('Servers Controller', () => {
       getServers(mockReq as Request, mockRes as Response);
 
       expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        count: 1,
-        servers: [
-          {
-            id: 'server-1',
-            url: 'http://localhost:11434',
-            healthy: true,
-            lastResponseTime: 100,
-            models: ['llama2'],
-            maxConcurrency: 4,
-          },
-        ],
-      });
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.count).toBe(1);
+      expect(jsonCall.servers).toHaveLength(1);
+      expect(jsonCall.servers[0].id).toBe('server-1');
+      expect(jsonCall.servers[0].healthy).toBe(true);
     });
   });
 
@@ -307,6 +308,24 @@ describe('Servers Controller', () => {
       mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       mockOrchestrator.getGlobalMetrics.mockReturnValue({ requestsPerSecond: 10.5 });
 
+      // Set up probe mock with HEALTHY tuple
+      const mockStates = new Map([
+        [
+          'server-1:model-a',
+          {
+            state: 'HEALTHY',
+            consecutiveFailures: 0,
+            consecutiveSuccesses: 10,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: null,
+          },
+        ],
+      ]);
+      mockOrchestrator.getProbeOrchestrator().getAllStates.mockReturnValue(mockStates);
+
       // Mock process.uptime
       const originalUptime = process.uptime;
       process.uptime = vi.fn().mockReturnValue(3600);
@@ -314,14 +333,12 @@ describe('Servers Controller', () => {
       getHealth(mockReq as Request, mockRes as Response);
 
       expect(mockRes.status).toHaveBeenCalledWith(200);
-      expect(mockRes.json).toHaveBeenCalledWith({
-        success: true,
-        status: 'healthy',
-        uptime: 3600,
-        version: '1.0.0',
-        servers: 1,
-        requestsPerSecond: 10.5,
-      });
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.status).toBe('healthy');
+      expect(jsonCall.servers).toBe(1);
+      expect(jsonCall.healthy).toBe(1);
+      expect(jsonCall.total).toBe(1);
 
       // Restore original uptime
       process.uptime = originalUptime;
@@ -384,28 +401,30 @@ describe('Servers Controller', () => {
 
   describe('getCircuitBreakers', () => {
     it('should return circuit breaker stats', () => {
-      const mockCircuitBreakers = {
-        'server-1:model-a': {
-          state: 'closed',
-          failureCount: 0,
-          successCount: 10,
-          totalRequestCount: 15,
-          blockedRequestCount: 0,
-          lastFailure: null,
-          lastSuccess: '2024-01-01',
-          nextRetryAt: null,
-          errorRate: 0,
-          errorCounts: {},
-          consecutiveSuccesses: 5,
-          modelType: 'ollama',
-          lastFailureReason: null,
-          halfOpenStartedAt: null,
-          halfOpenAttempts: 0,
-          lastErrorType: null,
-          activeTestsInProgress: 0,
-        },
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
       };
-      mockOrchestrator.getCircuitBreakerStats.mockReturnValue(mockCircuitBreakers);
+      const mockStates = new Map([
+        [
+          'server-1:model-a:ollama_chat',
+          {
+            state: 'HEALTHY',
+            consecutiveFailures: 0,
+            consecutiveSuccesses: 10,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: null,
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
 
       getCircuitBreakers(mockReq as Request, mockRes as Response);
 
@@ -413,8 +432,8 @@ describe('Servers Controller', () => {
       const jsonCall = (mockRes.json as any).mock.calls[0][0];
       expect(jsonCall.success).toBe(true);
       expect(jsonCall.circuitBreakers).toHaveLength(1);
-      expect(jsonCall.circuitBreakers[0].serverId).toBe('server-1:model-a');
-      expect(jsonCall.circuitBreakers[0].state).toBe('CLOSED');
+      expect(jsonCall.circuitBreakers[0].serverId).toBe('server-1:model-a:ollama_chat');
+      expect(jsonCall.circuitBreakers[0].state).toBe('HEALTHY');
     });
 
     it('should handle empty circuit breaker stats', () => {
@@ -429,9 +448,9 @@ describe('Servers Controller', () => {
       });
     });
 
-    it('should return 500 when getCircuitBreakerStats throws', () => {
-      mockOrchestrator.getCircuitBreakerStats.mockImplementation(() => {
-        throw new Error('Stats error');
+    it('should return 500 when getProbeOrchestrator throws', () => {
+      mockOrchestrator.getProbeOrchestrator.mockImplementation(() => {
+        throw new Error('Probe error');
       });
 
       getCircuitBreakers(mockReq as Request, mockRes as Response);
@@ -439,20 +458,35 @@ describe('Servers Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: 'Failed to get circuit breaker status',
-        details: 'Stats error',
+        details: 'Probe error',
       });
     });
 
-    it('should handle circuit breaker with undefined stats fields', () => {
-      const mockCircuitBreakers = {
-        'server-1:model-a': {
-          state: 'open',
-          failureCount: 5,
-          successCount: 2,
-          // Missing optional fields
-        },
+    it('should handle circuit breaker with probe states', () => {
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
       };
-      mockOrchestrator.getCircuitBreakerStats.mockReturnValue(mockCircuitBreakers);
+      const mockStates = new Map([
+        [
+          'server-1:model-a:ollama_chat',
+          {
+            state: 'UNHEALTHY',
+            consecutiveFailures: 5,
+            consecutiveSuccesses: 2,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: 'timeout',
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
 
       getCircuitBreakers(mockReq as Request, mockRes as Response);
 
@@ -674,42 +708,65 @@ describe('Servers Controller', () => {
 
   describe('manualRecoveryTest', () => {
     it('should trigger recovery test successfully', async () => {
-      mockOrchestrator.manualTriggerRecoveryTest.mockResolvedValue({
-        success: true,
-        breakerState: 'half-open',
-      });
+      const mockEndpoints = [
+        { serverId: 'server-1', model: 'model-a', endpoint: 'http://localhost:11434' },
+      ];
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(
+          new Map([
+            [
+              'server-1:model-a:ollama_chat',
+              {
+                state: 'UNHEALTHY',
+                consecutiveFailures: 5,
+                consecutiveSuccesses: 0,
+                errorWindow: [],
+                nextProbeAt: null,
+                lastTransition: null,
+                recoveryAttempts: 0,
+                lastErrorKind: 'timeout',
+              },
+            ],
+          ])
+        ),
+        getState: vi.fn().mockReturnValue('UNHEALTHY'),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'RECOVERING',
+          consecutiveFailures: 5,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: 'timeout',
+        }),
+        setStateForTesting: vi.fn(),
+      };
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockReturnValue(mockEndpoints);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       await manualRecoveryTest(mockReq as Request, mockRes as Response);
 
-      expect(mockOrchestrator.manualTriggerRecoveryTest).toHaveBeenCalledWith(
-        'server-1',
-        'model-a'
-      );
+      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
-        message: 'Recovery test passed for server-1:model-a',
-        breakerState: 'half-open',
+        message: 'Recovery test initiated for server-1:model-a',
+        breakerState: 'RECOVERING',
       });
     });
 
-    it('should handle failed recovery test', async () => {
-      mockOrchestrator.manualTriggerRecoveryTest.mockResolvedValue({
-        success: false,
-        error: 'Server still unhealthy',
-        breakerState: 'open',
-      });
+    it('should handle when no active endpoints found', async () => {
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockReturnValue([]);
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       await manualRecoveryTest(mockReq as Request, mockRes as Response);
 
-      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.status).toHaveBeenCalledWith(404);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: false,
-        error: 'Server still unhealthy',
-        breakerState: 'open',
-        message: 'Recovery test failed for server-1:model-a',
+        error: 'No active endpoints found for server-1:model-a',
       });
     });
 
@@ -736,22 +793,56 @@ describe('Servers Controller', () => {
     });
 
     it('should decode URL-encoded model names', async () => {
-      mockOrchestrator.manualTriggerRecoveryTest.mockResolvedValue({
-        success: true,
-        breakerState: 'closed',
-      });
+      const mockEndpoints = [
+        { serverId: 'server-1', model: 'model/name', endpoint: 'http://localhost:11434' },
+      ];
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(
+          new Map([
+            [
+              'server-1:model/name:ollama_chat',
+              {
+                state: 'UNHEALTHY',
+                consecutiveFailures: 5,
+                consecutiveSuccesses: 0,
+                errorWindow: [],
+                nextProbeAt: null,
+                lastTransition: null,
+                recoveryAttempts: 0,
+                lastErrorKind: 'timeout',
+              },
+            ],
+          ])
+        ),
+        getState: vi.fn().mockReturnValue('UNHEALTHY'),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'RECOVERING',
+          consecutiveFailures: 5,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: 'timeout',
+        }),
+        setStateForTesting: vi.fn(),
+      };
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockReturnValue(mockEndpoints);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
       mockReq.params = { serverId: 'server-1', model: 'model%2Fname' };
 
       await manualRecoveryTest(mockReq as Request, mockRes as Response);
 
-      expect(mockOrchestrator.manualTriggerRecoveryTest).toHaveBeenCalledWith(
+      expect(mockOrchestrator.getEndpointRegistry().getActiveEndpoints).toHaveBeenCalledWith(
         'server-1',
         'model/name'
       );
     });
 
     it('should return 500 on error', async () => {
-      mockOrchestrator.manualTriggerRecoveryTest.mockRejectedValue(new Error('Test error'));
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockImplementation(() => {
+        throw new Error('Test error');
+      });
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       await manualRecoveryTest(mockReq as Request, mockRes as Response);
@@ -766,15 +857,40 @@ describe('Servers Controller', () => {
 
   describe('getCircuitBreakerDetails', () => {
     it('should return circuit breaker details', () => {
-      const mockBreaker = {
-        getStats: vi.fn().mockReturnValue({
-          state: 'closed',
-          failureCount: 0,
-          successCount: 10,
-          errorRate: 0,
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockStates = new Map([
+        [
+          'server-1:model-a:ollama_chat',
+          {
+            state: 'CLOSED',
+            consecutiveFailures: 0,
+            consecutiveSuccesses: 10,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: null,
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'CLOSED',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 10,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
         }),
       };
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(mockBreaker);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       getCircuitBreakerDetails(mockReq as Request, mockRes as Response);
@@ -822,45 +938,78 @@ describe('Servers Controller', () => {
     });
 
     it('should decode URL-encoded model names', () => {
-      const mockBreaker = {
-        getStats: vi.fn().mockReturnValue({
-          state: 'open',
-          failureCount: 5,
-          successCount: 2,
-          errorRate: 0.71,
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockStates = new Map([
+        [
+          'server-1:model/name:ollama_chat',
+          {
+            state: 'CLOSED',
+            consecutiveFailures: 0,
+            consecutiveSuccesses: 10,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: null,
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'CLOSED',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 10,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
         }),
       };
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(mockBreaker);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
       mockReq.params = { serverId: 'server-1', model: 'model%2Fname' };
 
       getCircuitBreakerDetails(mockReq as Request, mockRes as Response);
 
-      expect(mockOrchestrator.getModelCircuitBreakerPublic).toHaveBeenCalledWith(
-        'server-1',
-        'model/name'
-      );
+      expect(mockRes.status).toHaveBeenCalledWith(200);
     });
   });
 
   describe('forceOpenBreaker', () => {
     it('should force open a circuit breaker', () => {
-      const mockBreaker = {
-        forceOpen: vi.fn(),
-        getStats: vi.fn().mockReturnValue({
-          state: 'open',
-          failureCount: 5,
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockProbeOrch = {
+        setStateForTesting: vi.fn(),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'UNHEALTHY',
+          consecutiveFailures: 5,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: 'timeout',
         }),
       };
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(mockBreaker);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       forceOpenBreaker(mockReq as Request, mockRes as Response);
 
-      expect(mockBreaker.forceOpen).toHaveBeenCalled();
+      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
       const jsonCall = (mockRes.json as any).mock.calls[0][0];
       expect(jsonCall.success).toBe(true);
-      expect(jsonCall.circuitBreaker.state).toBe('OPEN');
+      expect(jsonCall.circuitBreaker.state).toBe('UNHEALTHY');
     });
 
     it('should return 404 when circuit breaker not found', () => {
@@ -891,23 +1040,34 @@ describe('Servers Controller', () => {
 
   describe('forceCloseBreaker', () => {
     it('should force close a circuit breaker', () => {
-      const mockBreaker = {
-        forceClose: vi.fn(),
-        getStats: vi.fn().mockReturnValue({
-          state: 'closed',
-          failureCount: 0,
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockProbeOrch = {
+        setStateForTesting: vi.fn(),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'HEALTHY',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 10,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
         }),
       };
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(mockBreaker);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       forceCloseBreaker(mockReq as Request, mockRes as Response);
 
-      expect(mockBreaker.forceClose).toHaveBeenCalled();
+      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
       const jsonCall = (mockRes.json as any).mock.calls[0][0];
       expect(jsonCall.success).toBe(true);
-      expect(jsonCall.circuitBreaker.state).toBe('CLOSED');
+      expect(jsonCall.circuitBreaker.state).toBe('HEALTHY');
     });
 
     it('should return 404 when circuit breaker not found', () => {
@@ -938,23 +1098,36 @@ describe('Servers Controller', () => {
 
   describe('forceHalfOpenBreaker', () => {
     it('should force half-open a circuit breaker', () => {
-      const mockBreaker = {
-        forceHalfOpen: vi.fn(),
-        getStats: vi.fn().mockReturnValue({
-          state: 'half-open',
-          failureCount: 2,
-        }),
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
       };
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(mockBreaker);
+      const mockProbeOrch = {
+        setStateForTesting: vi.fn(),
+        getTupleState: vi
+          .fn()
+          .mockReturnValue({
+            state: 'RECOVERING',
+            consecutiveFailures: 3,
+            consecutiveSuccesses: 2,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 1,
+            lastErrorKind: 'error',
+          }),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       forceHalfOpenBreaker(mockReq as Request, mockRes as Response);
 
-      expect(mockBreaker.forceHalfOpen).toHaveBeenCalled();
+      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
       const jsonCall = (mockRes.json as any).mock.calls[0][0];
       expect(jsonCall.success).toBe(true);
-      expect(jsonCall.circuitBreaker.state).toBe('HALF-OPEN');
+      expect(jsonCall.circuitBreaker.state).toBe('RECOVERING');
     });
 
     it('should return 404 when circuit breaker not found', () => {

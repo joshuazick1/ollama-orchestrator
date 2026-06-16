@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 import {
   calculateServerScore,
   selectBestServer,
   LoadBalancer,
   DEFAULT_LB_CONFIG,
-  CircuitBreakerHealth,
 } from '../../src/load-balancer/load-balancer.js';
 import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 import { createServer } from '../fixtures/factories.js';
@@ -18,112 +17,9 @@ const mockServer: AIServer = createServer({
 
 describe('Load Balancer - Additional Tests', () => {
   describe('Circuit Breaker in Score Calculation', () => {
-    it('should penalize open circuit breaker', () => {
-      const cbHealth: CircuitBreakerHealth = {
-        state: 'open',
-        failureCount: 5,
-        errorRate: 0.5,
-      };
-
-      const metrics: ServerModelMetrics = {
-        serverId: 'server-1',
-        model: 'llama3:latest',
-        inFlight: 0,
-        queued: 0,
-        windows: {} as any,
-        percentiles: { p50: 100, p95: 200, p99: 300 },
-        successRate: 1,
-        throughput: 10,
-        avgTokensPerRequest: 50,
-        avgTokensPerSecond: 0,
-        coldStartCount: 0,
-        lastUpdated: Date.now(),
-        recentLatencies: [],
-      };
-
-      const score = calculateServerScore(
-        mockServer,
-        'llama3:latest',
-        0,
-        0,
-        metrics,
-        DEFAULT_LB_CONFIG,
-        cbHealth
-      );
-
-      expect(score.breakdown.circuitBreakerScore).toBe(5);
-    });
-
-    it('should penalize half-open circuit breaker', () => {
-      const cbHealth: CircuitBreakerHealth = {
-        state: 'half-open',
-        failureCount: 3,
-        errorRate: 0.3,
-      };
-
-      const metrics: ServerModelMetrics = {
-        serverId: 'server-1',
-        model: 'llama3:latest',
-        inFlight: 0,
-        queued: 0,
-        windows: {} as any,
-        percentiles: { p50: 100, p95: 200, p99: 300 },
-        successRate: 1,
-        throughput: 10,
-        avgTokensPerRequest: 50,
-        avgTokensPerSecond: 0,
-        coldStartCount: 0,
-        lastUpdated: Date.now(),
-        recentLatencies: [],
-      };
-
-      const score = calculateServerScore(
-        mockServer,
-        'llama3:latest',
-        0,
-        0,
-        metrics,
-        DEFAULT_LB_CONFIG,
-        cbHealth
-      );
-
-      expect(score.breakdown.circuitBreakerScore).toBe(20);
-    });
-
-    it('should apply minor penalty for failures in closed state', () => {
-      const cbHealth: CircuitBreakerHealth = {
-        state: 'closed',
-        failureCount: 3,
-        errorRate: 0.1,
-      };
-
-      const metrics: ServerModelMetrics = {
-        serverId: 'server-1',
-        model: 'llama3:latest',
-        inFlight: 0,
-        queued: 0,
-        windows: {} as any,
-        percentiles: { p50: 100, p95: 200, p99: 300 },
-        successRate: 1,
-        throughput: 10,
-        avgTokensPerRequest: 50,
-        avgTokensPerSecond: 0,
-        coldStartCount: 0,
-        lastUpdated: Date.now(),
-        recentLatencies: [],
-      };
-
-      const score = calculateServerScore(
-        mockServer,
-        'llama3:latest',
-        0,
-        0,
-        metrics,
-        DEFAULT_LB_CONFIG,
-        cbHealth
-      );
-
-      expect(score.breakdown.circuitBreakerScore).toBe(85);
+    it('should have neutral circuit breaker score when no CB health data', () => {
+      const score = calculateServerScore(mockServer, 'llama3:latest', 0, 0, undefined);
+      expect(score.breakdown.circuitBreakerScore).toBe(100);
     });
   });
 
@@ -174,7 +70,6 @@ describe('Load Balancer - Additional Tests', () => {
         0,
         metrics,
         DEFAULT_LB_CONFIG,
-        undefined,
         300000
       );
 
@@ -205,7 +100,6 @@ describe('Load Balancer - Additional Tests', () => {
         0,
         metrics,
         DEFAULT_LB_CONFIG,
-        undefined,
         150000
       );
 
