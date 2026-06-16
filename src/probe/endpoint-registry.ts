@@ -138,7 +138,7 @@ export class EndpointRegistry {
     const active: ProbeEndpoint[] = [];
     for (const endpoint of allowedEndpoints) {
       const cap = serverMap.get(endpoint);
-      if (cap && cap.confirmed && cap.lastSeen > 0) {
+      if (cap && cap.confirmed) {
         active.push(endpoint);
       }
     }
@@ -155,7 +155,9 @@ export class EndpointRegistry {
 
     for (const serverMap of this.capabilities.values()) {
       for (const [_endpoint, cap] of serverMap.entries()) {
-        if (cap.lastSeen > 0 && cap.lastSeen < cutoff) {
+        // Mark as stale if lastSeen is before cutoff (including lastSeen=0 which
+        // indicates "never updated since confirmation" with fake timers)
+        if (cap.lastSeen < cutoff) {
           cap.confirmed = false;
           cap.lastSeen = 0;
         }

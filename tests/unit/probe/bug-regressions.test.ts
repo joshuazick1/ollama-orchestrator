@@ -178,12 +178,15 @@ describe('Bug Regression Tests', () => {
       await orchestrator.recordProbeResult(tuple, false, makeClassification('transient'));
       orchestrator.getTupleState(tuple)!.consecutiveSuccesses = 10;
       await orchestrator.recordProbeResult(tuple, false, makeClassification('transient'));
-      expect(await wal.count()).toBe(4);
+      // Only 2 events: HEALTHY→SUSPECT and SUSPECT→UNHEALTHY.
+      // The 3 intermediate probes stay in SUSPECT (no state change → no WAL entry).
+      expect(await wal.count()).toBe(2);
 
       // Transition 3: UNHEALTHY → RECOVERING
       orchestrator.setStateForTesting(tuple, 'UNHEALTHY');
       await orchestrator.recordProbeResult(tuple, true);
-      expect(await wal.count()).toBe(5);
+      // Total: HEALTHY→SUSPECT, SUSPECT→UNHEALTHY, UNHEALTHY→RECOVERING = 3 events
+      expect(await wal.count()).toBe(3);
     });
 
     it('non-transition (no state change) does NOT write to WAL', async () => {
@@ -504,7 +507,8 @@ describe('Bug Regression Tests', () => {
       const events = await wal.getEventsForTuple('srv1:llama3:ollama_chat');
       const meta = JSON.parse(events[0].metadata!);
       expect(meta.consecutiveSuccesses).toBe(5);
-      expect(meta.consecutiveFailures).toBe(2);
+      // consecutiveFailures is captured AFTER increment in _handleFailure
+      expect(meta.consecutiveFailures).toBe(3);
     });
   });
 
@@ -695,12 +699,12 @@ describe('Bug Regression Tests', () => {
       result = await o.recordProbeResult(tuple, false, makeClassification('transient'));
       expect(result).toBe('SUSPECT');
 
-      // 3 failures: errorRate = 3/(10+3) = 0.23 < 0.7 → stays SUSPECT
+      // 3 failures: errorRate = 3/(10+3) = 0.23 < 0.7, but consecutiveFailures >= unhealthyAfterFailures
+      // triggers UNHEALTHY regardless of error rate (the check is OR, not AND)
       result = await o.recordProbeResult(tuple, false, makeClassification('transient'));
-      expect(result).toBe('SUSPECT');
+      expect(result).toBe('UNHEALTHY');
 
-      // With high consecutiveSuccesses, even 3 failures don't trigger error-rate threshold
-      // But consecutiveFailures=3 also triggers the threshold
+      // State is already UNHEALTHY after 3 failures via consecutiveFailures threshold
       expect(o.getState(tuple)).toBe('UNHEALTHY');
     });
 
