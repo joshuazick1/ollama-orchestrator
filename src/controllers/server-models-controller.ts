@@ -349,8 +349,10 @@ export async function deleteModelFromServer(req: Request, res: Response): Promis
     // Refresh server models after successful deletion
     await orchestrator.updateServerStatus(server);
 
-    // Clean up circuit breaker for this server:model combination
-    orchestrator.removeModelCircuitBreaker(id, model);
+    // Clean up probe state for this server:model combination
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    probeOrchestrator.evictTuple({ serverId: id, model, endpoint: 'ollama_generate' });
+    probeOrchestrator.evictTuple({ serverId: id, model, endpoint: 'ollama_embeddings' });
 
     logger.info(`Successfully deleted model ${model} from server ${id}`);
 

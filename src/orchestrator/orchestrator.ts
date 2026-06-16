@@ -775,11 +775,6 @@ export class AIOrchestrator {
       // Reset circuit breaker on success
       this.recordSuccess(server.id);
 
-      // If circuit breaker is open, mark server as unhealthy despite passing health check
-      if (this.shouldSkipServer(server.id)) {
-        server.healthy = false;
-      }
-
       logger.debug(`Health check passed for ${server.id}`, {
         responseTime,
         models: server.models.length,
@@ -1139,9 +1134,6 @@ export class AIOrchestrator {
       }
 
       // Must not be circuit breaker open
-      if (this.shouldSkipServer(server.id)) {
-        return false;
-      }
 
       // Must have capacity
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
@@ -1263,9 +1255,6 @@ export class AIOrchestrator {
         return false;
       }
       if (this.banManager.isBanned(server.id, model)) {
-        return false;
-      }
-      if (this.shouldSkipServer(server.id)) {
         return false;
       }
       const maxConcurrency = server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency;
@@ -2089,9 +2078,8 @@ export class AIOrchestrator {
       throw new Error(`Server ${serverId} is permanently banned for model ${model}`);
     }
 
-    // Check circuit breaker (skip if bypassing)
-    const modelCb = this.getModelCircuitBreaker(server.id, model);
-    if (!bypassCircuitBreaker && !modelCb.canExecute()) {
+    // Check circuit breaker (skip if bypassing) - now uses probe system
+    if (!bypassCircuitBreaker && this.shouldSkipServerModel(server.id, model)) {
       throw new Error(`Circuit breaker is open for ${serverId}:${model}`);
     }
 
@@ -2812,31 +2800,21 @@ export class AIOrchestrator {
   }
 
   /**
-   * Record success for circuit breaker (both server and model level).
+   * Record success for request tracking.
+   * Note: Circuit breaker tracking is now handled by the probe system.
    */
   public recordSuccess(serverId: string, model?: string): void {
-    const serverCb = this.getCircuitBreaker(serverId);
-
-    serverCb.recordSuccess();
-
-    // Also record at model level if provided
+    // Clear failure tracker on success
     if (model) {
-      const modelCb = this.getModelCircuitBreaker(serverId, model);
-      modelCb.recordSuccess();
-
-      // Clear failure tracker on success
       this.banManager.recordSuccess(serverId, model);
-
       // Record model-level success for aggregator tracking
       this.modelAggregator.recordSuccess(model);
     }
-
-    // Schedule persistence save
   }
 
   /**
-   * Record failure for circuit breaker (both server and model level)
-   * Uses enhanced error classification for category-specific handling
+   * Record failure for request tracking.
+   * Note: Circuit breaker tracking is now handled by the probe system.
    */
   public recordFailure(serverId: string, error: string | Error, model?: string): void {
     // Classify the error for enhanced handling
@@ -2860,44 +2838,6 @@ export class AIOrchestrator {
           suggestedLimit,
         });
       }
-    }
-
-    // Map enhanced classification to legacy error types for backward compatibility
-    // Preserve rateLimited type to ensure proper 5-minute exponential backoff
-    let legacyErrorType: ErrorType;
-    if (classification.type === 'rateLimited') {
-      legacyErrorType = 'rateLimited';
-    } else {
-      switch (classification.category) {
-        case ErrorCategory.RESOURCE:
-          legacyErrorType = 'permanent';
-          break;
-        case ErrorCategory.COMPATIBILITY:
-          legacyErrorType = 'non-retryable';
-          break;
-        case ErrorCategory.NETWORK:
-          legacyErrorType = 'transient';
-          break;
-        case ErrorCategory.AUTHENTICATION:
-          legacyErrorType = 'non-retryable';
-          break;
-        case ErrorCategory.CONFIGURATION:
-          legacyErrorType = 'permanent';
-          break;
-        case ErrorCategory.UNKNOWN:
-        default:
-          legacyErrorType = 'retryable';
-          break;
-      }
-    }
-
-    const cb = this.getCircuitBreaker(serverId);
-    cb.recordFailure(typeof error === 'string' ? new Error(error) : error, legacyErrorType);
-
-    // Also record at model level if provided
-    if (model) {
-      const modelCb = this.getModelCircuitBreaker(serverId, model);
-      modelCb.recordFailure(typeof error === 'string' ? new Error(error) : error, legacyErrorType);
 
       // Use BanManager for failure tracking
       this.banManager.recordFailure(serverId, model);
@@ -2905,34 +2845,26 @@ export class AIOrchestrator {
       // Record model-level failure for aggregator tracking
       this.modelAggregator.recordFailure(model);
 
-      // Category-specific ban thresholds
+      // Category-specific ban thresholds based on failure count
       const banThreshold = this.getBanThresholdForCategory(classification.category);
-      const modelStats = modelCb.getStats();
       const currentFailures = this.banManager.getModelFailureCount(serverId, model);
 
-      if (
-        currentFailures >= banThreshold &&
-        modelStats.errorRate >= this.getErrorRateThresholdForCategory(classification.category) &&
-        modelStats.successCount === 0
-      ) {
+      if (currentFailures >= banThreshold) {
         if (!this.banManager.isBanned(serverId, model)) {
           this.banManager.addBan(serverId, model);
           logger.warn(
-            `Banning ${serverId}:${model} after ${currentFailures} consecutive ${classification.category} failures (${Math.round(modelStats.errorRate * 100)}% error rate)`,
+            `Banning ${serverId}:${model} after ${currentFailures} consecutive ${classification.category} failures`,
             {
               serverId,
               model,
               failureCount: currentFailures,
               errorCategory: classification.category,
               errorSeverity: classification.severity,
-              errorRate: modelStats.errorRate,
             }
           );
         }
       }
     }
-
-    // Schedule persistence save
   }
 
   /**
@@ -3191,253 +3123,19 @@ export class AIOrchestrator {
     }));
   }
 
-
   /**
-   * Get circuit breaker for a server:model combination (with server-level half-open limits)
-   */
-  public getModelCircuitBreaker(
-    serverId: string,
-    model: string
-  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
-    const key = `${serverId}:${model}`;
-    return this.circuitBreakerRegistry.getOrCreate(key, undefined, (oldState, newState) => {
-      // Enforce server-level half-open circuit limits
-      if (newState === 'half-open') {
-        const halfOpenCount = this.countHalfOpenCircuits(serverId);
-        const maxHalfOpenPerServer = this.config.circuitBreaker.maxHalfOpenPerServer;
-
-        if (halfOpenCount >= maxHalfOpenPerServer) {
-          logger.warn(
-            `Server ${serverId} already has ${halfOpenCount} half-open circuits (max ${maxHalfOpenPerServer}). Preventing transition to half-open for model ${model}.`
-          );
-          // Force back to open state and extend the timeout
-          const breaker = this.circuitBreakerRegistry.get(key);
-          if (breaker) {
-            breaker.forceOpen();
-            // Preserve original error type for backoff calculation
-            const stats = breaker.getStats();
-            const errorType: ErrorType = stats.lastErrorType || 'transient';
-            breaker.recordFailure(new Error('Server-level half-open limit exceeded'), errorType);
-          }
-          return;
-        }
-      }
-
-      logger.info(`Circuit breaker state changed: ${oldState} -> ${newState}`);
-    });
-  }
-
-  /**
-   * Count half-open circuits for a server
-   */
-  private countHalfOpenCircuits(serverId: string): number {
-    let count = 0;
-    const allStats = this.circuitBreakerRegistry.getAllStats();
-
-    // Count server-level breaker
-    const serverStats = allStats[serverId];
-    if (serverStats && serverStats.state === 'half-open') {
-      count++;
-    }
-
-    // Count model-level breakers for this server
-    for (const [key, stats] of Object.entries(allStats)) {
-      if (key.startsWith(`${serverId}:`) && stats.state === 'half-open') {
-        count++;
-      }
-    }
-
-    return count;
-  }
-
-  /**
-   * Close all model-level circuit breakers for a server
-   * Called when server circuit recovers to give models clean slate
-   */
-  private closeAllModelCircuits(serverId: string): void {
-    const allStats = this.circuitBreakerRegistry.getAllStats();
-    let closedCount = 0;
-
-    // Close all model-level breakers for this server
-    for (const [key, stats] of Object.entries(allStats)) {
-      if (key.startsWith(`${serverId}:`) && stats.state !== 'closed') {
-        const breaker = this.circuitBreakerRegistry.get(key);
-        if (breaker) {
-          breaker.forceClose();
-          closedCount++;
-        }
-      }
-    }
-
-    if (closedCount > 0) {
-      logger.info(
-        `Closed ${closedCount} model circuit breakers for server ${serverId} after server recovery`
-      );
-    }
-  }
-
-  /**
-   * Perform a recovery health check for a server
-   * Simple health check to confirm server is working during recovery
-   */
-  private async performRecoveryHealthCheck(
-    server: AIServer
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(5000), // 5 second timeout for recovery check
-      });
-
-      if (response.ok) {
-        return { success: true };
-      } else {
-        return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      return { success: false, error: errorMessage };
-    }
-  }
-
-  /**
-   * Get server-level circuit breaker (public API for admin endpoints)
-   */
-  getServerCircuitBreaker(
-    serverId: string
-  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker | undefined {
-    return this.circuitBreakerRegistry.get(serverId);
-  }
-
-  /**
-   * Manually trigger active recovery test for a server:model breaker
-   */
-  async manualTriggerRecoveryTest(
-    serverId: string,
-    model: string
-  ): Promise<{
-    success: boolean;
-    error?: string;
-    breakerState?: string;
-  }> {
-    try {
-      const breaker = this.getModelCircuitBreaker(serverId, model);
-      if (!breaker) {
-        return { success: false, error: `Circuit breaker not found for ${serverId}:${model}` };
-      }
-
-      const state = breaker.getState();
-      logger.info(`Manual recovery test requested for ${serverId}:${model}`, {
-        currentState: state,
-        lastFailureReason: breaker.getLastFailureReason(),
-      });
-
-      if (state !== 'half-open') {
-        return {
-          success: false,
-          error: `Circuit breaker is in ${state} state, not half-open. Manual tests only work in half-open state.`,
-          breakerState: state,
-        };
-      }
-
-      const testResult = await breaker.manualRecoveryTest();
-      const newState = breaker.getState();
-
-      logger.info(`Manual recovery test completed for ${serverId}:${model}`, {
-        testResult,
-        oldState: state,
-        newState,
-        consecutiveFailedRecoveries: breaker.getStats().consecutiveFailedRecoveries,
-      });
-
-      return {
-        success: testResult,
-        breakerState: newState,
-      };
-    } catch (error) {
-      logger.error(`Manual recovery test failed for ${serverId}:${model}`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  /**
-   * Get circuit breaker for a server:model combination (public API for admin endpoints)
-   */
-  getModelCircuitBreakerPublic(
-    serverId: string,
-    model: string
-  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker | undefined {
-    return this.getModelCircuitBreaker(serverId, model);
-  }
-
-  /**
-   * Force close a server-level circuit breaker (public API for admin endpoints)
-   */
-  resetServerCircuitBreaker(serverId: string): boolean {
-    const breaker = this.circuitBreakerRegistry.get(serverId);
-    if (breaker) {
-      breaker.forceClose();
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Check if server:model combo should be skipped due to circuit breaker
-   * Uses canAttempt() for read-only check without triggering state transitions
+   * Check if server:model combo should be skipped due to probe state.
+   * Uses probe system for health checking.
    */
   public shouldSkipServerModel(
     serverId: string,
     model: string,
     endpoint?: 'generate' | 'embeddings'
   ): boolean {
-    // Check both server-level and model-level circuit breakers
-    const serverCb = this.getCircuitBreaker(serverId);
-    const modelCb = this.getModelCircuitBreaker(serverId, model);
-
-    // Skip if circuit is open (can't attempt) - use canAttempt() for read-only check
-    if (!serverCb.canAttempt() || !modelCb.canAttempt()) {
-      return true;
-    }
-
-    // Also skip half-open circuits that have never succeeded
-    // These are likely permanently broken and waste requests during recovery testing
-    const serverStats = serverCb.getStats();
-    const modelStats = modelCb.getStats();
-
-    if (serverStats.state === 'half-open' && serverStats.successCount === 0) {
-      return true;
-    }
-    if (modelStats.state === 'half-open' && modelStats.successCount === 0) {
-      return true;
-    }
-
-    // Check model type compatibility with endpoint
-    const modelType = modelCb.getModelType();
-    if (endpoint === 'generate' && modelType === 'embedding') {
-      // Skip embedding models for generate requests
-      return true;
-    }
-    if (endpoint === 'embeddings' && modelType === 'generation') {
-      // Skip generation models for embedding requests
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Remove circuit breaker for a server:model combination
-   * Call this when a model is deleted from a server
-   */
-  removeModelCircuitBreaker(serverId: string, model: string): boolean {
-    return this.circuitBreakerRegistry.remove(`${serverId}:${model}`);
+    const probeEndpoint: 'ollama_generate' | 'ollama_embeddings' =
+      endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
+    const tuple = { serverId, model, endpoint: probeEndpoint };
+    return !this.probeOrchestrator.canServe(tuple, 'routing');
   }
 
   /**
@@ -3507,82 +3205,6 @@ export class AIOrchestrator {
   }
 
   /**
-   * Check if model-level breakers should escalate to server-level breaker
-   */
-  private checkModelBreakerEscalation(serverId: string): void {
-    const server = this.getServer(serverId);
-    if (!server || !this.config.circuitBreaker.modelEscalation.enabled) {
-      return;
-    }
-
-    const modelBreakers = server.models.map(model => this.getModelCircuitBreaker(serverId, model));
-
-    if (modelBreakers.length === 0) {
-      return;
-    }
-
-    // Use getState() instead of canExecute() to avoid mutating totalRequestCount
-    // or triggering open→half-open transitions as a side-effect of this check.
-    const openModelBreakers = modelBreakers.filter(cb => cb.getState() === 'open');
-    const openRatio = openModelBreakers.length / modelBreakers.length;
-
-    // Check ratio threshold
-    if (openRatio > this.config.circuitBreaker.modelEscalation.ratioThreshold) {
-      logger.warn(
-        `Server ${serverId}: ${openModelBreakers.length}/${modelBreakers.length} models have open breakers (${Math.round(openRatio * 100)}%). Opening server breaker.`
-      );
-      this.forceOpenServerBreaker(serverId, 'Model breaker ratio escalation');
-      return;
-    }
-
-    // Check duration threshold
-    const now = Date.now();
-    const durationThreshold = this.config.circuitBreaker.modelEscalation.durationThresholdMs;
-    const longOpenBreakers = openModelBreakers.filter(cb => {
-      const stats = cb.getStats();
-      return stats.state === 'open' && now - stats.lastFailure > durationThreshold;
-    });
-
-    if (longOpenBreakers.length > 0) {
-      logger.warn(
-        `Server ${serverId}: Model breaker(s) have been open for >${durationThreshold / 60000} minutes. Opening server breaker.`
-      );
-      this.forceOpenServerBreaker(serverId, 'Model breaker duration escalation');
-    }
-  }
-
-  /**
-   * Force open a server-level circuit breaker
-   */
-  private forceOpenServerBreaker(serverId: string, reason: string): void {
-    const serverCb = this.getCircuitBreaker(serverId);
-    if (serverCb.getState() === 'open') {
-      return;
-    } // Already open
-
-    // Force the server breaker open by recording enough failures
-    const threshold = serverCb.getConfig().baseFailureThreshold;
-    for (let i = 0; i < threshold; i++) {
-      serverCb.recordFailure(new Error(reason), 'transient');
-    }
-
-    // Also mark server as unhealthy to align with our health check changes
-    const server = this.getServer(serverId);
-    if (server) {
-      server.healthy = false;
-      this.invalidateServerTagsCache(serverId);
-    }
-  }
-
-  /**
-   * Check if server should be skipped due to circuit breaker
-   */
-  private shouldSkipServer(serverId: string): boolean {
-    const cb = this.getCircuitBreaker(serverId);
-    return !cb.canExecute();
-  }
-
-  /**
    * Initialize the orchestrator (load persisted metrics)
    */
   getStats(): {
@@ -3603,12 +3225,12 @@ export class AIOrchestrator {
       }
     }
 
-    const allStats = this.circuitBreakerRegistry.getAllStats();
+    const allStates = this.probeOrchestrator.getAllStates();
     const circuitBreakers: Record<string, { state: string; failureCount: number }> = {};
-    for (const [id, stats] of Object.entries(allStats)) {
+    for (const [id, state] of allStates) {
       circuitBreakers[id] = {
-        state: stats.state,
-        failureCount: stats.failureCount,
+        state: state.state,
+        failureCount: state.consecutiveFailures,
       };
     }
 
@@ -3651,10 +3273,10 @@ export class AIOrchestrator {
   }
 
   /**
-   * Get circuit breaker statistics for all servers
+   * Get circuit breaker statistics for all servers (probe system)
    */
   getCircuitBreakerStats() {
-    return this.circuitBreakerRegistry.getAllStats();
+    return this.probeOrchestrator.getAllStates();
   }
 
   /**
@@ -3671,14 +3293,6 @@ export class AIOrchestrator {
       const stats = this.getStats();
 
       if (stats.inFlightRequests === 0) {
-        const skippedServers = this.servers.filter(s => this.shouldSkipServer(s.id));
-        if (skippedServers.length > 0) {
-          logger.warn(
-            `Drain complete but ${skippedServers.length} server(s) still ineligible for traffic — keeping drain active: ${skippedServers.map(s => s.id).join(', ')}`
-          );
-          await sleep(1000);
-          continue;
-        }
         logger.info('Drain complete - all requests finished');
         this.draining = false;
         return true;
@@ -3730,26 +3344,8 @@ export class AIOrchestrator {
   async shutdown(): Promise<void> {
     logger.info('Shutting down orchestrator...');
 
-    // Stop health check scheduler
-    this.healthCheckScheduler.stop();
-    this.activeTestScheduler.stop();
-    this.probeScheduler.stop();
-
-    // Clear escalation check interval
-    if (this.escalationIntervalId) {
-      clearInterval(this.escalationIntervalId);
-      this.escalationIntervalId = undefined;
-    }
-
     // Shutdown metrics aggregator (flushes persistence)
     await this.metricsAggregator.shutdown();
-
-    // Save circuit breaker states
-    const breakerData: CircuitBreakerData = {
-      timestamp: Date.now(),
-      breakers: this.circuitBreakerRegistry.getAllStats(),
-    };
-    await this.circuitBreakerPersistence.shutdown(breakerData);
 
     // Save probe state snapshot
     await this.probeOrchestrator.createSnapshot();
@@ -3777,7 +3373,6 @@ export class AIOrchestrator {
 
     this.inFlightManager.clear();
     this.banManager.clearAllCooldowns();
-    this.circuitBreakerRegistry.clear();
 
     getOperationalStore().close();
 

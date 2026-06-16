@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 import { getRecoveryFailureTracker } from '../analytics/recovery-failure-tracker.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { parseTupleKey } from '../probe/types.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -227,18 +228,24 @@ export function resetServerCircuitBreaker(req: Request, res: Response): void {
     const serverId = req.params.serverId as string;
 
     const orchestrator = getOrchestratorInstance();
-    const success = orchestrator.resetServerCircuitBreaker(serverId);
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    const allStates = probeOrchestrator.getAllStates();
 
-    if (!success) {
-      res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND_SERVER(serverId) });
-      return;
+    let resetCount = 0;
+    for (const [tupleKey] of allStates.entries()) {
+      const parsed = parseTupleKey(tupleKey);
+      if (parsed.serverId === serverId) {
+        probeOrchestrator.resetTuple({ serverId, model: parsed.model, endpoint: parsed.endpoint });
+        resetCount++;
+      }
     }
 
-    logger.info(`Server circuit breaker manually reset: ${serverId}`);
+    logger.info(`Server circuit breaker manually reset: ${serverId}`, { resetCount });
 
     res.json({
       message: `Circuit breaker reset for server ${serverId}`,
       currentState: 'closed',
+      resetCount,
     });
   } catch (error) {
     logger.error('Error resetting server circuit breaker:', error);
@@ -255,16 +262,25 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
     const serverId = req.params.serverId as string;
 
     const orchestrator = getOrchestratorInstance();
-    const breaker = orchestrator.getServerCircuitBreaker(serverId);
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    const allStates = probeOrchestrator.getAllStates();
 
-    if (!breaker) {
+    const serverStates: Array<{ tupleKey: string; state: string }> = [];
+    for (const [tupleKey, state] of allStates.entries()) {
+      const parsed = parseTupleKey(tupleKey);
+      if (parsed.serverId === serverId) {
+        serverStates.push({ tupleKey, state: state.state });
+      }
+    }
+
+    if (serverStates.length === 0) {
       res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND_SERVER(serverId) });
       return;
     }
 
     res.json({
       serverId,
-      stats: breaker.getStats(),
+      states: serverStates,
     });
   } catch (error) {
     logger.error('Error getting server circuit breaker:', error);

@@ -643,8 +643,7 @@ export class OrchestratorRouter {
       throw new Error(`Server ${serverId} is permanently banned for model ${model}`);
     }
 
-    const modelCb = this.orchestrator.getModelCircuitBreaker(server.id, model);
-    if (!bypassCircuitBreaker && !modelCb.canExecute()) {
+    if (!bypassCircuitBreaker && this.orchestrator.shouldSkipServerModel(server.id, model)) {
       throw new Error(`Circuit breaker is open for ${serverId}:${model}`);
     }
 
