@@ -29,7 +29,7 @@ import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
 import { BanManager } from '../utils/ban-manager.js';
 import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
-import { classifyError, ErrorCategory } from '../utils/error-classifier.js';
+import { classifyError, ErrorCategory, type ErrorType } from '../utils/error-classifier.js';
 import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -50,7 +50,7 @@ import type {
 import { OrchestratorPersistence } from './persistence.js';
 import { TagsCacheStore } from './tags-cache.js';
 
-import type { Tuple } from '../probe/types.js';
+import type { Tuple, ProbeState } from '../probe/types.js';
 import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
 import { BackoffSchedule } from '../probe/recovery-driver.js';
 import { EndpointRegistry } from '../probe/endpoint-registry.js';
@@ -251,12 +251,7 @@ export class AIOrchestrator {
 
   public readonly models: OrchestratorModels;
 
-  constructor(
-    loadBalancerConfig?: LoadBalancerConfig,
-    circuitBreakerConfig?: CircuitBreakerConfig,
-    healthCheckConfig?: HealthCheckConfig,
-    config?: OrchestratorConfig
-  ) {
+  constructor(loadBalancerConfig?: LoadBalancerConfig, config?: OrchestratorConfig) {
     this.config = config ?? { ...DEFAULT_CONFIG };
 
     getOperationalStore().runStartupMigrations();
@@ -405,35 +400,17 @@ export class AIOrchestrator {
    * Handle individual health check result
    * @deprecated RecoveryDriver now handles probe results; this is a no-op stub
    */
-  private onHealthCheckResult(_result: HealthCheckResult): void {
+  private onunknown(_result: unknown): void {
     // No-op: probe subsystem (RecoveryDriver) now handles probe result processing
     // The old HealthCheckScheduler still calls this but the result is handled by the new probe system
   }
 
   /**
    * Handle completion of all health checks
+   * @deprecated RecoveryDriver now handles probe results; this is a no-op stub
    */
-  private onAllHealthChecksComplete(results: HealthCheckResult[]): void {
-    const healthyCount = results.filter(r => r.success).length;
-    const totalCount = results.length;
-
-    // Only log if the healthy count has changed
-    if (healthyCount !== this.lastHealthyCount) {
-      const change =
-        healthyCount > this.lastHealthyCount
-          ? '+'
-          : healthyCount < this.lastHealthyCount
-            ? '-'
-            : '';
-      const changeAmount = Math.abs(healthyCount - this.lastHealthyCount);
-      logger.info(
-        `Health status changed: ${healthyCount}/${totalCount} servers healthy (${change}${changeAmount})`
-      );
-      this.lastHealthyCount = healthyCount;
-    }
-
-    // Auto-persist server states if persistence is enabled
-    // This will be handled by the existing persistence patches
+  private onAllHealthChecksComplete(_results: unknown[]): void {
+    // No-op: probe subsystem (RecoveryDriver) now handles probe result processing
   }
 
   /**
@@ -471,7 +448,7 @@ export class AIOrchestrator {
     this.servers.push(newServer);
     this.modelAggregator.addServer(newServer);
     getModelManager().registerServer(newServer);
-    this.probeScheduler.onServerAdded(newServer.id);
+
     this.errorAggregator.setClusterSize(this.servers.length);
     logger.info(`Added server ${server.id} at ${normalizedUrl}`);
 
@@ -498,9 +475,6 @@ export class AIOrchestrator {
       logger.info(`Removed server ${serverId}. Remaining servers: ${this.servers.length}`);
       // Invalidate cache since we removed a server
       this.invalidateTagsCache();
-
-      // Clean up circuit breakers for this server (server-level and all model-level)
-      this.circuitBreakerRegistry.removeByPrefix(serverId);
 
       this.banManager.removeServerBans(serverId);
       this.banManager.clearCooldown(serverId, '');
@@ -918,7 +892,7 @@ export class AIOrchestrator {
     const models: Array<{ id: string; object: string; created: number; owned_by: string }> = [];
 
     for (const [modelId, servers] of modelToServers) {
-      if (this.hasClosedCircuitBreaker(modelId, servers)) {
+      if (this.hasAvailableServer(modelId, servers)) {
         models.push({
           id: modelId,
           object: 'model',
@@ -935,14 +909,13 @@ export class AIOrchestrator {
   }
 
   /**
-   * Check if a model has at least one closed circuit breaker across servers
-   * Treats missing circuit breakers as closed
+   * Check if a model has at least one server that can serve traffic
+   * Uses probe system to determine if routing is allowed
    */
-  private hasClosedCircuitBreaker(modelName: string, serverIds: string[]): boolean {
+  private hasAvailableServer(modelName: string, serverIds: string[]): boolean {
     for (const serverId of serverIds) {
-      const key = `${serverId}:${modelName}`;
-      const breaker = this.circuitBreakerRegistry.get(key);
-      if (!breaker || breaker.getState() === 'closed') {
+      const tuple: Tuple = { serverId, model: modelName, endpoint: 'ollama_generate' };
+      if (this.probeOrchestrator.canServe(tuple, 'routing')) {
         return true;
       }
     }
@@ -1202,7 +1175,6 @@ export class AIOrchestrator {
       const scores = candidates.map(server => {
         const totalLoad = this.getTotalInFlight(server.id);
         const metrics = this.metricsAggregator.getMetrics(server.id, model);
-        const cbHealth = this.getCircuitBreakerHealth(server.id, model);
         return calculateServerScore(
           server,
           model,
@@ -1210,10 +1182,9 @@ export class AIOrchestrator {
           totalLoad,
           metrics,
           undefined,
-          cbHealth,
           this.getTimeout(server.id, model),
           estimatedPromptTokens,
-          (serverId, model) =>
+          (serverId: string, model: string) =>
             this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
         );
       });
@@ -1232,15 +1203,15 @@ export class AIOrchestrator {
     const selected = this.loadBalancer.select(
       candidates,
       model,
-      (serverId, model) => this.getModelInFlight(serverId, model),
-      serverId => this.getTotalInFlight(serverId),
-      (serverId, model) => this.metricsAggregator.getMetricsWithFallback(serverId, model),
+      (serverId: string, model: string) => this.getModelInFlight(serverId, model),
+      (serverId: string) => this.getTotalInFlight(serverId),
+      (serverId: string, model: string) =>
+        this.metricsAggregator.getMetricsWithFallback(serverId, model),
       isStreaming,
       undefined,
-      (serverId, model) => this.getTimeout(serverId, model),
-      serverId => this.getCircuitBreakerHealth(serverId),
+      (serverId: string, model: string) => this.getTimeout(serverId, model),
       estimatedPromptTokens,
-      (serverId, model) =>
+      (serverId: string, model: string) =>
         this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model),
       userId,
       isAdmin
@@ -1251,7 +1222,6 @@ export class AIOrchestrator {
       const scores = candidates.map(server => {
         const totalLoad = this.getTotalInFlight(server.id);
         const metrics = this.metricsAggregator.getMetricsWithFallback(server.id, model);
-        const cbHealth = this.getCircuitBreakerHealth(server.id, model);
         return calculateServerScore(
           server,
           model,
@@ -1259,10 +1229,9 @@ export class AIOrchestrator {
           totalLoad,
           metrics,
           undefined,
-          cbHealth,
           this.getTimeout(server.id, model),
           estimatedPromptTokens,
-          (serverId, model) =>
+          (serverId: string, model: string) =>
             this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
         );
       });
@@ -1311,7 +1280,6 @@ export class AIOrchestrator {
       .map(server => {
         const totalLoad = this.getTotalInFlight(server.id);
         const metrics = this.metricsAggregator.getMetrics(server.id, model);
-        const cbHealth = this.getCircuitBreakerHealth(server.id, model);
         return calculateServerScore(
           server,
           model,
@@ -1319,7 +1287,6 @@ export class AIOrchestrator {
           totalLoad,
           metrics,
           undefined,
-          cbHealth,
           this.getTimeout(server.id, model)
         );
       })
@@ -1339,14 +1306,6 @@ export class AIOrchestrator {
     const totalLoad = this.getTotalInFlight(server.id);
     const metrics = this.metricsAggregator.getMetrics(server.id, model);
 
-    // Calculate score as if circuit breaker was healthy (for "what-if" scenario)
-    const cbHealth = {
-      state: 'closed' as const,
-      failureCount: 0,
-      errorRate: 0,
-      lastFailure: undefined,
-    };
-
     // Use totalLoad as the current load for server-level capacity scoring
     return calculateServerScore(
       server,
@@ -1355,7 +1314,6 @@ export class AIOrchestrator {
       totalLoad,
       metrics,
       undefined,
-      cbHealth,
       this.getTimeout(server.id, model)
     );
   }
@@ -1492,10 +1450,9 @@ export class AIOrchestrator {
         (serverId, model) => this.metricsAggregator.getMetricsWithFallback(serverId, model),
         isStreaming,
         undefined,
-        (serverId, model) => this.getTimeout(serverId, model),
-        serverId => this.getCircuitBreakerHealth(serverId),
+        (serverId: string, model: string) => this.getTimeout(serverId, model),
         estimatedPromptTokens,
-        (serverId, model) =>
+        (serverId: string, model: string) =>
           this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model),
         userId,
         isAdmin
@@ -1510,7 +1467,6 @@ export class AIOrchestrator {
         const scores = remainingServers.map(server => {
           const totalLoad = this.getTotalInFlight(server.id);
           const metrics = this.metricsAggregator.getMetricsWithFallback(server.id, model);
-          const cbHealth = this.getCircuitBreakerHealth(server.id, model);
           return calculateServerScore(
             server,
             model,
@@ -1518,10 +1474,9 @@ export class AIOrchestrator {
             totalLoad,
             metrics,
             undefined,
-            cbHealth,
             this.getTimeout(server.id, model),
             estimatedPromptTokens,
-            (serverId, model) =>
+            (serverId: string, model: string) =>
               this.getModelContextLimit(this.servers.find(s => s.id === serverId)!, model)
           );
         });
@@ -2200,136 +2155,7 @@ export class AIOrchestrator {
     isRetry: boolean = false,
     routingContext?: RoutingContext
   ): Promise<{ success: true; value: T } | { success: false }> {
-    // Check circuit breaker state BEFORE attempting request
-    const serverCb = this.getCircuitBreaker(server.id);
-    const modelCb = this.getModelCircuitBreaker(server.id, model);
-
-    // Check if either circuit breaker is half-open - if so, perform recovery test
-    const serverState = serverCb.getState();
-    const modelState = modelCb.getState();
-    const isServerHalfOpen = serverState === 'half-open';
-    const isModelHalfOpen = modelState === 'half-open';
-
-    if (isServerHalfOpen || isModelHalfOpen) {
-      logger.debug(
-        `Circuit breaker half-open for ${server.id}:${model}, performing coordinated recovery test`
-      );
-
-      // REC-19: if a half-open breaker has been stuck in that state longer than
-      // its configured halfOpenTimeout, push it back to open immediately rather
-      // than spawning another recovery test that will never land.
-      const now = Date.now();
-      const checkHalfOpenExpiry = (
-        cb: import('../circuit-breaker/circuit-breaker.js').CircuitBreaker
-      ): boolean => {
-        if (cb.getState() !== 'half-open') {
-          return false;
-        }
-        const stats = cb.getStats();
-        const cfg = cb.getConfig();
-        if (stats.halfOpenStartedAt && stats.halfOpenStartedAt > 0) {
-          const timeInHalfOpen = now - stats.halfOpenStartedAt;
-          if (timeInHalfOpen > cfg.halfOpenTimeout) {
-            logger.warn(
-              `Half-open breaker ${cb.getName()} timed out in request path after ${timeInHalfOpen}ms (limit: ${cfg.halfOpenTimeout}ms), reverting to open`
-            );
-            cb.recordFailure(new Error('Half-open timeout in request path'), 'transient');
-            return true;
-          }
-        }
-        return false;
-      };
-
-      const serverExpired = isServerHalfOpen && checkHalfOpenExpiry(serverCb);
-      const modelExpired = isModelHalfOpen && checkHalfOpenExpiry(modelCb);
-
-      if (serverExpired || modelExpired) {
-        const errorMsg = `Circuit breaker half-open timeout for ${server.id}:${model}`;
-        logger.debug(errorMsg);
-        errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-        if (alreadyIncremented) {
-          this.decrementInFlight(server.id, model);
-        }
-        return { success: false };
-      }
-
-      // Use RecoveryTestCoordinator for coordinated testing
-      // - Server-level breakers: lightweight /api/tags test
-      // - Model-level breakers: full inference test with server coordination (one at a time per server)
-      const coordinator = getRecoveryTestCoordinator();
-
-      try {
-        const recoveryPromises: Promise<boolean>[] = [];
-        const breakersToTest: CircuitBreaker[] = [];
-
-        if (isServerHalfOpen) {
-          recoveryPromises.push(coordinator.performCoordinatedRecoveryTest(serverCb));
-          breakersToTest.push(serverCb);
-        }
-        if (isModelHalfOpen) {
-          recoveryPromises.push(coordinator.performCoordinatedRecoveryTest(modelCb));
-          breakersToTest.push(modelCb);
-        }
-
-        const recoveryResults = await Promise.all(recoveryPromises);
-        const allRecovered = recoveryResults.every(result => result);
-
-        if (allRecovered) {
-          logger.info(`Recovery test passed for ${server.id}:${model}, proceeding with request`);
-          // Recovery successful, proceed with request
-        } else {
-          // Recovery failed - record failure for each failed breaker to transition back to open
-          for (let i = 0; i < recoveryResults.length; i++) {
-            if (!recoveryResults[i]) {
-              const failedBreaker = breakersToTest[i];
-              const errorMsg = `Circuit breaker recovery failed for ${server.id}:${model}`;
-              // Use stored lastErrorType to preserve original error classification
-              // This ensures proper backoff (e.g., 48h for auth errors, 2min for transient)
-              const errorType = failedBreaker.getLastErrorType() || 'transient';
-              failedBreaker.recordFailure(new Error(errorMsg), errorType);
-              logger.warn(`Recovery test failed for breaker, transitioning back to open`);
-            }
-          }
-
-          const errorMsg = `Circuit breaker recovery failed or deferred for ${server.id}:${model}`;
-          logger.debug(errorMsg);
-          errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-          if (alreadyIncremented) {
-            this.decrementInFlight(server.id, model);
-          }
-          return { success: false };
-        }
-      } catch (error) {
-        logger.warn(`Recovery test error for ${server.id}:${model}`, { error });
-        const errorMsg = `Circuit breaker recovery error for ${server.id}:${model}`;
-        errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-        if (alreadyIncremented) {
-          this.decrementInFlight(server.id, model);
-        }
-        return { success: false };
-      }
-    }
-
-    if (!serverCb.canExecute() || !modelCb.canExecute()) {
-      const circuitState = !serverCb.canExecute() ? serverCb.getState() : modelCb.getState();
-      const errorMsg = `Circuit breaker ${circuitState} for ${server.id}:${model}`;
-      logger.debug(errorMsg);
-      errors.push({ server: server.id, error: errorMsg, type: 'transient' });
-      if (alreadyIncremented) {
-        this.decrementInFlight(server.id, model);
-      }
-      return { success: false };
-    }
-
-    // Capture circuit breaker state BEFORE request starts
-    // This is critical for determining if this was an active test (half-open state)
-    const circuitStateAtStart = {
-      serverState: serverCb.getState(),
-      modelState: modelCb.getState(),
-    };
-    const wasActiveTestAtStart =
-      circuitStateAtStart.serverState === 'half-open' ||
-      circuitStateAtStart.modelState === 'half-open';
+    const wasActiveTestAtStart = false;
 
     const requestContext: RequestContext = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -2432,10 +2258,6 @@ export class AIOrchestrator {
       this.metricsAggregator.recordRequest(requestContext);
       getRequestHistory().recordRequest(requestContext);
       getMetricsStore().recordRequest(requestContext);
-      if (!requestContext.isProbe) {
-        this.probeScheduler.recordUserRequest(server.id);
-      }
-
       // Remove streaming request tracking
       if (isStreaming) {
         this.inFlightManager.removeStreamingRequest(requestContext.id);
@@ -2654,10 +2476,6 @@ export class AIOrchestrator {
         this.metricsAggregator.recordRequest(requestContext);
         getRequestHistory().recordRequest(requestContext);
         getMetricsStore().recordRequest(requestContext);
-        if (!requestContext.isProbe) {
-          this.probeScheduler.recordUserRequest(server.id);
-        }
-
         // Remove streaming request tracking
         if (isStreaming) {
           this.inFlightManager.removeStreamingRequest(requestContext.id);
@@ -2976,13 +2794,6 @@ export class AIOrchestrator {
   incrementInFlight(serverId: string, model: string, bypass: boolean = false): void {
     this.inFlightManager.incrementInFlight(serverId, model, bypass);
     this.metricsAggregator.incrementInFlight(serverId, model);
-
-    // If this is a real request (not bypass) and server is undergoing active tests,
-    // invalidate the test results - we need to re-test when server is idle
-    if (!bypass && this.serversUndergoingActiveTests.has(serverId)) {
-      const coordinator = getRecoveryTestCoordinator();
-      coordinator.invalidateServerTests(serverId);
-    }
   }
 
   /**
@@ -3021,7 +2832,6 @@ export class AIOrchestrator {
     }
 
     // Schedule persistence save
-    this.persistence.scheduleCircuitBreakerSave();
   }
 
   /**
@@ -3123,7 +2933,6 @@ export class AIOrchestrator {
     }
 
     // Schedule persistence save
-    this.persistence.scheduleCircuitBreakerSave();
   }
 
   /**
@@ -3191,20 +3000,34 @@ export class AIOrchestrator {
    */
   public getCircuitBreakerHealth(
     serverId: string,
-    _model?: string
+    model?: string
   ):
     | { state: 'closed' | 'open' | 'half-open'; failureCount: number; errorRate: number }
     | undefined {
-    const cb = this.circuitBreakerRegistry.get(serverId);
-    if (!cb) {
+    const tuple: Tuple = {
+      serverId,
+      model: model ?? 'ollama_generate',
+      endpoint: 'ollama_generate',
+    };
+    const tupleState = this.probeOrchestrator.getTupleState(tuple);
+    if (!tupleState) {
       return undefined;
     }
 
-    const stats = cb.getStats();
+    const stateMap: Record<ProbeState, 'closed' | 'open' | 'half-open'> = {
+      HEALTHY: 'closed',
+      SUSPECT: 'closed',
+      UNHEALTHY: 'open',
+      RECOVERING: 'half-open',
+    };
+
     return {
-      state: stats.state,
-      failureCount: stats.failureCount,
-      errorRate: stats.errorRate,
+      state: stateMap[tupleState.state],
+      failureCount: tupleState.consecutiveFailures,
+      errorRate:
+        tupleState.errorWindow.length > 0
+          ? tupleState.errorWindow.reduce((a, b) => a + b, 0) / tupleState.errorWindow.length
+          : 0,
     };
   }
 
@@ -3220,12 +3043,9 @@ export class AIOrchestrator {
    * Returns true if circuit is closed or half-open (allowing test requests)
    */
   isCircuitAllowed(serverId: string): boolean {
-    const cb = this.circuitBreakerRegistry.get(serverId);
-    if (!cb) {
-      return true; // No circuit breaker = allowed
-    }
-    const stats = cb.getStats();
-    return stats.state !== 'open';
+    const tuple: Tuple = { serverId, model: 'ollama_generate', endpoint: 'ollama_generate' };
+    const state = this.probeOrchestrator.getState(tuple);
+    return state !== 'UNHEALTHY';
   }
 
   /**
@@ -3267,86 +3087,9 @@ export class AIOrchestrator {
       });
       logger.info('[MetricsStore] Initialized via orchestrator startup');
 
-      // Initialize circuit breaker persistence
-      await this.circuitBreakerPersistence.initialize();
-
-      // Load persisted circuit breaker states
-      const persistedBreakerData = await this.circuitBreakerPersistence.load();
-      if (persistedBreakerData) {
-        this.circuitBreakerRegistry.loadPersistedState(persistedBreakerData.breakers);
-      }
-
-      // Load permanent bans from SQLite so bans survive process restarts
-      this.banManager.loadBansFromStore();
-
-      // Initialize recovery test coordinator with configurable timeouts
-      const rtCfg = this.config.recoveryTest;
-      setRecoveryTestCoordinator(
-        new RecoveryTestCoordinator({
-          serverCooldownMs: rtCfg.serverCooldownMs,
-          maxWaitForInFlightMs: rtCfg.maxWaitForInFlightMs,
-          modelTestTimeoutMs: rtCfg.modelTestTimeoutMs,
-          tagsTestTimeoutMs: rtCfg.tagsTestTimeoutMs,
-          testPromptTokens: rtCfg.testPromptTokens,
-        })
-      );
-      const coordinator = getRecoveryTestCoordinator();
-      coordinator.setServerUrlProvider((serverId: string) => {
-        const server = this.servers.find(s => s.id === serverId);
-        return server?.url || null;
-      });
-      coordinator.setInFlightProvider((serverId: string) => {
-        return this.getTotalInFlight(serverId);
-      });
-      coordinator.setIncrementInFlight((serverId: string, model: string) => {
-        this.incrementInFlight(serverId, model, true); // Active tests bypass circuit breaker
-      });
-      coordinator.setDecrementInFlight((serverId: string, model: string) => {
-        this.decrementInFlight(serverId, model, true); // Active tests bypass circuit breaker
-      });
-      coordinator.setGetTimeout((serverId: string, model: string) => {
-        return this.timeoutManager.getTimeout(serverId, model);
-      });
-      coordinator.setRecordTimeoutFailure((serverId: string, model: string) => {
-        this.timeoutManager.recordFailure(serverId, model, 'timeout');
-        logger.info(
-          `Active test timeout: escalated timeout for ${serverId}:${model} to ${this.timeoutManager.getTimeout(serverId, model)}ms`
-        );
-      });
-      coordinator.setRecordActiveTestTimeout(
-        (serverId: string, model: string, testTimeoutMs: number) => {
-          this.timeoutManager.recordActiveTestTimeout(serverId, model, testTimeoutMs);
-          logger.debug(
-            `Active test timeout recorded for ${serverId}:${model} (${testTimeoutMs}ms) - no escalation`
-          );
-        }
-      );
-      coordinator.setOnTestsInvalidated((serverId: string) => {
-        logger.info(
-          `Active tests invalidated for server ${serverId} due to concurrent real request`
-        );
-        // Reset halfOpenStartedAt to give more time for recovery when server becomes idle
-        // This prevents the breaker from timing out while server is still processing requests
-        const breaker = this.circuitBreakerRegistry.get(serverId);
-        if (breaker && breaker.getState() === 'half-open') {
-          const stats = breaker.getStats();
-          if (stats.halfOpenStartedAt > 0) {
-            breaker.resetHalfOpenTimer();
-            logger.info(`Reset half-open timer for ${serverId} after test invalidation`);
-          }
-        }
-      });
-
-      logger.info('Orchestrator: Recovery test coordinator callbacks have been set up');
-
       // Restore probe state from WAL and start recovery driver
       await this.probeOrchestrator.restoreFromWAL();
       this.recoveryDriver.start();
-
-      // Start health check scheduler
-      this.healthCheckScheduler.start();
-      this.activeTestScheduler.start();
-      this.probeScheduler.start();
 
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {
@@ -3401,8 +3144,8 @@ export class AIOrchestrator {
     const removed = this.banManager.removeServerBans(serverId);
 
     if (removed > 0) {
-      // Reset circuit breakers for this server
-      this.circuitBreakerRegistry.remove(serverId);
+      // Evict probe tuples for this server to reset circuit breaker state
+      this.probeOrchestrator.evictTuple({ serverId, model: '', endpoint: 'ollama_generate' });
 
       // Clear cooldowns for this server
       this.banManager.clearCooldown(serverId, '');
@@ -3448,172 +3191,6 @@ export class AIOrchestrator {
     }));
   }
 
-  // Track which servers are currently being tested to prevent hammering
-  private serversUndergoingActiveTests = new Set<string>();
-  private readonly MAX_MODELS_PER_SERVER_PER_CYCLE = 2;
-  private async runActiveTestsForServer(
-    server: AIServer
-  ): Promise<Array<{ model: string; success: boolean; duration: number; error?: string }>> {
-    // Fast-path guard: avoids entering RecoveryTestCoordinator when a test cycle is already
-    // running for this server. RecoveryTestCoordinator has its own independent `activeServers`
-    // Set (authoritative inner guard); this outer check is a performance optimization only.
-    // Both guards are intentional defense-in-depth and are not redundant.
-    if (this.serversUndergoingActiveTests.has(server.id)) {
-      logger.debug(`Skipping active tests for ${server.id} - already in progress`);
-      return [];
-    }
-
-    const now = Date.now();
-    const allStats = this.circuitBreakerRegistry.getAllStats();
-
-    // First, check for any OPEN breakers whose nextRetryAt has passed and transition them to half-open
-    for (const [breakerName, stats] of Object.entries(allStats)) {
-      if (stats.state === 'open' && stats.nextRetryAt && stats.nextRetryAt <= now) {
-        const breaker = this.circuitBreakerRegistry.get(breakerName);
-        if (breaker) {
-          const canExec = breaker.canExecute();
-          if (canExec) {
-            logger.info(
-              `Transitioned breaker ${breakerName} from open to half-open (nextRetryAt passed)`,
-              {
-                nextRetryAt: stats.nextRetryAt,
-                timeSinceRetryAt: now - stats.nextRetryAt,
-              }
-            );
-          }
-        }
-      }
-    }
-
-    // Check for any HALF-OPEN breakers whose halfOpenTimeout has passed and transition them back to open
-    // Use the circuit breaker's self-contained timeout check which doesn't rely on activeTestsInProgress
-    for (const [breakerName, stats] of Object.entries(allStats)) {
-      if (stats.state === 'half-open') {
-        const breaker = this.circuitBreakerRegistry.get(breakerName);
-        if (breaker) {
-          breaker.checkHalfOpenTimeout();
-        }
-      }
-    }
-
-    // Check if server circuit is half-open (server-level recovery)
-    const serverCb = this.getCircuitBreaker(server.id);
-    if (serverCb.getState() === 'half-open') {
-      logger.info(`Server ${server.id} circuit is half-open, performing recovery health check`);
-
-      this.serversUndergoingActiveTests.add(server.id);
-
-      try {
-        const healthCheckResult = await this.performRecoveryHealthCheck(server);
-
-        if (healthCheckResult.success) {
-          serverCb.forceClose();
-          logger.info(`Server ${server.id} recovery confirmed, circuit closed`);
-        } else {
-          logger.warn(
-            `Server ${server.id} recovery health check failed: ${healthCheckResult.error}`
-          );
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.warn(`Server ${server.id} recovery health check error: ${errorMessage}`);
-      } finally {
-        this.serversUndergoingActiveTests.delete(server.id);
-      }
-
-      return [];
-    }
-
-    const halfOpenBreakers: Array<{ breaker: CircuitBreaker; model?: string }> = [];
-
-    // Check model-level breakers
-    for (const [breakerName, stats] of Object.entries(allStats)) {
-      if (!breakerName.startsWith(`${server.id}:`)) {
-        continue;
-      }
-
-      if (stats.state === 'half-open') {
-        const breaker = this.circuitBreakerRegistry.get(breakerName);
-        if (breaker) {
-          const model = breakerName.slice(server.id.length + 1);
-          halfOpenBreakers.push({ breaker, model });
-        }
-      }
-    }
-
-    if (halfOpenBreakers.length === 0) {
-      return [];
-    }
-
-    // Delegate to RecoveryTestCoordinator
-    this.serversUndergoingActiveTests.add(server.id);
-
-    const coordinator = getRecoveryTestCoordinator();
-
-    try {
-      const testResults = await coordinator.runActiveTests(server.id, halfOpenBreakers, {
-        onTestStart: breakerName => {
-          const breaker = this.circuitBreakerRegistry.get(breakerName);
-          breaker?.startActiveTest();
-        },
-        onTestEnd: (breakerName, success, duration) => {
-          const breaker = this.circuitBreakerRegistry.get(breakerName);
-          breaker?.endActiveTest();
-
-          logger.info(`Active test ${success ? 'succeeded' : 'failed'} for ${breakerName}`, {
-            duration,
-          });
-        },
-      });
-
-      return testResults.map(r => ({
-        model: r.model || '',
-        success: r.success,
-        duration: r.duration,
-        error: r.error,
-      }));
-    } finally {
-      this.serversUndergoingActiveTests.delete(server.id);
-    }
-  }
-
-  /**
-   * Get circuit breaker for a server (with server-level half-open limits)
-   */
-  public getCircuitBreaker(
-    serverId: string
-  ): import('../circuit-breaker/circuit-breaker.js').CircuitBreaker {
-    return this.circuitBreakerRegistry.getOrCreate(serverId, undefined, (oldState, newState) => {
-      // Enforce server-level half-open circuit limits
-      if (newState === 'half-open') {
-        const halfOpenCount = this.countHalfOpenCircuits(serverId);
-        const maxHalfOpenPerServer = this.config.circuitBreaker.maxHalfOpenPerServer;
-
-        if (halfOpenCount >= maxHalfOpenPerServer) {
-          logger.warn(
-            `Server ${serverId} already has ${halfOpenCount} half-open circuits (max ${maxHalfOpenPerServer}). Preventing transition to half-open.`
-          );
-          // Force back to open state and extend the timeout
-          const breaker = this.circuitBreakerRegistry.get(serverId);
-          if (breaker) {
-            breaker.forceOpen();
-            // Preserve original error type for backoff calculation
-            const stats = breaker.getStats();
-            const errorType: ErrorType = stats.lastErrorType || 'transient';
-            breaker.recordFailure(new Error('Server-level half-open limit exceeded'), errorType);
-          }
-          return;
-        }
-      }
-
-      // When server circuit closes, close all model circuits to give them clean slate
-      if (oldState === 'half-open' && newState === 'closed') {
-        this.closeAllModelCircuits(serverId);
-      }
-
-      logger.info(`Circuit breaker state changed: ${oldState} -> ${newState}`);
-    });
-  }
 
   /**
    * Get circuit breaker for a server:model combination (with server-level half-open limits)

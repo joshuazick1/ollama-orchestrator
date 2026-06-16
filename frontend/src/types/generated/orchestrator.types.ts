@@ -16,11 +16,11 @@ export interface AIServer {
   id: string;
   url: string;
   type: 'ollama' | 'openai' | 'auto';
-  healthy: boolean;
   lastResponseTime: number;
   models: string[];
   maxConcurrency?: number;
   version?: string;
+  healthy?: boolean;
   // NEW: Endpoint capabilities
   supportsOllama?: boolean; // Whether server supports /api/* Ollama endpoints
   supportsV1?: boolean; // Whether server supports /v1/* OpenAI-compatible endpoints
@@ -29,17 +29,6 @@ export interface AIServer {
   discoveredV1Models?: string[];
   // NEW: Anthropic capability
   supportsAnthropic?: boolean; // Whether server supports /v1/messages Anthropic endpoints
-
-  // NEW: Endpoint-level probe results — which specific endpoints respond
-  probedEndpoints?: {
-    ollama_chat?: boolean;
-    ollama_generate?: boolean;
-    ollama_embeddings?: boolean;
-    openai_chat?: boolean;
-    openai_completions?: boolean;
-    openai_embeddings?: boolean;
-    anthropic_messages?: boolean;
-  };
 
   // NEW: Admin override for servers behind opaque proxies that block all probes
   forcedCapabilities?: {
@@ -88,60 +77,11 @@ export interface ServerModelBenchmark {
   lastTested: number;
 }
 
-export interface CircuitBreakerInfo {
-  // --- Identity ---
-  serverId: string; // tupleKey format "serverId:model:endpoint"
-  serverIdOnly?: string;
-  model?: string;
-  endpoint?: string;
-  tupleKey?: string;
-
-  // --- State ---
-  state: 'OPEN' | 'CLOSED' | 'HALF-OPEN';
-  uiState?: 'OPEN' | 'CLOSED' | 'HALF-OPEN' | 'UNKNOWN';
-
-  // --- Counts ---
+export interface CircuitBreakerState {
   failureCount: number;
-  successCount: number;
-  totalRequestCount: number;
-  blockedRequestCount: number;
-  consecutiveSuccesses: number;
-
-  // --- Timestamps ---
   lastFailure: number;
-  lastSuccess: number;
+  state: 'closed' | 'open' | 'half-open';
   nextRetryAt: number;
-  halfOpenStartedAt?: number;
-
-  // --- Rates ---
-  errorRate: number;
-
-  // --- Error breakdown ---
-  errorCounts: {
-    retryable: number;
-    'non-retryable': number;
-    transient: number;
-    permanent: number;
-    rateLimited: number;
-  };
-
-  // --- Metadata ---
-  modelType?: 'embedding' | 'generation';
-  lastFailureReason?: string;
-  lastErrorType?: string;
-  halfOpenAttempts?: number;
-  activeTestsInProgress?: number;
-
-  // --- Load-balancer score ---
-  lbScore?: {
-    totalScore: number;
-    latencyScore: number;
-    successRateScore: number;
-    loadScore: number;
-    capacityScore: number;
-    circuitBreakerScore: number;
-    timeoutScore: number;
-  } | null;
 }
 
 // ==========================================

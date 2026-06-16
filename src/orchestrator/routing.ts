@@ -297,7 +297,6 @@ export class OrchestratorRouter {
           const metrics = this.orchestrator
             .getMetricsAggregator()
             .getMetricsWithFallback(server.id, model);
-          const cbHealth = this.orchestrator.getCircuitBreakerHealth(server.id, model);
           return this.orchestrator.calculateServerScore(
             server,
             model,
@@ -305,7 +304,6 @@ export class OrchestratorRouter {
             totalLoad,
             metrics,
             undefined,
-            cbHealth,
             this.orchestrator.getTimeout(server.id, model),
             estimatedPromptTokens,
             (serverId, model) =>
