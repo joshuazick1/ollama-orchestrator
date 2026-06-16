@@ -1,27 +1,8 @@
-/**
- * failover.integration.test.ts
- * Integration tests for failover behavior
- *
- * TESTING REQUIREMENTS:
- * - Tests must verify failover works with Ollama servers
- * - Tests must verify failover works with OpenAI servers
- * - Tests must verify failover respects protocol capabilities
- * - Tests must verify model availability per protocol after failover
- * - Tests must verify error classification (retryable vs non-retryable)
- * - Tests must verify retry configuration
- * - Tests must verify cooldown periods
- */
-
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import {
-  CircuitBreaker,
-  CircuitBreakerRegistry,
-} from '../../src/circuit-breaker/circuit-breaker.js';
 import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
 import { InFlightManager } from '../../src/utils/in-flight-manager.js';
 
-// Mock logger
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
     debug: vi.fn(),
@@ -33,9 +14,7 @@ vi.mock('../../src/utils/logger.js', () => ({
 
 describe('Failover Integration Tests', () => {
   let inFlightManager: InFlightManager;
-  let circuitBreakerRegistry: CircuitBreakerRegistry;
 
-  // Test servers
   const ollamaServers: AIServer[] = [
     {
       id: 'ollama-1',
@@ -100,23 +79,17 @@ describe('Failover Integration Tests', () => {
 
   beforeEach(() => {
     inFlightManager = new InFlightManager();
-    circuitBreakerRegistry = new CircuitBreakerRegistry();
   });
 
   afterEach(() => {
     inFlightManager.clear();
   });
 
-  // ============================================================================
-  // SECTION 7.1: Automatic Failover Tests
-  // ============================================================================
-
   describe('Automatic Failover', () => {
     it('should failover to next server when primary fails', async () => {
       const servers = [...ollamaServers];
       let currentIndex = 0;
 
-      // Simulate request execution with failover
       const executeWithFailover = async () => {
         let lastError: Error | null = null;
 
@@ -124,12 +97,10 @@ describe('Failover Integration Tests', () => {
           const server = servers[currentIndex];
 
           try {
-            // Simulate server failure
             if (server.id === 'ollama-1') {
               throw new Error('Connection refused');
             }
 
-            // Success on second server
             return { success: true, server: server.id };
           } catch (error) {
             lastError = error as Error;
@@ -156,13 +127,11 @@ describe('Failover Integration Tests', () => {
           attempts++;
 
           if (failedServers.has(server.id)) {
-            // Server already failed
             continue;
           }
 
           if (server.id === 'ollama-1' || server.id === 'openai-1') {
             failedServers.add(server.id);
-            // Mark as failed and continue to next server instead of throwing
             continue;
           }
 
@@ -175,7 +144,6 @@ describe('Failover Integration Tests', () => {
       const result = await executeWithManyFailures();
 
       expect(result.success).toBe(true);
-      // Expect at least two attempts (first failed server(s) then success)
       expect(attempts).toBeGreaterThanOrEqual(2);
     });
 
@@ -188,13 +156,10 @@ describe('Failover Integration Tests', () => {
 
       let capturedBody: any = null;
 
-      // Simulate request execution
       const executeRequest = async () => {
         try {
-          // First server fails
           throw new Error('Failed');
         } catch {
-          // Second server - capture the body
           capturedBody = { ...requestBody };
           return { success: true };
         }
@@ -209,46 +174,13 @@ describe('Failover Integration Tests', () => {
       const chunks: string[] = [];
       let serverFailed = false;
 
-      // Simulate streaming that fails mid-stream
       const streamWithFailover = async () => {
-        // First server starts streaming
         for (let i = 0; i < 3; i++) {
           chunks.push(`chunk-${i}`);
         }
 
-        // First server fails
         serverFailed = true;
 
-        // Continue from second server
-        for (let i = 3; i < 5; i++) {
-          chunks.push(`chunk-${i}-from-failover`);
-        }
-
-        return { success: true, chunks };
-      };
-
-      const result = await streamWithFailover();
-
-      expect(result.success).toBe(true);
-      expect(chunks.length).toBe(5);
-      expect(serverFailed).toBe(true);
-    });
-
-    it('should failover during streaming and continue stream', async () => {
-      const chunks: string[] = [];
-      let serverFailed = false;
-
-      // Simulate streaming that fails mid-stream
-      const streamWithFailover = async () => {
-        // First server starts streaming
-        for (let i = 0; i < 3; i++) {
-          chunks.push(`chunk-${i}`);
-        }
-
-        // First server fails
-        serverFailed = true;
-
-        // Continue from second server
         for (let i = 3; i < 5; i++) {
           chunks.push(`chunk-${i}-from-failover`);
         }
@@ -266,7 +198,6 @@ describe('Failover Integration Tests', () => {
     it('should failover correctly in mixed server pool', async () => {
       const mixedPool = [...ollamaServers, ...openaiServers];
 
-      // Test Ollama request fails over within Ollama servers
       let selectedServer: AIServer | null = null;
 
       const selectOllamaServer = () => {
@@ -279,7 +210,6 @@ describe('Failover Integration Tests', () => {
         return null;
       };
 
-      // Simulate ollama-1 failing
       const server = selectOllamaServer();
 
       expect(server).not.toBeNull();
@@ -288,16 +218,11 @@ describe('Failover Integration Tests', () => {
     });
   });
 
-  // ============================================================================
-  // SECTION 7.2: Retry Configuration Tests
-  // ============================================================================
-
   describe('Retry Configuration', () => {
     it('should retry exactly 2 times by default', async () => {
       const maxRetries = 2;
       let attempts = 0;
 
-      // Simulate a call that fails the first `maxRetries` times then succeeds
       let calls = 0;
       const executeWithRetry = async () => {
         calls++;
@@ -308,7 +233,6 @@ describe('Failover Integration Tests', () => {
         return { success: true };
       };
 
-      // Simulate external retry loop
       let done = false;
       let lastErr: any;
       for (let i = 0; i <= maxRetries; i++) {
@@ -325,14 +249,13 @@ describe('Failover Integration Tests', () => {
         throw lastErr;
       }
 
-      expect(attempts).toBe(3); // Initial + 2 retries
+      expect(attempts).toBe(3);
     });
 
     it('should respect custom retry count', () => {
       const maxRetries = 5;
       let attempts = 0;
 
-      // Simulate external retry behavior where the function fails maxRetries times
       let calls = 0;
       const executeWithCustomRetry = () => {
         calls++;
@@ -342,20 +265,17 @@ describe('Failover Integration Tests', () => {
         }
       };
 
-      // Retry loop
       let succeeded = false;
       for (let i = 0; i <= maxRetries; i++) {
         try {
           executeWithCustomRetry();
           succeeded = true;
           break;
-        } catch (err) {
-          // continue retrying
-        }
+        } catch (err) {}
       }
 
       expect(succeeded).toBe(true);
-      expect(attempts).toBe(6); // Initial + 5 retries
+      expect(attempts).toBe(6);
     });
 
     it('should not retry when maxRetries is 0', () => {
@@ -377,7 +297,6 @@ describe('Failover Integration Tests', () => {
       const maxDelay = 5000;
       const timings: number[] = [];
 
-      // Simulate retry attempts and record the delays that would be used
       const executeWithBackoff = async () => {
         for (let retry = 0; retry < 3; retry++) {
           if (retry > 0) {
@@ -385,9 +304,7 @@ describe('Failover Integration Tests', () => {
             timings.push(delay);
           }
 
-          // Simulate failure for first two attempts and success on the third
           if (retry < 2) {
-            // continue to next retry (no throw so the loop simulates external retry)
             continue;
           }
           return;
@@ -396,26 +313,19 @@ describe('Failover Integration Tests', () => {
 
       await executeWithBackoff();
 
-      // First retry: 500ms, Second retry: 1000ms
       expect(timings[0]).toBe(500);
       expect(timings[1]).toBe(1000);
     });
   });
 
-  // ============================================================================
-  // SECTION 7.3: Cooldown Period Tests
-  // ============================================================================
-
   describe('Cooldown Period', () => {
     it('should enter cooldown after failure', () => {
       const cooldowns = new Map<string, number>();
-      const cooldownDuration = 120000; // 2 minutes
+      const cooldownDuration = 120000;
 
-      // Record failure
       const serverKey = 'ollama-1:llama3';
       cooldowns.set(serverKey, Date.now() + cooldownDuration);
 
-      // Check if in cooldown
       const isInCooldown = (cooldowns.get(serverKey) || 0) > Date.now();
 
       expect(isInCooldown).toBe(true);
@@ -423,15 +333,13 @@ describe('Failover Integration Tests', () => {
 
     it('should exit cooldown after duration expires', () => {
       const cooldowns = new Map<string, number>();
-      const cooldownDuration = 100; // Short for testing
+      const cooldownDuration = 100;
 
       const serverKey = 'ollama-1:llama3';
       cooldowns.set(serverKey, Date.now() + cooldownDuration);
 
-      // Before expiry
       expect((cooldowns.get(serverKey) || 0) > Date.now()).toBe(true);
 
-      // After expiry
       vi.useFakeTimers();
       vi.setSystemTime(Date.now() + cooldownDuration + 1);
 
@@ -451,7 +359,6 @@ describe('Failover Integration Tests', () => {
       vi.useFakeTimers();
       vi.setSystemTime(Date.now() + 101);
 
-      // Check cooldown
       const isInCooldown = (cooldowns.get(serverKey) || 0) > Date.now();
       if (!isInCooldown) {
         requestAllowed = true;
@@ -465,7 +372,6 @@ describe('Failover Integration Tests', () => {
       const cooldowns = new Map<string, number>();
       const cooldownDuration = 120000;
 
-      // Different models should have different cooldowns
       cooldowns.set('server-1:llama3', Date.now() + cooldownDuration);
       cooldowns.set('server-1:mistral', Date.now() + cooldownDuration);
 
@@ -476,88 +382,6 @@ describe('Failover Integration Tests', () => {
       expect(mistralInCooldown).toBe(true);
     });
   });
-
-  // ============================================================================
-  // SECTION 7.4: Circuit Breaker Integration Tests
-  // ============================================================================
-
-  describe('Circuit Breaker Integration', () => {
-    it('should open circuit after threshold failures', () => {
-      const breaker = circuitBreakerRegistry.getOrCreate('test-server:test-model');
-
-      // Record failures
-      breaker.recordFailure('error 1');
-      breaker.recordFailure('error 2');
-
-      expect(breaker.getState()).toBe('closed');
-
-      breaker.recordFailure('error 3');
-
-      expect(breaker.getState()).toBe('open');
-    });
-
-    it('should prevent requests when circuit is open', () => {
-      const breaker = circuitBreakerRegistry.getOrCreate('test-server:test-model');
-
-      // Open the circuit
-      breaker.recordFailure('error 1');
-      breaker.recordFailure('error 2');
-      breaker.recordFailure('error 3');
-
-      expect(breaker.getState()).toBe('open');
-      expect(breaker.canExecute()).toBe(false);
-    });
-
-    it('should transition to half-open after timeout', () => {
-      // Use a breaker configured to open on a single failure to make this
-      // deterministic for the test harness
-      const breaker = circuitBreakerRegistry.getOrCreate('test-timeout', {
-        baseFailureThreshold: 1,
-        openTimeout: 50,
-        adaptiveThresholds: false,
-      });
-
-      // Open the circuit
-      breaker.recordFailure('error');
-      expect(breaker.getState()).toBe('open');
-
-      // Manually trigger state check (in real code this happens after timeout)
-      (breaker as any).nextRetryAt = Date.now() - 1;
-
-      breaker.canExecute(); // This should trigger half-open
-
-      // Note: In real implementation, there's an actual timeout
-    });
-
-    it('should close circuit after successful recovery', () => {
-      const breaker = circuitBreakerRegistry.getOrCreate('test-recovery', {
-        baseFailureThreshold: 1,
-        recoverySuccessThreshold: 3,
-        openTimeout: 50,
-        adaptiveThresholds: false,
-      });
-
-      // Open the circuit
-      breaker.recordFailure('error');
-      expect(breaker.getState()).toBe('open');
-
-      // Transition to half-open
-      (breaker as any).nextRetryAt = Date.now() - 1;
-      breaker.canExecute();
-      expect(breaker.getState()).toBe('half-open');
-
-      // Record successes
-      breaker.recordSuccess();
-      breaker.recordSuccess();
-      breaker.recordSuccess();
-
-      expect(breaker.getState()).toBe('closed');
-    });
-  });
-
-  // ============================================================================
-  // SECTION 7.5: Error Classification Tests
-  // ============================================================================
 
   describe('Error Classification', () => {
     it('should NOT retry permanent errors (4xx)', () => {
@@ -575,7 +399,6 @@ describe('Failover Integration Tests', () => {
         'HTTP 504: Gateway Timeout',
       ];
 
-      // Verify classification
       const isPermanent = (error: string) => error.startsWith('HTTP 4');
 
       permanentErrors.forEach(error => {
@@ -632,15 +455,10 @@ describe('Failover Integration Tests', () => {
     });
   });
 
-  // ============================================================================
-  // SECTION 7.6: Dual-Protocol Failover Tests (MANDATORY)
-  // ============================================================================
-
   describe('Dual-Protocol Failover', () => {
     it('should failover Ollama servers correctly', () => {
       const servers = [...ollamaServers, ...dualServers];
 
-      // Find fallback for Ollama request when first server fails
       const findFallback = (failedServerId: string) => {
         return servers.find(s => s.id !== failedServerId && s.supportsOllama);
       };
@@ -654,7 +472,6 @@ describe('Failover Integration Tests', () => {
     it('should failover OpenAI servers correctly', () => {
       const servers = [...openaiServers, ...dualServers];
 
-      // Find fallback for OpenAI request
       const findFallback = (failedServerId: string) => {
         return servers.find(s => s.id !== failedServerId && s.supportsV1);
       };
@@ -668,16 +485,13 @@ describe('Failover Integration Tests', () => {
     it('should respect protocol capabilities during failover', () => {
       const servers = [...ollamaServers, ...openaiServers];
 
-      // OpenAI-only server should NOT be in Ollama fallback list
       const ollamaFallbacks = servers.filter(s => s.supportsOllama);
       const openaiFallbacks = servers.filter(s => s.supportsV1);
 
-      // Ollama servers should only fallback to Ollama-capable servers
       ollamaFallbacks.forEach(server => {
         expect(server.supportsOllama).toBe(true);
       });
 
-      // OpenAI servers should only fallback to OpenAI-capable servers
       openaiFallbacks.forEach(server => {
         expect(server.supportsV1).toBe(true);
       });
@@ -696,9 +510,7 @@ describe('Failover Integration Tests', () => {
         supportsV1: true,
       };
 
-      // When Ollama protocol fails, try OpenAI on same server
       const tryOpenAIOnSameServer = () => {
-        // Simulate Ollama failing
         const ollamaFailed = true;
 
         if (ollamaFailed && dualServer.supportsV1) {
@@ -715,9 +527,7 @@ describe('Failover Integration Tests', () => {
     });
 
     it('should verify model availability after failover', () => {
-      // Primary server has the model
       const primary = ollamaServers[0];
-      // Fallback server also has the model
       const fallback = ollamaServers[1];
 
       const model = 'llama3:latest';
@@ -737,7 +547,7 @@ describe('Failover Integration Tests', () => {
 
       const fallback = {
         id: 'server-2',
-        models: ['llama3:latest'], // Missing mistral
+        models: ['llama3:latest'],
       };
 
       const model = 'mistral:latest';
@@ -745,15 +555,10 @@ describe('Failover Integration Tests', () => {
       const primaryHasModel = primary.models.includes(model);
       const fallbackHasModel = fallback.models.includes(model);
 
-      // Primary has it, fallback doesn't
       expect(primaryHasModel).toBe(true);
       expect(fallbackHasModel).toBe(false);
     });
   });
-
-  // ============================================================================
-  // SECTION 7.7: Edge Cases
-  // ============================================================================
 
   describe('Edge Cases', () => {
     it('should handle all servers failing', async () => {
@@ -800,7 +605,6 @@ describe('Failover Integration Tests', () => {
         throw new Error('All failed');
       };
 
-      // Would need 10 attempts to succeed
       expect(async () => {
         await executeLongChain();
       }).rejects.toThrow();

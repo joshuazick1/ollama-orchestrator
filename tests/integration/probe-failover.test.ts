@@ -2,7 +2,7 @@ import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 
-describe('Circuit Breaker Admin Integration', () => {
+describe('Probe Admin Integration', () => {
   let baseUrl: string;
 
   beforeAll(async () => {
@@ -14,11 +14,10 @@ describe('Circuit Breaker Admin Integration', () => {
     await teardownIntegrationTest();
   });
 
-  it('should allow forcing open, inspecting, and resetting a model circuit breaker', async () => {
+  it('should allow forcing open, inspecting, and resetting a model probe', async () => {
     const serverId = 'cb-test-server';
     const model = 'test-model';
 
-    // Add a server first
     const addResp = await makeRequest('POST', '/api/orchestrator/servers/add', {
       id: serverId,
       url: 'http://localhost:11450',
@@ -28,7 +27,6 @@ describe('Circuit Breaker Admin Integration', () => {
 
     const encodedModel = encodeURIComponent(model);
 
-    // Force-open the model circuit breaker
     const openResp = await makeRequest(
       'POST',
       `/api/orchestrator/circuit-breakers/${serverId}/${encodedModel}/open`
@@ -36,37 +34,33 @@ describe('Circuit Breaker Admin Integration', () => {
     expect(openResp.status).toBe(200);
     expect(openResp.data).toHaveProperty('success', true);
     expect(openResp.data.circuitBreaker).toBeDefined();
-    expect(openResp.data.circuitBreaker.state).toBe('OPEN');
+    expect(openResp.data.circuitBreaker.uiState).toBe('OPEN');
 
-    // Get breaker details via the admin endpoint
     const detailsResp = await makeRequest(
       'GET',
       `/api/orchestrator/circuit-breakers/${serverId}/${encodedModel}`
     );
     expect(detailsResp.status).toBe(200);
-    expect(detailsResp.data).toHaveProperty('key');
-    expect(detailsResp.data.key).toBe(`${serverId}:${model}`);
-    expect(detailsResp.data).toHaveProperty('stats');
+    expect(detailsResp.data).toHaveProperty('tupleKey');
+    expect(detailsResp.data.tupleKey).toBe(`${serverId}:${model}:ollama_chat`);
+    expect(detailsResp.data).toHaveProperty('state');
 
-    // Also inspect via the per-server model endpoint
     const serverModelResp = await makeRequest(
       'GET',
       `/api/orchestrator/servers/${serverId}/models/${encodedModel}/circuit-breaker`
     );
     expect(serverModelResp.status).toBe(200);
     expect(serverModelResp.data).toHaveProperty('circuitBreaker');
-    expect(serverModelResp.data.circuitBreaker.state).toBe('OPEN');
+    expect(serverModelResp.data.circuitBreaker.uiState).toBe('OPEN');
 
     try {
-      // Reset the breaker
       const resetResp = await makeRequest(
         'POST',
         `/api/orchestrator/circuit-breakers/${serverId}/${encodedModel}/reset`
       );
       expect(resetResp.status).toBe(200);
-      expect(resetResp.data).toHaveProperty('currentState', 'closed');
+      expect(resetResp.data).toHaveProperty('currentState', 'CLOSED');
 
-      // Ensure the breaker shows up in the global list
       const listResp = await makeRequest('GET', '/api/orchestrator/circuit-breakers');
       expect(listResp.status).toBe(200);
       expect(listResp.data).toHaveProperty('circuitBreakers');
@@ -75,7 +69,6 @@ describe('Circuit Breaker Admin Integration', () => {
       );
       expect(found).toBe(true);
     } finally {
-      // Cleanup: remove the test server so other tests are not impacted
       const del = await makeRequest('DELETE', `/api/orchestrator/servers/${serverId}`);
       expect([200, 404]).toContain(del.status);
     }
