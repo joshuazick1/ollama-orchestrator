@@ -229,3 +229,20 @@ export function parseTupleKey(k: TupleKey): Tuple {
     endpoint: parts[2] as ProbeEndpoint,
   };
 }
+
+/**
+ * Map internal ProbeState to UI-visible circuit breaker state.
+ * HEALTHY → CLOSED, SUSPECT → HALF-OPEN, UNHEALTHY → OPEN, RECOVERING → HALF-OPEN
+ */
+export function probeStateToUIState(state: ProbeState): UIState {
+  switch (state) {
+    case 'HEALTHY':
+      return 'CLOSED';
+    case 'SUSPECT':
+      return 'HALF-OPEN';
+    case 'UNHEALTHY':
+      return 'OPEN';
+    case 'RECOVERING':
+      return 'HALF-OPEN';
+  }
+}

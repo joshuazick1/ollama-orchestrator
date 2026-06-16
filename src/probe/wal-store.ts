@@ -166,6 +166,20 @@ export class WALStore {
     return rows.map(r => this.rowToEvent(r));
   }
 
+  /**
+   * Get all probe events for a given serverId (all models, all endpoints).
+   * Uses the index on tuple_key for efficient prefix matching.
+   */
+  async getEventsForServerId(serverId: string): Promise<ProbeEvent[]> {
+    const rows = this.store
+      .prepare(
+        `SELECT * FROM probe_state_wal WHERE tuple_key LIKE ? || ':' || ? || ':%' ORDER BY id ASC`
+      )
+      .all(serverId, '%') as WalRow[];
+
+    return rows.map(r => this.rowToEvent(r));
+  }
+
   private rowToEvent(row: WalRow): ProbeEvent {
     return {
       id: row.id,

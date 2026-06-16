@@ -12,14 +12,39 @@ vi.mock('../../src/storage/operational-store.js', () => ({
     getActiveBans: vi.fn().mockReturnValue([]),
     runStartupMigrations: vi.fn(),
     close: vi.fn(),
+    transaction: vi.fn(fn => fn()),
+    prepare: vi.fn((query: string) => {
+      if (query.includes('RETURNING')) {
+        return {
+          get: vi.fn().mockReturnValue({
+            id: 1,
+            tuple_key: '',
+            event_type: '',
+            from_state: null,
+            to_state: null,
+            reason: null,
+            metadata: null,
+            created_at: Date.now(),
+          }),
+          all: vi.fn().mockReturnValue([]),
+          run: vi.fn().mockReturnValue({ changes: 0 }),
+        };
+      }
+      return {
+        get: vi.fn(),
+        all: vi.fn().mockReturnValue([]),
+        run: vi.fn().mockReturnValue({ changes: 0 }),
+      };
+    }),
   }),
   initOperationalStore: vi.fn(),
 }));
 
-import { DEFAULT_CONFIG } from '../../src/config/config.js';
 import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
-import { classifyError } from '../../src/utils/error-classifier.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
+import { GENERATION_ENDPOINTS } from '../../src/probe/types.js';
+import { DEFAULT_CONFIG } from '../../src/config/config.js';
+import { classifyError } from '../../src/utils/error-classifier.js';
 
 describe('AIOrchestrator', () => {
   let orchestrator: AIOrchestrator;
@@ -40,6 +65,13 @@ describe('AIOrchestrator', () => {
     });
     orchestrator['healthCheckScheduler'].stop();
     orchestrator['probeScheduler'].stop();
+    orchestrator['recoveryDriver'].stop();
+  });
+
+  afterEach(() => {
+    orchestrator['healthCheckScheduler'].stop();
+    orchestrator['probeScheduler'].stop();
+    orchestrator['recoveryDriver'].stop();
   });
 
   describe('Server Management', () => {
@@ -154,7 +186,7 @@ describe('AIOrchestrator', () => {
     });
 
     it('should be in cooldown after marking failure', () => {
-      orchestrator['markFailure']('server-1', 'model-1');
+      orchestrator['banManager'].markFailure('server-1', 'model-1');
       expect(orchestrator.isInCooldown('server-1', 'model-1')).toBe(true);
     });
   });
@@ -672,7 +704,7 @@ describe('AIOrchestrator', () => {
           totalServers: 0,
           healthyServers: 0,
           totalModels: 0,
-          inFlightRequests: callCount < 3 ? 1 : 0, // Become empty after 3 calls
+          inFlightRequests: callCount < 3 ? 1 : 0,
           circuitBreakers: {},
         };
       });
@@ -754,51 +786,175 @@ describe('AIOrchestrator', () => {
     });
   });
 
-  describe('shouldSkipServer (lines 942-946)', () => {
-    it('should return true when circuit breaker is open', () => {
+  describe('Probe System - getState', () => {
+    it('should return HEALTHY for unknown tuple', () => {
       orchestrator.addServer(createServer({ id: 'server-1' }));
 
-      // Get circuit breaker and force it open
-      const cb = orchestrator['getCircuitBreaker']('server-1');
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
 
-      // Record multiple failures to open the circuit breaker
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test error'));
-      }
-
-      // Should skip server when circuit breaker is open
-      const shouldSkip = orchestrator['shouldSkipServer']('server-1');
-      expect(shouldSkip).toBe(true);
+      // Unknown tuple should be HEALTHY
+      expect(probeOrchestrator.getState(tuple)).toBe('HEALTHY');
     });
 
-    it('should return false when circuit breaker is closed', () => {
+    it('should transition to SUSPECT after failure', async () => {
       orchestrator.addServer(createServer({ id: 'server-1' }));
 
-      // Should not skip server when circuit breaker is closed
-      const shouldSkip = orchestrator['shouldSkipServer']('server-1');
-      expect(shouldSkip).toBe(false);
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      await probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+
+      expect(probeOrchestrator.getState(tuple)).toBe('SUSPECT');
+    });
+
+    it('should stay HEALTHY after success', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      await probeOrchestrator.recordProbeResult(tuple, true);
+
+      expect(probeOrchestrator.getState(tuple)).toBe('HEALTHY');
     });
   });
 
-  describe('getStats circuit breaker stats (lines 984-988)', () => {
-    it('should include circuit breaker stats with actual state', () => {
+  describe('Probe System - canServe', () => {
+    it('should allow routing for HEALTHY tuple', async () => {
       orchestrator.addServer(createServer({ id: 'server-1' }));
-      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
 
-      // Record failures on server-1 to change its circuit breaker state
-      const cb1 = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 5; i++) {
-        cb1.recordFailure(new Error('test error'));
-      }
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
 
-      const stats = orchestrator.getStats();
+      // Record a probe result to create the tuple state
+      await probeOrchestrator.recordProbeResult(tuple, true);
 
-      expect(stats.circuitBreakers).toBeDefined();
+      // HEALTHY state - should be allowed for routing
+      expect(probeOrchestrator.canServe(tuple, 'routing')).toBe(true);
+    });
 
-      // server-1 should have circuit breaker stats since we recorded failures
-      expect(stats.circuitBreakers['server-1']).toBeDefined();
-      expect(typeof stats.circuitBreakers['server-1'].state).toBe('string');
-      expect(typeof stats.circuitBreakers['server-1'].failureCount).toBe('number');
+    it('should allow routing for SUSPECT tuple', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      await probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+
+      // SUSPECT state - should be allowed for routing
+      expect(probeOrchestrator.canServe(tuple, 'routing')).toBe(true);
+    });
+
+    it('should block routing for UNHEALTHY tuple', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Force to UNHEALTHY
+      probeOrchestrator.setStateForTesting(tuple, 'UNHEALTHY');
+
+      // UNHEALTHY state - should be blocked for routing
+      expect(probeOrchestrator.canServe(tuple, 'routing')).toBe(false);
+    });
+
+    it('should allow probe for RECOVERING tuple', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Force to RECOVERING
+      probeOrchestrator.setStateForTesting(tuple, 'RECOVERING');
+
+      // RECOVERING state - should be allowed for probe caller
+      expect(probeOrchestrator.canServe(tuple, 'probe')).toBe(true);
+    });
+
+    it('should block routing for RECOVERING tuple', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Force to RECOVERING
+      probeOrchestrator.setStateForTesting(tuple, 'RECOVERING');
+
+      // RECOVERING state - should be blocked for routing
+      expect(probeOrchestrator.canServe(tuple, 'routing')).toBe(false);
+    });
+
+    it('should allow admin for any state', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Force to UNHEALTHY
+      probeOrchestrator.setStateForTesting(tuple, 'UNHEALTHY');
+
+      // Admin caller should always be allowed
+      expect(probeOrchestrator.canServe(tuple, 'admin')).toBe(true);
+    });
+  });
+
+  describe('Probe System - getAllStates', () => {
+    it('should return all probe states', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      await probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+
+      const allStates = probeOrchestrator.getAllStates();
+      expect(allStates.size).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Probe System - evictTuple', () => {
+    it('should evict tuple and reset state', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      await probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+      expect(probeOrchestrator.getState(tuple)).toBe('SUSPECT');
+
+      await probeOrchestrator.evictTuple(tuple);
+      expect(probeOrchestrator.getState(tuple)).toBe('HEALTHY');
+    });
+  });
+
+  describe('Probe System - resetTuple', () => {
+    it('should reset tuple to HEALTHY', async () => {
+      orchestrator.addServer(createServer({ id: 'server-1' }));
+
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      await probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+      expect(probeOrchestrator.getState(tuple)).toBe('SUSPECT');
+
+      probeOrchestrator.resetTuple(tuple);
+      expect(probeOrchestrator.getState(tuple)).toBe('HEALTHY');
     });
   });
 
@@ -1219,34 +1375,6 @@ describe('AIOrchestrator', () => {
       ).rejects.toThrow('permanently banned');
     });
 
-    it('should throw when circuit breaker open', async () => {
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      const modelCb = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-        modelCb.recordFailure(new Error('test'));
-      }
-
-      await expect(
-        orchestrator.requestToServer('server-1', 'llama2', async () => ({ ok: true }))
-      ).rejects.toThrow('Circuit breaker is open');
-    });
-
-    it('should execute successfully when bypassCircuitBreaker is true', async () => {
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-
-      const result = await orchestrator.requestToServer(
-        'server-1',
-        'llama2',
-        async server => ({ success: true, serverId: server.id }),
-        { bypassCircuitBreaker: true }
-      );
-      expect(result.success).toBe(true);
-    });
-
     it('should throw when request aborted', async () => {
       const controller = new AbortController();
       controller.abort();
@@ -1341,38 +1469,50 @@ describe('AIOrchestrator', () => {
     });
   });
 
-  describe('Circuit Breaker Public API', () => {
+  describe('Probe Public API', () => {
     beforeEach(() => {
       orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
-    it('should get server circuit breaker', () => {
-      // Create the breaker first by accessing it
-      orchestrator['getCircuitBreaker']('server-1');
-      const cb = orchestrator.getServerCircuitBreaker('server-1');
-      expect(cb).toBeDefined();
+    it('should get server circuit breaker from probe system', () => {
+      // Using probe orchestrator directly
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // State should be HEALTHY initially
+      expect(probeOrchestrator.getState(tuple)).toBe('HEALTHY');
     });
 
-    it('should return undefined for non-existent server circuit breaker', () => {
-      const cb = orchestrator.getServerCircuitBreaker('nonexistent');
-      expect(cb).toBeUndefined();
+    it('should reset server circuit breaker via probe system', () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Record a failure to transition to SUSPECT
+      probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+      expect(probeOrchestrator.getState(tuple)).toBe('SUSPECT');
+
+      // Reset the tuple
+      probeOrchestrator.resetTuple(tuple);
+      expect(probeOrchestrator.getState(tuple)).toBe('HEALTHY');
     });
 
-    it('should get model circuit breaker public', () => {
-      const cb = orchestrator.getModelCircuitBreakerPublic('server-1', 'llama2');
-      expect(cb).toBeDefined();
-    });
+    it('should evict tuple from probe system', async () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
 
-    it('should reset server circuit breaker', () => {
-      // Create the breaker first
-      orchestrator['getCircuitBreaker']('server-1');
-      const result = orchestrator.resetServerCircuitBreaker('server-1');
-      expect(result).toBe(true);
-    });
+      // Record a failure
+      await probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+      expect(probeOrchestrator.getState(tuple)).toBe('SUSPECT');
 
-    it('should return false when resetting non-existent breaker', () => {
-      const result = orchestrator.resetServerCircuitBreaker('nonexistent');
-      expect(result).toBe(false);
+      // Evict the tuple
+      await probeOrchestrator.evictTuple(tuple);
+      expect(probeOrchestrator.getState(tuple)).toBe('HEALTHY');
     });
   });
 
@@ -1401,10 +1541,18 @@ describe('AIOrchestrator', () => {
       orchestrator.addServer(createServer({ id: 'server-1' }));
     });
 
-    it('should remove model circuit breaker', () => {
-      // First create the breaker
-      orchestrator.getModelCircuitBreakerPublic('server-1', 'llama2');
+    it('should remove model circuit breaker via probe system', async () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
 
+      // First create the tuple state
+      await probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+      expect(probeOrchestrator.getState(tuple)).toBe('SUSPECT');
+
+      // Evict via old API (should work via probe system)
       const result = orchestrator.removeModelCircuitBreaker('server-1', 'llama2');
       expect(result).toBe(true);
     });
@@ -1436,6 +1584,18 @@ describe('AIOrchestrator', () => {
         s1.models = ['llama2'];
       }
     });
+
+    it('should handle unknown server health check', () => {
+      const result = {
+        serverId: 'nonexistent',
+        success: true,
+        timestamp: Date.now(),
+      };
+
+      // Should not throw - onHealthCheckResult is now a no-op stub
+      orchestrator['onHealthCheckResult'](result);
+    });
+  });
 
     it('should handle health check success', () => {
       const result = {
@@ -1527,38 +1687,6 @@ describe('AIOrchestrator', () => {
       expect(server?.hardware).toBeDefined();
       expect(server?.hardware?.loadedModels).toHaveLength(1);
     });
-
-    it('should force close circuit breaker on recovery', () => {
-      // Open the circuit breaker first
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-      expect(cb.getState()).toBe('open');
-
-      // Now simulate successful health check
-      const result = {
-        serverId: 'server-1',
-        success: true,
-        responseTime: 100,
-        timestamp: Date.now(),
-      };
-
-      orchestrator['onHealthCheckResult'](result);
-
-      const server = orchestrator.getServer('server-1');
-      expect(server?.healthy).toBe(true);
-    });
-
-    it('should handle all health checks complete', () => {
-      const results = [
-        { serverId: 'server-1', success: true, timestamp: Date.now() },
-        { serverId: 'server-2', success: false, timestamp: Date.now() },
-      ];
-
-      // Should not throw
-      orchestrator['onAllHealthChecksComplete'](results);
-    });
   });
 
   describe('Timeout management', () => {
@@ -1577,19 +1705,6 @@ describe('AIOrchestrator', () => {
       orchestrator.setTimeout('server-1', 'llama2', 120000);
       const timeout = orchestrator.getTimeout('server-1', 'llama2');
       expect(timeout).toBe(120000);
-    });
-
-    it('should return stored timeout during half-open state', () => {
-      orchestrator.setTimeout('server-1', 'llama2', 90000);
-
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      cb.recordFailure(new Error('test'));
-
-      // Force to half-open by calling canExecute which triggers transition
-      cb.canExecute();
-
-      const timeout = orchestrator.getTimeout('server-1', 'llama2');
-      expect(timeout).toBe(90000);
     });
   });
 
@@ -1623,7 +1738,6 @@ describe('AIOrchestrator', () => {
     it('should throw when model not on any server', async () => {
       await expect(
         orchestrator.tryRequestWithFailover('nonexistent', async () => ({ ok: true }))
-        // REC-71: now produces specific "Model not found" message
       ).rejects.toThrow("Model 'nonexistent' not found on any configured server");
     });
 
@@ -1645,7 +1759,6 @@ describe('AIOrchestrator', () => {
 
       await expect(
         orchestrator.tryRequestWithFailover('llama2', async () => ({}), false, 'generate', 'ollama')
-        // REC-71: now produces specific capability message
       ).rejects.toThrow("No servers support required capability 'ollama'");
     });
 
@@ -1659,7 +1772,6 @@ describe('AIOrchestrator', () => {
 
       await expect(
         orchestrator.tryRequestWithFailover('llama2', async () => ({}), false, 'generate', 'openai')
-        // REC-71: now produces specific capability message
       ).rejects.toThrow("No servers support required capability 'openai'");
     });
 
@@ -1694,78 +1806,6 @@ describe('AIOrchestrator', () => {
       expect(stopSpy).toHaveBeenCalled();
       expect(shutdownMetricsSpy).toHaveBeenCalled();
       expect(shutdownBreakerSpy).toHaveBeenCalled();
-    });
-  });
-
-  describe('forceOpenServerBreaker', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-    });
-
-    it('should force open server breaker', () => {
-      orchestrator['forceOpenServerBreaker']('server-1', 'Test reason');
-
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      expect(cb.getState()).toBe('open');
-    });
-
-    it('should mark server unhealthy when forcing open', () => {
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.healthy = true;
-      }
-
-      orchestrator['forceOpenServerBreaker']('server-1', 'Test reason');
-
-      const s1After = orchestrator.getServer('server-1');
-      expect(s1After?.healthy).toBe(false);
-    });
-  });
-
-  describe('checkModelBreakerEscalation', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.models = ['llama2', 'mistral', 'codellama'];
-      }
-    });
-
-    it('should not escalate when no models', () => {
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.models = [];
-      }
-
-      // Should not throw
-      orchestrator['checkModelBreakerEscalation']('server-1');
-    });
-
-    it('should not escalate when modelEscalation disabled', () => {
-      // Override config to disable escalation
-      orchestrator['config'].circuitBreaker.modelEscalation.enabled = false;
-
-      // Should not throw
-      orchestrator['checkModelBreakerEscalation']('server-1');
-    });
-  });
-
-  describe('getCircuitBreakerHealth', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-    });
-
-    it('should return circuit breaker health', () => {
-      // Create the circuit breaker first
-      orchestrator['getCircuitBreaker']('server-1');
-      const health = orchestrator['getCircuitBreakerHealth']('server-1');
-      expect(health).toBeDefined();
-      expect(health?.state).toBeDefined();
-    });
-
-    it('should return undefined for non-existent server', () => {
-      const health = orchestrator['getCircuitBreakerHealth']('nonexistent');
-      expect(health).toBeUndefined();
     });
   });
 
@@ -1836,17 +1876,17 @@ describe('AIOrchestrator', () => {
 
   describe('arraysEqual', () => {
     it('should compare equal arrays', () => {
-      const result = orchestrator['arraysEqual'](['a', 'b'], ['a', 'b']);
+      const result = orchestrator.getModels().arraysEqual(['a', 'b'], ['a', 'b']);
       expect(result).toBe(true);
     });
 
     it('should compare unequal arrays', () => {
-      const result = orchestrator['arraysEqual'](['a', 'b'], ['a', 'c']);
+      const result = orchestrator.getModels().arraysEqual(['a', 'b'], ['a', 'c']);
       expect(result).toBe(false);
     });
 
     it('should compare arrays of different lengths', () => {
-      const result = orchestrator['arraysEqual'](['a'], ['a', 'b']);
+      const result = orchestrator.getModels().arraysEqual(['a'], ['a', 'b']);
       expect(result).toBe(false);
     });
   });
@@ -1854,18 +1894,18 @@ describe('AIOrchestrator', () => {
   describe('extractModelsFromResponse', () => {
     it('should extract models from response', () => {
       const response = { models: ['llama2', 'mistral'] };
-      const models = orchestrator['extractModelsFromResponse'](response);
+      const models = orchestrator.getModels().extractModelsFromResponse(response);
       expect(models).toEqual(['llama2', 'mistral']);
     });
 
     it('should extract models from object format', () => {
       const response = { models: [{ name: 'llama2' }, { model: 'mistral' }] };
-      const models = orchestrator['extractModelsFromResponse'](response);
+      const models = orchestrator.getModels().extractModelsFromResponse(response);
       expect(models).toEqual(['llama2', 'mistral']);
     });
 
     it('should return empty array for invalid response', () => {
-      const models = orchestrator['extractModelsFromResponse'](null);
+      const models = orchestrator.getModels().extractModelsFromResponse(null);
       expect(models).toEqual([]);
     });
   });
@@ -1908,27 +1948,6 @@ describe('AIOrchestrator', () => {
 
     it('should return false for non-server-wide errors', () => {
       expect(orchestrator['isServerWideError']('Model not found')).toBe(false);
-    });
-  });
-
-  describe('hasClosedCircuitBreaker', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-      orchestrator.addServer(createServer({ id: 'server-2', url: 'http://localhost:11435' }));
-    });
-
-    it('should return true when no circuit breaker exists', () => {
-      const result = orchestrator['hasClosedCircuitBreaker']('llama2', ['server-1']);
-      expect(result).toBe(true);
-    });
-
-    it('should return true when circuit breaker is closed', () => {
-      // Create and close circuit breaker
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      cb.recordSuccess();
-
-      const result = orchestrator['hasClosedCircuitBreaker']('llama2', ['server-1']);
-      expect(result).toBe(true);
     });
   });
 
@@ -2041,108 +2060,31 @@ describe('AIOrchestrator', () => {
       }
     });
 
-    it('should skip when server circuit open', () => {
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
+    it('should skip when probe state is UNHEALTHY', () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Force to UNHEALTHY
+      probeOrchestrator.setStateForTesting(tuple, 'UNHEALTHY');
 
       const shouldSkip = orchestrator['shouldSkipServerModel']('server-1', 'llama2');
       expect(shouldSkip).toBe(true);
     });
 
-    it('should skip half-open with no successes', () => {
-      // Open the circuit breaker first
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-      // Now try to transition to half-open by calling canExecute
-      cb.canExecute();
+    it('should not skip when probe state is HEALTHY', () => {
+      const shouldSkip = orchestrator['shouldSkipServerModel']('server-1', 'llama2');
+      expect(shouldSkip).toBe(false);
+    });
+
+    it('should not skip when probe state is SUSPECT', () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Transition to SUSPECT
+      probeOrchestrator.setStateForTesting(tuple, 'SUSPECT');
 
       const shouldSkip = orchestrator['shouldSkipServerModel']('server-1', 'llama2');
-      // May or may not be true depending on state
-      expect(typeof shouldSkip).toBe('boolean');
-    });
-  });
-
-  describe('countHalfOpenCircuits', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-    });
-
-    it('should count half-open circuits', () => {
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      // Force to half-open
-      cb.recordFailure(new Error('test'));
-      cb.canExecute();
-
-      const count = orchestrator['countHalfOpenCircuits']('server-1');
-      expect(count).toBeGreaterThanOrEqual(0);
-    });
-  });
-
-  describe('closeAllModelCircuits', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.models = ['llama2', 'mistral'];
-      }
-    });
-
-    it('should close all model circuits', () => {
-      // Create model breakers and open them
-      const cb1 = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
-      const cb2 = orchestrator['getModelCircuitBreaker']('server-1', 'mistral');
-      cb1.recordFailure(new Error('test'));
-      cb2.recordFailure(new Error('test'));
-
-      // Close all model circuits
-      orchestrator['closeAllModelCircuits']('server-1');
-
-      // Check that they're closed
-      expect(cb1.getState()).toBe('closed');
-      expect(cb2.getState()).toBe('closed');
-    });
-  });
-
-  describe('performRecoveryHealthCheck', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-    });
-
-    it('should perform recovery health check successfully', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ models: [] }),
-      });
-
-      const server = orchestrator.getServer('server-1');
-      const result = await orchestrator['performRecoveryHealthCheck'](server!);
-
-      expect(result.success).toBe(true);
-    });
-
-    it('should handle failed recovery check', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-      });
-
-      const server = orchestrator.getServer('server-1');
-      const result = await orchestrator['performRecoveryHealthCheck'](server!);
-
-      expect(result.success).toBe(false);
-    });
-
-    it('should handle network error', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
-
-      const server = orchestrator.getServer('server-1');
-      const result = await orchestrator['performRecoveryHealthCheck'](server!);
-
-      expect(result.success).toBe(false);
+      expect(shouldSkip).toBe(false);
     });
   });
 
@@ -2158,67 +2100,6 @@ describe('AIOrchestrator', () => {
     it('should handle undefined context', () => {
       // Should not throw
       orchestrator['populateRoutingContext'](undefined, 'server-1', 'llama2');
-    });
-  });
-
-  describe('onHealthCheckResult with circuit breaker open', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-    });
-
-    it('should force close circuit breaker on recovery', () => {
-      // Open the circuit breaker first
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-      expect(cb.getState()).toBe('open');
-
-      // Now successful health check should force close
-      const result = {
-        serverId: 'server-1',
-        success: true,
-        responseTime: 100,
-        timestamp: Date.now(),
-      };
-
-      orchestrator['onHealthCheckResult'](result);
-
-      const server = orchestrator.getServer('server-1');
-      expect(server?.healthy).toBe(true);
-    });
-
-    it('should invalidate cache when server was previously unhealthy', () => {
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.healthy = false;
-      }
-
-      // Set up cache
-      orchestrator['tagsCacheStore']['slot'] = {
-        data: [{ name: 'llama2' }],
-        timestamp: Date.now(),
-        metadata: {
-          totalRequests: 0,
-          successfulRequests: 0,
-          failedRequests: 0,
-          serverCount: 1,
-          modelCount: 1,
-          errors: [],
-        },
-      };
-
-      const result = {
-        serverId: 'server-1',
-        success: true,
-        responseTime: 100,
-        timestamp: Date.now(),
-      };
-
-      orchestrator['onHealthCheckResult'](result);
-
-      // Cache should be invalidated
-      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
     });
   });
 
@@ -2494,7 +2375,6 @@ describe('AIOrchestrator', () => {
       orchestrator.removeServer('server-2');
 
       await expect(orchestrator.tryRequestWithFailover('llama2', async () => ({}))).rejects.toThrow(
-        // REC-71: now produces specific message instead of generic "No healthy servers available"
         "for model 'llama2'"
       );
     });
@@ -2510,11 +2390,12 @@ describe('AIOrchestrator', () => {
       }
     });
 
-    it('should fail when circuit breaker is open', async () => {
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
+    it('should fail when probe state is UNHEALTHY', async () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
+
+      // Force to UNHEALTHY
+      probeOrchestrator.setStateForTesting(tuple, 'UNHEALTHY');
 
       const errors: any[] = [];
       const result = await orchestrator['tryRequestOnServerNoRetry'](
@@ -2546,7 +2427,6 @@ describe('AIOrchestrator', () => {
   });
 
   describe('Complex failover scenarios', () => {
-    // Use unique server IDs per test to avoid circuit breaker state collision
     const testServerIds = ['failover-s1', 'failover-s2', 'failover-s3'];
 
     beforeEach(() => {
@@ -2554,14 +2434,6 @@ describe('AIOrchestrator', () => {
       orchestrator['healthCheckScheduler'].stop();
 
       testServerIds.forEach(id => {
-        const serverCb = orchestrator['getCircuitBreaker'](id);
-        if (serverCb) {
-          serverCb.forceClose();
-        }
-        const modelCb = orchestrator['getModelCircuitBreaker'](id, 'llama2');
-        if (modelCb) {
-          modelCb.forceClose();
-        }
         orchestrator['banManager'].clearCooldown(id, 'llama2');
         orchestrator['banManager'].clearCooldown(id, '');
         const details = orchestrator['banManager'].getBanDetails();
@@ -2593,10 +2465,6 @@ describe('AIOrchestrator', () => {
       const serverAttempts: string[] = [];
 
       const servers = orchestrator.getServers();
-      console.log(
-        'SERVERS AT TEST START:',
-        servers.map(s => ({ id: s.id, healthy: s.healthy, models: s.models }))
-      );
 
       try {
         await orchestrator.tryRequestWithFailover('llama2', async server => {
@@ -2607,7 +2475,6 @@ describe('AIOrchestrator', () => {
         // Expected to fail
       }
 
-      console.log('ATTEMPTS:', serverAttempts);
       // Should have attempted all 3 servers at least twice (phase 1 + phase 2)
       expect(serverAttempts.length).toBeGreaterThanOrEqual(3);
     });
@@ -2634,45 +2501,6 @@ describe('AIOrchestrator', () => {
 
       // Context should be populated even on failure
       expect(context).toBeDefined();
-    });
-  });
-
-  describe('Circuit breaker half-open recovery', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.healthy = true;
-        s1.models = ['llama2'];
-      }
-    });
-
-    it('should transition from open to half-open and recover', async () => {
-      // Open the circuit breaker
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test error'));
-      }
-      expect(cb.getState()).toBe('open');
-
-      // Simulate time passing for half-open transition
-      // Note: This depends on the circuit breaker implementation
-      const canExecute = cb.canExecute();
-
-      // The breaker might transition to half-open
-      if (cb.getState() === 'half-open') {
-        // Successful request should close it
-        const result = await orchestrator['tryRequestOnServerNoRetry'](
-          orchestrator.getServer('server-1')!,
-          'llama2',
-          async () => ({ success: true }),
-          false,
-          []
-        );
-
-        // Result depends on recovery test success
-        expect(result).toBeDefined();
-      }
     });
   });
 
@@ -2735,13 +2563,7 @@ describe('AIOrchestrator', () => {
       }
     });
 
-    it('should filter models by circuit breaker state', async () => {
-      // Open circuit breaker for one model
-      const cb = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-
+    it('should return aggregated tags', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () =>
@@ -2751,7 +2573,6 @@ describe('AIOrchestrator', () => {
       });
 
       const result = await orchestrator.getAggregatedTags();
-      // Only models with closed circuit breakers should be included
       expect(result.models).toBeDefined();
     });
   });
@@ -2762,43 +2583,22 @@ describe('AIOrchestrator', () => {
     });
 
     it('should remove model circuit breaker', () => {
-      // Create a model circuit breaker
-      orchestrator.getModelCircuitBreakerPublic('server-1', 'llama2');
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const tuple = { serverId: 'server-1', model: 'llama2', endpoint: 'ollama_chat' as const };
 
-      // Remove it
+      // Create state
+      probeOrchestrator.recordProbeResult(tuple, false, {
+        kind: 'transient',
+        retryable: true,
+      });
+
+      // Remove via old API
       const removed = orchestrator.removeModelCircuitBreaker('server-1', 'llama2');
       expect(removed).toBe(true);
 
-      // Try to remove again (should fail)
+      // Try to remove again (should fail since eviction already happened)
       const removedAgain = orchestrator.removeModelCircuitBreaker('server-1', 'llama2');
       expect(removedAgain).toBe(false);
-    });
-
-    it('should count half-open circuits correctly', () => {
-      // Create circuit breakers
-      orchestrator['getCircuitBreaker']('server-1');
-      orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
-      orchestrator['getModelCircuitBreaker']('server-1', 'mistral');
-
-      const count = orchestrator['countHalfOpenCircuits']('server-1');
-      expect(typeof count).toBe('number');
-      expect(count).toBeGreaterThanOrEqual(0);
-    });
-
-    it('should close all model circuits for server', () => {
-      // Create and open some model breakers
-      const cb1 = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
-      const cb2 = orchestrator['getModelCircuitBreaker']('server-1', 'mistral');
-
-      cb1.recordFailure(new Error('test'));
-      cb2.recordFailure(new Error('test'));
-
-      // Close all
-      orchestrator['closeAllModelCircuits']('server-1');
-
-      // All should be closed
-      expect(cb1.getState()).toBe('closed');
-      expect(cb2.getState()).toBe('closed');
     });
   });
 
@@ -2896,6 +2696,14 @@ describe('AIOrchestrator', () => {
       const result = await orchestrator['performRecoveryHealthCheck'](server!);
       expect(result.success).toBe(false);
       expect(result.error).toContain('500');
+    });
+
+    it('should handle network error', async () => {
+      global.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
+
+      const server = orchestrator.getServer('server-1');
+      const result = await orchestrator['performRecoveryHealthCheck'](server!);
+      expect(result.success).toBe(false);
     });
   });
 
@@ -3012,60 +2820,6 @@ describe('AIOrchestrator', () => {
       }
     });
 
-    it('should handle success with existing open circuit breaker', () => {
-      // Open the circuit breaker first
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-      expect(cb.getState()).toBe('open');
-
-      const result = {
-        serverId: 'server-1',
-        success: true,
-        responseTime: 100,
-        models: ['llama2', 'mistral'],
-        timestamp: Date.now(),
-      };
-
-      orchestrator['onHealthCheckResult'](result);
-
-      // Circuit breaker should be force-closed
-      const server = orchestrator.getServer('server-1');
-      expect(server?.healthy).toBe(true);
-      expect(server?.models).toEqual(['llama2', 'mistral']);
-    });
-
-    it('should handle failure with previously healthy server', () => {
-      // Setup cache
-      orchestrator['tagsCacheStore']['slot'] = {
-        data: [{ name: 'llama2' }],
-        timestamp: Date.now(),
-        metadata: {
-          totalRequests: 0,
-          successfulRequests: 0,
-          failedRequests: 0,
-          serverCount: 1,
-          modelCount: 1,
-          errors: [],
-        },
-      };
-
-      const result = {
-        serverId: 'server-1',
-        success: false,
-        error: 'Connection refused',
-        timestamp: Date.now(),
-      };
-
-      orchestrator['onHealthCheckResult'](result);
-
-      const server = orchestrator.getServer('server-1');
-      expect(server?.healthy).toBe(false);
-      expect(server?.models).toEqual([]);
-      expect(orchestrator['tagsCacheStore']['slot']).toBeUndefined();
-    });
-
     it('should handle success with loaded models and VRAM', () => {
       const result = {
         serverId: 'server-1',
@@ -3088,23 +2842,6 @@ describe('AIOrchestrator', () => {
       // VRAM sizes should be stored in hardware.loadedModels
       const vramLlama2 = server?.hardware?.loadedModels?.find(m => m.name === 'llama2')?.sizeVram;
       expect(vramLlama2).toBeGreaterThan(0);
-    });
-
-    it('should pre-create circuit breakers for all models on success', () => {
-      const result = {
-        serverId: 'server-1',
-        success: true,
-        models: ['llama2', 'mistral', 'codellama'],
-        timestamp: Date.now(),
-      };
-
-      orchestrator['onHealthCheckResult'](result);
-
-      // Circuit breakers should exist for all models
-      const cb1 = orchestrator.getModelCircuitBreakerPublic('server-1', 'llama2');
-      const cb2 = orchestrator.getModelCircuitBreakerPublic('server-1', 'mistral');
-      expect(cb1).toBeDefined();
-      expect(cb2).toBeDefined();
     });
   });
 
@@ -3143,26 +2880,6 @@ describe('AIOrchestrator', () => {
 
       // Should remain 2 since no change
       expect(orchestrator['lastHealthyCount']).toBe(2);
-    });
-  });
-
-  describe('scheduleCircuitBreakerSave', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-    });
-
-    it('should schedule save with model type updates', () => {
-      // Set a model type
-      const cb = orchestrator['getModelCircuitBreaker']('server-1', 'llama2');
-      cb.setModelType('generation');
-
-      // Should not throw
-      orchestrator['scheduleCircuitBreakerSave']();
-    });
-
-    it('should schedule save without model type updates', () => {
-      // Should not throw even without model types
-      orchestrator['scheduleCircuitBreakerSave']();
     });
   });
 
@@ -3249,7 +2966,6 @@ describe('AIOrchestrator', () => {
       const result = await orchestrator['fetchServerTags'](server!);
 
       expect(result.success).toBe(false);
-      // Error type might be timeout or unknown depending on implementation
       expect(['timeout', 'unknown']).toContain(result.error?.type);
     });
 
@@ -3358,44 +3074,6 @@ describe('AIOrchestrator', () => {
       expect(result.data.length).toBeGreaterThan(0);
       expect(result.object).toBe('list');
     });
-
-    it('should exclude models with open circuit breakers', () => {
-      const s1 = orchestrator.getServer('server-1');
-      if (s1) {
-        s1.healthy = true;
-        s1.supportsV1 = true;
-        s1.v1Models = ['gpt-3.5-turbo'];
-      }
-
-      // Open circuit breaker for this model
-      const cb = orchestrator['getModelCircuitBreaker']('server-1', 'gpt-3.5-turbo');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-
-      const result = orchestrator.getAggregatedOpenAIModels();
-      // Model with open breaker might be filtered out depending on hasClosedCircuitBreaker logic
-      expect(result).toBeDefined();
-    });
-  });
-
-  describe('Server circuit breaker limits', () => {
-    beforeEach(() => {
-      orchestrator.addServer(createServer({ id: 'server-1' }));
-    });
-
-    it('should enforce max half-open circuits per server', () => {
-      // Create multiple model breakers and transition them to half-open
-      for (let i = 0; i < 5; i++) {
-        const cb = orchestrator['getModelCircuitBreaker'](`server-1`, `model-${i}`);
-        cb.recordFailure(new Error('test'));
-      }
-
-      // Try to get another circuit breaker - should be limited
-      // This tests the logic in getCircuitBreaker and getModelCircuitBreaker
-      const halfOpenCount = orchestrator['countHalfOpenCircuits']('server-1');
-      expect(typeof halfOpenCount).toBe('number');
-    });
   });
 
   describe('updateServerStatus edge cases', () => {
@@ -3426,25 +3104,6 @@ describe('AIOrchestrator', () => {
       await orchestrator.updateServerStatus(server!);
 
       expect(server?.models).toEqual([]);
-    });
-
-    it('should skip server with open circuit breaker', async () => {
-      // Open circuit breaker
-      const cb = orchestrator['getCircuitBreaker']('server-1');
-      for (let i = 0; i < 10; i++) {
-        cb.recordFailure(new Error('test'));
-      }
-
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ models: ['llama2'] }),
-      });
-
-      const server = orchestrator.getServer('server-1');
-      await orchestrator.updateServerStatus(server!);
-
-      // Server should be marked unhealthy despite successful health check
-      expect(server?.healthy).toBe(false);
     });
 
     it('should handle version parsing error gracefully', async () => {

@@ -4,6 +4,8 @@
  * Includes circuit breaker state transition tracking
  */
 
+import { WALStore } from '../probe/wal-store.js';
+import { parseTupleKey } from '../probe/types.js';
 import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 
@@ -160,24 +162,67 @@ export class RecoveryFailureTracker {
   }
 
   /**
-   * Get circuit breaker transitions for a server
+   * Get circuit breaker transitions for a server by querying WAL
    */
-  getCircuitBreakerTransitions(
+  async getCircuitBreakerTransitions(
     serverId: string,
     model?: string,
     limit = 100
-  ): CircuitBreakerTransitionRecord[] {
-    let transitions = this.circuitBreakerTransitions.filter(t => t.serverId === serverId);
-    if (model !== undefined) {
-      transitions = transitions.filter(t => t.model === model);
+  ): Promise<CircuitBreakerTransitionRecord[]> {
+    const wal = new WALStore(getOperationalStore());
+    const allEvents = await wal.getEventsForServerId(serverId);
+
+    const filtered =
+      model !== undefined
+        ? allEvents.filter(e => {
+            try {
+              const parsed = parseTupleKey(e.tupleKey);
+              return parsed.model === model;
+            } catch {
+              return false;
+            }
+          })
+        : allEvents;
+
+    const transitions: CircuitBreakerTransitionRecord[] = [];
+    for (const event of filtered) {
+      if (event.fromState === null || event.toState === null) continue;
+      try {
+        const parsed = parseTupleKey(event.tupleKey);
+        transitions.push({
+          timestamp: event.createdAt,
+          serverId: parsed.serverId,
+          model: parsed.model,
+          previousState: this.probeStateToCBState(event.fromState),
+          newState: this.probeStateToCBState(event.toState),
+          reason: event.reason ?? '',
+        });
+      } catch {
+        // skip malformed tuple keys
+      }
     }
-    return transitions.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+
+    return transitions.sort((a, b) => a.timestamp - b.timestamp).slice(0, limit);
+  }
+
+  private probeStateToCBState(state: string): 'open' | 'closed' | 'half-open' {
+    switch (state) {
+      case 'HEALTHY':
+        return 'closed';
+      case 'UNHEALTHY':
+        return 'open';
+      case 'SUSPECT':
+      case 'RECOVERING':
+        return 'half-open';
+      default:
+        return 'closed';
+    }
   }
 
   /**
-   * Analyze if circuit breakers are causing server health issues
+   * Analyze if circuit breakers are causing server health issues by querying WAL
    */
-  analyzeCircuitBreakerImpact(serverId: string): {
+  async analyzeCircuitBreakerImpact(serverId: string): Promise<{
     isImpacted: boolean;
     totalTransitions: number;
     openTransitions: number;
@@ -185,37 +230,44 @@ export class RecoveryFailureTracker {
     averageTimeInOpenState: number;
     modelLevelIssues: number;
     recommendations: string[];
-  } {
+  }> {
     const stats = this.serverStats.get(serverId);
-    if (!stats) {
-      return {
-        isImpacted: false,
-        totalTransitions: 0,
-        openTransitions: 0,
-        openToHealthyRatio: 0,
-        averageTimeInOpenState: 0,
-        modelLevelIssues: 0,
-        recommendations: ['No circuit breaker data recorded'],
-      };
+    const wal = new WALStore(getOperationalStore());
+    const allEvents = await wal.getEventsForServerId(serverId);
+
+    let openTransitions = 0;
+    let closedTransitions = 0;
+    let modelLevelIssues = 0;
+    let lastOpenReason: string | undefined;
+
+    for (const event of allEvents) {
+      if (event.fromState === null || event.toState === null) continue;
+      const toState = this.probeStateToCBState(event.toState);
+      if (toState === 'open') {
+        openTransitions++;
+        if (event.reason) lastOpenReason = event.reason;
+        try {
+          const parsed = parseTupleKey(event.tupleKey);
+          if (parsed.model) modelLevelIssues++;
+        } catch {
+          // skip
+        }
+      } else if (toState === 'closed') {
+        closedTransitions++;
+      }
     }
 
-    const transitions = this.circuitBreakerTransitions.filter(t => t.serverId === serverId);
-    const openTransitions = transitions.filter(t => t.newState === 'open').length;
-    const closedTransitions = transitions.filter(t => t.newState === 'closed').length;
-
-    const isImpacted = stats.circuitBreakerImpact.openStateContributions >= 3;
+    const totalTransitions = openTransitions + closedTransitions;
+    const isImpacted =
+      (stats?.circuitBreakerImpact.openStateContributions ?? 0) >= 3 || openTransitions >= 3;
     const openToHealthyRatio =
       closedTransitions > 0 ? openTransitions / closedTransitions : openTransitions;
-
-    // Count model-level circuit breaker issues (serverId:model format)
-    const modelLevelTransitions = transitions.filter(t => t.model !== undefined);
-    const modelLevelIssues = modelLevelTransitions.filter(t => t.newState === 'open').length;
 
     const recommendations: string[] = [];
     if (isImpacted) {
       recommendations.push('Server is frequently impacted by circuit breakers');
       recommendations.push(
-        `Last open reason: ${stats.circuitBreakerImpact.lastOpenReason ?? 'unknown'}`
+        `Last open reason: ${lastOpenReason ?? stats?.circuitBreakerImpact.lastOpenReason ?? 'unknown'}`
       );
     }
     if (modelLevelIssues > 0) {
@@ -230,7 +282,7 @@ export class RecoveryFailureTracker {
 
     return {
       isImpacted,
-      totalTransitions: stats.circuitBreakerImpact.totalTransitions,
+      totalTransitions,
       openTransitions,
       openToHealthyRatio: Math.round(openToHealthyRatio * 100) / 100,
       averageTimeInOpenState: 0,
@@ -707,16 +759,6 @@ export class RecoveryFailureTracker {
           timestamp: record.timestamp,
         });
       }
-      const recentTransitions = this.circuitBreakerTransitions.slice(-5000);
-      for (const transition of recentTransitions) {
-        store.recordCBTransition(
-          transition.serverId,
-          transition.model ?? 'unknown',
-          transition.previousState,
-          transition.newState,
-          transition.reason
-        );
-      }
       logger.debug(`Persisted recovery failure data to SQLite`);
     } catch (error) {
       logger.error('Failed to persist recovery failure data', { error });
@@ -740,16 +782,6 @@ export class RecoveryFailureTracker {
         consecutiveFailures: 1,
         source: (r.phase as RecoveryFailureRecord['source']) ?? 'health_check',
         model: r.model ?? undefined,
-      }));
-
-      const cbRows = store.getCBTransitions();
-      this.circuitBreakerTransitions = cbRows.map(r => ({
-        timestamp: r.timestamp,
-        serverId: r.serverId,
-        model: r.model,
-        previousState: r.fromState as CircuitBreakerTransitionRecord['previousState'],
-        newState: r.toState as CircuitBreakerTransitionRecord['newState'],
-        reason: r.reason ?? '',
       }));
 
       this.pruneOldRecords();
