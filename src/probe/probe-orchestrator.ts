@@ -240,7 +240,7 @@ export class ProbeOrchestrator {
    */
   canServe(tuple: Tuple, caller: 'routing' | 'probe' | 'admin'): boolean {
     const ts = this.states.get(tupleKey(tuple));
-    if (!ts) return caller === 'admin'; // unknown tuple: only admin can force
+    if (!ts) return caller === 'admin' || caller === 'routing'; // unknown tuple: routing/admin eligible; probe-only tuples stay blocked
 
     switch (caller) {
       case 'admin':

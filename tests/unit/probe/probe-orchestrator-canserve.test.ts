@@ -108,10 +108,10 @@ describe('ProbeOrchestrator canServe', () => {
   // canServe: unknown tuple (never probed)
   // -------------------------------------------------------------------------
 
-  it('unknown tuple: admin=true, routing=false, probe=false', () => {
+  it('unknown tuple: admin=true, routing=true, probe=false', () => {
     const o = new ProbeOrchestrator();
     expect(o.canServe(TUPLE, 'admin')).toBe(true);
-    expect(o.canServe(TUPLE, 'routing')).toBe(false);
+    expect(o.canServe(TUPLE, 'routing')).toBe(true);
     expect(o.canServe(TUPLE, 'probe')).toBe(false);
   });
 

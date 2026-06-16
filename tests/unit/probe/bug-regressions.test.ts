@@ -91,6 +91,12 @@ describe('Bug Regression Tests', () => {
       expect(orchestrator.canServe(tuple, 'routing')).toBe(false);
     });
 
+    it('canServe with routing caller returns true for unknown tuples (treats uninitialized as eligible)', () => {
+      const tuple = makeTuple();
+      // No state set — tuple is unknown (never probed)
+      expect(orchestrator.canServe(tuple, 'routing')).toBe(true);
+    });
+
     it('admin caller always returns true regardless of state', () => {
       const tuple = makeTuple();
       for (const state of ['HEALTHY', 'SUSPECT', 'UNHEALTHY', 'RECOVERING'] as const) {

@@ -8,6 +8,8 @@ import type { TimeoutState } from '../utils/timeout-manager.js';
 
 import { AIOrchestrator, type RoutingContext } from './orchestrator.js';
 import type { AIServer } from './orchestrator.types.js';
+import { getOperationalStore } from '../storage/operational-store.js';
+import type { ProbeState } from '../probe/types.js';
 
 /**
  * Re-export helpers from orchestrator-persistence.ts for backwards compatibility
@@ -59,9 +61,6 @@ export class OrchestratorPersistence {
    * Load timeouts from disk
    */
   loadTimeoutsFromDisk(defaultTimeout: number): Record<string, TimeoutState> {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { getOperationalStore } = require('../storage/operational-store.js');
     logger.debug('Loading timeouts from SQLite...');
     const raw = getOperationalStore().getAllTimeouts();
 
@@ -84,8 +83,6 @@ export class OrchestratorPersistence {
    */
   saveTimeoutsToDisk(timeouts: Record<string, TimeoutState>): void {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { getOperationalStore } = require('../storage/operational-store.js');
       const store = getOperationalStore();
       for (const [key, state] of Object.entries(timeouts)) {
         store.saveTimeout(key, state);
@@ -112,25 +109,31 @@ export class OrchestratorPersistence {
 
     context.selectedServerId = serverId;
 
-    const circuitBreakerRegistry = (
-      this.orchestrator as unknown as {
-        circuitBreakerRegistry: {
-          get: (key: string) => { getState: () => string } | undefined;
-        };
-      }
-    ).circuitBreakerRegistry;
+    // Get probe orchestrator from the new subsystem
+    const probeOrchestrator = this.orchestrator.getProbeOrchestrator();
 
-    // Get server-level circuit breaker state
-    const serverCb = circuitBreakerRegistry.get(serverId);
-    if (serverCb) {
-      context.serverCircuitState = serverCb.getState();
-    }
+    // Map internal 4-state probe system to UI 3-state circuit breaker model
+    const mapState = (s: ProbeState): 'open' | 'closed' | 'half-open' => {
+      if (s === 'UNHEALTHY') return 'open';
+      if (s === 'RECOVERING') return 'half-open';
+      return 'closed'; // HEALTHY or SUSPECT
+    };
 
-    // Get model-level circuit breaker state
-    const modelCb = circuitBreakerRegistry.get(`${serverId}:${model}`);
-    if (modelCb) {
-      context.modelCircuitState = modelCb.getState();
-    }
+    // Server-level circuit state (use 'ollama_chat' as representative endpoint)
+    const serverState = probeOrchestrator.getState({
+      serverId,
+      model: '*',
+      endpoint: 'ollama_chat',
+    });
+    context.serverCircuitState = mapState(serverState);
+
+    // Model-level circuit state
+    const modelState = probeOrchestrator.getState({
+      serverId,
+      model,
+      endpoint: 'ollama_chat',
+    });
+    context.modelCircuitState = mapState(modelState);
 
     // Check if we routed to an open circuit
     if (context.serverCircuitState === 'open' || context.modelCircuitState === 'open') {
