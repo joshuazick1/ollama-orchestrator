@@ -6,7 +6,7 @@
 import { Request } from 'express';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { shouldBypassCircuitBreaker } from '../../src/utils/circuit-breaker-helpers.js';
+import { shouldBypassCircuitBreaker } from '../../../src/utils/circuit-breaker-helpers.js';
 
 describe('circuit-breaker-helpers', () => {
   let mockReq: Partial<Request>;
