@@ -404,7 +404,9 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     retryDelayMs: 1000, // 1 second
     recoveryIntervalMs: 60000, // 1 minute
     backoffMultiplier: 1.5,
-  },
+    // failureThreshold and successThreshold were dropped in the rewrite (Task 6)
+    // — the new probe subsystem uses consecutiveFailures and consecutiveSuccesses
+  } as any,
 
   tags: {
     cacheTtlMs: 300000, // 5 minutes
