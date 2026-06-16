@@ -36,7 +36,7 @@ Files of record:
 
 - This file is large (4k+ lines) and intentionally the integration point. Prefer adding routing rules to [routing.ts](routing.ts) when the change is request-scoped; reserve edits to [orchestrator.ts](orchestrator.ts) for fleet lifecycle, persistence, and orchestration policy.
 - New request-flow stages (e.g. telemetry, handoff) belong in [routing.ts](routing.ts).
-- Algorithm changes (scoring weights, circuit state) must not be made in this folder — they live in [src/load-balancer/](../load-balancer/) and [src/circuit-breaker/](../circuit-breaker/).
+- Algorithm changes (scoring weights, probe state) must not be made in this folder — they live in [src/load-balancer/](../load-balancer/) and [src/probe/](../probe/).
 - Persistence must round-trip through the JSON file stores in [orchestrator-persistence.ts](orchestrator-persistence.ts); do not write to `data/servers.json` directly from controllers.
 - When adding a new public type, add it to [orchestrator.types.ts](orchestrator.types.ts) and re-export from [src/shared-types.ts](../shared-types.ts).
 

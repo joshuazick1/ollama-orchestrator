@@ -27,6 +27,7 @@ Files of record:
 - The config shape is `OrchestratorConfig`. Public config sub-shapes are exported from [config.ts](config.ts); controllers and tests must import from there, not from the schema.
 - The env mapper runs once at startup. File reload runs thereafter. Subscribers receive the new full config.
 - Persistence of the config file uses atomic write through [json-file-handler.ts](json-file-handler.ts); never write the config file from outside this folder.
+- Probe config is named `probeConfig` in the schema; the prior `circuitBreakerConfig` name is superseded.
 
 ## Work Guidance
 

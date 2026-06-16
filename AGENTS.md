@@ -88,7 +88,7 @@ The DOX tree is rooted at these child docs. Each child owns a durable boundary a
 - [src/AGENTS.md](src/AGENTS.md) — Backend application source. Owns the entire `src/` subtree.
   - [src/orchestrator/AGENTS.md](src/orchestrator/AGENTS.md) — Core routing engine: server fleet, request routing, persistence, types, models subsystem.
   - [src/load-balancer/AGENTS.md](src/load-balancer/AGENTS.md) — Server selection algorithms, weighted scoring, temporal scorer, adaptive weight tuner.
-  - [src/circuit-breaker/AGENTS.md](src/circuit-breaker/AGENTS.md) — Per-server and per-server:model circuit breaker state machine with persistence.
+  - [src/probe/AGENTS.md](src/probe/AGENTS.md) — Health checking, circuit breaker state machine, and recovery orchestration.
   - [src/controllers/AGENTS.md](src/controllers/AGENTS.md) — HTTP request handlers (Express controllers) for every API surface.
   - [src/routes/AGENTS.md](src/routes/AGENTS.md) — Express router composition and middleware chain wiring.
   - [src/middleware/AGENTS.md](src/middleware/AGENTS.md) — Cross-cutting Express middleware: auth, rate-limit, CSRF, validation.

@@ -10,7 +10,7 @@ Files of record:
 
 - [metrics-aggregator.ts](metrics-aggregator.ts) — `MetricsAggregator` class. Owns the sliding-window data (`'1m' | '5m' | '15m' | '1h' | '24h'`), the cross-model inference index, exponential decay, and the JSON persistence path.
 - [metrics-persistence.ts](metrics-persistence.ts) — `MetricsPersistence` for the JSON file fallback. SQLite is the long-term store (see [src/storage/metrics-store.ts](../storage/metrics-store.ts)).
-- [prometheus-exporter.ts](prometheus-exporter.ts) — `getPrometheusMetrics` and the Prometheus exposition formatter used by [src/controllers/metrics-controller.ts](../controllers/metrics-controller.ts).
+- [prometheus-exporter.ts](prometheus-exporter.ts) — `getPrometheusMetrics` and the Prometheus exposition formatter used by [src/controllers/metrics-controller.ts](../controllers/metrics-controller.ts). Emits `probe_state` metrics from the probe subsystem alongside standard request metrics.
 - [ttft-tracker.ts](ttft-tracker.ts) — `TTFTTracker` and `TTFTOptions` — time-to-first-token tracking for streaming requests.
 - [index.ts](index.ts) — Barrel re-export.
 

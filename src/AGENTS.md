@@ -29,7 +29,7 @@ Entry point: [src/index.ts](index.ts) wires Express, helmet (with CSP nonce), CO
 ## Work Guidance
 
 - Match the existing module style: TypeScript ES modules with explicit `.js` import extensions (project convention for ESM/Node 20+).
-- Keep the orchestrator hot path lean — `src/orchestrator/orchestrator.ts` is large by design; new routing rules go there only when they touch failover, persistence, or fleet-wide state. Algorithm-level scoring changes belong in [src/load-balancer/](load-balancer/) and breaker state changes in [src/circuit-breaker/](circuit-breaker/).
+- Keep the orchestrator hot path lean — `src/orchestrator/orchestrator.ts` is large by design; new routing rules go there only when they touch failover, persistence, or fleet-wide state. Algorithm-level scoring changes belong in [src/load-balancer/](load-balancer/) and probe state changes in [src/probe/](probe/).
 - Never suppress type errors (`as any`, `@ts-ignore`, `@ts-expect-error`). If a type is wrong upstream, fix it at the source.
 - No direct `console.log`; use `logger` from [src/utils/logger.ts](utils/logger.ts) so the in-memory log buffer picks entries up.
 - Side-effecting singletons live in `*Instance.ts` modules and are accessed through getters (e.g. `getOrchestratorInstance`, `getConfigManager`, `getMetricsStore`).
@@ -51,7 +51,7 @@ Entry point: [src/index.ts](index.ts) wires Express, helmet (with CSP nonce), CO
 
 - [src/orchestrator/AGENTS.md](orchestrator/AGENTS.md) — Core routing engine: server fleet, request routing, persistence, types, models subsystem.
 - [src/load-balancer/AGENTS.md](load-balancer/AGENTS.md) — Server selection algorithms, weighted scoring, temporal scorer, adaptive weight tuner.
-- [src/circuit-breaker/AGENTS.md](circuit-breaker/AGENTS.md) — Per-server and per-server:model circuit breaker state machine with persistence.
+- [src/probe/AGENTS.md](probe/AGENTS.md) — Health checking, circuit breaker state machine, and recovery orchestration.
 - [src/controllers/AGENTS.md](controllers/AGENTS.md) — HTTP request handlers (Express controllers) for every API surface.
 - [src/routes/AGENTS.md](routes/AGENTS.md) — Express router composition and middleware chain wiring.
 - [src/middleware/AGENTS.md](middleware/AGENTS.md) — Cross-cutting Express middleware: auth, rate-limit, CSRF, validation.

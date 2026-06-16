@@ -9,7 +9,7 @@ Owns every byte that survives a process restart. Centralizes the choice of backe
 Files of record:
 
 - [metrics-store.ts](metrics-store.ts) — `MetricsStore` (singleton via `getMetricsStore`). Long-term SQLite storage of requests, decisions, failovers, with hourly and daily rollups and the JSON file fallback for the hot 24h window. Used by [src/analytics/](../analytics/) for windows > 24h.
-- [operational-store.ts](operational-store.ts) — `OperationalStore` (singleton via `getOperationalStore`). SQLite store for circuit-breaker state, in-flight accounting, ban sets, timeout state, and similar runtime-only-but-persisted data.
+- [operational-store.ts](operational-store.ts) — `OperationalStore` (singleton via `getOperationalStore`). SQLite store for probe state WAL (probe_state_wal table, V5 migration), in-flight accounting, ban sets, timeout state, and similar runtime-only-but-persisted data.
 - [user-store.ts](user-store.ts) — `UserStore` (singleton via `getUserStore`). SQLite store for user accounts (bcrypt-hashed passwords), roles, sessions, and access records. Backs [src/routes/auth.routes.ts](../routes/auth.routes.ts) and [src/routes/user.routes.ts](../routes/user.routes.ts).
 - [error-event-store.ts](error-event-store.ts) — `ErrorEventStore` (singleton via `getErrorEventStore`). NDJSON file store with daily rotation under `data/error-events/`. Backed by [json-file-store.ts](json-file-store.ts).
 - [json-file-store.ts](json-file-store.ts) — Abstract `JsonFileStore<T>` and `NdjsonFileStore<T>` for typed file persistence.

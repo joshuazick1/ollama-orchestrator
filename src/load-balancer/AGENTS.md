@@ -4,7 +4,7 @@ Server selection algorithms, weighted scoring, and adaptive tuning.
 
 ## Purpose
 
-Implements all routing decisions for inference traffic. Owns the algorithms and weights that determine which server handles a given request, given historical metrics, current in-flight load, circuit breaker state, model availability, and context fit.
+Implements all routing decisions for inference traffic. Owns the algorithms and weights that determine which server handles a given request, given historical metrics, current in-flight load, probe state (health/circuit breaker), model availability, and context fit.
 
 Files of record:
 
@@ -15,7 +15,7 @@ Files of record:
 ## Ownership
 
 - Owns the algorithm and weight semantics. Configuration lives in [src/config/](../config/), but the math is here.
-- Public re-exports: `LoadBalancer`, `calculateServerScore`, `ServerScore`, `LoadBalancerConfig`, `CircuitBreakerHealth` are imported by [src/orchestrator/](../orchestrator/), [src/controllers/](../controllers/), and tests.
+- Public re-exports: `LoadBalancer`, `calculateServerScore`, `ServerScore`, `LoadBalancerConfig` are imported by [src/orchestrator/](../orchestrator/), [src/controllers/](../controllers/), and tests. `CircuitBreakerHealth` is consumed from [src/probe/](../probe/).
 - Scoring and weight tuning must not be reimplemented in the orchestrator or controllers.
 
 ## Local Contracts
