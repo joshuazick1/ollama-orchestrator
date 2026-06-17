@@ -12,7 +12,7 @@ import { classify } from '../probe/failure-classifier.js';
 /**
  * Maps ProbeEndpoint types to their HTTP URL paths.
  */
-const ENDPOINT_PATHS: Record<Tuple['endpoint'], string> = {
+export const ENDPOINT_PATHS: Record<Tuple['endpoint'], string> = {
   ollama_chat: '/api/chat',
   ollama_generate: '/api/generate',
   ollama_embeddings: '/api/embeddings',
@@ -25,7 +25,7 @@ const ENDPOINT_PATHS: Record<Tuple['endpoint'], string> = {
 /**
  * Request bodies for each endpoint type (minimal valid payloads).
  */
-const ENDPOINT_BODIES: Record<Tuple['endpoint'], Record<string, unknown>> = {
+export const ENDPOINT_BODIES: Record<Tuple['endpoint'], Record<string, unknown>> = {
   ollama_chat: {
     model: '__probe__',
     messages: [{ role: 'user', content: 'probe' }],
