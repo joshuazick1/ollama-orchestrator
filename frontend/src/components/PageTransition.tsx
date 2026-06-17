@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 
@@ -115,8 +115,14 @@ export const AnimatedNumber = ({
 }) => {
   const [displayValue, setDisplayValue] = useState(0);
   const prevValueRef = React.useRef(0);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // Cancel any ongoing animation
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+    }
+
     const startValue = prevValueRef.current;
     const endValue = value;
     prevValueRef.current = value;
@@ -130,11 +136,20 @@ export const AnimatedNumber = ({
       setDisplayValue(Math.floor(startValue + (endValue - startValue) * easeOut));
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        rafRef.current = null;
       }
     };
 
-    requestAnimationFrame(animate);
+    rafRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
   }, [value, duration]);
 
   return <span className={className}>{displayValue.toLocaleString()}</span>;
