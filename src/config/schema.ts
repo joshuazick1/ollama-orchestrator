@@ -479,6 +479,17 @@ export const probeConfigSchema = z.object({
   walTruncateThreshold: z.number().int().positive().default(10000),
 });
 
+/**
+ * Capability probe configuration schema for periodic negative probing.
+ */
+export const capabilityProbeConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  intervalMs: z.number().int().min(60000).default(300000), // 5 minutes
+  consecutiveFailureThreshold: z.number().int().min(1).default(3),
+  requestTimeoutMs: z.number().int().min(1000).default(5000),
+  staggerOffsetMs: z.number().int().min(0).default(30000), // 0-30s per server stagger
+});
+
 export const errorAggregatorConfigSchema = z.object({
   enabled: z.boolean().default(true),
   rateLimitThreshold: z.number().int().min(2).default(5),
@@ -545,6 +556,7 @@ export const orchestratorConfigSchema = z.object({
   storage: storageConfigSchema,
   probeScheduler: probeSchedulerConfigSchema,
   probe: probeConfigSchema.optional(),
+  capabilityProbe: capabilityProbeConfigSchema,
   anthropic: anthropicConfigSchema,
   errorAggregator: errorAggregatorConfigSchema,
   adaptiveWeightTuner: z.object({
@@ -583,6 +595,7 @@ export type StorageTemporalConfig = z.infer<typeof storageTemporalConfigSchema>;
 export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
 export type ProbeConfig = z.infer<typeof probeConfigSchema>;
+export type CapabilityProbeConfig = z.infer<typeof capabilityProbeConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type ErrorAggregatorConfig = z.infer<typeof errorAggregatorConfigSchema>;
 export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;

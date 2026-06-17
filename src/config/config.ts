@@ -6,7 +6,6 @@
 import fs from 'fs/promises';
 import path from 'path';
 
-import type { CircuitBreakerConfig } from './schema.js';
 import type { LoadBalancerConfig } from '../load-balancer/load-balancer.js';
 import { refreshAuthConfig } from '../middleware/auth.js';
 import type { ModelManagerConfig } from '../model-manager.js';
@@ -14,6 +13,12 @@ import { deepMerge } from '../utils/deep-merge.js';
 import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 
+import type {
+  CircuitBreakerConfig,
+  CapabilityProbeConfig,
+  ProbeConfig,
+  RecoveryBackoffConfig,
+} from './schema.js';
 import { validatePartialConfig } from './schema.js';
 
 // Configuration types
@@ -233,8 +238,12 @@ export interface OrchestratorConfig {
   timeout: TimeoutConfig;
   storage: StorageConfig;
   probeScheduler: ProbeSchedulerConfig;
+  probe?: ProbeConfig | undefined;
+  capabilityProbe: CapabilityProbeConfig;
   anthropic: AnthropicConfig;
   errorAggregator: ErrorAggregatorConfig;
+  adaptiveWeightTuner: { enabled: boolean };
+  recoveryBackoff: RecoveryBackoffConfig;
 
   // Ollama servers
   servers: ServerConfig[];
@@ -513,6 +522,14 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     lowTrafficThreshold: 0.3,
   },
 
+  capabilityProbe: {
+    enabled: true,
+    intervalMs: 300000,
+    consecutiveFailureThreshold: 3,
+    requestTimeoutMs: 5000,
+    staggerOffsetMs: 30000,
+  },
+
   anthropic: {
     enabled: true,
     supportedFeatures: [],
@@ -523,6 +540,17 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     rateLimitThreshold: 5,
     timeWindowMs: 10000,
     clusterBackoffMs: 30000,
+  },
+
+  adaptiveWeightTuner: {
+    enabled: true,
+  },
+
+  recoveryBackoff: {
+    modelCapability: [30000, 30000],
+    modelFile: [60000, 300000, 600000],
+    permanent: [300000, 600000, 1200000, 2400000, 3600000],
+    standard: [30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000],
   },
 
   servers: [],
@@ -950,8 +978,15 @@ export class ConfigManager {
           }
         : DEFAULT_CONFIG.storage,
       probeScheduler: { ...DEFAULT_CONFIG.probeScheduler, ...partial.probeScheduler },
+      probe: partial.probe ?? DEFAULT_CONFIG.probe,
+      capabilityProbe: { ...DEFAULT_CONFIG.capabilityProbe, ...partial.capabilityProbe },
       anthropic: { ...DEFAULT_CONFIG.anthropic, ...partial.anthropic },
       errorAggregator: { ...DEFAULT_CONFIG.errorAggregator, ...partial.errorAggregator },
+      adaptiveWeightTuner: {
+        ...DEFAULT_CONFIG.adaptiveWeightTuner,
+        ...partial.adaptiveWeightTuner,
+      },
+      recoveryBackoff: { ...DEFAULT_CONFIG.recoveryBackoff, ...partial.recoveryBackoff },
       servers: partial.servers ?? DEFAULT_CONFIG.servers,
       persistencePath: partial.persistencePath ?? DEFAULT_CONFIG.persistencePath,
       configReloadIntervalMs:
