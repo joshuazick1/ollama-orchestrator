@@ -764,6 +764,13 @@ export class AIOrchestrator {
             server.discoveredV1Models = data.data
               .map((m: { id?: string }) => m.id)
               .filter((id): id is string => typeof id === 'string');
+            if (!server.v1Models || server.v1Models.length === 0) {
+              server.v1Models = [...server.discoveredV1Models];
+              logger.info('Auto-populated v1Models from discovery', {
+                serverId: server.id,
+                models: server.v1Models.length,
+              });
+            }
           }
         } catch (e) {
           logger.debug('Failed to parse v1 models response', {
