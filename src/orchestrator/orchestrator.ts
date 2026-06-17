@@ -771,9 +771,9 @@ export class AIOrchestrator {
                 serverId: server.id,
                 models: server.v1Models.length,
               });
-              if (this.config.enablePersistence && !this._suppressPersistence) {
-                this.persistence.saveServersToDisk(this.servers);
-              }
+            }
+            if (this.config.enablePersistence && !this._suppressPersistence) {
+              this.persistence.saveServersToDisk(this.servers);
             }
           }
         } catch (e) {
