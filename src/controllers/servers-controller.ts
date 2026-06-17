@@ -8,10 +8,11 @@ import type { Request, Response } from 'express';
 import { serverConfigSchema } from '../config/schema.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
+import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
-import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 
 /**
  * Add a new server
@@ -1145,5 +1146,32 @@ export function resetServerCircuitBreaker(req: Request, res: Response): void {
     success: true,
     message: `Reset ${resetCount} circuit breaker(s) for server ${serverId}`,
     resetCount,
+  });
+}
+
+/**
+ * Trigger capability probe for a specific server
+ * POST /api/orchestrator/servers/:id/capability-probe
+ */
+export async function capabilityProbe(req: Request, res: Response): Promise<void> {
+  const id = req.params.id as string;
+  const orchestrator = getOrchestratorInstance();
+  const server = orchestrator.getServer(id);
+
+  if (!server) {
+    res.status(404).json({ success: false, error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
+    return;
+  }
+
+  const capabilityProbeScheduler = getCapabilityProbeScheduler();
+  const result = await capabilityProbeScheduler.runOnce(id);
+
+  res.status(200).json({
+    success: true,
+    serverId: result.serverId,
+    confirmed: result.confirmed,
+    revoked: result.revoked,
+    rateLimited: result.rateLimited,
+    errors: result.errors,
   });
 }

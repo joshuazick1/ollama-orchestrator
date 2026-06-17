@@ -60,6 +60,7 @@ import {
   manualRecoveryTest,
   getServersCircuitBreakers,
   getCircuitBreakersByModel,
+  capabilityProbe,
 } from '../controllers/servers-controller.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
@@ -109,6 +110,7 @@ adminRouter.post(
   requireAuth(),
   asyncHandler(refreshServerV1Models)
 );
+adminRouter.post('/servers/:id/capability-probe', requireAdmin(), asyncHandler(capabilityProbe));
 
 // Per-server model management
 adminRouter.get('/servers/:id/models', requireAuth(), asyncHandler(listServerModels));

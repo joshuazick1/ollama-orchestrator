@@ -31,3 +31,5 @@ export type OllamaEndpoint = (typeof API_ENDPOINTS.OLLAMA)[keyof typeof API_ENDP
 export type OpenAIEndpoint = (typeof API_ENDPOINTS.OPENAI)[keyof typeof API_ENDPOINTS.OPENAI];
 export type AnthropicEndpoint =
   (typeof API_ENDPOINTS.ANTHROPIC)[keyof typeof API_ENDPOINTS.ANTHROPIC];
+
+export const CAPABILITY_PROBE = '/api/orchestrator/servers/:id/capability-probe';
