@@ -5,7 +5,7 @@ export default defineConfig({
     name: 'unit',
     globals: true,
     environment: 'node',
-    include: ['tests/unit/**/*.test.ts', 'src/**/*.test.ts'],
+    include: ['tests/unit/**/*.test.ts', 'tests/utils/**/*.test.ts', 'src/**/*.test.ts'],
     exclude: ['tests/integration/**', 'tests/e2e/**', 'tests/chaos/**', 'node_modules/**'],
     setupFiles: ['./tests/setup.ts'],
     reporters: ['verbose', 'json'],

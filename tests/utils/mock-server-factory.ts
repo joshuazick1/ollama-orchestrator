@@ -723,6 +723,166 @@ export async function waitForServer(
 }
 
 /**
+ * Create a mock server where all inference endpoints return 404 model not found.
+ * Admin/listing endpoints return success.
+ */
+export function modelNotFound(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url || '';
+
+      // Inference endpoints return 404 with model not found error
+      const inferenceEndpoints = [
+        '/api/generate',
+        '/api/chat',
+        '/api/embeddings',
+        '/api/ps',
+        '/api/version',
+        '/api/pull',
+        '/api/delete',
+      ];
+
+      const isInference = inferenceEndpoints.some(ep => url.startsWith(ep));
+
+      if (isInference) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            error:
+              "model '__neg_probe_definitely_not_a_model_xyz_12345__' not found, try pulling it first",
+          })
+        );
+        return;
+      }
+
+      // Admin/listing endpoints return success
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success' }));
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
+ * Create a mock server where all inference endpoints return 404 HTML (not supported).
+ * Tests /v1/messages on Ollama which doesn't support Anthropic format.
+ * Admin/listing endpoints return success.
+ */
+export function notSupported(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url || '';
+
+      // Inference endpoints return 404 HTML
+      const inferenceEndpoints = [
+        '/api/generate',
+        '/api/chat',
+        '/api/embeddings',
+        '/api/ps',
+        '/api/version',
+        '/api/pull',
+        '/api/delete',
+      ];
+
+      const isInference = inferenceEndpoints.some(ep => url.startsWith(ep));
+
+      if (isInference) {
+        res.writeHead(404, { 'Content-Type': 'text/html' });
+        res.end('404 page not found');
+        return;
+      }
+
+      // Admin/listing endpoints return success
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success' }));
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
+ * Create a mock server where all inference endpoints return 429 rate limited.
+ * Admin/listing endpoints return success.
+ */
+export function rateLimitedOnInvalid(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url || '';
+
+      // Inference endpoints return 429 rate limited
+      const inferenceEndpoints = [
+        '/api/generate',
+        '/api/chat',
+        '/api/embeddings',
+        '/api/ps',
+        '/api/version',
+        '/api/pull',
+        '/api/delete',
+      ];
+
+      const isInference = inferenceEndpoints.some(ep => url.startsWith(ep));
+
+      if (isInference) {
+        res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '5' });
+        res.end(JSON.stringify({ error: 'rate limit exceeded' }));
+        return;
+      }
+
+      // Admin/listing endpoints return success
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'success' }));
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
+ * Create a mock server where ALL endpoints (11 total) return 404 HTML.
+ * Tests the "every endpoint is broken" scenario.
+ */
+export function html404(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((_req: IncomingMessage, res: ServerResponse) => {
+      res.writeHead(404, { 'Content-Type': 'text/html' });
+      res.end('404 page not found');
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
  * Create a server factory for testing scenarios
  */
 export const mockServerFactory = {
@@ -764,6 +924,10 @@ export const mockServerFactory = {
       healthyForRequests: healthyFor,
       degradeAfterRequests: degradeAfter,
     }),
+  modelNotFound: (port: number) => modelNotFound(port),
+  notSupported: (port: number) => notSupported(port),
+  rateLimitedOnInvalid: (port: number) => rateLimitedOnInvalid(port),
+  html404: (port: number) => html404(port),
 };
 
 export interface MockOllamaServerOptions {
