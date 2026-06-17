@@ -16,6 +16,8 @@ import type { AIServer } from '../types';
 import { formatBytes, formatDate } from '../utils/formatting';
 import { Modal } from './Modal';
 import { useModelPulls, type PullOperation } from '../hooks/useModelPulls';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { cn } from '../lib/utils';
 
 interface ModelManagerModalProps {
   isOpen: boolean;
@@ -137,7 +139,6 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
   const queryClient = useQueryClient();
   const [newModelName, setNewModelName] = useState('');
   const [selectedSourceServer, setSelectedSourceServer] = useState('');
-  const [activeTab, setActiveTab] = useState<'installed' | 'pull'>('installed');
 
   const { startPull, cancelPull, dismissPull, getServerPulls } = useModelPulls();
 
@@ -212,7 +213,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
     });
   };
 
-  // key prop forces remount when isOpen changes, naturally resetting form state (newModelName, selectedSourceServer, activeTab) to initial values
+  // key prop forces remount when isOpen changes, naturally resetting form state (newModelName, selectedSourceServer) to initial values
   return (
     <Modal
       key={isOpen ? 'open' : 'closed'}
@@ -223,40 +224,36 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
       className="max-h-[90vh]"
     >
       <div className="flex flex-col h-full">
-        {/* Tabs */}
-        <div className="flex border-b border-surface-border -mx-6 px-6 mb-6">
-          <button
-            onClick={() => setActiveTab('installed')}
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === 'installed'
-                ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/5'
-                : 'text-text-muted hover:text-text-base'
-            }`}
-          >
-            <Package className="w-4 h-4 inline mr-2" />
-            Installed Models ({models.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('pull')}
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${
-              activeTab === 'pull'
-                ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-500/5'
-                : 'text-text-muted hover:text-text-base'
-            }`}
-          >
-            <Download className="w-4 h-4 inline mr-2" />
-            Pull / Copy Model
-            {activePulls.length > 0 && (
-              <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-text-base bg-blue-500 rounded-full animate-pulse">
-                {activePulls.length}
-              </span>
-            )}
-          </button>
-        </div>
+        <Tabs defaultValue="installed" className="flex flex-col h-full">
+          <TabsList className="flex border-b border-surface-border -mx-6 px-6 mb-6 bg-transparent rounded-none justify-start h-auto p-0">
+            <TabsTrigger
+              value="installed"
+              className={cn(
+                'flex-1 py-3 px-4 text-sm font-medium transition-colors rounded-none data-[state=active]:text-blue-400 data-[state=active]:border-b-2 data-[state=active]:border-blue-400 data-[state=active]:bg-blue-500/5',
+                'text-text-muted hover:text-text-base border-b-2 border-transparent'
+              )}
+            >
+              <Package className="w-4 h-4 inline mr-2" />
+              Installed Models ({models.length})
+            </TabsTrigger>
+            <TabsTrigger
+              value="pull"
+              className={cn(
+                'flex-1 py-3 px-4 text-sm font-medium transition-colors relative rounded-none data-[state=active]:text-blue-400 data-[state=active]:border-b-2 data-[state=active]:border-blue-400 data-[state=active]:bg-blue-500/5',
+                'text-text-muted hover:text-text-base border-b-2 border-transparent'
+              )}
+            >
+              <Download className="w-4 h-4 inline mr-2" />
+              Pull / Copy Model
+              {activePulls.length > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-text-base bg-blue-500 rounded-full animate-pulse">
+                  {activePulls.length}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto -mx-6 px-6">
-          {activeTab === 'installed' ? (
+          <TabsContent value="installed" className="flex-1 overflow-y-auto -mx-6 px-6 mt-0">
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h4 className="text-sm font-medium text-text-muted">
@@ -311,9 +308,10 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                 </div>
               )}
             </div>
-          ) : (
+          </TabsContent>
+
+          <TabsContent value="pull" className="flex-1 overflow-y-auto -mx-6 px-6 mt-0">
             <div>
-              {/* Active pull operations */}
               {serverPulls.length > 0 && (
                 <div className="mb-6 space-y-2">
                   <h4 className="text-sm font-medium text-text-muted mb-2">
@@ -395,7 +393,6 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                 </div>
               </form>
 
-              {/* Popular in Fleet - filter out already installed models */}
               {fleetStats?.popularModels && fleetStats.popularModels.length > 0 && (
                 <div className="mt-6 p-4 bg-surface-raised/50 rounded-lg border border-surface-border/50">
                   <div className="flex items-center mb-3">
@@ -424,7 +421,6 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                 </div>
               )}
 
-              {/* Recently Added - from other servers only */}
               {otherServers && otherServers.length > 0 && (
                 <div className="mt-4 p-4 bg-surface-raised/50 rounded-lg border border-surface-border/50">
                   <div className="flex items-center mb-3">
@@ -452,8 +448,8 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </Modal>
   );

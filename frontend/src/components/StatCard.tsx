@@ -1,4 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { Card } from './Card';
 
 export interface StatCardProps {
   title: string;
@@ -24,7 +26,7 @@ export const StatCard = ({
 }: StatCardProps) => {
   if (loading) {
     return (
-      <div className="bg-surface rounded-xl p-6 border border-surface-border shadow-lg animate-pulse">
+      <Card className="animate-pulse">
         <div className="flex justify-between items-start">
           <div>
             <div className="h-4 w-24 bg-gray-700 rounded mb-3" />
@@ -35,12 +37,12 @@ export const StatCard = ({
             <div className="w-6 h-6 bg-gray-600 rounded" />
           </div>
         </div>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-surface rounded-xl p-6 border border-surface-border shadow-lg hover:border-surface-border transition-colors">
+    <Card>
       <div className="flex justify-between items-start">
         <div>
           <p className="text-text-muted text-sm font-medium">{title}</p>
@@ -48,13 +50,14 @@ export const StatCard = ({
           {subtext && <p className="text-text-subtle text-sm mt-1">{subtext}</p>}
           {trend && (
             <div
-              className={`text-sm mt-2 flex items-center gap-1 ${
+              className={cn(
+                'text-sm mt-2 flex items-center gap-1',
                 trend.direction === 'up'
                   ? 'text-green-400'
                   : trend.direction === 'down'
                     ? 'text-red-400'
                     : 'text-text-muted'
-              }`}
+              )}
             >
               {trend.direction === 'up' && <span>↑</span>}
               {trend.direction === 'down' && <span>↓</span>}
@@ -62,11 +65,11 @@ export const StatCard = ({
             </div>
           )}
         </div>
-        <div className={`p-3 rounded-lg bg-opacity-20 ${color.replace('text-', 'bg-')} ${color}`}>
+        <div className={cn('p-3 rounded-lg bg-opacity-20', color.replace('text-', 'bg-'), color)}>
           <Icon className="w-6 h-6" />
         </div>
       </div>
-    </div>
+    </Card>
   );
 };
 

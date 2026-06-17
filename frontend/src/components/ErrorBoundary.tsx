@@ -1,6 +1,8 @@
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { Alert, AlertTitle, AlertDescription } from './ui/alert';
+import { Button } from './Button';
 import { toastError } from '../utils/toast';
 
 interface Props {
@@ -47,25 +49,24 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="min-h-screen bg-surface flex items-center justify-center p-4">
-          <div className="bg-surface-raised rounded-lg border border-red-500/20 p-6 max-w-md w-full">
-            <div className="flex items-center space-x-3 mb-4">
-              <AlertTriangle className="w-6 h-6 text-red-400" />
-              <h2 className="text-lg font-semibold text-text-base">Something went wrong</h2>
-            </div>
-            <p className="text-text-muted mb-4">
+          <Alert variant="destructive" className="max-w-md bg-surface-raised border-red-500/20">
+            <AlertTriangle className="w-6 h-6 text-red-400" />
+            <AlertTitle className="text-white">Something went wrong</AlertTitle>
+            <AlertDescription className="text-text-muted">
               An unexpected error occurred. Please try refreshing the page.
-            </p>
-            <div className="text-xs text-text-subtle mb-4 font-mono bg-surface p-2 rounded">
-              {this.state.error?.message}
-            </div>
-            <button
+              <div className="mt-3 text-xs text-text-subtle font-mono bg-surface p-2 rounded">
+                {this.state.error?.message}
+              </div>
+            </AlertDescription>
+            <Button
+              variant="primary"
               onClick={() => window.location.reload()}
-              className="w-full bg-red-600 hover:bg-red-700 text-text-base px-4 py-2 rounded-lg transition-colors flex items-center justify-center space-x-2"
+              className="mt-4 w-full"
             >
-              <RefreshCw className="w-4 h-4" />
-              <span>Refresh Page</span>
-            </button>
-          </div>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Page
+            </Button>
+          </Alert>
         </div>
       );
     }
@@ -73,3 +74,5 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+
+export default ErrorBoundary;

@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import { Loader2, AlertCircle, Inbox, Server, Database, FileText } from 'lucide-react';
+import { Button } from './Button';
 
 export type EmptyStateType = 'loading' | 'empty' | 'error' | 'no-servers' | 'no-models' | 'no-logs';
 
@@ -69,12 +70,9 @@ export const EmptyState = ({ type, title, message, action }: EmptyStateProps) =>
       <h3 className="text-lg font-medium text-white mb-2">{title ?? config.title}</h3>
       <p className="text-text-muted text-center max-w-md mb-6">{message ?? config.message}</p>
       {action && (
-        <button
-          onClick={action.onClick}
-          className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
-        >
+        <Button variant="primary" onClick={action.onClick}>
           {action.label}
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -1,5 +1,4 @@
 import { Toaster as HotToaster } from 'react-hot-toast';
-import { uiColors } from '../constants/colors';
 
 export const Toaster = () => {
   return (
@@ -8,34 +7,34 @@ export const Toaster = () => {
       toastOptions={{
         duration: 4000,
         style: {
-          background: uiColors.surfaceDark,
-          color: uiColors.textLight,
-          border: `1px solid ${uiColors.surfaceBorder}`,
+          background: 'var(--color-surface)',
+          color: 'var(--color-text-base)',
+          border: '1px solid var(--color-border)',
           borderRadius: '0.75rem',
           padding: '1rem',
         },
         success: {
           iconTheme: {
-            primary: uiColors.success,
-            secondary: uiColors.surfaceDark,
+            primary: 'var(--color-success)',
+            secondary: 'var(--color-surface)',
           },
           style: {
-            borderColor: uiColors.success,
+            borderColor: 'var(--color-success)',
           },
         },
         error: {
           iconTheme: {
-            primary: uiColors.error,
-            secondary: uiColors.surfaceDark,
+            primary: 'var(--color-danger)',
+            secondary: 'var(--color-surface)',
           },
           style: {
-            borderColor: uiColors.error,
+            borderColor: 'var(--color-danger)',
           },
         },
         loading: {
           iconTheme: {
-            primary: uiColors.info,
-            secondary: uiColors.surfaceDark,
+            primary: 'var(--color-info)',
+            secondary: 'var(--color-surface)',
           },
         },
       }}

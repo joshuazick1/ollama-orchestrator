@@ -24,6 +24,8 @@ import {
 import { StatCard } from '../components/StatCard';
 import { formatDuration, formatTimeAgo } from '../utils/formatting';
 import { Modal } from './Modal';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { cn } from '../lib/utils';
 
 // Zod schemas for validating API responses
 const realtimeMetricsSchema = z.object({
@@ -205,8 +207,6 @@ export const CircuitDetailModal = ({
   serverId,
   model,
 }: CircuitDetailModalProps) => {
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
-
   const { data: metricsData } = useQuery({
     queryKey: ['circuit-metrics', serverId, model],
     queryFn: async () => {
@@ -292,34 +292,39 @@ export const CircuitDetailModal = ({
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex border-b border-surface-border px-6">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-text-muted hover:text-text-base'
-              }`}
-            >
-              <tab.icon className="w-4 h-4" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <Tabs defaultValue="overview" className="flex flex-col h-full">
+          <TabsList className="flex border-b border-surface-border px-6 bg-transparent rounded-none justify-start h-auto p-0">
+            {tabs.map(tab => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors rounded-none data-[state=active]:border-blue-500 data-[state=active]:text-blue-400',
+                  'border-transparent text-text-muted hover:text-text-base'
+                )}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'overview' && (
+          <TabsContent value="overview" className="flex-1 overflow-y-auto p-6 mt-0">
             <OverviewTab metricsData={metricsData} circuitBreaker={circuitBreaker} />
-          )}
-          {activeTab === 'performance' && <PerformanceTab metricsData={metricsData} />}
-          {activeTab === 'streaming' && <StreamingTab metricsData={metricsData} />}
-          {activeTab === 'history' && <HistoryTab serverId={serverId} model={model} />}
-          {activeTab === 'trends' && <TrendsTab serverId={serverId} model={model} />}
-        </div>
+          </TabsContent>
+          <TabsContent value="performance" className="flex-1 overflow-y-auto p-6 mt-0">
+            <PerformanceTab metricsData={metricsData} />
+          </TabsContent>
+          <TabsContent value="streaming" className="flex-1 overflow-y-auto p-6 mt-0">
+            <StreamingTab metricsData={metricsData} />
+          </TabsContent>
+          <TabsContent value="history" className="flex-1 overflow-y-auto p-6 mt-0">
+            <HistoryTab serverId={serverId} model={model} />
+          </TabsContent>
+          <TabsContent value="trends" className="flex-1 overflow-y-auto p-6 mt-0">
+            <TrendsTab serverId={serverId} model={model} />
+          </TabsContent>
+        </Tabs>
       </div>
     </Modal>
   );

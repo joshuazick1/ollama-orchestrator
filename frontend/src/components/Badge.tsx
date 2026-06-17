@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import clsx from 'clsx';
+import { cn } from '../lib/utils';
 
 interface BadgeProps {
   variant?: 'success' | 'warning' | 'danger' | 'info' | 'neutral';
@@ -25,7 +25,7 @@ const sizeClasses = {
 export const Badge = ({ variant = 'neutral', size = 'md', children, className }: BadgeProps) => {
   return (
     <span
-      className={clsx(
+      className={cn(
         'inline-flex items-center font-medium',
         variantClasses[variant],
         sizeClasses[size],

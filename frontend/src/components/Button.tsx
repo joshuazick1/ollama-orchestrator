@@ -1,6 +1,6 @@
 import type { ButtonHTMLAttributes } from 'react';
 import { Loader2 } from 'lucide-react';
-import clsx from 'clsx';
+import { Button as UiButton } from './ui/button';
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -8,17 +8,20 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean;
 }
 
-const variantClasses = {
-  primary: 'bg-primary hover:bg-primary-hover text-text-base',
-  secondary: 'bg-surface-raised border border-surface-border hover:bg-surface text-text-base',
-  danger: 'bg-danger hover:bg-red-700 text-text-base',
-  ghost: 'bg-transparent hover:bg-surface-raised text-text-muted',
+type ShadcnVariant = 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
+type ShadcnSize = 'default' | 'sm' | 'lg' | 'icon';
+
+const variantMap: Record<NonNullable<ButtonProps['variant']>, ShadcnVariant> = {
+  primary: 'default',
+  secondary: 'secondary',
+  danger: 'destructive',
+  ghost: 'ghost',
 };
 
-const sizeClasses = {
-  sm: 'px-3 py-1.5 text-sm rounded-md',
-  md: 'px-4 py-2 text-sm rounded-lg',
-  lg: 'px-6 py-3 text-base rounded-lg',
+const sizeMap: Record<NonNullable<ButtonProps['size']>, ShadcnSize> = {
+  sm: 'sm',
+  md: 'default',
+  lg: 'lg',
 };
 
 export function Button({
@@ -34,20 +37,18 @@ export function Button({
   const isDisabled = disabled || loading;
 
   return (
-    <button
+    <UiButton
       type={type}
       disabled={isDisabled}
-      className={clsx(
-        'inline-flex items-center justify-center font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface',
-        'disabled:opacity-50 disabled:cursor-not-allowed',
-        variantClasses[variant],
-        sizeClasses[size],
-        className
-      )}
+      variant={variantMap[variant]}
+      size={sizeMap[size]}
+      className={className}
       {...props}
     >
       {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
       {children}
-    </button>
+    </UiButton>
   );
 }
+
+export default Button;

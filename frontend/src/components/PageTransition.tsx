@@ -26,11 +26,11 @@ export const PageTransition = ({
   }, [delay]);
 
   const animationClasses = {
-    fade: 'animate-fade-in',
-    'slide-left': 'animate-slide-in-left',
-    'slide-right': 'animate-slide-in-right',
-    scale: 'animate-scale-in',
-    'slide-up': 'animate-slide-up',
+    fade: 'animate-in fade-in-0 duration-300',
+    'slide-left': 'animate-in slide-in-from-left-4 duration-300',
+    'slide-right': 'animate-in slide-in-from-right-4 duration-300',
+    scale: 'animate-in zoom-in-95 duration-200',
+    'slide-up': 'animate-in slide-in-from-bottom-4 duration-300',
   };
 
   return (
@@ -61,7 +61,7 @@ export const StaggeredList = ({ children, className, staggerDelay = 50 }: Stagge
       {childrenArray.map((child, index) => (
         <div
           key={index}
-          className="animate-slide-up"
+          className="animate-in slide-in-from-bottom-4 duration-300"
           style={{ animationDelay: `${index * staggerDelay}ms` }}
         >
           {child}
@@ -118,7 +118,6 @@ export const AnimatedNumber = ({
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // Cancel any ongoing animation
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
     }

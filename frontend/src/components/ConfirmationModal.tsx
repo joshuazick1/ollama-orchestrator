@@ -1,5 +1,16 @@
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import { Modal } from './Modal';
+import { cn } from '../lib/utils';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from './ui/alert-dialog';
+import { Button } from './Button';
 
 interface ConfirmationModalProps {
   isOpen: boolean;
@@ -30,12 +41,20 @@ export function ConfirmationModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm" variant="danger">
-      <div className="text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 mb-4">
-          <AlertTriangle className="h-6 w-6 text-red-600" />
-        </div>
-        <p className="text-gray-400 mb-6">{message}</p>
+    <AlertDialog open={isOpen} onOpenChange={open => !open && onClose()}>
+      <AlertDialogContent className="bg-surface border-red-500/50 max-w-md">
+        <AlertDialogHeader>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+              <AlertTriangle className="h-6 w-6 text-red-600" />
+            </div>
+          </div>
+          <AlertDialogTitle className="text-center text-white">{title}</AlertDialogTitle>
+          <AlertDialogDescription className="text-gray-400 text-center">
+            {message}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
         {consequences && consequences.length > 0 && (
           <ul className="mt-4 text-left text-sm text-yellow-300 space-y-1">
             {consequences.map((c, i) => (
@@ -46,30 +65,34 @@ export function ConfirmationModal({
             ))}
           </ul>
         )}
-        <div className="flex gap-3 justify-center">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-surface hover:bg-surface-hover text-text-base rounded-lg transition-colors"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={isPending}
-            className={`px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors
-              ${isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {isPending ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Processing...
-              </span>
-            ) : (
-              confirmLabel
-            )}
-          </button>
-        </div>
-      </div>
-    </Modal>
+
+        <AlertDialogFooter className="flex gap-3 justify-center sm:justify-center">
+          <AlertDialogCancel asChild>
+            <Button variant="secondary" onClick={onClose} disabled={isPending}>
+              {cancelLabel}
+            </Button>
+          </AlertDialogCancel>
+          <AlertDialogAction asChild>
+            <Button
+              variant="danger"
+              onClick={handleConfirm}
+              disabled={isPending}
+              className={cn(isPending && 'opacity-50 cursor-not-allowed')}
+            >
+              {isPending ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processing...
+                </span>
+              ) : (
+                confirmLabel
+              )}
+            </Button>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
+
+export default ConfirmationModal;

@@ -1,4 +1,5 @@
 import { Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { Input } from './ui/input';
 import type { SortDirection } from '../hooks/useDataTable';
 
 export interface FilterOption {
@@ -25,7 +26,7 @@ interface DataToolbarProps {
   filters?: Record<string, string>;
   onFilterChange?: (key: string, value: string) => void;
 
-  children?: React.ReactNode; // For extra actions like "Add Button"
+  children?: React.ReactNode;
 }
 
 export function DataToolbar({
@@ -42,20 +43,18 @@ export function DataToolbar({
 }: DataToolbarProps) {
   return (
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 bg-surface-raised/50 p-4 rounded-xl border border-surface-border">
-      {/* Search */}
       <div className="relative w-full md:w-64">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-text-muted w-4 h-4" />
-        <input
+        <Input
           type="text"
           value={searchQuery}
           onChange={e => onSearchChange(e.target.value)}
           placeholder={searchPlaceholder}
-          className="w-full bg-surface border border-surface-border rounded-lg pl-10 pr-4 py-2 text-sm text-text-base placeholder-gray-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
+          className="w-full bg-surface border border-surface-border rounded-lg pl-10 pr-4 py-2 text-sm text-text-base placeholder:text-gray-600"
         />
       </div>
 
       <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-        {/* Filters */}
         {filterOptions.map(filter => (
           <div
             key={filter.key}
@@ -79,7 +78,6 @@ export function DataToolbar({
           </div>
         ))}
 
-        {/* Sorting */}
         {sortOptions.length > 0 && onSortChange && (
           <div className="flex items-center bg-surface rounded-lg border border-surface-border overflow-hidden">
             <div className="px-3 py-1.5 border-r border-surface-border flex items-center space-x-2">
@@ -110,9 +108,10 @@ export function DataToolbar({
           </div>
         )}
 
-        {/* Extra Actions */}
         {children}
       </div>
     </div>
   );
 }
+
+export default DataToolbar;

@@ -1,5 +1,13 @@
 import type { ReactNode } from 'react';
-import clsx from 'clsx';
+import { cn } from '../lib/utils';
+import {
+  Card as UiCard,
+  CardHeader as UiCardHeader,
+  CardContent as UiCardContent,
+  CardFooter as UiCardFooter,
+  CardTitle,
+  CardDescription,
+} from './ui/card';
 
 type CardVariant = 'default' | 'elevated' | 'bordered' | 'interactive';
 type CardPadding = 'none' | 'sm' | 'md' | 'lg';
@@ -34,21 +42,18 @@ export const Card = ({
   padding = 'md',
   onClick,
 }: CardProps) => {
-  const Component = onClick ? 'button' : 'div';
-
   return (
-    <Component
-      className={clsx(
-        'rounded-xl',
+    <UiCard
+      className={cn(
         variantStyles[variant],
         paddingMap[padding],
-        onClick && 'text-left w-full',
+        onClick && 'text-left cursor-pointer',
         className
       )}
       onClick={onClick}
     >
       {children}
-    </Component>
+    </UiCard>
   );
 };
 
@@ -61,16 +66,18 @@ interface CardHeaderProps {
 }
 
 export const CardHeader = ({ title, subtitle, action, icon, className }: CardHeaderProps) => (
-  <div className={clsx('flex items-start justify-between mb-4', className)}>
+  <UiCardHeader className={cn('flex items-start justify-between mb-4', className)}>
     <div className="flex items-center gap-3">
       {icon && <div className="text-text-muted">{icon}</div>}
       <div>
-        <h3 className="text-lg font-semibold text-white">{title}</h3>
-        {subtitle && <p className="text-sm text-text-muted">{subtitle}</p>}
+        <CardTitle className="text-lg font-semibold text-white">{title}</CardTitle>
+        {subtitle && (
+          <CardDescription className="text-sm text-text-muted">{subtitle}</CardDescription>
+        )}
       </div>
     </div>
     {action && <div>{action}</div>}
-  </div>
+  </UiCardHeader>
 );
 
 interface CardContentProps {
@@ -79,7 +86,7 @@ interface CardContentProps {
 }
 
 export const CardContent = ({ children, className }: CardContentProps) => (
-  <div className={className}>{children}</div>
+  <UiCardContent className={className}>{children}</UiCardContent>
 );
 
 interface CardFooterProps {
@@ -88,7 +95,9 @@ interface CardFooterProps {
 }
 
 export const CardFooter = ({ children, className }: CardFooterProps) => (
-  <div className={clsx('mt-4 pt-4 border-t border-surface-border', className)}>{children}</div>
+  <UiCardFooter className={cn('mt-4 pt-4 border-t border-surface-border', className)}>
+    {children}
+  </UiCardFooter>
 );
 
 export default Card;

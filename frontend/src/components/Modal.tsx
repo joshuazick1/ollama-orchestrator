@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { createFocusTrap } from 'focus-trap';
 import { X } from 'lucide-react';
-import clsx from 'clsx';
+import { cn } from '../lib/utils';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 
 interface ModalProps {
   isOpen: boolean;
@@ -86,29 +87,20 @@ export const Modal = ({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm motion-reduce:bg-black/90 animate-in fade-in duration-200"
-      onClick={handleOverlayClick}
-    >
-      <div
-        ref={modalRef}
-        className={clsx(
-          'bg-surface rounded-xl border shadow-2xl w-full animate-in zoom-in-95 duration-200',
+    <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>
+      <DialogContent
+        className={cn(
+          'bg-surface rounded-xl border shadow-2xl w-full',
           sizeClasses[size],
           variantClasses[variant],
           className
         )}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-title"
+        ref={modalRef}
+        onClick={handleOverlayClick}
       >
-        <div className="flex justify-between items-center p-4 border-b border-gray-700">
-          <h3 id="modal-title" className="text-xl font-semibold text-white">
-            {title}
-          </h3>
+        <DialogHeader className="flex justify-between items-center p-4 border-b border-gray-700">
+          <DialogTitle className="text-xl font-semibold text-white">{title}</DialogTitle>
           {showCloseButton && (
             <button
               onClick={onClose}
@@ -118,14 +110,16 @@ export const Modal = ({
               <X className="w-5 h-5" />
             </button>
           )}
-        </div>
+        </DialogHeader>
         <div className="p-6 max-h-[70vh] overflow-y-auto">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-3 p-4 border-t border-surface-border bg-surface rounded-b-xl">
+          <DialogFooter className="flex justify-end gap-3 p-4 border-t border-surface-border bg-surface rounded-b-xl">
             {footer}
-          </div>
+          </DialogFooter>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
+
+export default Modal;

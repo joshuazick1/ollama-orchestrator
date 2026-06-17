@@ -14,7 +14,10 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { getServers, getModelMap } from '../api';
+import type { AIServer } from '../types';
 import { SearchResultGroup } from './SearchResultGroup';
+import { Dialog, DialogContent } from './ui/dialog';
+import { Input } from './ui/input';
 
 interface SearchResult {
   id: string;
@@ -134,7 +137,7 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
 
   const serverItems: SearchResult[] = useMemo(() => {
     if (!servers) return [];
-    return servers.map((server: { id: string; url: string; healthy: boolean }) => ({
+    return servers.map((server: AIServer) => ({
       id: `server-${server.id}`,
       title: server.url,
       description: server.healthy ? 'Healthy' : 'Unhealthy',
@@ -214,8 +217,6 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
     [onClose]
   );
 
-  if (!isOpen) return null;
-
   const groupedResults = {
     navigation: allResults.filter(r => r.category === 'navigation'),
     server: allResults.filter(r => r.category === 'server'),
@@ -223,13 +224,11 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-
-      <div className="relative w-full max-w-xl bg-surface-raised rounded-xl border border-surface-border shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <Dialog open={isOpen} onOpenChange={open => !open && onClose()}>
+      <DialogContent className="bg-surface-raised rounded-xl border border-surface-border shadow-2xl p-0 max-w-xl gap-0">
         <div className="flex items-center px-4 border-b border-surface-border">
           <Search className="w-5 h-5 text-text-muted" />
-          <input
+          <Input
             type="text"
             value={query}
             onChange={e => {
@@ -238,7 +237,7 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
             }}
             onKeyDown={handleKeyDown}
             placeholder="Search pages, servers, models..."
-            className="flex-1 px-3 py-4 bg-transparent text-text-base placeholder-gray-500 outline-none text-lg"
+            className="flex-1 px-3 py-4 bg-transparent text-text-base placeholder:text-gray-500 outline-none text-lg border-0 shadow-none"
             ref={inputRef}
           />
           <button
@@ -298,7 +297,9 @@ export const GlobalSearch = ({ isOpen, onClose }: GlobalSearchProps) => {
           </div>
           <span>Quick Search</span>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
+
+export default GlobalSearch;

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Menu, X, Search, Sun, Moon, LogOut } from 'lucide-react';
-import clsx from 'clsx';
+import { Menu, Search, Sun, Moon, LogOut } from 'lucide-react';
+import { cn } from '../lib/utils';
 import { GlobalSearch } from './GlobalSearch';
 import { PageTransition } from './PageTransition';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from './ui/sheet';
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useTheme } from '../hooks/useTheme';
 import { useAuth } from '../contexts/AuthContext';
@@ -25,7 +26,7 @@ const NavigationItem = ({
     to={to}
     onClick={onClick}
     className={({ isActive }) =>
-      clsx(
+      cn(
         'flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors',
         isActive
           ? 'bg-primary text-text-base'
@@ -50,7 +51,7 @@ const ThemeToggle = ({
   <button
     onClick={toggleTheme}
     aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-    className={clsx(
+    className={cn(
       'rounded-lg transition-colors text-text-muted hover:text-text-base',
       compact
         ? 'p-2 hover:bg-surface-raised'
@@ -79,7 +80,6 @@ export const Layout = () => {
         onClose={closeSearch}
       />
 
-      {/* Desktop Sidebar */}
       <aside className="hidden md:flex w-64 bg-surface-raised border-r border-surface-border flex-col">
         <div className="p-6">
           <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
@@ -126,7 +126,6 @@ export const Layout = () => {
         </div>
       </aside>
 
-      {/* Mobile Header */}
       <div className="fixed top-0 left-0 right-0 z-40 md:hidden bg-surface-raised border-b border-surface-border px-4 py-3 flex items-center justify-between">
         <h1 className="text-lg font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
           Orchestrator
@@ -140,66 +139,59 @@ export const Layout = () => {
             <Search className="w-5 h-5" />
           </button>
           <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="p-2 text-text-muted hover:text-text-base rounded-lg hover:bg-surface-raised transition-colors"
-            aria-label="Toggle menu"
-          >
-            {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+          <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+            <SheetTrigger asChild>
+              <button
+                className="p-2 text-text-muted hover:text-text-base rounded-lg hover:bg-surface-raised transition-colors"
+                aria-label="Toggle menu"
+              >
+                <Menu className="w-6 h-6" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="left" className="bg-surface-raised border-surface-border w-64 p-0">
+              <SheetHeader className="p-6 pb-0">
+                <SheetTitle className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                  Orchestrator
+                </SheetTitle>
+              </SheetHeader>
+              <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+                {NAV_ITEMS.map(item => (
+                  <NavigationItem
+                    key={item.to}
+                    to={item.to}
+                    icon={item.icon}
+                    onClick={closeMobileMenu}
+                  >
+                    {item.label}
+                  </NavigationItem>
+                ))}
+              </nav>
+              <div className="p-4 border-t border-surface-border flex flex-col gap-3">
+                {user && (
+                  <div className="text-xs text-text-muted px-2">
+                    <span className="font-medium text-text-base">{user.username}</span>
+                    <span className="ml-1 text-text-subtle">({user.role})</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-text-subtle">{APP_VERSION}</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => logout()}
+                      className="p-1.5 text-text-muted hover:text-text-base hover:bg-surface-raised rounded transition-colors"
+                      aria-label="Logout"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                    <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
+                  </div>
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
 
-      {/* Mobile Sidebar Overlay */}
-      {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={closeMobileMenu} />
-      )}
-
-      {/* Mobile Sidebar */}
-      <aside
-        className={clsx(
-          'fixed inset-y-0 left-0 z-40 w-64 bg-surface-raised border-r border-surface-border flex flex-col transform transition-transform duration-300 md:hidden',
-          isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-        )}
-      >
-        <div className="p-6">
-          <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-            Orchestrator
-          </h1>
-        </div>
-
-        <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map(item => (
-            <NavigationItem key={item.to} to={item.to} icon={item.icon} onClick={closeMobileMenu}>
-              {item.label}
-            </NavigationItem>
-          ))}
-        </nav>
-
-        <div className="p-4 border-t border-surface-border flex flex-col gap-3">
-          {user && (
-            <div className="text-xs text-text-muted px-2">
-              <span className="font-medium text-text-base">{user.username}</span>
-              <span className="ml-1 text-text-subtle">({user.role})</span>
-            </div>
-          )}
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-text-subtle">{APP_VERSION}</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => logout()}
-                className="p-1.5 text-text-muted hover:text-text-base hover:bg-surface-raised rounded transition-colors"
-                aria-label="Logout"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-              <ThemeToggle compact theme={theme} toggleTheme={toggleTheme} />
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
       <main className="flex-1 overflow-auto bg-surface pt-16 md:pt-0">
         <div className="p-4 md:p-8 max-w-7xl mx-auto">
           <PageTransition key={location.pathname}>
@@ -210,3 +202,5 @@ export const Layout = () => {
     </div>
   );
 };
+
+export default Layout;
