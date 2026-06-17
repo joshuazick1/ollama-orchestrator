@@ -5,6 +5,10 @@ import {
   notSupported,
   rateLimitedOnInvalid,
   html404,
+  modelListingOllama,
+  modelListingOpenAI,
+  modelListingBoth,
+  noModelListing,
   mockServerFactory,
 } from './mock-server-factory.js';
 
@@ -182,6 +186,132 @@ describe('mock-server-factory negative probe variants', () => {
     });
   });
 
+  describe('modelListingOllama', () => {
+    let server: Server;
+
+    it('returns 3 models from /api/tags', async () => {
+      server = await modelListingOllama(TEST_PORT_BASE + 51);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 51}/api/tags`);
+      expect(result.status).toBe(200);
+      expect(result.body.models).toHaveLength(3);
+      expect(result.body.models[0].name).toBe('llama3:8b');
+      expect(result.body.models[1].name).toBe('mistral:7b');
+      expect(result.body.models[2].name).toBe('qwen2:1.5b');
+    });
+
+    it('/v1/models returns 404', async () => {
+      server = await modelListingOllama(TEST_PORT_BASE + 52);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 52}/v1/models`);
+      expect(result.status).toBe(404);
+    });
+
+    it('/api/ps returns success', async () => {
+      server = await modelListingOllama(TEST_PORT_BASE + 53);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 53}/api/ps`);
+      expect(result.status).toBe(200);
+    });
+
+    afterEach(() => {
+      return new Promise<void>(resolve => {
+        if (server) {
+          server.close(() => resolve());
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
+
+  describe('modelListingOpenAI', () => {
+    let server: Server;
+
+    it('returns 3 models from /v1/models', async () => {
+      server = await modelListingOpenAI(TEST_PORT_BASE + 61);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 61}/v1/models`);
+      expect(result.status).toBe(200);
+      expect(result.body.object).toBe('list');
+      expect(result.body.data).toHaveLength(3);
+      expect(result.body.data[0].id).toBe('gpt-4');
+      expect(result.body.data[1].id).toBe('gpt-3.5-turbo');
+      expect(result.body.data[2].id).toBe('claude-3-opus');
+    });
+
+    it('/api/tags returns 404', async () => {
+      server = await modelListingOpenAI(TEST_PORT_BASE + 62);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 62}/api/tags`);
+      expect(result.status).toBe(404);
+    });
+
+    afterEach(() => {
+      return new Promise<void>(resolve => {
+        if (server) {
+          server.close(() => resolve());
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
+
+  describe('modelListingBoth', () => {
+    let server: Server;
+
+    it('returns 2 models from /api/tags', async () => {
+      server = await modelListingBoth(TEST_PORT_BASE + 71);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 71}/api/tags`);
+      expect(result.status).toBe(200);
+      expect(result.body.models).toHaveLength(2);
+      expect(result.body.models[0].name).toBe('llama3:8b');
+      expect(result.body.models[1].name).toBe('mistral:7b');
+    });
+
+    it('returns 2 models from /v1/models', async () => {
+      server = await modelListingBoth(TEST_PORT_BASE + 72);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 72}/v1/models`);
+      expect(result.status).toBe(200);
+      expect(result.body.object).toBe('list');
+      expect(result.body.data).toHaveLength(2);
+      expect(result.body.data[0].id).toBe('gpt-4');
+      expect(result.body.data[1].id).toBe('claude-3-sonnet');
+    });
+
+    afterEach(() => {
+      return new Promise<void>(resolve => {
+        if (server) {
+          server.close(() => resolve());
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
+
+  describe('noModelListing', () => {
+    let server: Server;
+
+    it('/api/tags returns 500', async () => {
+      server = await noModelListing(TEST_PORT_BASE + 81);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 81}/api/tags`);
+      expect(result.status).toBe(500);
+    });
+
+    it('/v1/models returns 500', async () => {
+      server = await noModelListing(TEST_PORT_BASE + 82);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 82}/v1/models`);
+      expect(result.status).toBe(500);
+    });
+
+    afterEach(() => {
+      return new Promise<void>(resolve => {
+        if (server) {
+          server.close(() => resolve());
+        } else {
+          resolve();
+        }
+      });
+    });
+  });
+
   describe('mockServerFactory entries', () => {
     it('modelNotFound is exported via mockServerFactory', async () => {
       const server = await mockServerFactory.modelNotFound(TEST_PORT_BASE + 41);
@@ -226,6 +356,45 @@ describe('mock-server-factory negative probe variants', () => {
         body: JSON.stringify({ model: 'test', messages: [] }),
       });
       expect(result.status).toBe(404);
+      return new Promise<void>(resolve => {
+        server.close(() => resolve());
+      });
+    });
+
+    it('modelListingOllama is exported via mockServerFactory', async () => {
+      const server = await mockServerFactory.modelListingOllama(TEST_PORT_BASE + 51);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 51}/api/tags`);
+      expect(result.status).toBe(200);
+      expect(result.body.models).toHaveLength(3);
+      return new Promise<void>(resolve => {
+        server.close(() => resolve());
+      });
+    });
+
+    it('modelListingOpenAI is exported via mockServerFactory', async () => {
+      const server = await mockServerFactory.modelListingOpenAI(TEST_PORT_BASE + 62);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 62}/v1/models`);
+      expect(result.status).toBe(200);
+      expect(result.body.data).toHaveLength(3);
+      return new Promise<void>(resolve => {
+        server.close(() => resolve());
+      });
+    });
+
+    it('modelListingBoth is exported via mockServerFactory', async () => {
+      const server = await mockServerFactory.modelListingBoth(TEST_PORT_BASE + 71);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 71}/api/tags`);
+      expect(result.status).toBe(200);
+      expect(result.body.models).toHaveLength(2);
+      return new Promise<void>(resolve => {
+        server.close(() => resolve());
+      });
+    });
+
+    it('noModelListing is exported via mockServerFactory', async () => {
+      const server = await mockServerFactory.noModelListing(TEST_PORT_BASE + 81);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 81}/api/tags`);
+      expect(result.status).toBe(500);
       return new Promise<void>(resolve => {
         server.close(() => resolve());
       });

@@ -883,6 +883,188 @@ export function html404(port: number): Promise<Server> {
 }
 
 /**
+ * Create a mock server that only lists models via Ollama API.
+ * /api/tags returns 200 with 3 models; /v1/models returns 404.
+ * Admin endpoints return success.
+ */
+export function modelListingOllama(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url || '';
+
+      if (url === '/api/tags') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            models: [
+              { name: 'llama3:8b', model: 'llama3:8b', size: 4660676344, digest: 'abc123' },
+              { name: 'mistral:7b', model: 'mistral:7b', size: 4109746344, digest: 'def456' },
+              { name: 'qwen2:1.5b', model: 'qwen2:1.5b', size: 980000000, digest: 'ghi789' },
+            ],
+          })
+        );
+        return;
+      }
+
+      if (url === '/v1/models') {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not Found' }));
+        return;
+      }
+
+      if (url === '/api/ps' || url === '/api/version') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'success' }));
+        return;
+      }
+
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
+ * Create a mock server that only lists models via OpenAI API.
+ * /v1/models returns 200 with 3 models; /api/tags returns 404.
+ */
+export function modelListingOpenAI(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url || '';
+
+      if (url === '/v1/models') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            object: 'list',
+            data: [
+              { id: 'gpt-4', object: 'model', created: 1687882411, owned_by: 'openai' },
+              { id: 'gpt-3.5-turbo', object: 'model', created: 1677610602, owned_by: 'openai' },
+              { id: 'claude-3-opus', object: 'model', created: 1709596745, owned_by: 'anthropic' },
+            ],
+          })
+        );
+        return;
+      }
+
+      if (url === '/api/tags') {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not Found' }));
+        return;
+      }
+
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
+ * Create a mock server that lists models via both Ollama and OpenAI APIs.
+ * /api/tags returns 2 Ollama models; /v1/models returns 2 OpenAI models.
+ */
+export function modelListingBoth(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url || '';
+
+      if (url === '/api/tags') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            models: [
+              { name: 'llama3:8b', model: 'llama3:8b', size: 4660676344, digest: 'abc123' },
+              { name: 'mistral:7b', model: 'mistral:7b', size: 4109746344, digest: 'def456' },
+            ],
+          })
+        );
+        return;
+      }
+
+      if (url === '/v1/models') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            object: 'list',
+            data: [
+              { id: 'gpt-4', object: 'model', created: 1687882411, owned_by: 'openai' },
+              {
+                id: 'claude-3-sonnet',
+                object: 'model',
+                created: 1709596745,
+                owned_by: 'anthropic',
+              },
+            ],
+          })
+        );
+        return;
+      }
+
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
+ * Create a mock server where both model listing endpoints return 500.
+ * Tests the "no model listing available" scenario.
+ */
+export function noModelListing(port: number): Promise<Server> {
+  return new Promise(resolve => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url || '';
+
+      if (url === '/api/tags' || url === '/v1/models') {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        return;
+      }
+
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+    });
+
+    server.listen(port, () => {
+      mockServers.push(server);
+      resolve(server);
+    });
+
+    server.on('error', err => {
+      console.error(`Mock server error on port ${port}:`, err);
+    });
+  });
+}
+
+/**
  * Create a server factory for testing scenarios
  */
 export const mockServerFactory = {
@@ -928,6 +1110,10 @@ export const mockServerFactory = {
   notSupported: (port: number) => notSupported(port),
   rateLimitedOnInvalid: (port: number) => rateLimitedOnInvalid(port),
   html404: (port: number) => html404(port),
+  modelListingOllama: (port: number) => modelListingOllama(port),
+  modelListingOpenAI: (port: number) => modelListingOpenAI(port),
+  modelListingBoth: (port: number) => modelListingBoth(port),
+  noModelListing: (port: number) => noModelListing(port),
 };
 
 export interface MockOllamaServerOptions {
