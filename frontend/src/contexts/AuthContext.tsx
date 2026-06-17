@@ -41,7 +41,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       const response = await api.get('/auth/me');
       setUser(response.data.user);
-    } catch {
+    } catch (error) {
+      console.error('AuthContext: restoreSession failed', error);
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -72,7 +73,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const logout = async () => {
     try {
       await api.post('/auth/logout');
-    } catch {
+    } catch (error) {
+      console.error('AuthContext: logout failed', error);
+      toastError('Logout failed. Please try again.');
     } finally {
       setUser(null);
     }
@@ -81,7 +84,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const refreshToken = async () => {
     try {
       await api.post('/auth/refresh');
-    } catch {
+    } catch (error) {
+      console.error('AuthContext: refreshToken failed', error);
       setUser(null);
       throw new Error('Session expired');
     }
