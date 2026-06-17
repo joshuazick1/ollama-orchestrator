@@ -9,6 +9,7 @@ import type { TimeoutState } from '../utils/timeout-manager.js';
 import { AIOrchestrator, type RoutingContext } from './orchestrator.js';
 import type { AIServer } from './orchestrator.types.js';
 import { getOperationalStore } from '../storage/operational-store.js';
+import { serversConfig } from '../config/config-manager.js';
 import type { ProbeState } from '../probe/types.js';
 
 /**
@@ -40,11 +41,6 @@ export class OrchestratorPersistence {
    */
   saveServersToDisk(servers: AIServer[]): void {
     try {
-      const _config = (this.orchestrator as unknown as { config: { persistencePath?: string } })
-        .config;
-      // Use serversConfig directly like the original helper
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { serversConfig } = require('../config/config-manager.js');
       logger.info(`Saving ${servers.length} servers to disk at ${serversConfig.getPath()}...`);
       const success = serversConfig.set(servers);
       if (!success) {
