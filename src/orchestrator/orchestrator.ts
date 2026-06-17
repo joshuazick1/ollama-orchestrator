@@ -657,6 +657,7 @@ export class AIOrchestrator {
         probeV1
           ? fetch(`${server.url}${API_ENDPOINTS.OPENAI.MODELS}`, {
               signal: controller.signal,
+              headers: server.apiKey ? { Authorization: `Bearer ${server.apiKey}` } : undefined,
             }).catch((err: unknown) => {
               logger.debug('Probe fetch failed for /v1/models', {
                 serverId: server.id,
