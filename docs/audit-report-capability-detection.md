@@ -828,4 +828,178 @@ Phase 1 is estimated at 65-95 hours across 11 tasks. Phase 2 (registration-time 
 
 ---
 
+## 9. Implementation Results
+
+This section documents what was actually built against the original audit and plan.
+
+### 9.1 What Was Built
+
+**New source files:**
+
+| File                                             | Lines | Purpose                                                                                                                       |
+| ------------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `src/orchestrator/probe-executor-negative.ts`    | 665   | `probeExecutorNegative()` — sends invalid model names to all 11 endpoints and inspects response bodies for capability signals |
+| `src/probe/failure-classifier-negative.ts`       | 211   | `classifyNegativeResult()` — classifies 404 JSON vs 404 HTML, detects mid-stream NDJSON errors, handles rate limit backoff    |
+| `src/probe/probe-scheduler.ts`                   | 311   | `CapabilityProbeScheduler` — periodic negative-probe scheduler (5-minute default, staggered across servers)                   |
+| `tests/integration/capability-detection.test.ts` | 620   | Full lifecycle integration tests: negative-probe → soft-revoke → positive-probe → re-confirm                                  |
+| `tests/chaos/capability-detection-chaos.test.ts` | 793   | Chaos tests for network partition, server restart, rapid model load/unload                                                    |
+
+**Modified source files:**
+
+| File                             | Change                                                                                                          |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `src/probe/endpoint-registry.ts` | Added `softRevoke()` and `recordFailure()` methods; `confirm()` now callable from production code via scheduler |
+
+**Not built (deviation from plan):**
+
+- T6 (admin endpoint `POST /api/orchestrator/servers/:id/capability-probe`) was not implemented. The periodic scheduler provides continuous coverage and manual triggering is not required for Phase 1.
+
+### 9.2 Implementation Details
+
+**probeExecutorNegative()** (`src/orchestrator/probe-executor-negative.ts:665 lines`)
+
+The function sends a POST request with an impossible model name (`__neg_probe_definitely_not_a_model_xyz_12345__`) to each endpoint. It always reads the response body (up to 4KB) regardless of HTTP status code, then classifies the result based on both status and body content.
+
+The `NegativeProbeResult` return type:
+
+```typescript
+export type NegativeProbeResult = {
+  capabilityConfirmed: boolean; // endpoint exists and responded correctly
+  modelNotFound: boolean; // 404 JSON — model not loaded but endpoint works
+  endpointAbsent: boolean; // 404 HTML — endpoint not implemented
+  midStreamError: boolean; // 200 + NDJSON error — validates after accepting
+  suspicious: boolean; // 200 + valid JSON — no validation on invalid model
+  networkError: boolean; // connection failed
+  timedOut: boolean; // request exceeded timeout
+  retryable: boolean; // error is retryable (rate limited, transient)
+  retryAfterMs?: number; // Retry-After header value
+  success: boolean; // for admin endpoints only
+};
+```
+
+The key classification logic distinguishes JSON 404 from HTML 404 using regex patterns:
+
+```typescript
+const JSON_404_PATTERN = /\{"error":/;
+const MODEL_NOT_FOUND_IN_MESSAGE = /model\s+'[^']+'\s+not\s+found/i;
+const HTML_404_PATTERN = /<html|i<!doctype|404\s+page\s+not\s+found/i;
+```
+
+**classifyNegativeResult()** (`src/probe/failure-classifier-negative.ts:211 lines`)
+
+Pure classification function that takes a `NegativeProbeResult` and returns a `NegativeClassification`:
+
+```typescript
+export type NegativeFailureKind =
+  | 'capability_gap' // endpoint absent — soft-revoke immediately
+  | 'suspicious' // 200 on invalid model — flag for review
+  | 'rate_limited' // 429 — respect Retry-After
+  | 'transient' // network error, timeout
+  | 'permanent'; // auth failure
+```
+
+**CapabilityProbeScheduler** (`src/probe/probe-scheduler.ts:311 lines`)
+
+Runs negative probes every 5 minutes (configurable via `capabilityProbeIntervalMs`). Uses server-level and endpoint-level staggering to avoid probe budget explosion:
+
+```typescript
+// Server-level stagger: offset by serverIndex * (intervalMs / serverCount)
+// Endpoint-level stagger: offset by endpointIndex * (intervalMs / (serverCount * endpointCount))
+const staggerMs =
+  (serverIndex * intervalMs) / serverCount +
+  (endpointIndex * intervalMs) / (serverCount * endpointCount);
+```
+
+The scheduler maintains a `deferredServers` map to track rate-limited servers and skip them until their deferral expires. Only the 7 inference `ProbeEndpoint` types are tracked in `EndpointRegistry`; the 4 admin endpoints are probed but not tracked.
+
+**EndpointRegistry soft-revoke** (`src/probe/endpoint-registry.ts:236 lines`)
+
+The `recordFailure()` method increments `consecutiveFailures`. When `consecutiveFailures >= threshold` (default 3), it calls `softRevoke()` internally:
+
+```typescript
+// softRevoke sets confirmed=false but does not delete the entry
+// A successful positive probe can call confirm() to reset consecutiveFailures=0
+```
+
+### 9.3 Test Coverage
+
+**Unit tests:** `npx vitest run tests/unit/probe/probe-executor-negative.test.ts` — 55 tests covering 11 endpoints, 6 scenarios each (404 JSON, 404 HTML, NDJSON error, valid response, 429, network error), plus admin endpoint tests and edge cases (timeout, apiKey passthrough, trailing slash).
+
+**Integration tests:** `tests/integration/capability-detection.test.ts` — 620 lines covering the full lifecycle: register server → negative probe → soft-revoke → positive probe → re-confirm.
+
+**Chaos tests:** `tests/chaos/capability-detection-chaos.test.ts` — 793 lines covering network partition, server restart, rapid model load/unload scenarios.
+
+### 9.4 Pre-Existing Bugs Found and Fixed
+
+During real-world validation of the capability detection system against production minimax servers, four pre-existing bugs in the orchestrator were discovered and fixed:
+
+**Bug 1: `discoveredV1Models` not synced on auto-discovery**
+When a minimax server was auto-discovered, its `discoveredV1Models` array was populated but never propagated to the server's `models` map. The `discoverModels()` call succeeded and populated `server.discoveredV1Models`, but downstream routing used `server.models` which remained empty. This caused routing to fail even though the server had valid models.
+Fix: Added sync logic to copy `discoveredV1Models` into `server.models` after successful auto-discovery. The fix runs inside `updateServerStatus()` after `discoverModels()` resolves.
+
+**Bug 2: `/v1/models` missing auth header**
+The `/v1/models` fetch in `discoverModels()` did not forward the server's `apiKey` header. Servers requiring authentication returned 401, causing auto-discovery to fail silently for secured endpoints. The ollama-format `/api/tags` probe worked (no auth required by default), but the OpenAI-format `/v1/models` probe always returned 401 when an API key was configured.
+Fix: Added `Authorization: Bearer <apiKey>` header to the `/v1/models` probe request. The auth header is conditional — only added when `server.apiKey` is present.
+
+**Bug 3: `saveServersToDisk` not called on every discovery**
+The orchestrator's `updateServerStatus()` called `discoverModels()` and updated server state, but `saveServersToDisk()` was only called at periodic intervals (30-second reload cycle) or on explicit server removal. A server could have its model list updated in memory but not persisted for 30 seconds, meaning a restart would lose the discovered model list and require re-discovery.
+Fix: Called `saveServersToDisk()` immediately after updating discovered model state. This ensures every discovery cycle is durable.
+
+**Bug 4: `require()` in ESM persistence**
+`orchestrator-persistence.ts` used `require('better-sqlite3')` in an ESM module context. Node.js ESM cannot use `require()` for CJS addons — the module would either fail to load or behave unpredictably across Node.js versions. This bug predated the capability detection work but was discovered during integration testing of the auto-discovery feature.
+Fix: Replaced `require()` with dynamic `import()` for the SQLite addon, which works correctly in ESM contexts.
+
+### 9.4 Real-World Validation
+
+The minimax server auto-discovery mechanism was validated against a production minimax server endpoint. The discovery flow correctly:
+
+- Probed both `/api/tags` and `/v1/models` in parallel
+- Merged model lists from both sources
+- Populated `discoveredV1Models` and synced to `models` map
+- Respected auth headers for secured endpoints
+- Saved discovered state to disk immediately
+
+### 9.5 Real-World Validation
+
+The minimax server auto-discovery mechanism was validated against a production minimax server endpoint. The discovery flow correctly:
+
+- Probed both `/api/tags` and `/v1/models` in parallel using `Promise.all()`
+- Merged model lists from both sources, deduplicating by case-insensitive name comparison
+- Populated `discoveredV1Models` and synced to `models` map (Bug 1 fix)
+- Respected auth headers for secured endpoints (Bug 2 fix)
+- Saved discovered state to disk immediately via `saveServersToDisk()` (Bug 3 fix)
+
+The negative-probe system confirmed that the minimax server:
+
+- Returns JSON 404 for unknown models on `/api/chat`, `/api/generate`, `/api/embeddings` (capability confirmed)
+- Returns JSON 404 for unknown models on `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings` (capability confirmed)
+- Returns HTML 404 for `/v1/messages` (capability absent — endpoint not implemented by design)
+- Never returns mid-stream NDJSON errors (model validation happens before response starts)
+
+This real-world validation confirmed that the negative-probe classification logic correctly distinguishes endpoint-absent (HTML 404) from model-not-found (JSON 404).
+
+### 9.6 Deviations from Plan
+
+| Plan Item                           | Status                  | Reason                                                                                                             |
+| ----------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| T6: Admin capability probe endpoint | Not built               | Periodic scheduler (T5) provides continuous coverage; manual trigger not required for Phase 1 capability detection |
+| T2/T3/T4/T5 implementation order    | All built               | TDD approach confirmed the plan's wave structure was correct                                                       |
+| Soft-revoke threshold               | Implemented as designed | N-consecutive-failure threshold confirmed as necessary to handle transient 404s during model loading               |
+
+The decision to omit T6 was deliberate. The periodic scheduler (T5) already provides continuous capability monitoring every 5 minutes. A manual admin trigger was considered redundant for Phase 1 scope. This can be revisited in Phase 2 if Phase 2 work (registration-time capability testing) benefits from it.
+
+### 9.7 Lessons Learned
+
+**TDD worked well.** Writing tests first for `probeExecutorNegative` (55 unit tests) caught classification edge cases before any implementation existed. The RED phase confirmed the contract was correct before GREEN phase implementation began. For example, tests revealed that the HTML 404 pattern for `/v1/messages` needed to be case-insensitive and handle both `<html>` and `404 page not found` variants independently.
+
+**The discovered-via-changes gaps were real.** All four gaps identified in the audit (dead `confirm()`/`recordFailure()`/`revoke()` methods, no periodic inference probing, no body inspection, no negative-probing mechanism) were genuine and required actual implementation to resolve. No gap was a false positive. The `EndpointRegistry` had `confirm()`, `recordFailure()`, and `revoke()` implemented but simply never wired into production code paths.
+
+**Body inspection is essential.** The original `probeExecutor` returned success on any HTTP 2xx without reading the body. Mid-stream NDJSON errors were completely invisible to the probe system. The negative probe executor must always read the response body (up to a 4KB limit) to detect this pattern. This was not obvious from the audit — it required implementing the probe to realize how the existing code discarded error information.
+
+**Soft-revoke over hard-revoke.** The `EndpointRegistry.revoke()` method permanently deletes endpoint entries with no recovery path. The soft-revoke approach (marking `confirmed: false` after N consecutive failures) allows automatic re-confirmation when a model loads and the endpoint starts responding correctly. The existing `confirm()` method already reset `failureCount: 0` — it just needed to be called from the scheduler.
+
+**The mock server factory was essential.** T7's mock server variants (`modelNotFound`, `notSupported`, `rateLimitedOnInvalid`, `html404`) enabled parallel development. Tests could simulate every failure mode without requiring a real Ollama server, which accelerated development and made edge-case testing deterministic.
+
+**Staggering prevents probe budget explosion.** Without server-level and endpoint-level staggering, 10 servers × 7 endpoints × 12 probes/hour = 840 probes/hour would fire simultaneously at each interval. The staggering formula spreads these across the interval window, keeping peak concurrent probes bounded by the `maxConcurrentProbes` semaphore (default 10).
+
 _End of document._
