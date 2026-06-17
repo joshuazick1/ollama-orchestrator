@@ -14,10 +14,6 @@ import {
   forceHalfOpenBreaker,
 } from '../controllers/circuit-breaker-controller.js';
 import {
-  getServerCircuitBreaker,
-  resetServerCircuitBreaker,
-} from '../controllers/servers-controller.js';
-import {
   getConfig,
   updateConfig,
   updateConfigSection,
@@ -60,7 +56,12 @@ import {
   manualRecoveryTest,
   getServersCircuitBreakers,
   getCircuitBreakersByModel,
+  getServerCircuitBreaker,
+  resetServerCircuitBreaker,
   capabilityProbe,
+  testConnection,
+  getTestResult,
+  testExistingServer,
 } from '../controllers/servers-controller.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
@@ -72,6 +73,7 @@ import {
   pullModelSchema,
   warmupModelSchema,
   unloadModelSchema,
+  testConnectionSchema,
 } from '../middleware/validation.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -111,6 +113,14 @@ adminRouter.post(
   asyncHandler(refreshServerV1Models)
 );
 adminRouter.post('/servers/:id/capability-probe', requireAdmin(), asyncHandler(capabilityProbe));
+adminRouter.post(
+  '/servers/test-connection',
+  requireAuth(),
+  validateRequest(testConnectionSchema),
+  asyncHandler(testConnection)
+);
+adminRouter.get('/servers/test-connection/:testId', requireAuth(), asyncHandler(getTestResult));
+adminRouter.post('/servers/:id/test', requireAuth(), asyncHandler(testExistingServer));
 
 // Per-server model management
 adminRouter.get('/servers/:id/models', requireAuth(), asyncHandler(listServerModels));

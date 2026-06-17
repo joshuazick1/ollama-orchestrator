@@ -224,6 +224,12 @@ export const unloadModelSchema = z.object({
   serverId: serverIdSchema.optional(),
 });
 
+export const testConnectionSchema = z.object({
+  url: z.string().url(),
+  apiKey: z.string().optional(),
+  name: z.string().optional(),
+});
+
 // Metrics query schemas
 export const metricsQuerySchema = z.object({
   serverId: serverIdSchema.optional(),

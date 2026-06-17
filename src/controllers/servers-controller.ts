@@ -3,14 +3,20 @@
  * Server management controllers
  */
 
+import { randomUUID } from 'node:crypto';
+
 import type { Request, Response } from 'express';
 
+import { getConfigManager } from '../config/config.js';
 import { serverConfigSchema } from '../config/schema.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { testServerCapabilities } from '../orchestrator/test-server-capabilities.js';
+import { getTestStore } from '../orchestrator/test-store-instance.js';
 import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
 import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
+import { isBlockedUrl } from '../utils/url-safety.js';
 import { logger } from '../utils/logger.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
 
@@ -1174,4 +1180,109 @@ export async function capabilityProbe(req: Request, res: Response): Promise<void
     rateLimited: result.rateLimited,
     errors: result.errors,
   });
+}
+
+export async function testConnection(req: Request, res: Response): Promise<void> {
+  const {
+    url,
+    apiKey,
+    name: _name,
+  } = (req.body ?? {}) as {
+    url?: string;
+    apiKey?: string;
+    name?: string;
+  };
+  if (!url || typeof url !== 'string') {
+    res.status(400).json({ success: false, error: 'url is required' });
+    return;
+  }
+  try {
+    new URL(url);
+  } catch {
+    res.status(400).json({ success: false, error: 'url is required' });
+    return;
+  }
+  const ssrfCheck = await isBlockedUrl(url, {
+    allowPrivateNetwork:
+      getConfigManager().getConfig().capabilityProbe?.allowPrivateNetwork ?? false,
+    isAdmin: req.auth?.isAdmin ?? false,
+  });
+  if (ssrfCheck.blocked) {
+    res
+      .status(400)
+      .json({ success: false, error: `URL blocked: ${ssrfCheck.reason ?? 'blocked'}` });
+    return;
+  }
+  const testId = randomUUID();
+  const testStore = getTestStore();
+  testStore.create(testId);
+  void (async () => {
+    try {
+      testStore.update(testId, { status: 'running', progress: 10 });
+      const result = await testServerCapabilities(url, { apiKey });
+      testStore.update(testId, { status: 'completed', progress: 100, result });
+    } catch (err) {
+      testStore.update(testId, {
+        status: 'failed',
+        progress: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  })();
+  res.status(200).json({ success: true, testId, status: 'running' });
+}
+
+export function getTestResult(req: Request, res: Response): void {
+  const { testId } = req.params as { testId?: string };
+  if (!testId) {
+    res.status(400).json({ success: false, error: 'testId is required' });
+    return;
+  }
+  const testStore = getTestStore();
+  const entry = testStore.get(testId);
+  if (!entry) {
+    res.status(404).json({ success: false, error: 'Test not found or expired' });
+    return;
+  }
+  res.status(200).json({
+    success: true,
+    testId: entry.testId,
+    status: entry.status,
+    progress: entry.progress,
+    startedAt: entry.startedAt,
+    result: entry.result,
+    error: entry.error,
+  });
+}
+
+export async function testExistingServer(req: Request, res: Response): Promise<void> {
+  const serverId = req.params.id as string;
+  const orchestrator = getOrchestratorInstance();
+  const server = orchestrator.getServer(serverId);
+  if (!server) {
+    res.status(404).json({ success: false, error: ERROR_MESSAGES.SERVER_NOT_FOUND(serverId) });
+    return;
+  }
+  try {
+    const result = await testServerCapabilities(server.url, {
+      apiKey: server.apiKey,
+    });
+    res.status(200).json({
+      success: true,
+      serverId,
+      status: result.status,
+      reachable: result.reachable,
+      capabilities: result.capabilities,
+      models: result.models,
+      needsCustomModelList: result.needsCustomModelList,
+      suggestedConfig: result.suggestedConfig,
+      errors: result.errors,
+      durationMs: result.durationMs,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }

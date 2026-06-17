@@ -33,3 +33,4 @@ export type AnthropicEndpoint =
   (typeof API_ENDPOINTS.ANTHROPIC)[keyof typeof API_ENDPOINTS.ANTHROPIC];
 
 export const CAPABILITY_PROBE = '/api/orchestrator/servers/:id/capability-probe';
+export const TEST_CONNECTION = '/api/orchestrator/servers/test-connection';
