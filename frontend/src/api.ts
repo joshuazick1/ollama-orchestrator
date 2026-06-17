@@ -1,102 +1,52 @@
-import axios, { AxiosError } from 'axios';
-import type { AIServer, MetricsExport, ServerModelMetrics, OrchestratorConfig } from './types';
+import type { MetricsExport, ServerModelMetrics } from './types';
 import { streamFetch } from './utils/stream-fetch';
+import { apiClient } from './api/client';
+import type {
+  AIServer,
+  ApiResponse,
+  StreamingRequestProgress,
+  CircuitBreakerInfo,
+  BanEntry,
+  RecoveryFailureSummary,
+  ServerRecoveryStats,
+  MetricsSummarySnapshot,
+  ConfigExport,
+  ImportConfigResult,
+  PullProgressEvent,
+  ErrorEvent,
+  ErrorEventsResponse,
+  UserResponse,
+  UserAccess,
+  CreateUserData,
+  UpdateUserData,
+} from './api/types';
 
-export type { OrchestratorConfig };
-
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  details?: unknown;
-}
-
-export interface ApiErrorInfo {
-  message: string;
-  status?: number;
-  code?: string;
-  details?: unknown;
-}
-
-export const api = axios.create({
-  baseURL: '/api/orchestrator',
-  timeout: 30000,
-});
-
-type LogoutFn = () => void;
-let authLogoutCallback: LogoutFn | null = null;
-
-let csrfToken: string | null = null;
-
-function getCsrfFromCookies(): string | null {
-  const match = document.cookie.match(/csrf-token=([^;]+)/);
-  return match ? match[1] : null;
-}
-
-export const setAuthLogoutCallback = (fn: LogoutFn) => {
-  authLogoutCallback = fn;
+// Re-export types for backward compatibility
+export type { AIServer };
+export type { OrchestratorConfig } from './types';
+export type { ApiResponse };
+export type {
+  StreamingRequestProgress,
+  CircuitBreakerInfo,
+  BanEntry,
+  RecoveryFailureSummary,
+  ServerRecoveryStats,
+  MetricsSummarySnapshot,
+  ConfigExport,
+  ImportConfigResult,
+  PullProgressEvent,
+  ErrorEvent,
+  ErrorEventsResponse,
+  UserResponse,
+  UserAccess,
+  CreateUserData,
+  UpdateUserData,
 };
 
-api.interceptors.request.use(
-  config => {
-    if (csrfToken) {
-      config.headers['X-CSRF-Token'] = csrfToken;
-    }
-    return config;
-  },
-  error => Promise.reject(error)
-);
+export const api = apiClient;
 
-api.interceptors.response.use(
-  response => {
-    csrfToken = getCsrfFromCookies();
-    return response;
-  },
-  (error: AxiosError) => {
-    if (error.response) {
-      const status = error.response.status;
-      const data = error.response.data as { error?: string; details?: unknown };
-
-      if (status === 401 && authLogoutCallback) {
-        authLogoutCallback();
-      }
-
-      let message = 'An error occurred';
-      if (data?.error) {
-        message = data.error;
-      } else if (status === 404) {
-        message = 'Resource not found';
-      } else if (status === 500) {
-        message = 'Internal server error';
-      } else if (status >= 400 && status < 500) {
-        message = 'Request error';
-      }
-
-      throw new ApiError(message, status, data?.details);
-    } else if (error.request) {
-      throw new ApiError(
-        'Network error - please check your connection',
-        undefined,
-        'NETWORK_ERROR'
-      );
-    } else {
-      throw new ApiError(error.message || 'Unknown error', undefined, error.code);
-    }
-  }
-);
-
-// Custom error class
-export class ApiError extends Error {
-  public status?: number;
-  public details?: unknown;
-
-  constructor(message: string, status?: number, details?: unknown) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.details = details;
-  }
-}
+export { ApiError } from './api/errors';
+export type { ApiErrorInfo } from './api/errors';
 
 // Helper function to wrap API calls with consistent error handling
 async function apiCall<T>(call: () => Promise<T>): Promise<T> {

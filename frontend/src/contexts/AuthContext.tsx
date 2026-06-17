@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { api, setAuthLogoutCallback } from '../api';
+import { api } from '../api';
+import { setAuthLogoutCallback } from '../api/client';
 import { toastSuccess, toastError } from '../utils/toast';
 
 export interface User {
