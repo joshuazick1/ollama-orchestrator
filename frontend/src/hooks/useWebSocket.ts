@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
@@ -64,7 +64,8 @@ export const useWebSocket = ({
           };
           setLastMessage(message);
           onMessage?.(message);
-        } catch {
+        } catch (err) {
+          console.warn('[useWebSocket] Failed to parse message:', err);
           const message: WebSocketMessage = {
             type: 'unknown',
             payload: event.data,
@@ -92,7 +93,8 @@ export const useWebSocket = ({
       };
 
       wsRef.current = ws;
-    } catch {
+    } catch (err) {
+      console.error('[useWebSocket] Failed to connect:', err);
       setStatus('error');
       onStatusChange?.('error');
     }
@@ -125,7 +127,10 @@ export const useWebSocket = ({
     connect();
   }, [connect, disconnect]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // connect() intentionally calls setStatus('connecting') synchronously to update UI before
+    // WebSocket handshake — necessary for the connection lifecycle. The WebSocket events are
+    // async and won't re-trigger this effect, so no problematic cascading renders occur.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     connect();
 
@@ -155,7 +160,7 @@ export const useRealTimeUpdates = (
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`;
 
   const handleMessage = useCallback((message: WebSocketMessage) => {
-    onUpdateRef.current(message as unknown as Record<string, unknown>);
+    onUpdateRef.current(message as Record<string, unknown>);
   }, []);
 
   const { status: connectionStatus } = useWebSocket({
