@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { z } from 'zod';
 import {
   Activity,
   Zap,
@@ -23,6 +24,94 @@ import {
 import { StatCard } from '../components/StatCard';
 import { formatDuration, formatTimeAgo } from '../utils/formatting';
 import { Modal } from './Modal';
+
+// Zod schemas for validating API responses
+const realtimeMetricsSchema = z.object({
+  inFlight: z.number().optional(),
+  queued: z.number().optional(),
+});
+
+const percentilesSchema = z.object({
+  p50: z.number().optional(),
+  p95: z.number().optional(),
+  p99: z.number().optional(),
+});
+
+const derivedMetricsSchema = z.object({
+  successRate: z.number().optional(),
+  throughput: z.number().optional(),
+  avgTokensPerRequest: z.number().optional(),
+});
+
+const streamingMetricsSchema = z.object({
+  avgTTFT: z.number().optional(),
+  avgTotalDuration: z.number().optional(),
+  avgStreamingDuration: z.number().optional(),
+  totalTokens: z.number().optional(),
+  avgChunkCount: z.number().optional(),
+  avgChunkSizeBytes: z.number().optional(),
+});
+
+const historicalWindowSchema = z.object({
+  streamingMetrics: streamingMetricsSchema.optional(),
+});
+
+const metricsResponseSchema = z.object({
+  realtime: realtimeMetricsSchema.optional(),
+  percentiles: percentilesSchema.optional(),
+  derived: derivedMetricsSchema.optional(),
+  historical: z.record(z.string(), historicalWindowSchema).optional(),
+  streamingMetrics: streamingMetricsSchema.optional(),
+});
+
+// Schema for the raw API response from getServerModelMetrics
+const serverModelMetricsApiResponseSchema = z.object({
+  success: z.boolean(),
+  serverId: z.string(),
+  model: z.string(),
+  metrics: metricsResponseSchema,
+});
+
+// Schema for getDecisionHistory API response
+const decisionEventSchema = z.object({
+  timestamp: z.number(),
+  model: z.string(),
+  selectedServerId: z.string(),
+  algorithm: z.string(),
+  candidates: z.unknown(),
+  selectionReason: z.string().optional(),
+});
+
+const decisionHistoryApiResponseSchema = z.object({
+  success: z.boolean(),
+  count: z.number(),
+  events: z.array(decisionEventSchema),
+});
+
+// Schema for getServerRequestHistory API response
+const requestEventSchema = z.object({
+  id: z.string(),
+  timestamp: z.number().optional(),
+  model: z.string(),
+  endpoint: z.string().optional(),
+  streaming: z.boolean().optional(),
+  duration: z.number().optional(),
+  success: z.boolean(),
+  tokensGenerated: z.number().optional(),
+  tokensPrompt: z.number().optional(),
+  errorType: z.string().optional(),
+  ttft: z.number().optional(),
+  streamingDuration: z.number().optional(),
+  queueWaitTime: z.number().optional(),
+});
+
+const requestHistoryApiResponseSchema = z.object({
+  success: z.boolean(),
+  serverId: z.string(),
+  model: z.string().nullable(),
+  count: z.number(),
+  requests: z.array(requestEventSchema),
+});
 
 interface CircuitDetailModalProps {
   isOpen: boolean;
@@ -122,7 +211,11 @@ export const CircuitDetailModal = ({
     queryKey: ['circuit-metrics', serverId, model],
     queryFn: async () => {
       const data = await getServerModelMetrics(serverId, model);
-      return data as unknown as CircuitMetricsData | undefined;
+      const parsed = serverModelMetricsApiResponseSchema.safeParse(data);
+      if (!parsed.success) {
+        return undefined;
+      }
+      return parsed.data.metrics as CircuitMetricsData | undefined;
     },
     enabled: isOpen,
     refetchInterval: 30000,
@@ -533,7 +626,11 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
     queryKey: ['request-history', serverId, model, timeRange],
     queryFn: async () => {
       const data = await getServerRequestHistory(serverId, { limit: 20 });
-      return data as unknown as RequestHistoryResponse | undefined;
+      const parsed = requestHistoryApiResponseSchema.safeParse(data);
+      if (!parsed.success) {
+        return undefined;
+      }
+      return { requests: parsed.data.requests } as RequestHistoryResponse | undefined;
     },
     refetchInterval: 30000,
   });
@@ -542,7 +639,22 @@ const HistoryTab = ({ serverId, model }: { serverId: string; model: string }) =>
     queryKey: ['decisions', serverId, model, timeRange],
     queryFn: async () => {
       const data = await getDecisionHistory({ serverId, model, limit: 20, hours: timeRange });
-      return data as unknown as DecisionHistoryResponse | undefined;
+      const parsed = decisionHistoryApiResponseSchema.safeParse(data);
+      if (!parsed.success) {
+        return undefined;
+      }
+      return {
+        decisions: parsed.data.events.map(event => ({
+          id: `${event.selectedServerId}-${event.timestamp}`,
+          timestamp: event.timestamp,
+          serverId: event.selectedServerId,
+          model: event.model,
+          decision: event.selectionReason || event.algorithm,
+          reason: event.selectionReason,
+          algorithm: event.algorithm,
+          selected: true,
+        })),
+      } as DecisionHistoryResponse | undefined;
     },
     refetchInterval: 30000,
   });
