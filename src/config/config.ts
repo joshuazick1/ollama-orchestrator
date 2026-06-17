@@ -528,6 +528,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     consecutiveFailureThreshold: 3,
     requestTimeoutMs: 5000,
     staggerOffsetMs: 30000,
+    allowPrivateNetwork: false,
   },
 
   anthropic: {

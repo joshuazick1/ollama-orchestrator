@@ -488,6 +488,7 @@ export const capabilityProbeConfigSchema = z.object({
   consecutiveFailureThreshold: z.number().int().min(1).default(3),
   requestTimeoutMs: z.number().int().min(1000).default(5000),
   staggerOffsetMs: z.number().int().min(0).default(30000), // 0-30s per server stagger
+  allowPrivateNetwork: z.boolean().default(false),
 });
 
 export const errorAggregatorConfigSchema = z.object({
