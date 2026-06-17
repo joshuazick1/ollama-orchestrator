@@ -187,18 +187,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
       queryClient.invalidateQueries({ queryKey: ['server-models', server?.id] });
       queryClient.invalidateQueries({ queryKey: ['servers'] });
     }
-  }, [finishedPulls.length, queryClient, server?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (isOpen) {
-      // Reset form state when modal opens — this is intentional initialization, not cascading state
-      /* eslint-disable react-hooks/set-state-in-effect */
-      setNewModelName('');
-      setSelectedSourceServer('');
-      setActiveTab('installed');
-      /* eslint-enable react-hooks/set-state-in-effect */
-    }
-  }, [isOpen]);
+  }, [finishedPulls, queryClient, server?.id]);
 
   if (!isOpen || !server) return null;
 
@@ -223,8 +212,10 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
     });
   };
 
+  // key prop forces remount when isOpen changes, naturally resetting form state (newModelName, selectedSourceServer, activeTab) to initial values
   return (
     <Modal
+      key={isOpen ? 'open' : 'closed'}
       isOpen={isOpen}
       onClose={onClose}
       title={`Manage Models - ${server.url}`}
