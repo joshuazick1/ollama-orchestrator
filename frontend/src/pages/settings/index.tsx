@@ -276,6 +276,10 @@ export const Settings = () => {
     },
   });
 
+  function isPlainObject(v: unknown): v is Record<string, unknown> {
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+  }
+
   const updateField = useCallback(
     <K extends keyof OrchestratorConfig>(
       section: K,
@@ -289,7 +293,8 @@ export const Settings = () => {
           return { ...base, [section]: value };
         } else {
           // Nested field
-          const sectionData = (base[section] as unknown as Record<string, unknown>) || {};
+          const rawSection = base[section];
+          const sectionData = isPlainObject(rawSection) ? rawSection : {};
           return {
             ...base,
             [section]: { ...sectionData, [field]: value },
