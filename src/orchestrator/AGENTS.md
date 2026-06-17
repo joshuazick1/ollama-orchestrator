@@ -19,6 +19,7 @@ Files of record:
 - [models.ts](models.ts) — Model registry, fleet model stats, server model control.
 - [orchestrator.types.ts](orchestrator.types.ts) — Domain types: `AIServer`, `ServerModelMetrics`, `GlobalMetrics`, `RequestContext`, `StreamingMetrics`, `LatencyPercentiles`, `TimeWindow`, `MetricsWindow`, `MetricsExport`.
 - [orchestrator-persistence.ts](orchestrator-persistence.ts) and [persistence.ts](persistence.ts) — Fleet state persistence (server list, model map).
+- [probe-executor-negative.ts](probe-executor-negative.ts) — `probeExecutorNegative`. Negative probe executor for capability detection: sends intentionally invalid model names and inspects response bodies to detect capability gaps.
 
 ## Ownership
 
@@ -31,6 +32,8 @@ Files of record:
 - Singleton access: `getOrchestratorInstance()` from [orchestrator-instance.ts](orchestrator-instance.ts) returns the process-wide instance.
 - Server registration is async and must be awaited before routing decisions are made for that server.
 - Public type re-exports go through `src/shared-types.ts` — never import `orchestrator.types` directly from the frontend.
+- The `CapabilityProbeScheduler` singleton (`getCapabilityProbeScheduler()` from `src/probe/probe-scheduler-instance.ts`) is started during orchestrator initialization and uses `orchestrator.getServer(id)` to resolve server descriptors for negative probing.
+- Manual capability probe is available via `POST /api/orchestrator/servers/:id/capability-probe` (admin routes, requires admin auth). The controller handler `capabilityProbe` in [servers-controller.ts](../controllers/servers-controller.ts) delegates to `capabilityProbeScheduler.runOnce(id)`.
 
 ## Work Guidance
 
