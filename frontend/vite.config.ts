@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
 // Plugin to remove crossorigin attribute from built HTML
 // This prevents browsers from upgrading requests to HTTPS
@@ -15,6 +16,11 @@ function removeCrossorigin(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), removeCrossorigin()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   build: {
     modulePreload: {
       polyfill: false,

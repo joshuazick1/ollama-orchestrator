@@ -1,0 +1,49 @@
+:root {
+  /* Surface ladder */
+  --color-canvas: oklch(0.98 0 0);
+  --color-surface: oklch(0.95 0 0);
+  --color-surface-raised: oklch(0.92 0 0);
+  --color-surface-overlay: oklch(0.88 0 0);
+
+  /* Text */
+  --color-text-base: oklch(0.15 0 0);
+  --color-text-muted: oklch(0.45 0 0);
+  --color-text-subtle: oklch(0.6 0 0);
+
+  /* Border */
+  --color-border: oklch(0.85 0 0);
+  --color-border-strong: oklch(0.7 0 0);
+
+  /* Semantic colors */
+  --color-primary: oklch(0.55 0.18 264);
+  --color-primary-hover: oklch(0.5 0.2 264);
+  --color-success: oklch(0.6 0.15 145);
+  --color-warning: oklch(0.75 0.15 80);
+  --color-danger: oklch(0.6 0.2 25);
+  --color-info: oklch(0.6 0.15 220);
+
+  /* Typography */
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+}
+
+.dark {
+  --color-canvas: oklch(0.1 0 0);
+  --color-surface: oklch(0.14 0 0);
+  --color-surface-raised: oklch(0.18 0 0);
+  --color-surface-overlay: oklch(0.22 0 0);
+
+  --color-text-base: oklch(0.95 0 0);
+  --color-text-muted: oklch(0.7 0 0);
+  --color-text-subtle: oklch(0.55 0 0);
+
+  --color-border: oklch(0.25 0 0);
+  --color-border-strong: oklch(0.4 0 0);
+
+  --color-primary: oklch(0.7 0.18 264);
+  --color-primary-hover: oklch(0.75 0.2 264);
+  --color-success: oklch(0.7 0.15 145);
+  --color-warning: oklch(0.8 0.15 80);
+  --color-danger: oklch(0.7 0.2 25);
+  --color-info: oklch(0.7 0.15 220);
+}
