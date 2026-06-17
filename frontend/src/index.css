@@ -1,47 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
-/* ─── Design tokens ─────────────────────────────────────────── */
-:root {
-  /* Dark theme (default) */
-  --color-surface: #111827; /* gray-900 */
-  --color-surface-raised: #030712; /* gray-950 */
-  --color-surface-border: #1f2937; /* gray-800 */
-
-  --color-primary: #2563eb; /* blue-600 */
-  --color-primary-hover: #1d4ed8; /* blue-700 */
-
-  --color-success: #16a34a; /* green-600 */
-  --color-warning: #d97706; /* amber-600 */
-  --color-danger: #dc2626; /* red-600 */
-
-  --color-text-base: #f9fafb; /* gray-50 */
-  --color-text-muted: #9ca3af; /* gray-400 */
-  --color-text-subtle: #6b7280; /* gray-500 */
-}
-
-.light {
-  --color-surface: #f9fafb; /* gray-50 */
-  --color-surface-raised: #ffffff; /* white */
-  --color-surface-border: #e5e7eb; /* gray-200 */
-
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
-
-  --color-text-base: #111827; /* gray-900 */
-  --color-text-muted: #6b7280; /* gray-500 */
-  --color-text-subtle: #9ca3af; /* gray-400 */
-}
-
 @layer base {
   body {
-    background-color: var(--color-surface);
+    background-color: var(--color-canvas);
     color: var(--color-text-base);
+    font-family: var(--font-sans);
+    font-feature-settings: 'tnum' 1;
     @apply antialiased;
+    transition:
+      background-color 0.2s ease-in-out,
+      color 0.2s ease-in-out;
   }
 }
 
@@ -55,7 +24,7 @@ select {
   /* Keep the select control matching theme surface but slightly refined */
   color: var(--color-text-base);
   background-color: var(--color-surface-raised);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border);
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
 }

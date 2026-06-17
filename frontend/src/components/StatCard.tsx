@@ -46,7 +46,7 @@ export const StatCard = ({
       <div className="flex justify-between items-start">
         <div>
           <p className="text-text-muted text-sm font-medium">{title}</p>
-          <h3 className="text-3xl font-bold mt-2 text-text-base">{value}</h3>
+          <h3 className="text-3xl font-bold mt-2 text-text-base tabular-nums">{value}</h3>
           {subtext && <p className="text-text-subtle text-sm mt-1">{subtext}</p>}
           {trend && (
             <div

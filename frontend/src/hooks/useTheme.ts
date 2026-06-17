@@ -6,13 +6,8 @@ const STORAGE_KEY = 'theme';
 
 function applyTheme(theme: Theme) {
   const root = document.documentElement;
-  if (theme === 'light') {
-    root.classList.add('light');
-    root.classList.remove('dark');
-  } else {
-    root.classList.add('dark');
-    root.classList.remove('light');
-  }
+  root.classList.toggle('dark', theme === 'dark');
+  root.classList.toggle('light', theme === 'light');
 }
 
 function getInitialTheme(): Theme {
