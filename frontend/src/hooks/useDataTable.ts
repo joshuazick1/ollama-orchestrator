@@ -46,8 +46,8 @@ export function useDataTable<T>({
   const handleFilter = (key: string, value: string) => {
     setFilters(prev => {
       if (value === 'all' || value === '') {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { [key]: _, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[key];
         return rest;
       }
       return { ...prev, [key]: value };
@@ -65,8 +65,7 @@ export function useDataTable<T>({
           result = result.filter(item => filterFn(item, key, value));
         } else {
           // Default strict equality check
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          result = result.filter(item => String((item as any)[key]) === value);
+          result = result.filter(item => String(item[key as keyof T]) === value);
         }
       }
     });
@@ -76,8 +75,7 @@ export function useDataTable<T>({
       const query = searchQuery.toLowerCase();
       result = result.filter(item =>
         searchKeys.some(key => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const val = (item as any)[key];
+          const val = item[key];
           return val ? String(val).toLowerCase().includes(query) : false;
         })
       );
@@ -92,10 +90,8 @@ export function useDataTable<T>({
           return sortFns[String(sortConfig.key)](a, b) * direction;
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const aValue = (a as any)[sortConfig.key];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const bValue = (b as any)[sortConfig.key];
+        const aValue = a[sortConfig.key as keyof T];
+        const bValue = b[sortConfig.key as keyof T];
 
         if (aValue === bValue) return 0;
 
