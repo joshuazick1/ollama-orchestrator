@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger.js';
+
 import {
   type ProbeEndpoint,
   EMBEDDING_ENDPOINTS,
@@ -19,6 +21,7 @@ export interface EndpointCapability {
   confirmed: boolean;
   lastSeen: number;
   failureCount: number;
+  consecutiveFailures: number;
 }
 
 /**
@@ -59,6 +62,7 @@ export class EndpointRegistry {
         confirmed: false,
         lastSeen: 0,
         failureCount: 0,
+        consecutiveFailures: 0,
       });
     }
   }
@@ -76,11 +80,13 @@ export class EndpointRegistry {
         newCap.confirmed = true;
         newCap.lastSeen = Date.now();
         newCap.failureCount = 0;
+        newCap.consecutiveFailures = 0;
       }
     } else {
       cap.confirmed = true;
       cap.lastSeen = Date.now();
       cap.failureCount = 0;
+      cap.consecutiveFailures = 0;
     }
   }
 
@@ -102,13 +108,31 @@ export class EndpointRegistry {
   }
 
   /**
-   * Record a probe failure for an endpoint (increments failureCount).
-   * Does NOT reset lastSeen or change confirmed state.
+   * Soft-revoke an endpoint: marks confirmed=false but keeps the entry for inspection.
+   * Sets lastSeen=0. Does NOT delete the entry.
    */
-  recordFailure(serverId: string, endpoint: ProbeEndpoint): void {
+  softRevoke(serverId: string, endpoint: ProbeEndpoint): void {
+    const cap = this.getCapability(serverId, endpoint);
+    if (cap) {
+      cap.confirmed = false;
+      cap.lastSeen = 0;
+      logger.info('Endpoint soft-revoked', { serverId, endpoint, reason: 'soft_revoke' });
+    }
+  }
+
+  /**
+   * Record a probe failure for an endpoint (increments failureCount and consecutiveFailures).
+   * Does NOT reset lastSeen or change confirmed state.
+   * If threshold is provided and consecutiveFailures >= threshold, auto-soft-revokes.
+   */
+  recordFailure(serverId: string, endpoint: ProbeEndpoint, threshold?: number): void {
     const cap = this.getCapability(serverId, endpoint);
     if (cap) {
       cap.failureCount++;
+      cap.consecutiveFailures++;
+      if (threshold !== undefined && cap.consecutiveFailures >= threshold) {
+        this.softRevoke(serverId, endpoint);
+      }
     }
   }
 
@@ -143,6 +167,25 @@ export class EndpointRegistry {
       }
     }
     return active;
+  }
+
+  /**
+   * Get the consecutive failure count for an endpoint.
+   * Returns 0 if endpoint is unknown.
+   */
+  getConsecutiveFailures(serverId: string, endpoint: ProbeEndpoint): number {
+    const cap = this.getCapability(serverId, endpoint);
+    return cap?.consecutiveFailures ?? 0;
+  }
+
+  /**
+   * Reset the consecutive failure count for an endpoint to 0.
+   */
+  resetConsecutiveFailures(serverId: string, endpoint: ProbeEndpoint): void {
+    const cap = this.getCapability(serverId, endpoint);
+    if (cap) {
+      cap.consecutiveFailures = 0;
+    }
   }
 
   /**
