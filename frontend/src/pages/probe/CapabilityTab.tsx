@@ -14,6 +14,7 @@ import { DataToolbar } from '../../components/DataToolbar';
 import { EmptyState } from '../../components/EmptyState';
 import { getAllModelsStatus, getServers } from '../../api';
 import { formatTimeAgo } from '../../utils/formatting';
+import { safeArray } from '../../utils/safeArray';
 import type { AIServer } from '../../api/types';
 
 interface ModelStatus {
@@ -49,7 +50,10 @@ export const CapabilityTab = memo(() => {
   const servers = useMemo(() => serversData?.servers || [], [serversData?.servers]);
   const serverIds = useMemo(() => servers.map(s => s.id), [servers]);
 
-  const models = useMemo(() => modelsStatusData?.models || [], [modelsStatusData?.models]);
+  const models = useMemo(
+    () => safeArray<ModelStatus>(modelsStatusData?.models),
+    [modelsStatusData?.models]
+  );
 
   const filteredModels = useMemo(() => {
     return models.filter(m => {
