@@ -1,9 +1,87 @@
+import { memo } from 'react';
 import { ChevronDown, ChevronRight, CheckCircle, XCircle } from 'lucide-react';
 import { formatDurationMs } from '../../utils/formatting';
 
 interface ExpandedRequest {
   [key: string]: boolean;
 }
+
+interface RequestRowProps {
+  req: {
+    id: string;
+    model: string;
+    duration: number;
+    timestamp: string;
+    success: boolean;
+    tokensGenerated?: number;
+    tokensPrompt?: number;
+    ttft?: number;
+    errorType?: string;
+    errorMessage?: string;
+  };
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+const RequestRow = memo(({ req, isExpanded, onToggle }: RequestRowProps) => (
+  <>
+    <tr
+      className="border-b border-gray-800 hover:bg-surface/30 cursor-pointer transition-colors"
+      onClick={onToggle}
+      tabIndex={0}
+      role="button"
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      aria-expanded={isExpanded}
+    >
+      <td className="py-3 text-center">
+        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+      </td>
+      <td className="py-3 text-gray-300 font-mono text-xs">
+        {new Date(req.timestamp).toLocaleTimeString()}
+      </td>
+      <td className="py-3 text-text-base font-medium">{req.model}</td>
+      <td className="py-3 text-right text-gray-300 font-mono">{formatDurationMs(req.duration)}</td>
+      <td className="py-3 text-center">
+        {req.success ? (
+          <CheckCircle className="w-4 h-4 text-green-500 inline" />
+        ) : (
+          <XCircle className="w-4 h-4 text-red-500 inline" />
+        )}
+      </td>
+      <td className="py-3 text-right text-gray-300 font-mono">{req.tokensGenerated || '-'}</td>
+    </tr>
+    {isExpanded && (
+      <tr className="bg-surface-raised/50">
+        <td colSpan={6} className="p-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-mono text-text-muted">
+            <div>
+              <span className="text-gray-600 block mb-1">ID</span> {req.id}
+            </div>
+            <div>
+              <span className="text-gray-600 block mb-1">TTFT</span>{' '}
+              {req.ttft ? formatDurationMs(req.ttft) : '-'}
+            </div>
+            <div>
+              <span className="text-gray-600 block mb-1">Prompt Tokens</span>{' '}
+              {req.tokensPrompt || '-'}
+            </div>
+            {req.errorType && (
+              <div className="col-span-full mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-300">
+                <span className="font-bold">{req.errorType}:</span> {req.errorMessage}
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    )}
+  </>
+));
+RequestRow.displayName = 'RequestRow';
 
 interface RequestsTabProps {
   serversWithHistory?: {
@@ -54,6 +132,8 @@ export const RequestsTab = ({
   onPageChange,
   isLoading,
 }: RequestsTabProps) => {
+  const requests = serverRequestHistory?.requests || [];
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="bg-surface rounded-xl border border-surface-border p-6">
@@ -109,7 +189,7 @@ export const RequestsTab = ({
           </div>
         )}
 
-        {selectedServer && serverRequestHistory?.requests ? (
+        {selectedServer && requests.length > 0 ? (
           <div className="space-y-4">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -126,73 +206,13 @@ export const RequestsTab = ({
                   </tr>
                 </thead>
                 <tbody className={isLoading ? 'opacity-50 pointer-events-none' : ''}>
-                  {serverRequestHistory.requests.map(req => (
-                    <>
-                      <tr
-                        key={req.id}
-                        className="border-b border-gray-800 hover:bg-surface/30 cursor-pointer transition-colors"
-                        onClick={() => onToggleExpansion(req.id)}
-                        tabIndex={0}
-                        role="button"
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            onToggleExpansion(req.id);
-                          }
-                        }}
-                        aria-expanded={expandedRequests[req.id]}
-                      >
-                        <td className="py-3 text-center">
-                          {expandedRequests[req.id] ? (
-                            <ChevronDown className="w-4 h-4" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4" />
-                          )}
-                        </td>
-                        <td className="py-3 text-gray-300 font-mono text-xs">
-                          {new Date(req.timestamp).toLocaleTimeString()}
-                        </td>
-                        <td className="py-3 text-text-base font-medium">{req.model}</td>
-                        <td className="py-3 text-right text-gray-300 font-mono">
-                          {formatDurationMs(req.duration)}
-                        </td>
-                        <td className="py-3 text-center">
-                          {req.success ? (
-                            <CheckCircle className="w-4 h-4 text-green-500 inline" />
-                          ) : (
-                            <XCircle className="w-4 h-4 text-red-500 inline" />
-                          )}
-                        </td>
-                        <td className="py-3 text-right text-gray-300 font-mono">
-                          {req.tokensGenerated || '-'}
-                        </td>
-                      </tr>
-                      {expandedRequests[req.id] && (
-                        <tr className="bg-surface-raised/50">
-                          <td colSpan={6} className="p-4">
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-mono text-text-muted">
-                              <div>
-                                <span className="text-gray-600 block mb-1">ID</span> {req.id}
-                              </div>
-                              <div>
-                                <span className="text-gray-600 block mb-1">TTFT</span>{' '}
-                                {req.ttft ? formatDurationMs(req.ttft) : '-'}
-                              </div>
-                              <div>
-                                <span className="text-gray-600 block mb-1">Prompt Tokens</span>{' '}
-                                {req.tokensPrompt || '-'}
-                              </div>
-                              {req.errorType && (
-                                <div className="col-span-full mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-300">
-                                  <span className="font-bold">{req.errorType}:</span>{' '}
-                                  {req.errorMessage}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
+                  {requests.map(req => (
+                    <RequestRow
+                      key={req.id}
+                      req={req}
+                      isExpanded={expandedRequests[req.id] ?? false}
+                      onToggle={() => onToggleExpansion(req.id)}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -201,8 +221,8 @@ export const RequestsTab = ({
             {/* Pagination Controls */}
             <div className="flex justify-between items-center border-t border-surface-border pt-4">
               <div className="text-sm text-text-muted">
-                Showing {page * ITEMS_PER_PAGE + 1}-
-                {page * ITEMS_PER_PAGE + serverRequestHistory.requests.length} requests
+                Showing {page * ITEMS_PER_PAGE + 1}-{page * ITEMS_PER_PAGE + requests.length} of{' '}
+                {serverRequestStats?.stats.totalRequests || requests.length} requests
               </div>
               <div className="flex gap-2">
                 <button
@@ -214,7 +234,7 @@ export const RequestsTab = ({
                 </button>
                 <button
                   onClick={() => onPageChange(page + 1)}
-                  disabled={serverRequestHistory.requests.length < ITEMS_PER_PAGE || isLoading}
+                  disabled={requests.length < ITEMS_PER_PAGE || isLoading}
                   className="px-3 py-1 bg-surface hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-text-base transition-colors"
                 >
                   Next

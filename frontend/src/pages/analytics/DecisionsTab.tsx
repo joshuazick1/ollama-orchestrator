@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { useMemo, memo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   PieChart,
   Pie,
@@ -28,6 +29,41 @@ interface PieCellProps {
 const ColoredPieCell = (props: PieCellProps) => (
   <Rectangle {...props} fill={CHART_PALETTE[props.index ?? 0 % CHART_PALETTE.length]} />
 );
+
+interface RecentDecisionItemProps {
+  event: {
+    model: string;
+    selectedServerId: string;
+    algorithm: string;
+    timestamp: string;
+    selectionReason: string;
+  };
+}
+
+const RecentDecisionItem = memo(({ event }: RecentDecisionItemProps) => (
+  <div className="bg-surface-raised/40 p-4 rounded-lg border border-gray-800 hover:border-surface-border transition-colors">
+    <div className="flex justify-between items-center mb-2">
+      <div className="flex items-center gap-3">
+        <span className="text-text-base font-medium bg-surface px-2 py-1 rounded text-sm">
+          {event.model}
+        </span>
+        <span className="text-text-subtle text-xs">
+          {new Date(event.timestamp).toLocaleTimeString()}
+        </span>
+      </div>
+      <span className="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-1 rounded">
+        {event.algorithm}
+      </span>
+    </div>
+    <div className="flex justify-between items-center">
+      <span className="text-sm text-text-muted">
+        Selected: <span className="text-green-400 font-mono ml-1">{event.selectedServerId}</span>
+      </span>
+      <span className="text-xs text-text-subtle">{event.selectionReason}</span>
+    </div>
+  </div>
+));
+RecentDecisionItem.displayName = 'RecentDecisionItem';
 
 interface DecisionsTabProps {
   decisionHistory?: {
@@ -75,6 +111,8 @@ export const DecisionsTab = ({
   metricsImpact,
   selectionStats,
 }: DecisionsTabProps) => {
+  const parentRef = useRef<HTMLDivElement>(null);
+
   const algorithmData = useMemo(
     () =>
       algorithmStats?.algorithms
@@ -89,6 +127,15 @@ export const DecisionsTab = ({
         : [],
     [algorithmStats]
   );
+
+  const decisions = decisionHistory?.events || [];
+
+  const decisionVirtualizer = useVirtualizer({
+    count: decisions.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 90,
+    overscan: 5,
+  });
 
   const scoreData = useMemo(
     () =>
@@ -268,38 +315,31 @@ export const DecisionsTab = ({
       {/* Recent Decisions List */}
       <div className="bg-surface rounded-xl border border-surface-border p-6">
         <h3 className="text-lg font-semibold text-text-base mb-6">Recent Routing Decisions</h3>
-        <div className="space-y-3">
-          {decisionHistory?.events?.slice(0, 10).map((event, index) => (
+        {decisions.length > 0 ? (
+          <div ref={parentRef} className="space-y-3 overflow-auto" style={{ maxHeight: '500px' }}>
             <div
-              key={index}
-              className="bg-surface-raised/40 p-4 rounded-lg border border-gray-800 hover:border-surface-border transition-colors"
+              className="relative w-full"
+              style={{ height: `${decisionVirtualizer.getTotalSize()}px` }}
             >
-              <div className="flex justify-between items-center mb-2">
-                <div className="flex items-center gap-3">
-                  <span className="text-text-base font-medium bg-surface px-2 py-1 rounded text-sm">
-                    {event.model}
-                  </span>
-                  <span className="text-text-subtle text-xs">
-                    {new Date(event.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-                <span className="text-xs font-mono text-blue-400 bg-blue-400/10 px-2 py-1 rounded">
-                  {event.algorithm}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-text-muted">
-                  Selected:{' '}
-                  <span className="text-green-400 font-mono ml-1">{event.selectedServerId}</span>
-                </span>
-                <span className="text-xs text-text-subtle">{event.selectionReason}</span>
-              </div>
+              {decisionVirtualizer.getVirtualItems().map(virtualRow => {
+                const event = decisions[virtualRow.index];
+                return (
+                  <div
+                    key={virtualRow.key}
+                    className="absolute top-0 left-0 w-full"
+                    style={{
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <RecentDecisionItem event={event} />
+                  </div>
+                );
+              })}
             </div>
-          ))}
-          {(!decisionHistory?.events || decisionHistory.events.length === 0) && (
-            <div className="text-center text-text-subtle py-8">No decisions recorded yet</div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="text-center text-text-subtle py-8">No decisions recorded yet</div>
+        )}
       </div>
     </div>
   );
