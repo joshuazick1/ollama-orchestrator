@@ -13,6 +13,7 @@ import { SkeletonTable } from '../components/skeletons';
 import { ErrorState } from '../components/EmptyState';
 import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
+import { useLiveUpdates } from '../hooks/useLiveUpdates';
 import { Server, Box, Layers, Zap, Lock, RefreshCw, Activity, Loader2, Flame } from 'lucide-react';
 import type { AIServer } from '../types';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -20,6 +21,7 @@ import type { CircuitBreakerInfo } from '../api';
 import { toastSuccess, toastError } from '../utils/toast';
 import { safeArray } from '../utils/safeArray';
 import { CircuitDetailModal } from '../components/CircuitDetailModal';
+import { Badge } from '../components/ui/badge';
 
 interface InFlightServer {
   serverId: string;
@@ -198,6 +200,15 @@ const Legend = () => (
 
 export const Models = () => {
   const queryClient = useQueryClient();
+  const { isLive } = useLiveUpdates({
+    invalidateQueries: [
+      ['modelMap'],
+      ['servers'],
+      ['all-models-status'],
+      ['circuitBreakers'],
+      ['in-flight'],
+    ],
+  });
   const [selectedCircuit, setSelectedCircuit] = useState<{
     serverId: string;
     model: string;
@@ -386,9 +397,24 @@ export const Models = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-text-base">Models</h2>
-        <p className="text-text-muted">Available models and their distribution</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-text-base">Models</h2>
+          <p className="text-text-muted">Available models and their distribution</p>
+        </div>
+        <Badge
+          variant={isLive ? 'default' : 'secondary'}
+          className={
+            isLive
+              ? 'bg-green-500/20 text-green-400 border-green-500/50 animate-pulse'
+              : 'bg-gray-500/20 text-gray-400 border-gray-500/50'
+          }
+        >
+          <span
+            className={`mr-1.5 h-1.5 w-1.5 rounded-full ${isLive ? 'bg-green-400' : 'bg-gray-400'}`}
+          />
+          {isLive ? 'Live' : 'Offline'}
+        </Badge>
       </div>
 
       <DataToolbar

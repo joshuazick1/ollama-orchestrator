@@ -4,6 +4,7 @@ import { getServers, removeServer, getMetrics } from '../api';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ModelManagerModal } from '../components/ModelManagerModal';
 import { useDataTable } from '../hooks/useDataTable';
+import { useLiveUpdates } from '../hooks/useLiveUpdates';
 import type { AIServer } from '../types';
 import { toastSuccess, toastError } from '../utils/toast';
 import { compareVersions } from '../utils/formatting';
@@ -12,6 +13,7 @@ import { useModelPulls } from '../hooks/useModelPulls';
 import { ServerCard } from './servers/ServerCard';
 import { ServerFilters } from './servers/ServerFilters';
 import { AddServerModal } from './servers/AddServerModal';
+import { Badge } from '../components/ui/badge';
 
 // Provider configuration for auto-fill and hints
 export const PROVIDER_CONFIG = {
@@ -56,6 +58,9 @@ export type ProviderType = keyof typeof PROVIDER_CONFIG;
 
 export const Servers = () => {
   const queryClient = useQueryClient();
+  const { isLive } = useLiveUpdates({
+    invalidateQueries: [['servers'], ['metrics']],
+  });
   const { data: servers, isLoading } = useQuery({
     queryKey: ['servers'],
     queryFn: getServers,
@@ -162,9 +167,24 @@ export const Servers = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-text-base">Servers</h2>
-        <p className="text-text-muted">Manage your AI inference nodes</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-text-base">Servers</h2>
+          <p className="text-text-muted">Manage your AI inference nodes</p>
+        </div>
+        <Badge
+          variant={isLive ? 'default' : 'secondary'}
+          className={
+            isLive
+              ? 'bg-green-500/20 text-green-400 border-green-500/50 animate-pulse'
+              : 'bg-gray-500/20 text-gray-400 border-gray-500/50'
+          }
+        >
+          <span
+            className={`mr-1.5 h-1.5 w-1.5 rounded-full ${isLive ? 'bg-green-400' : 'bg-gray-400'}`}
+          />
+          {isLive ? 'Live' : 'Offline'}
+        </Badge>
       </div>
 
       <ServerFilters

@@ -2,8 +2,14 @@ import { useQuery } from '@tanstack/react-query';
 import { getStats, getAnalyticsSummary, getMetrics } from '../api';
 import { Activity, Zap, AlertCircle, CheckCircle, XCircle, Radio } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
+import { Badge } from '../components/ui/badge';
+import { useLiveUpdates } from '../hooks/useLiveUpdates';
 
 export const Dashboard = () => {
+  const { isLive } = useLiveUpdates({
+    invalidateQueries: [['stats'], ['analytics-summary'], ['metrics'], ['servers'], ['models']],
+  });
+
   const {
     data: statsData,
     isLoading: statsLoading,
@@ -91,9 +97,24 @@ export const Dashboard = () => {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-text-base mb-2">Dashboard Overview</h2>
-        <p className="text-text-muted">Real-time metrics and system status</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-text-base mb-2">Dashboard Overview</h2>
+          <p className="text-text-muted">Real-time metrics and system status</p>
+        </div>
+        <Badge
+          variant={isLive ? 'default' : 'secondary'}
+          className={
+            isLive
+              ? 'bg-green-500/20 text-green-400 border-green-500/50 animate-pulse'
+              : 'bg-gray-500/20 text-gray-400 border-gray-500/50'
+          }
+        >
+          <span
+            className={`mr-1.5 h-1.5 w-1.5 rounded-full ${isLive ? 'bg-green-400' : 'bg-gray-400'}`}
+          />
+          {isLive ? 'Live' : 'Offline'}
+        </Badge>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
