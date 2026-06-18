@@ -159,6 +159,10 @@ authRouter.get(
   '/me',
   requireAuth(),
   asyncHandler((req: Request, res: Response) => {
+    const userStore = getUserStore();
+    const needsSetup =
+      userStore.listUsersByRole('admin').length === 0 && DEFAULT_AUTH_CONFIG.enabled;
+
     // When auth is disabled, return a default admin user so frontend doesn't redirect to login
     if (!DEFAULT_AUTH_CONFIG.enabled) {
       res.status(200).json({
@@ -168,6 +172,7 @@ authRouter.get(
           email: 'admin@local',
           role: 'admin',
         },
+        needsSetup,
       });
       return;
     }
@@ -192,7 +197,6 @@ authRouter.get(
       return;
     }
 
-    const userStore = getUserStore();
     const user = userStore.getUserById(payload.userId);
     if (!user) {
       res.status(401).json({
@@ -204,6 +208,7 @@ authRouter.get(
 
     res.status(200).json({
       user: safeUserResponse(user),
+      needsSetup,
     });
   })
 );

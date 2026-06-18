@@ -35,6 +35,7 @@ import {
   authRouter,
   userRouter,
 } from './routes/orchestrator.js';
+import { setupRouter } from './routes/setup.routes.js';
 import { getMetricsStore } from './storage/metrics-store.js';
 import { getUserStore } from './storage/user-store.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
@@ -127,6 +128,9 @@ const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
 const userStore = getUserStore();
 
+// Track whether we're in setup mode (no admin exists)
+let setupMode = false;
+
 // Initialize function to handle async setup with proper error handling
 async function initialize(): Promise<void> {
   try {
@@ -150,10 +154,8 @@ async function initialize(): Promise<void> {
         );
         logger.info('Default admin user created from ADMIN_USERNAME env var');
       } else {
-        logger.error(
-          'No admin users exist and ADMIN_USERNAME/ADMIN_PASSWORD not set. Cannot start.'
-        );
-        process.exit(1);
+        logger.warn('No admin users exist. Setup wizard will be served at GET /setup');
+        setupMode = true;
       }
     }
 
@@ -180,6 +182,9 @@ async function initialize(): Promise<void> {
         'Authentication is DISABLED. All endpoints are publicly accessible. Set ENABLE_AUTH=true to secure your instance.'
       );
     }
+
+    // Setup routes (no auth required, rate limited) - must be before auth to allow first-time setup
+    app.use('/api/orchestrator', setupRouter);
 
     // Auth routes must be FIRST to bypass authentication checks when auth is disabled
     app.use('/api/orchestrator/auth', authRouter);
@@ -290,6 +295,32 @@ async function initialize(): Promise<void> {
     // Serve static frontend files
     const frontendPath = path.join(__dirname, '../frontend/dist');
     app.use(express.static(frontendPath));
+
+    // Setup middleware: redirect to /setup when no admin exists
+    app.use((req, res, next) => {
+      const noAdmin = userStore.listUsersByRole('admin').length === 0;
+      if (
+        req.path === '/setup' ||
+        req.path.startsWith('/api/orchestrator/setup') ||
+        req.path.startsWith('/api/') ||
+        req.path.startsWith('/v1/') ||
+        req.path === '/health' ||
+        req.path.startsWith('/health/') ||
+        req.path === '/metrics' ||
+        req.path.startsWith('/assets/')
+      ) {
+        return next();
+      }
+      if (noAdmin) {
+        return res.redirect('/setup');
+      }
+      next();
+    });
+
+    // Serve setup.html for /setup route
+    app.get('/setup', (_req, res) => {
+      res.sendFile(path.join(frontendPath, 'setup.html'));
+    });
 
     // SPA Fallback for non-API routes
     app.get('*', (req, res, next) => {
