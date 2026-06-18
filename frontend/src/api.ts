@@ -130,3 +130,4 @@ export {
   type ClusterStatus,
   type ClusterServerStatus,
 } from './api/health';
+export { setup, type SetupInput, type SetupResult } from './api/setup';
