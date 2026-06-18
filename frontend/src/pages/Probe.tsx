@@ -8,6 +8,7 @@ import { Button } from '../components/Button';
 import { toastSuccess, toastError } from '../utils/toast';
 import { formatTimeAgo } from '../utils/formatting';
 import { getAllModelsStatus, triggerHealthCheck } from '../api';
+import { safeArray } from '../utils/safeArray';
 
 const CapabilityTab = lazy(() => import('./probe/CapabilityTab'));
 const EndpointsTab = lazy(() => import('./probe/EndpointsTab'));
@@ -52,7 +53,10 @@ export const Probe = memo(() => {
     },
   });
 
-  const models = useMemo(() => modelsStatusData?.models || [], [modelsStatusData?.models]);
+  const models = useMemo(
+    () => safeArray<ModelStatus>(modelsStatusData?.models),
+    [modelsStatusData?.models]
+  );
   const confirmedCount = models.filter(m => m.status === 'confirmed').length;
   const revokedCount = models.filter(m => m.status === 'revoked').length;
   const rateLimitedCount = models.filter(m => m.status === 'rate_limited').length;
