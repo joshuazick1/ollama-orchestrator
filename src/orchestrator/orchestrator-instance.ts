@@ -122,6 +122,9 @@ export function getOrchestratorInstance(): AIOrchestrator {
                 if (server.apiKey !== undefined) {
                   addedServer.apiKey = server.apiKey;
                 }
+                if (server.version !== undefined) {
+                  addedServer.version = server.version;
+                }
               }
             }
           }
