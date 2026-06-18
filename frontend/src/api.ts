@@ -123,4 +123,10 @@ export {
   getUserAccess,
   rotateApiKey,
 } from './api/auth';
-export { getHealth, triggerHealthCheck } from './api/health';
+export {
+  getHealth,
+  triggerHealthCheck,
+  getClusterStatus,
+  type ClusterStatus,
+  type ClusterServerStatus,
+} from './api/health';

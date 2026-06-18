@@ -28,3 +28,30 @@ export const triggerHealthCheck = async () => {
     return response.data;
   });
 };
+
+export interface ClusterStatus {
+  totalServers: number;
+  healthyServers: number;
+  degradedServers: number;
+  downServers: number;
+  averageResponseTime: number;
+  totalInFlight: number;
+  errorRate: number;
+  servers: ClusterServerStatus[];
+}
+
+export interface ClusterServerStatus {
+  serverId: string;
+  status: 'healthy' | 'degraded' | 'down';
+  lastHealthCheck: number;
+  responseTime: number;
+  inFlight: number;
+  errorRate: number;
+}
+
+export const getClusterStatus = async (): Promise<ClusterStatus> => {
+  return apiCall(async () => {
+    const response = await apiClient.get('/cluster-status');
+    return response.data;
+  });
+};

@@ -24,6 +24,10 @@ const InFlight = lazy(() => import('./pages/InFlight').then(m => ({ default: m.I
 const ErrorEvents = lazy(() =>
   import('./pages/ErrorEvents').then(m => ({ default: m.ErrorEvents }))
 );
+const Probe = lazy(() => import('./pages/Probe').then(m => ({ default: m.Probe })));
+const ClusterStatus = lazy(() =>
+  import('./pages/ClusterStatus').then(m => ({ default: m.ClusterStatus }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -142,6 +146,22 @@ function AppContent() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <ErrorEvents />
+              </Suspense>
+            }
+          />
+          <Route
+            path="probe"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Probe />
+              </Suspense>
+            }
+          />
+          <Route
+            path="cluster"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ClusterStatus />
               </Suspense>
             }
           />
