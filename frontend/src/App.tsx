@@ -28,6 +28,7 @@ const Probe = lazy(() => import('./pages/Probe').then(m => ({ default: m.Probe }
 const ClusterStatus = lazy(() =>
   import('./pages/ClusterStatus').then(m => ({ default: m.ClusterStatus }))
 );
+const Playground = lazy(() => import('./pages/Playground').then(m => ({ default: m.Playground })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -162,6 +163,14 @@ function AppContent() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <ClusterStatus />
+              </Suspense>
+            }
+          />
+          <Route
+            path="playground"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Playground />
               </Suspense>
             }
           />

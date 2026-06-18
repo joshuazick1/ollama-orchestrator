@@ -190,3 +190,20 @@ export const copyModelToServer = async (
     return response.data;
   });
 };
+
+export interface OpenAIModelsResponse {
+  object: string;
+  data: Array<{
+    id: string;
+    object: string;
+    created: number;
+    owned_by: string;
+  }>;
+}
+
+export const getOpenAIModels = async (): Promise<string[]> => {
+  return apiCall(async () => {
+    const response = await apiClient.get<OpenAIModelsResponse>('/v1/models');
+    return response.data.data.map(model => model.id);
+  });
+};
