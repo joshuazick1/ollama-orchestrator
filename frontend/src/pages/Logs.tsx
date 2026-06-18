@@ -9,6 +9,7 @@ import { ErrorState } from '../components/EmptyState';
 import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
 import { logLevelColors } from '../constants/colors';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
 
@@ -17,17 +18,6 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
   WARN: logLevelColors.warn,
   INFO: logLevelColors.info,
   DEBUG: logLevelColors.debug,
-};
-
-const getLogStyle = (level: LogLevel): React.CSSProperties => {
-  switch (level) {
-    case 'ERROR':
-      return { backgroundColor: 'rgba(239,68,68,0.15)' };
-    case 'WARN':
-      return { backgroundColor: 'rgba(245,158,11,0.12)' };
-    default:
-      return {};
-  }
 };
 
 const getLogTextColor = (level: LogLevel): string => {
@@ -45,20 +35,26 @@ const getLogTextColor = (level: LogLevel): string => {
   }
 };
 
+const getLogStyle = (level: LogLevel): React.CSSProperties => {
+  switch (level) {
+    case 'ERROR':
+      return { backgroundColor: 'rgba(239,68,68,0.15)' };
+    case 'WARN':
+      return { backgroundColor: 'rgba(245,158,11,0.12)' };
+    default:
+      return {};
+  }
+};
+
 const getLogLevel = (content: string): LogLevel => {
   if (
     content.includes('ERROR') ||
     content.includes('[E]') ||
     content.toLowerCase().includes('error')
-  ) {
+  )
     return 'ERROR';
-  }
-  if (content.includes('WARN') || content.includes('[W]')) {
-    return 'WARN';
-  }
-  if (content.includes('DEBUG') || content.includes('[D]')) {
-    return 'DEBUG';
-  }
+  if (content.includes('WARN') || content.includes('[W]')) return 'WARN';
+  if (content.includes('DEBUG') || content.includes('[D]')) return 'DEBUG';
   return 'INFO';
 };
 
@@ -69,6 +65,7 @@ export const Logs = () => {
   );
   const [autoScroll, setAutoScroll] = useState(true);
   const logContainerRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement>(null);
 
   const {
     data: logs,
@@ -83,38 +80,38 @@ export const Logs = () => {
       queryClient.invalidateQueries({ queryKey: ['logs'] });
       toastSuccess('Logs cleared successfully');
     },
-    onError: error => {
-      toastError(error instanceof Error ? error.message : 'Failed to clear logs');
-    },
+    onError: error => toastError(error instanceof Error ? error.message : 'Failed to clear logs'),
   });
 
   const logEntries = useMemo(() => {
     if (!logs) return [];
-
-    let entries: Array<{ id: number; content: string; level: LogLevel }>;
-
     if (typeof logs === 'string') {
-      entries = logs
+      return logs
         .split('\n')
         .filter(line => line.trim().length > 0)
         .map((line, i) => ({ id: i, content: line, level: getLogLevel(line) }));
-    } else {
-      entries = safeArray(logs).map((log, i) => {
-        const content = typeof log === 'string' ? log : JSON.stringify(log);
-        return { id: i, content, level: getLogLevel(content) };
-      });
     }
-
-    return entries;
+    return safeArray(logs).map((log, i) => {
+      const content = typeof log === 'string' ? log : JSON.stringify(log);
+      return { id: i, content, level: getLogLevel(content) };
+    });
   }, [logs]);
 
-  const filteredLogs = useMemo(() => {
-    return logEntries.filter(entry => levelFilter.has(entry.level));
-  }, [logEntries, levelFilter]);
+  const filteredLogs = useMemo(
+    () => logEntries.filter(entry => levelFilter.has(entry.level)),
+    [logEntries, levelFilter]
+  );
 
   const { searchQuery, setSearchQuery } = useDataTable({
     data: filteredLogs,
     searchKeys: ['content'],
+  });
+
+  const rowVirtualizer = useVirtualizer({
+    count: filteredLogs.length,
+    getScrollElement: () => logContainerRef.current,
+    estimateSize: () => 40,
+    overscan: 10,
   });
 
   useEffect(() => {
@@ -174,16 +171,10 @@ export const Logs = () => {
               key={level}
               onClick={() => {
                 const newFilter = new Set(levelFilter);
-                if (newFilter.has(level)) {
-                  newFilter.delete(level);
-                } else {
-                  newFilter.add(level);
-                }
+                newFilter.has(level) ? newFilter.delete(level) : newFilter.add(level);
                 setLevelFilter(newFilter);
               }}
-              className={`px-2 py-1 text-xs rounded ${
-                levelFilter.has(level) ? 'bg-opacity-100' : 'bg-opacity-30 opacity-50'
-              }`}
+              className={`px-2 py-1 text-xs rounded ${levelFilter.has(level) ? 'bg-opacity-100' : 'bg-opacity-30 opacity-50'}`}
               style={{
                 backgroundColor: levelFilter.has(level) ? LEVEL_COLORS[level] : 'transparent',
                 borderColor: LEVEL_COLORS[level],
@@ -196,12 +187,7 @@ export const Logs = () => {
         </div>
         <button
           onClick={() => setAutoScroll(!autoScroll)}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
-            autoScroll
-              ? 'bg-blue-600 hover:bg-blue-700 text-text-base'
-              : 'bg-gray-700 hover:bg-gray-600 text-text-base'
-          }`}
-          title={autoScroll ? 'Auto-scroll enabled' : 'Auto-scroll disabled'}
+          className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${autoScroll ? 'bg-blue-600 hover:bg-blue-700 text-text-base' : 'bg-gray-700 hover:bg-gray-600 text-text-base'}`}
         >
           {autoScroll ? <ArrowDown className="w-4 h-4" /> : <ArrowUp className="w-4 h-4" />}
           <span>{autoScroll ? 'Auto-scroll On' : 'Auto-scroll Off'}</span>
@@ -224,19 +210,26 @@ export const Logs = () => {
 
       <div
         ref={logContainerRef}
-        className="bg-gray-950 rounded-xl border border-gray-800 font-mono text-sm h-[600px] overflow-auto flex flex-col"
+        className="bg-gray-950 rounded-xl border border-gray-800 font-mono text-sm h-[600px] overflow-auto"
       >
         {filteredLogs.length > 0 ? (
-          <div className="divide-y divide-gray-800/50">
-            {filteredLogs.map(entry => (
-              <div
-                key={entry.id}
-                className={`py-2 px-4 hover:bg-surface-raised/50 break-all whitespace-pre-wrap ${getLogTextColor(entry.level)}`}
-                style={getLogStyle(entry.level)}
-              >
-                {entry.content}
-              </div>
-            ))}
+          <div
+            ref={parentRef}
+            className="relative w-full"
+            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          >
+            {rowVirtualizer.getVirtualItems().map(virtualRow => {
+              const entry = filteredLogs[virtualRow.index];
+              return (
+                <div
+                  key={entry.id}
+                  className={`absolute top-0 left-0 w-full py-2 px-4 hover:bg-surface-raised/50 break-all whitespace-pre-wrap ${getLogTextColor(entry.level)}`}
+                  style={getLogStyle(entry.level)}
+                >
+                  {entry.content}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">

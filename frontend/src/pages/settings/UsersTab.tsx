@@ -1,6 +1,10 @@
+// Extracted from settings/index.tsx - UsersTab with react-hook-form + zod
 import { useState, memo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import {
   getUsers,
   createUser,
@@ -36,6 +40,15 @@ import {
   X,
 } from 'lucide-react';
 
+const userSchema = z.object({
+  username: z.string().min(1, 'Username is required'),
+  email: z.string().email('Invalid email format'),
+  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+  role: z.enum(['user', 'admin']),
+});
+
+type UserFormData = z.infer<typeof userSchema>;
+
 interface UserWithAccess extends UserResponse {
   expanded?: boolean;
   access?: {
@@ -43,13 +56,6 @@ interface UserWithAccess extends UserResponse {
     modelAccess: Array<{ serverId: string; model: string }>;
   };
   accessLoading?: boolean;
-}
-
-interface UserFormData {
-  username: string;
-  email: string;
-  password: string;
-  role: 'user' | 'admin';
 }
 
 const RoleBadge = memo(({ role }: { role: 'admin' | 'user' }) => (
@@ -83,13 +89,21 @@ export const UsersTab = () => {
   const [apiKeyModal, setApiKeyModal] = useState<{ userId: string; apiKey: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
 
-  const [formData, setFormData] = useState<UserFormData>({
-    username: '',
-    email: '',
-    password: '',
-    role: 'user',
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+    setValue,
+  } = useForm<UserFormData>({
+    resolver: zodResolver(userSchema),
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
+      role: 'user',
+    },
   });
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
   const [serverAccessModal, setServerAccessModal] = useState<{
@@ -125,7 +139,7 @@ export const UsersTab = () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toastSuccess('User created successfully');
       setIsAddModalOpen(false);
-      resetForm();
+      reset();
       refetch();
     },
     onError: (error: Error) => {
@@ -139,7 +153,7 @@ export const UsersTab = () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toastSuccess('User updated successfully');
       setEditingUser(null);
-      resetForm();
+      reset();
       refetch();
     },
     onError: (error: Error) => {
@@ -274,33 +288,13 @@ export const UsersTab = () => {
     }
   };
 
-  const resetForm = () => {
-    setFormData({ username: '', email: '', password: '', role: 'user' });
-    setFormErrors({});
-  };
-
-  const validateForm = (data: UserFormData): boolean => {
-    const errors: Record<string, string> = {};
-    if (!data.username.trim()) errors.username = 'Username is required';
-    if (!data.email.trim()) errors.email = 'Email is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) errors.email = 'Invalid email format';
-    if (!editingUser && !data.password) errors.password = 'Password is required';
-    else if (data.password && data.password.length < 8)
-      errors.password = 'Password must be at least 8 characters';
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm(formData)) return;
-
+  const onSubmit = (data: UserFormData) => {
     if (editingUser) {
       const updateData: UpdateUserData = {};
-      if (formData.username !== editingUser.username) updateData.username = formData.username;
-      if (formData.email !== editingUser.email) updateData.email = formData.email;
-      if (formData.password) updateData.password = formData.password;
-      if (formData.role !== editingUser.role) updateData.role = formData.role;
+      if (data.username !== editingUser.username) updateData.username = data.username;
+      if (data.email !== editingUser.email) updateData.email = data.email;
+      if (data.password) updateData.password = data.password;
+      if (data.role !== editingUser.role) updateData.role = data.role;
 
       if (Object.keys(updateData).length === 0) {
         setEditingUser(null);
@@ -310,22 +304,19 @@ export const UsersTab = () => {
       updateMutation.mutate({ id: editingUser.id, data: updateData });
     } else {
       createMutation.mutate({
-        username: formData.username,
-        email: formData.email,
-        password: formData.password,
-        role: formData.role,
+        username: data.username,
+        email: data.email,
+        password: data.password || '',
+        role: data.role,
       });
     }
   };
 
   const openEditModal = (user: UserWithAccess) => {
-    setFormData({
-      username: user.username,
-      email: user.email,
-      password: '',
-      role: user.role,
-    });
-    setFormErrors({});
+    setValue('username', user.username);
+    setValue('email', user.email);
+    setValue('password', '');
+    setValue('role', user.role);
     setEditingUser(user);
   };
 
@@ -335,6 +326,12 @@ export const UsersTab = () => {
       setCopiedKey(true);
       setTimeout(() => setCopiedKey(false), 2000);
     }
+  };
+
+  const handleCloseModal = () => {
+    setIsAddModalOpen(false);
+    setEditingUser(null);
+    reset();
   };
 
   if (currentUser?.role !== 'admin') {
@@ -361,7 +358,7 @@ export const UsersTab = () => {
         </div>
         <button
           onClick={() => {
-            resetForm();
+            reset();
             setIsAddModalOpen(true);
           }}
           className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-text-base px-4 py-2 rounded-lg transition-colors"
@@ -608,29 +605,24 @@ export const UsersTab = () => {
 
       <Modal
         isOpen={isAddModalOpen || !!editingUser}
-        onClose={() => {
-          setIsAddModalOpen(false);
-          setEditingUser(null);
-          resetForm();
-        }}
+        onClose={handleCloseModal}
         title={editingUser ? 'Edit User' : 'Add New User'}
         size="md"
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">Username</label>
             <input
               type="text"
-              value={formData.username}
-              onChange={e => setFormData(prev => ({ ...prev, username: e.target.value }))}
+              {...register('username')}
               className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
-                formErrors.username
+                errors.username
                   ? 'border-red-500 focus:ring-red-500'
                   : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
-            {formErrors.username && (
-              <p className="mt-1 text-sm text-red-400">{formErrors.username}</p>
+            {errors.username && (
+              <p className="mt-1 text-sm text-red-400">{errors.username.message}</p>
             )}
           </div>
 
@@ -638,15 +630,14 @@ export const UsersTab = () => {
             <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
             <input
               type="email"
-              value={formData.email}
-              onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
+              {...register('email')}
               className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
-                formErrors.email
+                errors.email
                   ? 'border-red-500 focus:ring-red-500'
                   : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
-            {formErrors.email && <p className="mt-1 text-sm text-red-400">{formErrors.email}</p>}
+            {errors.email && <p className="mt-1 text-sm text-red-400">{errors.email.message}</p>}
           </div>
 
           <div>
@@ -655,26 +646,22 @@ export const UsersTab = () => {
             </label>
             <input
               type="password"
-              value={formData.password}
-              onChange={e => setFormData(prev => ({ ...prev, password: e.target.value }))}
+              {...register('password')}
               className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 ${
-                formErrors.password
+                errors.password
                   ? 'border-red-500 focus:ring-red-500'
                   : 'border-gray-600 focus:ring-blue-500'
               }`}
             />
-            {formErrors.password && (
-              <p className="mt-1 text-sm text-red-400">{formErrors.password}</p>
+            {errors.password && (
+              <p className="mt-1 text-sm text-red-400">{errors.password.message}</p>
             )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">Role</label>
             <select
-              value={formData.role}
-              onChange={e =>
-                setFormData(prev => ({ ...prev, role: e.target.value as 'user' | 'admin' }))
-              }
+              {...register('role')}
               className="w-full bg-surface-raised border border-gray-600 rounded-lg px-4 py-2 text-text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="user">User</option>
@@ -685,11 +672,7 @@ export const UsersTab = () => {
           <div className="flex justify-end space-x-3 pt-4">
             <button
               type="button"
-              onClick={() => {
-                setIsAddModalOpen(false);
-                setEditingUser(null);
-                resetForm();
-              }}
+              onClick={handleCloseModal}
               className="px-4 py-2 text-gray-300 hover:text-text-base transition-colors"
             >
               Cancel
