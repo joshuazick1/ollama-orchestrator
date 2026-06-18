@@ -8,14 +8,19 @@ import {
   getBans,
   type CircuitBreakerInfo,
 } from '../api';
-import { Shield, RefreshCw, ChevronDown, ChevronRight, Server, Ban } from 'lucide-react';
+import { Shield, RefreshCw, Ban } from 'lucide-react';
 import { toastSuccess, toastError } from '../utils/toast';
 import { safeArray } from '../utils/safeArray';
 import { DataToolbar } from '../components/DataToolbar';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { useDataTable } from '../hooks/useDataTable';
-import { CircuitBreakerCard } from '../components/circuit-breakers/CircuitBreakerCard';
 import { BansTab } from '../components/circuit-breakers/BansTab';
+import {
+  CircuitBreakersSummary,
+  CircuitBreakersEmptyState,
+  CircuitBreakerBehaviorInfo,
+  ServerGroupCard,
+} from '../components/circuit-breakers';
 
 interface CircuitBreakerResponse {
   success: boolean;
@@ -30,22 +35,15 @@ interface GroupedBreakers {
   totalFailures: number;
 }
 
-const parseBreakerKey = (breakerKey: string): { serverId: string; model: string | undefined } => {
-  const lastColonIndex = breakerKey.lastIndexOf(':');
-  if (lastColonIndex === -1) {
-    return { serverId: breakerKey, model: undefined };
-  }
-  return {
-    serverId: breakerKey.substring(0, lastColonIndex),
-    model: breakerKey.substring(lastColonIndex + 1),
-  };
-};
-
 const groupBreakersByServer = (breakers: CircuitBreakerInfo[]): GroupedBreakers[] => {
   const groups = new Map<string, GroupedBreakers>();
 
   for (const breaker of breakers) {
-    const { serverId, model } = parseBreakerKey(breaker.serverId);
+    const lastColonIndex = breaker.serverId.lastIndexOf(':');
+    const serverId =
+      lastColonIndex === -1 ? breaker.serverId : breaker.serverId.substring(0, lastColonIndex);
+    const model =
+      lastColonIndex === -1 ? undefined : breaker.serverId.substring(lastColonIndex + 1);
 
     if (!groups.has(serverId)) {
       groups.set(serverId, {
@@ -116,6 +114,7 @@ export const CircuitBreakers = memo(() => {
   });
 
   const groupedServers = useMemo(() => groupBreakersByServer(filteredBreakers), [filteredBreakers]);
+  const breakers = safeArray<CircuitBreakerInfo>(data?.circuitBreakers);
 
   const resetMutation = useMutation({
     mutationFn: ({ serverId, model }: { serverId: string; model?: string }) =>
@@ -165,6 +164,8 @@ export const CircuitBreakers = memo(() => {
     });
   };
 
+  const isPending = resetMutation.isPending || openMutation.isPending || closeMutation.isPending;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -172,11 +173,6 @@ export const CircuitBreakers = memo(() => {
       </div>
     );
   }
-
-  const breakers = safeArray<CircuitBreakerInfo>(data?.circuitBreakers);
-  const openCount = breakers.filter(b => b.state === 'OPEN').length;
-  const halfOpenCount = breakers.filter(b => b.state === 'HALF-OPEN').length;
-  const closedCount = breakers.filter(b => b.state === 'CLOSED').length;
 
   return (
     <div className="space-y-6">
@@ -250,235 +246,33 @@ export const CircuitBreakers = memo(() => {
             </button>
           </DataToolbar>
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-surface rounded-xl border border-red-500/30 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-text-muted text-sm">Open Circuits</p>
-                  <p className="text-3xl font-bold text-red-400">{openCount}</p>
-                </div>
-                <ShieldAlert className="w-12 h-12 text-red-500/50" />
-              </div>
-              <p className="text-red-400/70 text-sm mt-2">
-                {openCount > 0 ? 'Services are being protected' : 'All circuits closed'}
-              </p>
-            </div>
+          <CircuitBreakersSummary breakers={breakers} />
 
-            <div className="bg-surface rounded-xl border border-yellow-500/30 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-text-muted text-sm">Half-Open</p>
-                  <p className="text-3xl font-bold text-yellow-400">{halfOpenCount}</p>
-                </div>
-                <ShieldQuestion className="w-12 h-12 text-yellow-500/50" />
-              </div>
-              <p className="text-yellow-400/70 text-sm mt-2">
-                {halfOpenCount > 0 ? 'Testing recovery' : 'No circuits testing'}
-              </p>
-            </div>
-
-            <div className="bg-surface rounded-xl border border-green-500/30 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-text-muted text-sm">Closed Circuits</p>
-                  <p className="text-3xl font-bold text-green-400">{closedCount}</p>
-                </div>
-                <ShieldCheck className="w-12 h-12 text-green-500/50" />
-              </div>
-              <p className="text-green-400/70 text-sm mt-2">Operating normally</p>
-            </div>
-          </div>
-
-          {/* Server Groups */}
           <div className="space-y-4">
             {groupedServers.length === 0 ? (
-              <div className="bg-surface rounded-xl border border-surface-border p-12 text-center">
-                <Shield className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-text-base mb-2">
-                  No Circuit Breakers Active
-                </h3>
-                <p className="text-text-muted">
-                  Circuit breakers will appear here as servers handle requests and failures occur.
-                </p>
-              </div>
+              <CircuitBreakersEmptyState />
             ) : (
               groupedServers.map(server => (
-                <div
+                <ServerGroupCard
                   key={server.serverId}
-                  className={`bg-surface rounded-xl border overflow-hidden ${
-                    server.hasOpenCircuit
-                      ? 'border-red-500/50 shadow-lg shadow-red-500/5'
-                      : 'border-surface-border'
-                  }`}
-                >
-                  {/* Server Header */}
-                  <button
-                    onClick={() => toggleServer(server.serverId)}
-                    className="w-full flex items-center justify-between p-6 hover:bg-gray-700 transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
-                      {expandedServers.has(server.serverId) ? (
-                        <ChevronDown className="w-5 h-5 text-text-muted" />
-                      ) : (
-                        <ChevronRight className="w-5 h-5 text-text-muted" />
-                      )}
-                      <Server className="w-6 h-6 text-blue-400" />
-                      <div>
-                        <h3 className="text-lg font-semibold text-text-base font-mono">
-                          {server.serverId}
-                        </h3>
-                        <p className="text-text-muted text-sm">
-                          {server.modelBreakers.length + (server.serverBreaker ? 1 : 0)} circuit
-                          breaker(s)
-                        </p>
-                      </div>
-                      {server.hasOpenCircuit && (
-                        <span className="px-3 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/50">
-                          HAS OPEN CIRCUIT
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-6 text-sm">
-                      <div className="text-right">
-                        <span className="text-gray-500 block text-xs">Total Failures</span>
-                        <span className="text-text-base font-mono">{server.totalFailures}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-gray-500 block text-xs">Model Circuits</span>
-                        <span className="text-text-base font-mono">
-                          {server.modelBreakers.length}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* Expanded Content */}
-                  {expandedServers.has(server.serverId) && (
-                    <div className="px-6 pb-6 space-y-4">
-                      {/* Server-level breaker */}
-                      {server.serverBreaker && (
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
-                            <Server className="w-4 h-4" />
-                            Server-Level Circuit Breaker
-                          </h4>
-                          <CircuitBreakerCard
-                            breaker={server.serverBreaker}
-                            onReset={() => resetMutation.mutate({ serverId: server.serverId })}
-                            onOpen={() => setPendingForceOpen({ serverId: server.serverId })}
-                            onClose={() => closeMutation.mutate({ serverId: server.serverId })}
-                            isPending={
-                              resetMutation.isPending ||
-                              openMutation.isPending ||
-                              closeMutation.isPending
-                            }
-                          />
-                        </div>
-                      )}
-
-                      {/* Model-level breakers */}
-                      {server.modelBreakers.length > 0 && (
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
-                            <Shield className="w-4 h-4" />
-                            Model-Level Circuit Breakers
-                          </h4>
-                          <div className="space-y-3">
-                            {server.modelBreakers
-                              .sort((a, b) => {
-                                const stateOrder = { OPEN: 0, 'HALF-OPEN': 1, CLOSED: 2 };
-                                const stateDiff =
-                                  stateOrder[a.state as keyof typeof stateOrder] -
-                                  stateOrder[b.state as keyof typeof stateOrder];
-                                if (stateDiff !== 0) return stateDiff;
-                                return b.failureCount - a.failureCount;
-                              })
-                              .map(breaker => {
-                                const modelName = parseBreakerKey(breaker.serverId).model;
-                                return (
-                                  <CircuitBreakerCard
-                                    key={breaker.serverId}
-                                    breaker={breaker}
-                                    isModel={true}
-                                    onReset={() =>
-                                      resetMutation.mutate({
-                                        serverId: server.serverId,
-                                        model: modelName,
-                                      })
-                                    }
-                                    onOpen={() =>
-                                      setPendingForceOpen({
-                                        serverId: server.serverId,
-                                        model: modelName,
-                                      })
-                                    }
-                                    onClose={() =>
-                                      closeMutation.mutate({
-                                        serverId: server.serverId,
-                                        model: modelName,
-                                      })
-                                    }
-                                    isPending={
-                                      resetMutation.isPending ||
-                                      openMutation.isPending ||
-                                      closeMutation.isPending
-                                    }
-                                  />
-                                );
-                              })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  server={server}
+                  expandedServers={expandedServers}
+                  onToggle={toggleServer}
+                  onReset={(serverId, model) => resetMutation.mutate({ serverId, model })}
+                  onOpen={(serverId, model) => setPendingForceOpen({ serverId, model })}
+                  onClose={(serverId, model) => closeMutation.mutate({ serverId, model })}
+                  isPending={isPending}
+                />
               ))
             )}
           </div>
 
-          {/* Info Section */}
-          <div className="bg-surface rounded-xl border border-surface-border p-6">
-            <h3 className="text-lg font-semibold text-text-base mb-4">Circuit Breaker Behavior</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h4 className="text-text-base font-medium mb-2">When does a circuit open?</h4>
-                <p className="text-text-muted text-sm">
-                  A circuit opens when the failure count exceeds the threshold (default: 5 failures)
-                  OR when the error rate exceeds 50% within the monitoring window (1 minute).
-                </p>
-              </div>
-              <div>
-                <h4 className="text-text-base font-medium mb-2">
-                  When does a server become unhealthy?
-                </h4>
-                <p className="text-text-muted text-sm">
-                  Servers are marked unhealthy after 3 consecutive transient/retryable failures.
-                  Permanent errors mark servers unhealthy only if they're server-wide issues (like
-                  disk full).
-                </p>
-              </div>
-              <div>
-                <h4 className="text-text-base font-medium mb-2">Recovery process</h4>
-                <p className="text-text-muted text-sm">
-                  After 30 seconds (open timeout), the circuit enters half-open state and allows
-                  test requests. If 3 consecutive requests succeed, the circuit closes.
-                </p>
-              </div>
-              <div>
-                <h4 className="text-text-base font-medium mb-2">Server vs Model circuits</h4>
-                <p className="text-text-muted text-sm">
-                  Server-level circuits track overall server health. Model-level circuits track
-                  specific models on that server (useful for OOM errors affecting only certain
-                  models).
-                </p>
-              </div>
-            </div>
-          </div>
+          <CircuitBreakerBehaviorInfo />
         </>
       ) : (
         <BansTab bansData={bansData} bansLoading={bansLoading} />
       )}
+
       {pendingForceOpen && (
         <ConfirmationModal
           isOpen={!!pendingForceOpen}
