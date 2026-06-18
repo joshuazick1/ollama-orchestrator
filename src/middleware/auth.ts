@@ -1,6 +1,11 @@
 /**
  * auth.ts
  * Authentication and authorization middleware
+ *
+ * Auth Modes:
+ * - Mode 1: ENABLE_AUTH=true (default) — JWT/API-key required. Use isInternalAdmin(req) for admin checks.
+ * - Mode 2: ENABLE_AUTH=false (dev mode) — All requests treated as internal admin.
+ *   req.auth is auto-set to { isAdmin: true, apiKey: 'internal' }.
  */
 
 import { timingSafeEqual } from 'crypto';
@@ -8,6 +13,7 @@ import { timingSafeEqual } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 
 import { logger } from '../utils/logger.js';
+import { verifyAccessToken } from '../utils/jwt.js';
 
 /**
  * Constant-time string comparison to prevent timing attacks
@@ -29,6 +35,9 @@ export interface AuthConfig {
  * Check if auth is enabled based on environment variables.
  * Supports both ORCHESTRATOR_AUTH_ENABLED and ENABLE_AUTH for backwards compatibility.
  * Auth is enabled if ORCHESTRATOR_AUTH_ENABLED is not 'false' OR ENABLE_AUTH is not 'false'.
+ *
+ * Default behavior: auth is ENABLED if neither ORCHESTRATOR_AUTH_ENABLED nor ENABLE_AUTH
+ * is set to 'false'. To disable, set ENABLE_AUTH=false.
  */
 export function isAuthEnabled(): boolean {
   const orchestratorAuth = process.env.ORCHESTRATOR_AUTH_ENABLED;
@@ -38,6 +47,34 @@ export function isAuthEnabled(): boolean {
     (orchestratorAuth !== 'false' && orchestratorAuth !== undefined) ||
     (enableAuth !== 'false' && enableAuth !== undefined)
   );
+}
+
+/**
+ * Determines if the current request should be treated as an internal admin.
+ * When auth is disabled (isAuthEnabled() === false), all requests are treated as internal admin.
+ * Otherwise, checks if req.auth is set and isAdmin is true.
+ * @param req - Express Request object
+ * @returns true if request should have admin privileges
+ */
+export function isInternalAdmin(req: Request): boolean {
+  if (!isAuthEnabled()) {
+    return true;
+  }
+  return req.auth?.isAdmin === true;
+}
+
+/**
+ * Determines if the current request should be treated as an internal user.
+ * When auth is disabled (isAuthEnabled() === false), all requests are treated as internal users.
+ * Otherwise, checks if req.user is set (valid JWT authentication).
+ * @param req - Express Request object
+ * @returns true if request should have user-level privileges
+ */
+export function isInternalUser(req: Request): boolean {
+  if (!isAuthEnabled()) {
+    return true;
+  }
+  return req.user !== undefined;
 }
 
 // In production, these should come from environment variables
@@ -96,15 +133,22 @@ function extractApiKey(req: Request): string | null {
 }
 
 /**
- * Middleware to check if request is authenticated
- * Protects sensitive endpoints (admin routes)
+ * Middleware to check if request is authenticated.
+ * Protects sensitive endpoints (admin routes).
+ *
+ * Behavior:
+ * - When auth is disabled (!config.enabled): Sets req.auth = { isAdmin: true, apiKey: 'internal' }
+ *   and calls next() — treats the request as internal admin.
+ * - When JWT is valid: Sets req.user = { id, role } and req.auth = { apiKey, isAdmin }, then calls next().
+ * - On JWT failure: Falls through to API key check.
  */
 export function requireAuth(
   config: AuthConfig = DEFAULT_AUTH_CONFIG
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction): void => {
-    // If auth is disabled, allow all requests
+    // If auth is disabled, set req.auth to internal admin and allow request
     if (!config.enabled) {
+      req.auth = { isAdmin: true, apiKey: 'internal' };
       next();
       return;
     }
@@ -114,9 +158,6 @@ export function requireAuth(
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       try {
-        // Dynamically import to avoid circular dependency at module level
-        // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-shadow
-        const { verifyAccessToken } = require('../utils/jwt.js');
         const payload = verifyAccessToken(token);
         // JWT is valid - set req.user with userId and role
         req.user = {
@@ -181,8 +222,13 @@ export function requireAuth(
 }
 
 /**
- * Middleware to require admin privileges
- * Use after requireAuth middleware
+ * Middleware to require admin privileges.
+ * Use after requireAuth middleware.
+ *
+ * Behavior:
+ * - When auth is disabled (!config.enabled): All requests pass through (dev mode).
+ * - When req.auth.isAdmin === true: Pass through.
+ * - Otherwise: Returns 403 Forbidden.
  */
 export function requireAdmin(
   _config: AuthConfig = DEFAULT_AUTH_CONFIG
