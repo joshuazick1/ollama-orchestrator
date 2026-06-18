@@ -1,4 +1,4 @@
-export { ApiErrorInfo } from './types';
+export type { ApiErrorInfo } from './types';
 
 export class ApiError extends Error {
   public status?: number;
