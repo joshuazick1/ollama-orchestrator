@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
 // jsdom does not implement window.matchMedia — provide a minimal stub
 Object.defineProperty(window, 'matchMedia', {
@@ -14,3 +15,6 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 });
+
+// jsdom does not implement Element.prototype.scrollIntoView — provide a minimal stub
+Element.prototype.scrollIntoView = vi.fn();
