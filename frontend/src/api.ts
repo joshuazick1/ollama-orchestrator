@@ -74,6 +74,18 @@ export {
   getRecentFailureRecords,
   resetServerRecoveryStats,
   getErrors,
+  getHourlyRollups,
+  getDailyRollups,
+  browseRequests,
+  getTemporalProfile,
+  getTemporalAdjustment,
+} from './api/analytics';
+export type {
+  HourlyRollup,
+  DailyRollup,
+  RequestHistoryEntry,
+  TemporalProfileData,
+  TemporalAdjustment,
 } from './api/analytics';
 export {
   getCircuitBreakers,

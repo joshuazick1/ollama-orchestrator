@@ -29,6 +29,8 @@ import {
   GitBranch,
   TrendingUp,
   Radio,
+  Calendar,
+  Grid3X3,
 } from 'lucide-react';
 
 import { ExportDropdown } from './ExportDropdown';
@@ -40,6 +42,8 @@ import { RequestsTab } from './RequestsTab';
 import { RecoveryTab } from './RecoveryTab';
 import { StreamingTab } from './StreamingTab';
 import { TrendsTab } from './TrendsTab';
+import { RollupsTab } from './RollupsTab';
+import { TemporalProfileTab } from './TemporalProfileTab';
 
 interface ExpandedRequest {
   [key: string]: boolean;
@@ -53,7 +57,9 @@ type TabId =
   | 'requests'
   | 'recovery'
   | 'streaming'
-  | 'trends';
+  | 'trends'
+  | 'rollups'
+  | 'temporal';
 
 export const Analytics = () => {
   const [timeRange, setTimeRange] = useState<'1h' | '6h' | '24h' | '7d'>('24h');
@@ -232,6 +238,8 @@ export const Analytics = () => {
     { id: 'recovery' as TabId, label: 'Recovery' },
     { id: 'streaming' as TabId, label: 'Streaming' },
     { id: 'trends' as TabId, label: 'Trends' },
+    { id: 'rollups' as TabId, label: 'Rollups' },
+    { id: 'temporal' as TabId, label: 'Temporal' },
   ];
 
   const toggleRequestExpansion = (requestId: string) => {
@@ -279,6 +287,8 @@ export const Analytics = () => {
                 {tab.id === 'recovery' && <Activity className="w-4 h-4 inline mr-2" />}
                 {tab.id === 'streaming' && <Radio className="w-4 h-4 inline mr-2" />}
                 {tab.id === 'trends' && <TrendingUp className="w-4 h-4 inline mr-2" />}
+                {tab.id === 'rollups' && <Calendar className="w-4 h-4 inline mr-2" />}
+                {tab.id === 'temporal' && <Grid3X3 className="w-4 h-4 inline mr-2" />}
                 {tab.label}
                 {tab.id === 'recovery' &&
                   recoverySummary &&
@@ -370,6 +380,12 @@ export const Analytics = () => {
 
       {/* Trends Tab */}
       {activeTab === 'trends' && <TrendsTab summarySnapshotsData={summarySnapshotsData} />}
+
+      {/* Rollups Tab */}
+      {activeTab === 'rollups' && <RollupsTab servers={serversWithHistory} />}
+
+      {/* Temporal Profile Tab */}
+      {activeTab === 'temporal' && <TemporalProfileTab servers={serversWithHistory} />}
     </div>
   );
 };

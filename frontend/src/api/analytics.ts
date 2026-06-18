@@ -242,3 +242,170 @@ export const getErrors = async (queryParams?: string): Promise<ErrorEvent[]> => 
     return response.data.errors;
   });
 };
+
+// ==========================================
+// Rollup Analytics
+// ==========================================
+
+export interface HourlyRollup {
+  timestamp: number;
+  serverId: string;
+  model: string;
+  requests: number;
+  avgLatency: number;
+  errorRate: number;
+  p95Latency: number;
+  tokensGenerated: number;
+  tokensPrompt: number;
+}
+
+export interface DailyRollup {
+  timestamp: number;
+  serverId: string;
+  model: string;
+  requests: number;
+  avgLatency: number;
+  errorRate: number;
+  p95Latency: number;
+  tokensGenerated: number;
+  tokensPrompt: number;
+}
+
+export const getHourlyRollups = async (params?: {
+  serverId?: string;
+  model?: string;
+  startTime?: number;
+  endTime?: number;
+}): Promise<{ success: boolean; count: number; rollups: HourlyRollup[] }> => {
+  return apiCall(async () => {
+    const queryParams = new URLSearchParams();
+    if (params?.serverId) queryParams.append('serverId', params.serverId);
+    if (params?.model) queryParams.append('model', params.model);
+    if (params?.startTime) queryParams.append('startTime', params.startTime.toString());
+    if (params?.endTime) queryParams.append('endTime', params.endTime.toString());
+
+    const response = await apiClient.get(`/analytics/rollups/hourly?${queryParams.toString()}`);
+    return response.data;
+  });
+};
+
+export const getDailyRollups = async (params?: {
+  serverId?: string;
+  model?: string;
+  startTime?: number;
+  endTime?: number;
+}): Promise<{ success: boolean; count: number; rollups: DailyRollup[] }> => {
+  return apiCall(async () => {
+    const queryParams = new URLSearchParams();
+    if (params?.serverId) queryParams.append('serverId', params.serverId);
+    if (params?.model) queryParams.append('model', params.model);
+    if (params?.startTime) queryParams.append('startTime', params.startTime.toString());
+    if (params?.endTime) queryParams.append('endTime', params.endTime.toString());
+
+    const response = await apiClient.get(`/analytics/rollups/daily?${queryParams.toString()}`);
+    return response.data;
+  });
+};
+
+// ==========================================
+// Request Browse
+// ==========================================
+
+export interface RequestHistoryEntry {
+  id: string;
+  serverId: string;
+  model: string;
+  endpoint: string;
+  timestamp: number;
+  duration: number;
+  success: boolean;
+  errorType?: string;
+  tokensGenerated?: number;
+  tokensPrompt?: number;
+  ttft?: number;
+  streamingDuration?: number;
+  chunkCount?: number;
+  isRetry?: boolean;
+}
+
+export const browseRequests = async (params?: {
+  serverId?: string;
+  model?: string;
+  endpoint?: string;
+  success?: boolean;
+  startTime?: number;
+  endTime?: number;
+  isRetry?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<{ success: boolean; count: number; requests: RequestHistoryEntry[] }> => {
+  return apiCall(async () => {
+    const queryParams = new URLSearchParams();
+    if (params?.serverId) queryParams.append('serverId', params.serverId);
+    if (params?.model) queryParams.append('model', params.model);
+    if (params?.endpoint) queryParams.append('endpoint', params.endpoint);
+    if (params?.success !== undefined) queryParams.append('success', params.success.toString());
+    if (params?.startTime) queryParams.append('startTime', params.startTime.toString());
+    if (params?.endTime) queryParams.append('endTime', params.endTime.toString());
+    if (params?.isRetry !== undefined) queryParams.append('isRetry', params.isRetry.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+
+    const response = await apiClient.get(`/analytics/requests/browse?${queryParams.toString()}`);
+    return response.data;
+  });
+};
+
+// ==========================================
+// Temporal Profile & Adjustment
+// ==========================================
+
+export interface TemporalProfileData {
+  serverId: string;
+  model: string;
+  dayOfWeek: number; // 0 = Sunday, 6 = Saturday
+  hourOfDay: number; // 0-23
+  requestCount: number;
+  avgLatency: number;
+  successRate: number;
+}
+
+export interface TemporalAdjustment {
+  serverId: string;
+  latencyMultiplier: number;
+  successMultiplier: number;
+  throughputMultiplier: number;
+  sampleCount: number;
+}
+
+export const getTemporalProfile = async (params: {
+  serverId: string;
+  model: string;
+}): Promise<{ success: boolean; count: number; profile: TemporalProfileData[] }> => {
+  return apiCall(async () => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('serverId', params.serverId);
+    queryParams.append('model', params.model);
+
+    const response = await apiClient.get(`/analytics/temporal/profile?${queryParams.toString()}`);
+    return response.data;
+  });
+};
+
+export const getTemporalAdjustment = async (params: {
+  model: string;
+  serverIds?: string[];
+}): Promise<{ success: boolean; count: number; adjustments: TemporalAdjustment[] }> => {
+  return apiCall(async () => {
+    const queryParams = new URLSearchParams();
+    queryParams.append('model', params.model);
+    if (params?.serverIds && params.serverIds.length > 0) {
+      params.serverIds.forEach(id => queryParams.append('serverIds', id));
+    }
+
+    const response = await apiClient.get(
+      `/analytics/temporal/adjustments?${queryParams.toString()}`
+    );
+    return response.data;
+  });
+};
