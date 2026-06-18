@@ -8,17 +8,7 @@ import {
   getBans,
   type CircuitBreakerInfo,
 } from '../api';
-import {
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-  RefreshCw,
-  ChevronDown,
-  ChevronRight,
-  Server,
-  Ban,
-} from 'lucide-react';
+import { Shield, RefreshCw, ChevronDown, ChevronRight, Server, Ban } from 'lucide-react';
 import { toastSuccess, toastError } from '../utils/toast';
 import { safeArray } from '../utils/safeArray';
 import { DataToolbar } from '../components/DataToolbar';
