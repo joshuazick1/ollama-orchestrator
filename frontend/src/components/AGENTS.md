@@ -22,6 +22,7 @@ Files of record (non-exhaustive):
 - [ErrorLog.tsx](ErrorLog.tsx) — Error log renderer.
 - [PageTransition.tsx](PageTransition.tsx) — Page transition wrapper.
 - [skeletons/](skeletons/) — Loading skeletons.
+- [ui/](ui/) — shadcn/ui primitives: Button, Card, Badge, Input, Label, Dialog, DropdownMenu, Tabs, Tooltip, Sheet, Separator, Skeleton, Alert, Select, Switch, Textarea, Table.
 - [**tests**/](__tests__) — Component-level Vitest tests.
 
 ## Ownership

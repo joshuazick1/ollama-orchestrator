@@ -111,6 +111,7 @@ export const BansTab = memo(({ bansData, bansLoading }: BansTabProps) => {
                       disabled={removeBanMutation.isPending}
                       className="text-text-muted hover:text-red-400 transition-colors"
                       title="Remove ban"
+                      aria-label="Remove ban"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

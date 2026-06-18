@@ -16,7 +16,9 @@ Files of record:
 - [Logs.tsx](Logs.tsx) — Application log viewer, search, clear.
 - [Login.tsx](Login.tsx) — Public login form.
 - [analytics/](analytics/) — Analytics page (multi-tab).
-- [settings/](settings/) — Settings page (multi-tab).
+- [settings/](settings/) — Settings page (multi-tab). Settings sub-components in [settings/components/](settings/components/), settings tabs in [settings/tabs/](settings/tabs/).
+- [circuit-breakers/](circuit-breakers/) — Circuit breaker sub-components: CircuitBreakerCard, BansTab, detail/.
+- [servers/](servers/) — Server sub-components: ServerCard, ServerFilters, AddServerModal, ServerActionsMenu.
 - [**tests**/](__tests__) — Page-level Vitest tests.
 
 ## Ownership

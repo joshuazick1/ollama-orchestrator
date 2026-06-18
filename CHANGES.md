@@ -1,3 +1,30 @@
+## 2026-06-18: Phase 5 Final Polish (A11y, Tests, DOX)
+
+Phase 5 completion: accessibility improvements, test coverage, and documentation updates.
+
+### Added
+
+- Skip-to-content link in Layout.tsx for keyboard accessibility
+- aria-label attributes on icon-only buttons across the frontend (CircuitBreakerCard, BansTab, ModelManagerModal, ServerCard, InFlight, UsersTab)
+- aria-live="polite" regions on real-time updating components (StatCard value, InFlight stats grid, Dashboard)
+- Design tokens tests in `src/styles/__tests__/tokens.test.ts` verifying CSS custom properties and dark mode overrides
+- shadcn/ui primitive tests: Button variants/sizes, Dialog open/close, Tabs switch
+
+### Updated
+
+- frontend/AGENTS.md: Added shadcn/ui primitives and design tokens documentation
+- frontend/src/components/AGENTS.md: Listed shadcn/ui primitives under ui/ directory
+- frontend/src/pages/AGENTS.md: Documented file splits (servers/, circuit-breakers/, settings/tabs/)
+- Layout.tsx: Added skip-to-content link and main-content id
+
+### Verification
+
+- Lint: 0 errors (only pre-existing warning in useModelPulls.tsx)
+- Typecheck: 0 errors in changed files
+- Build: Pre-existing errors unchanged (not from this work)
+
+---
+
 ## 2026-06-17: Auth Refactor
 
 Comprehensive authentication and authorization refactor to fix SSRF protection, admin override logic, and first-time launch setup flow.

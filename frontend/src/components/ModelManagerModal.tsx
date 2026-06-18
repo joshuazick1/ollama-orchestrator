@@ -84,6 +84,7 @@ function PullProgress({
               onClick={onCancel}
               className="p-1 text-text-muted hover:text-red-400 transition-colors"
               title="Cancel pull"
+              aria-label="Cancel pull"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -92,6 +93,7 @@ function PullProgress({
               onClick={onDismiss}
               className="p-1 text-text-muted hover:text-text-base transition-colors"
               title="Dismiss"
+              aria-label="Dismiss"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -300,6 +302,7 @@ export const ModelManagerModal = ({ isOpen, onClose, server }: ModelManagerModal
                         disabled={deleteMutation.isPending}
                         className="ml-4 p-2 text-text-subtle hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
                         title="Delete model"
+                        aria-label="Delete model"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

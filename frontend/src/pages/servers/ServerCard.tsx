@@ -128,6 +128,7 @@ export const ServerCard = memo(function ServerCard({
                 setServerToDelete(server);
               }}
               title="Remove Server"
+              aria-label="Remove Server"
             >
               <Trash2 className="w-5 h-5" />
             </Button>

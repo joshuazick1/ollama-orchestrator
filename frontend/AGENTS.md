@@ -23,6 +23,8 @@ Entry points:
 - React Router v7 (`react-router-dom@^7`) for routing. `Login` is the only public route; every other route is wrapped in `<ProtectedRoute>`.
 - React Query (`@tanstack/react-query`) is the only allowed data-fetching primitive for HTTP endpoints. Do not introduce a second data-fetching library.
 - Tailwind CSS is the styling system. `clsx` + `tailwind-merge` are the only allowed class-name composition helpers.
+- Design tokens defined in [src/styles/tokens.css](src/styles/tokens.css) using CSS custom properties with oklch color space. Surface ladder: canvas → surface → surface-raised → surface-overlay.
+- shadcn/ui primitives in [src/components/ui/](src/components/ui/) (Button, Card, Badge, Dialog, Tabs, etc.).
 - WebSocket / Server-Sent Events are consumed through dedicated hooks in [src/hooks/](src/hooks/) (`useWebSocket`, `useServerEvents`).
 - TypeScript strict mode (per `tsconfig.app.json`).
 

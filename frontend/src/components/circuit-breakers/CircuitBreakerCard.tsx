@@ -81,6 +81,7 @@ export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
                 onClick={onOpen}
                 disabled={isPending || breaker.state === 'OPEN'}
                 title="Force Open (block requests)"
+                aria-label="Force Open"
                 className="p-1.5 text-text-muted hover:text-red-400 hover:bg-red-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <ShieldAlert className="w-4 h-4" />
@@ -89,6 +90,7 @@ export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
                 onClick={onClose}
                 disabled={isPending || breaker.state === 'CLOSED'}
                 title="Force Close (allow requests)"
+                aria-label="Force Close"
                 className="p-1.5 text-text-muted hover:text-green-400 hover:bg-green-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <ShieldCheck className="w-4 h-4" />
@@ -97,6 +99,7 @@ export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
                 onClick={onReset}
                 disabled={isPending}
                 title="Reset"
+                aria-label="Reset"
                 className="p-1.5 text-text-muted hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <RotateCcw className={`w-4 h-4 ${isPending ? 'animate-spin' : ''}`} />

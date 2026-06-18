@@ -428,6 +428,7 @@ export const UsersTab = () => {
                         onClick={() => toggleUserExpansion(user.id)}
                         className="p-2 text-text-muted hover:text-text-base hover:bg-surface rounded-lg transition-colors"
                         title="Manage access"
+                        aria-label="Manage access"
                       >
                         {expandedUsers.has(user.id) ? (
                           <ChevronDown className="w-4 h-4" />
@@ -439,6 +440,7 @@ export const UsersTab = () => {
                         onClick={() => rotateApiKeyMutation.mutate(user.id)}
                         className="p-2 text-text-muted hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-colors"
                         title="Generate API Key"
+                        aria-label="Generate API Key"
                         disabled={rotateApiKeyMutation.isPending}
                       >
                         <Key className="w-4 h-4" />
@@ -447,6 +449,7 @@ export const UsersTab = () => {
                         onClick={() => openEditModal(user)}
                         className="p-2 text-text-muted hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
                         title="Edit user"
+                        aria-label="Edit user"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -454,6 +457,7 @@ export const UsersTab = () => {
                         onClick={() => setDeletingUser(user)}
                         className="p-2 text-text-muted hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                         title="Delete user"
+                        aria-label="Delete user"
                         disabled={user.id === currentUser?.id}
                       >
                         <Trash2 className="w-4 h-4" />
@@ -713,6 +717,7 @@ export const UsersTab = () => {
               onClick={copyApiKey}
               className="ml-4 p-2 text-text-muted hover:text-text-base transition-colors flex-shrink-0"
               title="Copy to clipboard"
+              aria-label="Copy to clipboard"
             >
               {copiedKey ? (
                 <Check className="w-5 h-5 text-green-400" />

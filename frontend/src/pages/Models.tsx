@@ -150,6 +150,7 @@ const ServerBadge = ({
           }}
           className="ml-1 p-0.5 hover:bg-white/10 rounded text-text-base/60 hover:text-text-base"
           title="Reset circuit breaker"
+          aria-label="Reset circuit breaker"
         >
           <RefreshCw className="w-3 h-3" />
         </button>

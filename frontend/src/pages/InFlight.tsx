@@ -86,13 +86,14 @@ export const InFlight = () => {
           onClick={() => refetch()}
           className="p-2 bg-surface hover:bg-surface text-text-muted hover:text-text-base rounded-lg transition-colors"
           title="Refresh Data"
+          aria-label="Refresh Data"
         >
           <RefreshCw className={`w-5 h-5 ${inFlightLoading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6" aria-live="polite">
         <StatCard
           title="Total In-Flight"
           value={totalInFlight}
