@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, Square, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { Input } from '../components/ui/input';
 import { Card } from '../components/ui/card';
 import { cn } from '../lib/utils';
+import { useGenerateStream } from './useGenerateStream';
 
 export interface GenerateOptions {
   temperature?: number;
@@ -24,7 +25,6 @@ export interface GeneratePanelProps {
 export const GeneratePanel = ({ provider, model, options = {}, className }: GeneratePanelProps) => {
   const [prompt, setPrompt] = useState('');
   const [output, setOutput] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [localOptions, setLocalOptions] = useState<GenerateOptions>({
     temperature: options.temperature ?? 0.7,
@@ -33,13 +33,23 @@ export const GeneratePanel = ({ provider, model, options = {}, className }: Gene
     top_k: options.top_k ?? 40,
   });
 
+  const validProvider = provider === 'ollama' || provider === 'openai' ? provider : 'ollama';
+
+  const { response, isStreaming, error, generate, stop } = useGenerateStream(
+    validProvider,
+    model,
+    localOptions
+  );
+
   const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return;
+    if (!prompt.trim() || isStreaming) return;
 
-    setIsGenerating(true);
     setOutput('');
+    generate(prompt.trim());
+  };
 
-    setIsGenerating(false);
+  const handleStop = () => {
+    stop();
   };
 
   return (
@@ -50,7 +60,7 @@ export const GeneratePanel = ({ provider, model, options = {}, className }: Gene
           onChange={e => setPrompt(e.target.value)}
           placeholder={`Enter your prompt for ${provider}...`}
           className="min-h-[200px] resize-none"
-          disabled={isGenerating}
+          disabled={isStreaming}
         />
 
         <div>
@@ -131,15 +141,37 @@ export const GeneratePanel = ({ provider, model, options = {}, className }: Gene
           )}
         </div>
 
-        <Button onClick={handleGenerate} disabled={!prompt.trim() || isGenerating}>
-          <Play className="w-4 h-4 mr-2" />
-          {isGenerating ? 'Generating...' : 'Generate'}
-        </Button>
+        {isStreaming ? (
+          <Button onClick={handleStop} variant="outline">
+            <Square className="w-4 h-4 mr-2" />
+            Stop
+          </Button>
+        ) : (
+          <Button onClick={handleGenerate} disabled={!prompt.trim()}>
+            <Play className="w-4 h-4 mr-2" />
+            Generate
+          </Button>
+        )}
 
-        {output && (
-          <Card className="p-4 mt-4">
+        {(output || response) && (
+          <Card className="p-4">
             <div className="text-xs text-text-subtle mb-2">Output</div>
-            <div className="text-sm whitespace-pre-wrap">{output}</div>
+            <div className="text-sm whitespace-pre-wrap">{output || response}</div>
+          </Card>
+        )}
+
+        {error && (
+          <Card className="p-4 border-danger/50">
+            <div className="text-sm text-danger">{error.message}</div>
+          </Card>
+        )}
+
+        {isStreaming && (
+          <Card className="p-4 bg-surface-raised">
+            <div className="flex items-center gap-2 text-sm text-text-subtle">
+              <div className="w-2 h-2 bg-text-subtle rounded-full animate-pulse" />
+              Generating...
+            </div>
           </Card>
         )}
 

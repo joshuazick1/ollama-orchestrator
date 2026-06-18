@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Activity,
   Network,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -30,5 +31,6 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/errors', icon: AlertTriangle, label: 'Error Events' },
   { to: '/probe', icon: Activity, label: 'Probe' },
   { to: '/cluster', icon: Network, label: 'Cluster' },
+  { to: '/playground', icon: Sparkles, label: 'Playground' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
