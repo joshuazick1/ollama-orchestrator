@@ -1,3 +1,38 @@
+## 2026-06-17: Auth Refactor
+
+Comprehensive authentication and authorization refactor to fix SSRF protection, admin override logic, and first-time launch setup flow.
+
+### Added
+
+- `isInternalAdmin(req)` helper — Returns `true` when auth is disabled (`ENABLE_AUTH=false`) or `req.auth?.isAdmin === true`. Use for admin authorization instead of `req.auth?.isAdmin` directly.
+- `isInternalUser(req)` helper — Returns `true` when auth is disabled or JWT authentication is valid.
+- `ORCHESTRATOR_AUTH_MUST_BE_ENABLED` config flag — When `true`, warns if `ENABLE_AUTH` is not set but allows service to start.
+- First-time launch setup wizard — `POST /api/orchestrator/setup` accepts `{ username, password }` to create initial admin user, with standalone `setup.html` served at `GET /setup`.
+- `needsSetup` field in `GET /api/auth/me` response — Returns `true` when no admin users exist.
+
+### Fixed
+
+- SSRF admin override broken when `ENABLE_AUTH=false` — `isInternalAdmin()` now correctly returns `true` when auth is disabled.
+- Test-connection endpoints (T14/T15/T16) now require admin — SSRF protection applies to admin override.
+- Inference admin checks use `isInternalAdmin()` consistently — Controllers use the helper instead of `req.auth?.isAdmin`.
+
+### Changed
+
+- `process.exit(1)` removed — Service starts in setup mode when no admin exists instead of exiting.
+- `ENABLE_AUTH=true` now active by default — Auth is enabled when neither `ORCHESTRATOR_AUTH_ENABLED` nor `ENABLE_AUTH` is set to `false`.
+
+### Migration
+
+- If upgrading: Set `ENABLE_AUTH=false` in environment to retain previous behavior (auth disabled).
+- Run setup wizard at `GET /setup` to create initial admin user when `ENABLE_AUTH=true`.
+
+### Verification
+
+- Build: **PASSED** (TypeScript compile)
+- ESLint: url-safety.ts curly-brace errors fixed
+
+---
+
 ## 2026-06-17: Capability Detection System
 
 Added a negative probing system to detect per-endpoint capability gaps across the server fleet. The system periodically sends intentionally invalid model names to each endpoint and inspects response bodies to determine what capabilities a server truly supports.

@@ -26,6 +26,16 @@ Entry point: [src/index.ts](index.ts) wires Express, helmet (with CSP nonce), CO
 - Configuration: Zod-validated, env-mapped, hot-reloadable from JSON. See [src/config/AGENTS.md](config/AGENTS.md).
 - Logging: structured JSON lines via [src/utils/logger.ts](utils/logger.ts) and an in-memory ring buffer surfaced at `/api/orchestrator/logs`.
 
+### Authentication & Authorization
+
+Auth is configured via environment variables (`ENABLE_AUTH`, `ORCHESTRATOR_AUTH_ENABLED`, `API_KEYS`, `ADMIN_API_KEYS`) and enforced by middleware in [src/middleware/auth.ts](middleware/auth.ts).
+
+- `isInternalAdmin(req)` — Returns `true` when auth is disabled or `req.auth?.isAdmin === true`. **Use this for admin checks** instead of `req.auth?.isAdmin` directly.
+- `isInternalUser(req)` — Returns `true` when auth is disabled or `req.user` is set (valid JWT).
+- When no admin exists and `ENABLE_AUTH=true`, the orchestrator enters **setup mode** and serves a setup wizard at `GET /setup`.
+- First-time setup: `POST /api/orchestrator/setup` creates the initial admin user.
+- See [src/middleware/AGENTS.md](middleware/AGENTS.md) for full auth middleware documentation.
+
 ## Work Guidance
 
 - Match the existing module style: TypeScript ES modules with explicit `.js` import extensions (project convention for ESM/Node 20+).
