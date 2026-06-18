@@ -25,6 +25,17 @@ export function getCapabilityProbeScheduler(): CapabilityProbeScheduler {
           )
         );
       },
+      onVersionDetected: (serverId: string, version: string) => {
+        const server = orchestrator.getServer(serverId);
+        if (server && server.version !== version) {
+          server.version = version;
+          orchestrator.persistServers();
+          logger.debug('Server version updated from capability probe', {
+            serverId,
+            version,
+          });
+        }
+      },
     });
   }
   return scheduler;

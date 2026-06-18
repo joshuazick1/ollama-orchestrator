@@ -598,6 +598,16 @@ export class AIOrchestrator {
   }
 
   /**
+   * Persist current server list to disk. Called by external subsystems
+   * (e.g., the capability probe scheduler) after they mutate server fields.
+   */
+  persistServers(): void {
+    if (this.config.enablePersistence && !this._suppressPersistence) {
+      this.persistence.saveServersToDisk(this.servers);
+    }
+  }
+
+  /**
    * Update health and models for all servers
    */
   async updateAllStatus(): Promise<void> {
