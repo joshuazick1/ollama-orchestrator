@@ -1,5 +1,13 @@
 import dns from 'dns';
 
+/**
+ * Defense against SSRF attacks on server URLs.
+ *
+ * Admin users can test private network URLs as an explicit opt-in via the
+ * `isAdmin` parameter. Callers MUST use `isInternalAdmin(req)` for admin checks,
+ * NOT `req.auth?.isAdmin` — the latter is undefined when authentication is disabled.
+ */
+
 export type IsBlockedUrlOptions = {
   allowPrivateNetwork?: boolean;
   isAdmin?: boolean;
@@ -90,8 +98,8 @@ function parseHostFromUrl(url: string): string | null {
  *
  * @param url - The URL to check
  * @param options - Optional configuration:
- *   - allowPrivateNetwork: Config flag from capabilityProbe.allowPrivateNetwork
- *   - isAdmin: User role flag; must be true along with allowPrivateNetwork to bypass blocking
+ *   - allowPrivateNetwork: When true, allows loopback/private IPs. Note: this only takes effect when combined with `isAdmin=true` (admin override).
+ *   - isAdmin: When `isAdmin=true`, the function allows private IPs/loopback addresses. Callers MUST pass `isInternalAdmin(req)` for admin checks, NOT `req.auth?.isAdmin` — the latter is undefined when auth is disabled.
  * @returns Promise resolving to { blocked: boolean, reason?: string }
  */
 export async function isBlockedUrl(
