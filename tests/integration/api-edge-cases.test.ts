@@ -13,7 +13,12 @@ import { inferenceRouter } from '../../src/routes/inference.routes.js';
 import { v1Router } from '../../src/routes/v1.routes.js';
 import { createServer as createTestServer } from '../fixtures/factories.js';
 
-import { makeRequest, setupIntegrationTest, teardownIntegrationTest } from './setup.js';
+import {
+  makeRequest,
+  setupIntegrationTest,
+  teardownIntegrationTest,
+  loginAsAdmin,
+} from './setup.js';
 
 type ParsedResponse = {
   status: number;
@@ -27,12 +32,10 @@ const backendServers: HttpServer[] = [];
 
 describe('API edge cases integration tests', () => {
   beforeAll(async () => {
-    process.env.ORCHESTRATOR_AUTH_ENABLED = 'false';
-    process.env.ENABLE_AUTH = 'false';
-
     resetOrchestratorInstance();
     await setupIntegrationTest();
     await startRootApiServer();
+    await loginAsAdmin();
   });
 
   afterAll(async () => {

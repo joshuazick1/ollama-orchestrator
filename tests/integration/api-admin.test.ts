@@ -8,11 +8,17 @@ import { describe, it, beforeAll, afterAll, expect, vi, beforeEach, afterEach } 
 
 import { logger } from '../../src/utils/logger.js';
 
-import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
+import {
+  setupIntegrationTest,
+  teardownIntegrationTest,
+  makeRequest,
+  loginAsAdmin,
+} from './setup.js';
 
 describe('Admin API Integration Tests', () => {
   beforeAll(async () => {
     await setupIntegrationTest();
+    await loginAsAdmin();
   });
 
   afterAll(async () => {

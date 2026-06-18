@@ -115,12 +115,12 @@ adminRouter.post(
 adminRouter.post('/servers/:id/capability-probe', requireAdmin(), asyncHandler(capabilityProbe));
 adminRouter.post(
   '/servers/test-connection',
-  requireAuth(),
+  requireAdmin(),
   validateRequest(testConnectionSchema),
   asyncHandler(testConnection)
 );
-adminRouter.get('/servers/test-connection/:testId', requireAuth(), asyncHandler(getTestResult));
-adminRouter.post('/servers/:id/test', requireAuth(), asyncHandler(testExistingServer));
+adminRouter.get('/servers/test-connection/:testId', requireAdmin(), asyncHandler(getTestResult));
+adminRouter.post('/servers/:id/test', requireAdmin(), asyncHandler(testExistingServer));
 
 // Per-server model management
 adminRouter.get('/servers/:id/models', requireAuth(), asyncHandler(listServerModels));

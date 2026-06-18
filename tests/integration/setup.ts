@@ -23,6 +23,54 @@ import router from '../../src/routes/orchestrator.js';
 let server: ReturnType<typeof createServer>;
 let baseUrl: string;
 let orchestrator: ReturnType<typeof getOrchestratorInstance> | undefined;
+let authCookie: string | undefined;
+
+/**
+ * Login as admin and store the auth cookie for subsequent requests.
+ * Uses ADMIN_USERNAME and ADMIN_PASSWORD from environment.
+ */
+export async function loginAsAdmin(): Promise<string> {
+  const csrfToken = await getCsrfToken();
+
+  const adminUsername = process.env.ADMIN_USERNAME ?? 'admin';
+  const adminPassword = process.env.ADMIN_PASSWORD ?? 'Admin@Pass123!Secure2024';
+
+  const response = await fetch(`${baseUrl}/api/orchestrator/auth/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-csrf-token': csrfToken,
+    },
+    body: JSON.stringify({ username: adminUsername, password: adminPassword }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Admin login failed: ${response.status} ${await response.text()}`);
+  }
+
+  const setCookie = response.headers.get('set-cookie') ?? '';
+  const match = setCookie.match(/auth_token=([^;]+)/);
+  if (!match) {
+    throw new Error('auth_token cookie not returned by login endpoint');
+  }
+
+  authCookie = `auth_token=${match[1]}`;
+  return authCookie;
+}
+
+/**
+ * Get the stored auth cookie (must call loginAsAdmin first).
+ */
+export function getAuthCookie(): string | undefined {
+  return authCookie;
+}
+
+/**
+ * Clear the stored auth cookie.
+ */
+export function clearAuthCookie(): void {
+  authCookie = undefined;
+}
 
 /**
  * Setup integration test environment
@@ -150,6 +198,7 @@ export async function makeRequest(
     headers: {
       ...(options?.rawBody !== undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(options?.csrfToken ? { 'x-csrf-token': options.csrfToken } : {}),
+      ...(authCookie ? { Cookie: authCookie } : {}),
       ...(options?.headers ?? {}),
     },
     body:
