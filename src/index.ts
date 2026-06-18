@@ -112,7 +112,18 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-app.use(compression());
+const STREAMING_ROUTES_REGEX =
+  /^\/api\/(chat|generate|embeddings|tags|ps|version|show)(?:--.+)?(?:\/.*)?$|^\/api\/orchestrator\/(events|metrics\/prometheus|servers\/[^/]+\/(capability-probe|models\/pull))$|^\/v1\/(chat\/completions|completions|embeddings|models|messages)(?:--.+)?$/;
+
+const shouldCompress = (req: express.Request): boolean => {
+  const fullPath = req.originalUrl.split('?')[0] ?? req.path;
+  if (STREAMING_ROUTES_REGEX.test(fullPath)) {
+    return false;
+  }
+  return true;
+};
+
+app.use(compression({ filter: shouldCompress }));
 
 // Request logging
 app.use((req, _res, next) => {
