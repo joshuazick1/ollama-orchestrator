@@ -1,6 +1,6 @@
 import { useState, useMemo, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Globe, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -151,9 +151,9 @@ export const EndpointsTab = memo(() => {
   if (servers.length === 0) {
     return (
       <EmptyState
-        icon={Globe}
+        type="no-servers"
         title="No servers found"
-        description="Add servers to see endpoint availability"
+        message="Add servers to see endpoint availability"
       />
     );
   }
@@ -206,17 +206,12 @@ export const EndpointsTab = memo(() => {
                 </TableCell>
                 <TableCell>{getStatusBadge(item.status)}</TableCell>
                 <TableCell>
-                  <button
-                    className="text-xs text-yellow-400 hover:text-yellow-300 disabled:opacity-50"
-                    disabled={item.status !== 'healthy'}
-                    title={
-                      item.status !== 'healthy'
-                        ? 'Server must be healthy to soft-revoke'
-                        : 'TODO: Backend endpoint not implemented'
-                    }
+                  <span
+                    className="text-xs text-text-subtle"
+                    title="Soft revoke will be available in a future release"
                   >
-                    Soft Revoke
-                  </button>
+                    —
+                  </span>
                 </TableCell>
               </TableRow>
             ))}

@@ -1,6 +1,6 @@
 import { useState, useMemo, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Activity, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowRight, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -134,9 +134,9 @@ export const WalTab = memo(() => {
   if (walEntries.length === 0) {
     return (
       <EmptyState
-        icon={Activity}
+        type="empty"
         title="No WAL entries found"
-        description="Probe state transitions will appear here"
+        message="Probe state transitions will appear here"
       />
     );
   }

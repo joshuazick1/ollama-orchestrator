@@ -1,6 +1,6 @@
 import { useMemo, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Network, Server, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { Server, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
 import { Card } from '../components/Card';
 import { ServerHealthCard } from '../components/cluster/ServerHealthCard';
 import { EmptyState } from '../components/EmptyState';
@@ -39,9 +39,9 @@ export const ClusterStatus = memo(() => {
   if (!cluster || servers.length === 0) {
     return (
       <EmptyState
-        icon={Network}
+        type="empty"
         title="No cluster data available"
-        description="Cluster status will appear when servers are registered"
+        message="Cluster status will appear when servers are registered"
       />
     );
   }

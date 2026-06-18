@@ -132,9 +132,9 @@ export const CapabilityTab = memo(() => {
   if (models.length === 0) {
     return (
       <EmptyState
-        icon={ShieldCheck}
+        type="empty"
         title="No capabilities found"
-        description="Capabilities will appear here when servers are probed"
+        message="Capabilities will appear here when servers are probed"
       />
     );
   }
