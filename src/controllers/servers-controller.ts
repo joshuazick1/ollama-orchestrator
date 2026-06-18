@@ -17,6 +17,7 @@ import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.j
 import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { isBlockedUrl } from '../utils/url-safety.js';
+import { isInternalAdmin } from '../middleware/auth.js';
 import { logger } from '../utils/logger.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
 
@@ -1169,6 +1170,18 @@ export async function capabilityProbe(req: Request, res: Response): Promise<void
     return;
   }
 
+  const ssrfCheck = await isBlockedUrl(server.url, {
+    allowPrivateNetwork:
+      getConfigManager().getConfig().capabilityProbe?.allowPrivateNetwork ?? false,
+    isAdmin: isInternalAdmin(req),
+  });
+  if (ssrfCheck.blocked) {
+    res
+      .status(400)
+      .json({ success: false, error: `URL blocked: ${ssrfCheck.reason ?? 'blocked'}` });
+    return;
+  }
+
   const capabilityProbeScheduler = getCapabilityProbeScheduler();
   const result = await capabilityProbeScheduler.runOnce(id);
 
@@ -1205,7 +1218,7 @@ export async function testConnection(req: Request, res: Response): Promise<void>
   const ssrfCheck = await isBlockedUrl(url, {
     allowPrivateNetwork:
       getConfigManager().getConfig().capabilityProbe?.allowPrivateNetwork ?? false,
-    isAdmin: req.auth?.isAdmin ?? false,
+    isAdmin: isInternalAdmin(req),
   });
   if (ssrfCheck.blocked) {
     res
@@ -1263,6 +1276,19 @@ export async function testExistingServer(req: Request, res: Response): Promise<v
     res.status(404).json({ success: false, error: ERROR_MESSAGES.SERVER_NOT_FOUND(serverId) });
     return;
   }
+
+  const ssrfCheck = await isBlockedUrl(server.url, {
+    allowPrivateNetwork:
+      getConfigManager().getConfig().capabilityProbe?.allowPrivateNetwork ?? false,
+    isAdmin: isInternalAdmin(req),
+  });
+  if (ssrfCheck.blocked) {
+    res
+      .status(400)
+      .json({ success: false, error: `URL blocked: ${ssrfCheck.reason ?? 'blocked'}` });
+    return;
+  }
+
   try {
     const result = await testServerCapabilities(server.url, {
       apiKey: server.apiKey,

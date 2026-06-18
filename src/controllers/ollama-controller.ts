@@ -49,6 +49,7 @@ import {
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 import { APP_VERSION } from '../utils/version.js';
+import { isInternalAdmin } from '../middleware/auth.js';
 
 /**
  * Handle /api/tags - Get aggregated tags from all servers
@@ -106,7 +107,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = isInternalAdmin(req);
 
     const result = await orchestrator.tryRequestWithFailover(
       model,
@@ -520,7 +521,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = isInternalAdmin(req);
 
     const result = await orchestrator.tryRequestWithFailover(
       model,
@@ -977,7 +978,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = isInternalAdmin(req);
 
     const result = await orchestrator.tryRequestWithFailover(
       model,
@@ -1233,7 +1234,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
 
     // Extract user info for access control scoping
     const userId = req.user?.id;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = isInternalAdmin(req);
 
     const server = orchestrator.getBestServerForModel(model, false, undefined, userId, isAdmin);
     if (!server) {

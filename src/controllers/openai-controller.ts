@@ -39,6 +39,7 @@ import {
   createStreamingStallHandler,
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
+import { isInternalAdmin } from '../middleware/auth.js';
 
 /**
  * Get headers for backend requests including optional auth
@@ -623,7 +624,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = isInternalAdmin(req);
 
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
@@ -1019,7 +1020,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = isInternalAdmin(req);
 
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
@@ -1200,7 +1201,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
-    const isAdmin = req.user?.role === 'admin';
+    const isAdmin = isInternalAdmin(req);
 
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
