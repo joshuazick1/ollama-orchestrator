@@ -81,6 +81,7 @@ export interface CapabilityProbeSchedulerOptions {
   logger: typeof logger;
   serverListProvider: () => Promise<ServerDescriptor[]>;
   probeExecutor?: typeof probeExecutorNegative;
+  onVersionDetected?: (serverId: string, version: string) => void;
 }
 
 /**
@@ -244,6 +245,24 @@ export class CapabilityProbeScheduler {
             if (isTracked) {
               this.opts.endpointRegistry.confirm(server.id, endpoint as ProbeEndpoint);
               serverConfirmed++;
+            }
+          }
+
+          if (
+            endpoint === 'ollama_version' &&
+            result.body &&
+            (result.success || result.capabilityConfirmed)
+          ) {
+            try {
+              const versionData = JSON.parse(result.body) as { version?: string };
+              if (versionData.version && typeof versionData.version === 'string') {
+                this.opts.onVersionDetected?.(server.id, versionData.version);
+              }
+            } catch (e) {
+              this.opts.logger.debug('Failed to parse version from probe body', {
+                serverId: server.id,
+                error: e instanceof Error ? e.message : String(e),
+              });
             }
           }
 
