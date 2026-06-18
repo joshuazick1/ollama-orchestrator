@@ -149,24 +149,15 @@ export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
             </div>
             <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden flex">
               <div
-                className="h-full bg-green-500"
-                style={{
-                  width: `${breaker.totalRequestCount > 0 ? (breaker.successCount / breaker.totalRequestCount) * 100 : 0}%`,
-                }}
+                className={`h-full bg-green-500 w-[${breaker.totalRequestCount > 0 ? (breaker.successCount / breaker.totalRequestCount) * 100 : 0}%]`}
                 title={`Success: ${breaker.successCount}`}
               />
               <div
-                className="h-full bg-red-500"
-                style={{
-                  width: `${breaker.totalRequestCount > 0 ? (breaker.failureCount / breaker.totalRequestCount) * 100 : 0}%`,
-                }}
+                className={`h-full bg-red-500 w-[${breaker.totalRequestCount > 0 ? (breaker.failureCount / breaker.totalRequestCount) * 100 : 0}%]`}
                 title={`Failed: ${breaker.failureCount}`}
               />
               <div
-                className="h-full bg-orange-500"
-                style={{
-                  width: `${breaker.totalRequestCount > 0 ? (breaker.blockedRequestCount / breaker.totalRequestCount) * 100 : 0}%`,
-                }}
+                className={`h-full bg-orange-500 w-[${breaker.totalRequestCount > 0 ? (breaker.blockedRequestCount / breaker.totalRequestCount) * 100 : 0}%]`}
                 title={`Blocked: ${breaker.blockedRequestCount}`}
               />
             </div>

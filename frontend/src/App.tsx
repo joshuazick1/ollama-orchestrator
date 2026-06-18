@@ -9,7 +9,6 @@ import { useServerEvents } from './hooks/useServerEvents';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ApiError } from './api';
-import { Spinner } from './components/skeletons';
 
 const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));

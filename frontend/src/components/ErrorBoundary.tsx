@@ -38,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
         componentStack: errorInfo.componentStack,
         timestamp: Date.now(),
       }),
-    }).catch(() => {});
+    }).catch(() => undefined);
   }
 
   render() {

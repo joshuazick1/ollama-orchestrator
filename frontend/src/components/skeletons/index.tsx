@@ -2,11 +2,10 @@ import { clsx } from 'clsx';
 
 interface SkeletonProps {
   className?: string;
-  style?: React.CSSProperties;
 }
 
-export const Skeleton = ({ className, style }: SkeletonProps) => (
-  <div className={clsx('bg-surface/50 rounded animate-shimmer', className)} style={style} />
+export const Skeleton = ({ className }: SkeletonProps) => (
+  <div className={clsx('bg-surface/50 rounded animate-shimmer', className)} />
 );
 
 export const SkeletonText = ({ lines = 3 }: { lines?: number }) => (
@@ -117,7 +116,7 @@ export const SkeletonModelRow = () => (
 export const SkeletonChart = ({ height = 300 }: { height?: number }) => (
   <div className="bg-surface rounded-xl border border-surface-border p-6">
     <Skeleton className="h-6 w-48 mb-6" />
-    <Skeleton className="w-full rounded" style={{ height }} />
+    <Skeleton className={`w-full rounded h-[${height}px]`} />
   </div>
 );
 

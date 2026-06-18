@@ -316,20 +316,14 @@ export const DecisionsTab = ({
       <div className="bg-surface rounded-xl border border-surface-border p-6">
         <h3 className="text-lg font-semibold text-text-base mb-6">Recent Routing Decisions</h3>
         {decisions.length > 0 ? (
-          <div ref={parentRef} className="space-y-3 overflow-auto" style={{ maxHeight: '500px' }}>
-            <div
-              className="relative w-full"
-              style={{ height: `${decisionVirtualizer.getTotalSize()}px` }}
-            >
+          <div ref={parentRef} className="space-y-3 overflow-auto max-h-[500px]">
+            <div className={`relative w-full h-[${decisionVirtualizer.getTotalSize()}px]`}>
               {decisionVirtualizer.getVirtualItems().map(virtualRow => {
                 const event = decisions[virtualRow.index];
                 return (
                   <div
                     key={virtualRow.key}
-                    className="absolute top-0 left-0 w-full"
-                    style={{
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
+                    className={`absolute top-0 left-0 w-full translate-y-[${virtualRow.start}px]`}
                   >
                     <RecentDecisionItem event={event} />
                   </div>

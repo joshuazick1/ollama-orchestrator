@@ -6,7 +6,7 @@ import { ApiError } from './errors';
 
 async function apiCall<T>(call: () => Promise<T>): Promise<T> {
   try {
-    return await call();
+    return (await call()) as T;
   } catch (error) {
     if (error instanceof ApiError) {
       throw error;

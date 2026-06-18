@@ -35,15 +35,21 @@ const getLogTextColor = (level: LogLevel): string => {
   }
 };
 
-const getLogStyle = (level: LogLevel): React.CSSProperties => {
+const getLogBgClass = (level: LogLevel): string => {
   switch (level) {
     case 'ERROR':
-      return { backgroundColor: 'rgba(239,68,68,0.15)' };
+      return 'bg-red-500/[0.15]';
     case 'WARN':
-      return { backgroundColor: 'rgba(245,158,11,0.12)' };
+      return 'bg-yellow-500/[0.12]';
     default:
-      return {};
+      return '';
   }
+};
+
+const getLogLevelButtonClass = (level: LogLevel, isSelected: boolean): string => {
+  const color = LEVEL_COLORS[level];
+  const bgClass = isSelected ? `bg-[${color}]` : 'bg-transparent';
+  return `${bgClass} border border-[${color}] ${isSelected ? '' : 'opacity-50'}`;
 };
 
 const getLogLevel = (content: string): LogLevel => {
@@ -171,15 +177,14 @@ export const Logs = () => {
               key={level}
               onClick={() => {
                 const newFilter = new Set(levelFilter);
-                newFilter.has(level) ? newFilter.delete(level) : newFilter.add(level);
+                if (newFilter.has(level)) {
+                  newFilter.delete(level);
+                } else {
+                  newFilter.add(level);
+                }
                 setLevelFilter(newFilter);
               }}
-              className={`px-2 py-1 text-xs rounded ${levelFilter.has(level) ? 'bg-opacity-100' : 'bg-opacity-30 opacity-50'}`}
-              style={{
-                backgroundColor: levelFilter.has(level) ? LEVEL_COLORS[level] : 'transparent',
-                borderColor: LEVEL_COLORS[level],
-                borderWidth: 1,
-              }}
+              className={`px-2 py-1 text-xs rounded ${getLogLevelButtonClass(level, levelFilter.has(level))}`}
             >
               {level}
             </button>
@@ -213,18 +218,13 @@ export const Logs = () => {
         className="bg-gray-950 rounded-xl border border-gray-800 font-mono text-sm h-[600px] overflow-auto"
       >
         {filteredLogs.length > 0 ? (
-          <div
-            ref={parentRef}
-            className="relative w-full"
-            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-          >
+          <div ref={parentRef} className={`relative w-full h-[${rowVirtualizer.getTotalSize()}px]`}>
             {rowVirtualizer.getVirtualItems().map(virtualRow => {
               const entry = filteredLogs[virtualRow.index];
               return (
                 <div
                   key={entry.id}
-                  className={`absolute top-0 left-0 w-full py-2 px-4 hover:bg-surface-raised/50 break-all whitespace-pre-wrap ${getLogTextColor(entry.level)}`}
-                  style={getLogStyle(entry.level)}
+                  className={`absolute top-0 left-0 w-full py-2 px-4 hover:bg-surface-raised/50 break-all whitespace-pre-wrap ${getLogTextColor(entry.level)} ${getLogBgClass(entry.level)}`}
                 >
                   {entry.content}
                 </div>

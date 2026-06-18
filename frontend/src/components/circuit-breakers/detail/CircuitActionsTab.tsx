@@ -165,7 +165,7 @@ export const CircuitActionsTab = memo<CircuitActionsTabProps>(({ serverId, model
               <span>{selectionRate.toFixed(1)}%</span>
             </div>
             <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-              <div className="h-full bg-green-500" style={{ width: `${selectionRate}%` }} />
+              <div className={`h-full bg-green-500 w-[${selectionRate}%]`} />
             </div>
           </div>
         </div>

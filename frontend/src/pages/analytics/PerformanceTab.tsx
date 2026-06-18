@@ -85,14 +85,13 @@ export const PerformanceTab = ({ serverPerformance, requestData }: PerformanceTa
                     <div className="flex items-center justify-end gap-2">
                       <div className="w-24 bg-surface rounded-full h-2 overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${
+                          className={`h-full rounded-full w-[${server.score}%] ${
                             server.score >= 80
                               ? 'bg-green-500'
                               : server.score >= 60
                                 ? 'bg-yellow-500'
                                 : 'bg-red-500'
                           }`}
-                          style={{ width: `${server.score}%` }}
                         ></div>
                       </div>
                       <span className="font-medium text-text-base w-8">{server.score}</span>

@@ -61,8 +61,7 @@ export const StaggeredList = ({ children, className, staggerDelay = 50 }: Stagge
       {childrenArray.map((child, index) => (
         <div
           key={index}
-          className="animate-in slide-in-from-bottom-4 duration-300"
-          style={{ animationDelay: `${index * staggerDelay}ms` }}
+          className={`animate-in slide-in-from-bottom-4 duration-300 [animation-delay:${index * staggerDelay}ms]`}
         >
           {child}
         </div>

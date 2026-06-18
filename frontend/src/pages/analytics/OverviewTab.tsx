@@ -164,8 +164,7 @@ export const OverviewTab = ({
                     : (capacityAnalysis?.current?.saturation || 0) > 0.6
                       ? 'bg-yellow-500'
                       : 'bg-green-500'
-                }`}
-                style={{ width: `${(capacityAnalysis?.current?.saturation || 0) * 100}%` }}
+                } w-[${(capacityAnalysis?.current?.saturation || 0) * 100}%]`}
               ></div>
             </div>
           </div>

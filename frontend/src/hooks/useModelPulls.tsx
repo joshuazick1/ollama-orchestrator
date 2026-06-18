@@ -66,7 +66,7 @@ function makePullId(serverId: string, model: string): string {
 }
 
 interface ModelPullsContextValue {
-  store: PullStore;
+  storeRef: React.RefObject<PullStore>;
   startPull: (serverId: string, serverUrl: string, model: string, sourceServerId?: string) => void;
   cancelPull: (serverId: string, model: string) => void;
   dismissPull: (serverId: string, model: string) => void;
@@ -76,6 +76,7 @@ const ModelPullsContext = createContext<ModelPullsContextValue | null>(null);
 
 export function ModelPullsProvider({ children }: { children: ReactNode }) {
   const storeRef = useRef<PullStore>(createPullStore());
+
   const store = storeRef.current;
 
   const startPull = useCallback(
@@ -176,45 +177,45 @@ export function ModelPullsProvider({ children }: { children: ReactNode }) {
 
       store.abortControllers.set(id, abortController);
     },
-    [store]
+    [storeRef]
   );
 
   const cancelPull = useCallback(
     (serverId: string, model: string) => {
       const id = makePullId(serverId, model);
-      const controller = store.abortControllers.get(id);
+      const controller = storeRef.current.abortControllers.get(id);
       if (controller) {
         controller.abort();
-        store.abortControllers.delete(id);
+        storeRef.current.abortControllers.delete(id);
       }
-      const op = store.operations.get(id);
+      const op = storeRef.current.operations.get(id);
       if (op && op.status === 'downloading') {
-        store.operations.set(id, {
+        storeRef.current.operations.set(id, {
           ...op,
           status: 'error',
           statusText: 'Cancelled',
           error: 'Pull was cancelled',
           finishedAt: Date.now(),
         });
-        updateOperationsList(store);
-        emitChange(store);
+        updateOperationsList(storeRef.current);
+        emitChange(storeRef.current);
       }
     },
-    [store]
+    [storeRef]
   );
 
   const dismissPull = useCallback(
     (serverId: string, model: string) => {
       const id = makePullId(serverId, model);
-      store.operations.delete(id);
-      updateOperationsList(store);
-      emitChange(store);
+      storeRef.current.operations.delete(id);
+      updateOperationsList(storeRef.current);
+      emitChange(storeRef.current);
     },
-    [store]
+    [storeRef]
   );
 
   return (
-    <ModelPullsContext.Provider value={{ store, startPull, cancelPull, dismissPull }}>
+    <ModelPullsContext.Provider value={{ store: storeRef, startPull, cancelPull, dismissPull }}>
       {children}
     </ModelPullsContext.Provider>
   );
@@ -231,21 +232,21 @@ export function useModelPulls() {
     throw new Error('useModelPulls must be used within a ModelPullsProvider');
   }
 
-  const { store, startPull, cancelPull, dismissPull } = ctx;
+  const { storeRef, startPull, cancelPull, dismissPull } = ctx;
 
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
-      store.listeners.add(onStoreChange);
+      storeRef.current.listeners.add(onStoreChange);
       return () => {
-        store.listeners.delete(onStoreChange);
+        storeRef.current.listeners.delete(onStoreChange);
       };
     },
-    [store]
+    [storeRef]
   );
 
   const getSnapshot = useCallback(() => {
-    return store.operationsList;
-  }, [store]);
+    return storeRef.current.operationsList;
+  }, [storeRef]);
 
   const operations = useSyncExternalStore(subscribe, getSnapshot);
 

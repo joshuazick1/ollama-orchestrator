@@ -54,7 +54,8 @@ function PullProgress({
   const isComplete = operation.status === 'complete';
   const isError = operation.status === 'error';
 
-  const elapsed = ((operation.finishedAt || Date.now()) - operation.startedAt) / 1000;
+  const [startTime] = useState(() => Date.now());
+  const elapsed = ((operation.finishedAt || startTime) - operation.startedAt) / 1000;
   const minutes = Math.floor(elapsed / 60);
   const seconds = Math.floor(elapsed % 60);
   const timeStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
@@ -107,8 +108,7 @@ function PullProgress({
             </div>
           ) : (
             <div
-              className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
-              style={{ width: `${Math.max(operation.percentage, 1)}%` }}
+              className={`bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out w-[${Math.max(operation.percentage, 1)}%]`}
             />
           )}
         </div>

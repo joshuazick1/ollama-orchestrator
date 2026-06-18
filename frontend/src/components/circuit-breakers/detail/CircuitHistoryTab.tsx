@@ -140,13 +140,7 @@ export const CircuitHistoryTab = memo<CircuitHistoryTabProps>(({ metricsData }) 
               <span className="text-text-muted text-sm w-12">{item.label}</span>
               <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
                 <div
-                  className={`h-full ${item.color}`}
-                  style={{
-                    width: `${Math.min(
-                      (item.value / (streaming.chunkCountPercentiles?.p99 || 1)) * 100,
-                      100
-                    )}%`,
-                  }}
+                  className={`h-full ${item.color} w-[${Math.min((item.value / (streaming.chunkCountPercentiles?.p99 || 1)) * 100, 100)}%]`}
                 />
               </div>
               <span className="text-text-base font-mono w-16 text-right">{item.value} chunks</span>

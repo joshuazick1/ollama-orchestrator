@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-// @ts-ignore - fontsource variable font has no types
+// @ts-expect-error - fontsource variable font has no types
 import '@fontsource-variable/geist';
 import './styles/tokens.css';
 import './index.css';
