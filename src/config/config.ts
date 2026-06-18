@@ -33,8 +33,10 @@ export interface SecurityConfig {
   corsOrigins: string[];
   rateLimitWindowMs: number;
   rateLimitMax: number;
+  authMustBeEnabled: boolean;
   apiKeyHeader?: string;
   apiKeys?: string[];
+  adminApiKeys?: string[];
 }
 
 export interface MetricsDecayConfig {
@@ -376,6 +378,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     corsOrigins: [],
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
+    authMustBeEnabled: false,
   },
 
   metrics: {
@@ -865,6 +868,10 @@ export class ConfigManager {
       if (!isNaN(rateLimit)) {
         this.config.security.rateLimitMax = rateLimit;
       }
+    }
+
+    if (env.ORCHESTRATOR_AUTH_MUST_BE_ENABLED) {
+      this.config.security.authMustBeEnabled = env.ORCHESTRATOR_AUTH_MUST_BE_ENABLED === 'true';
     }
 
     // Metrics settings

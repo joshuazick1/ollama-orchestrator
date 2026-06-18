@@ -19,7 +19,7 @@ import helmet from 'helmet';
 import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metrics-controller.js';
-import { requireAuth, requireAdmin } from './middleware/auth.js';
+import { requireAuth, requireAdmin, isAuthEnabled } from './middleware/auth.js';
 import {
   createMonitoringRateLimiter,
   createAdminRateLimiter,
@@ -155,6 +155,15 @@ async function initialize(): Promise<void> {
         );
         process.exit(1);
       }
+    }
+
+    // Startup guard: enforce auth must be enabled if configured
+    const config = getConfigManager().getConfig();
+    if (config.security.authMustBeEnabled && !isAuthEnabled()) {
+      logger.error(
+        'ORCHESTRATOR_AUTH_MUST_BE_ENABLED is set but authentication is disabled. Cannot start.'
+      );
+      process.exit(1);
     }
 
     // Rate limiting middleware

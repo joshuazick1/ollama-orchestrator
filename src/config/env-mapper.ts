@@ -57,6 +57,7 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_CORS_ORIGINS: 'security.corsOrigins',
   ORCHESTRATOR_RATE_LIMIT_WINDOW: 'security.rateLimitWindowMs',
   ORCHESTRATOR_RATE_LIMIT_MAX: 'security.rateLimitMax',
+  ORCHESTRATOR_AUTH_MUST_BE_ENABLED: 'security.authMustBeEnabled',
   ORCHESTRATOR_API_KEY_HEADER: 'security.apiKeyHeader',
   ORCHESTRATOR_API_KEYS: 'security.apiKeys',
   ORCHESTRATOR_ADMIN_API_KEYS: 'security.adminApiKeys',

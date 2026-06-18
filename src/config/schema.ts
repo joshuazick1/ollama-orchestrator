@@ -30,6 +30,7 @@ export const securityConfigSchema = z.object({
   corsOrigins: z.array(z.string()).default([]),
   rateLimitWindowMs: z.number().int().min(1000).default(60000), // 1 minute
   rateLimitMax: z.number().int().min(1).default(100),
+  authMustBeEnabled: z.boolean().default(false),
   apiKeyHeader: z.string().optional(),
   apiKeys: z.array(z.string()).optional(),
   adminApiKeys: z.array(z.string()).optional(),
