@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { z } from 'zod';
 import {
   AlertTriangle,
   RefreshCw,
@@ -42,6 +43,42 @@ interface CircuitMetricsData {
   [key: string]: unknown;
 }
 
+const circuitMetricsDataSchema = z
+  .object({
+    inFlight: z.number(),
+    queued: z.number(),
+    percentiles: z.object({
+      p50: z.number(),
+      p95: z.number(),
+      p99: z.number(),
+    }),
+    successRate: z.number(),
+    throughput: z.number(),
+    avgTokensPerRequest: z.number(),
+    streamingMetrics: z.unknown().optional(),
+  })
+  .transform(
+    (data): CircuitMetricsData => ({
+      metrics: {
+        realtime: {
+          inFlight: data.inFlight,
+          queued: data.queued,
+        },
+        percentiles: {
+          p50: data.percentiles.p50,
+          p95: data.percentiles.p95,
+          p99: data.percentiles.p99,
+        },
+        derived: {
+          successRate: data.successRate,
+          throughput: data.throughput,
+          avgTokensPerRequest: data.avgTokensPerRequest,
+        },
+        streamingMetrics: data.streamingMetrics,
+      },
+    })
+  );
+
 interface CircuitDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -61,7 +98,8 @@ export const CircuitDetailModal = ({
     queryKey: ['circuit-metrics', serverId, model],
     queryFn: async () => {
       const data = await getServerModelMetrics(serverId, model);
-      return data as unknown as CircuitMetricsData | undefined;
+      const result = circuitMetricsDataSchema.safeParse(data);
+      return result.success ? result.data : undefined;
     },
     enabled: isOpen,
     refetchInterval: 30000,
