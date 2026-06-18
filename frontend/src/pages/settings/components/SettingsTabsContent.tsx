@@ -7,6 +7,11 @@ import { LoadBalancerTab } from '../tabs/LoadBalancerTab';
 import { SecurityTab } from '../tabs/SecurityTab';
 import { LoggingTab } from '../tabs/LoggingTab';
 import { UsersTab } from '../UsersTab';
+import { CircuitBreakerTab } from '../tabs/CircuitBreakerTab';
+import { MetricsTab } from '../tabs/MetricsTab';
+import { HealthCheckTab } from '../tabs/HealthCheckTab';
+import { RetryTab } from '../tabs/RetryTab';
+import { StorageTab } from '../tabs/StorageTab';
 import { TabsContent } from '../../../components/ui/tabs';
 
 interface SettingsTabsContentProps {
@@ -47,6 +52,26 @@ export const SettingsTabsContent = memo<SettingsTabsContentProps>(({ config, upd
 
       <TabsContent value="users">
         <UsersTab />
+      </TabsContent>
+
+      <TabsContent value="circuitbreaker">
+        <CircuitBreakerTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="metrics">
+        <MetricsTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="healthcheck">
+        <HealthCheckTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="retry">
+        <RetryTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="storage">
+        <StorageTab config={config} onUpdateField={updateField} />
       </TabsContent>
     </>
   );

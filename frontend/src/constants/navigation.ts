@@ -7,6 +7,7 @@ import {
   Shield,
   Settings,
   FileText,
+  AlertTriangle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -24,5 +25,6 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/analytics', icon: BarChart2, label: 'Analytics' },
   { to: '/circuit-breakers', icon: Shield, label: 'Circuit Breakers' },
   { to: '/logs', icon: FileText, label: 'Logs' },
+  { to: '/errors', icon: AlertTriangle, label: 'Error Events' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];

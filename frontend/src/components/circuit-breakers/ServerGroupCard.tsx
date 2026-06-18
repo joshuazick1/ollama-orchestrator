@@ -18,6 +18,7 @@ interface ServerGroupCardProps {
   onReset: (serverId: string, model?: string) => void;
   onOpen: (serverId: string, model?: string) => void;
   onClose: (serverId: string, model?: string) => void;
+  onRecoveryTest: (serverId: string, model: string) => void;
   isPending: boolean;
 }
 
@@ -33,7 +34,7 @@ const parseBreakerKey = (breakerKey: string): { serverId: string; model: string 
 };
 
 export const ServerGroupCard = memo<ServerGroupCardProps>(
-  ({ server, expandedServers, onToggle, onReset, onOpen, onClose, isPending }) => {
+  ({ server, expandedServers, onToggle, onReset, onOpen, onClose, onRecoveryTest, isPending }) => {
     const isExpanded = expandedServers.has(server.serverId);
 
     return (
@@ -127,6 +128,7 @@ export const ServerGroupCard = memo<ServerGroupCardProps>(
                           onReset={() => onReset(server.serverId, modelName)}
                           onOpen={() => onOpen(server.serverId, modelName)}
                           onClose={() => onClose(server.serverId, modelName)}
+                          onRecoveryTest={() => onRecoveryTest(server.serverId, modelName!)}
                           isPending={isPending}
                         />
                       );

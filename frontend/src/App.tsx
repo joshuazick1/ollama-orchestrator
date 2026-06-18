@@ -21,6 +21,9 @@ const CircuitBreakers = lazy(() =>
 const Logs = lazy(() => import('./pages/Logs').then(m => ({ default: m.Logs })));
 const Settings = lazy(() => import('./pages/settings').then(m => ({ default: m.default })));
 const InFlight = lazy(() => import('./pages/InFlight').then(m => ({ default: m.InFlight })));
+const ErrorEvents = lazy(() =>
+  import('./pages/ErrorEvents').then(m => ({ default: m.ErrorEvents }))
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -131,6 +134,14 @@ function AppContent() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <InFlight />
+              </Suspense>
+            }
+          />
+          <Route
+            path="errors"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <ErrorEvents />
               </Suspense>
             }
           />

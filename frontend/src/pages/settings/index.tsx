@@ -8,7 +8,18 @@ import { SettingsFooter } from './components/SettingsFooter';
 import { ImportPreviewModal } from './components/ImportPreviewModal';
 import { useSettingsMutations } from './hooks/useSettingsMutations';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import { RefreshCw, Settings2, Shield, BarChart3, Zap, Activity, Users } from 'lucide-react';
+import {
+  RefreshCw,
+  Settings2,
+  Shield,
+  BarChart3,
+  Zap,
+  Activity,
+  Users,
+  Heart,
+  RotateCw,
+  HardDrive,
+} from 'lucide-react';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -112,6 +123,11 @@ export const Settings = memo(() => {
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'logging', label: 'Logging', icon: BarChart3 },
     { id: 'users', label: 'Users', icon: Users },
+    { id: 'circuitbreaker', label: 'Circuit Breaker', icon: Zap },
+    { id: 'metrics', label: 'Metrics', icon: BarChart3 },
+    { id: 'healthcheck', label: 'Health Check', icon: Heart },
+    { id: 'retry', label: 'Retry', icon: RotateCw },
+    { id: 'storage', label: 'Storage', icon: HardDrive },
   ];
 
   return (

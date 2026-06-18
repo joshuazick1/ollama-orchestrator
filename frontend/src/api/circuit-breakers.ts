@@ -106,3 +106,12 @@ export const clearAllBans = async () => {
     return response.data;
   });
 };
+
+export const triggerRecoveryTest = async (serverId: string, model: string) => {
+  return apiCall(async () => {
+    const response = await apiClient.post(
+      `/servers/${encodeURIComponent(serverId)}/models/${encodeURIComponent(model)}/recovery-test`
+    );
+    return response.data;
+  });
+};

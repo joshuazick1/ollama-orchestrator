@@ -1,6 +1,6 @@
 // Extracted from CircuitBreakers.tsx - CircuitBreakerCard component
 import { memo } from 'react';
-import { Clock, RefreshCw, ShieldAlert, ShieldCheck, RotateCcw } from 'lucide-react';
+import { Clock, RefreshCw, ShieldAlert, ShieldCheck, RotateCcw, Play } from 'lucide-react';
 import { formatTimeAgo, formatTimeUntil } from '../../utils/formatting';
 import {
   getCircuitBreakerStateColor,
@@ -14,6 +14,7 @@ interface CircuitBreakerCardProps {
   onReset?: () => void;
   onOpen?: () => void;
   onClose?: () => void;
+  onRecoveryTest?: () => void;
   isPending?: boolean;
 }
 
@@ -29,7 +30,7 @@ const parseBreakerKey = (breakerKey: string): { serverId: string; model: string 
 };
 
 export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
-  ({ breaker, isModel = false, onReset, onOpen, onClose, isPending }) => {
+  ({ breaker, isModel = false, onReset, onOpen, onClose, onRecoveryTest, isPending }) => {
     const modelName = isModel ? parseBreakerKey(breaker.serverId).model : undefined;
 
     return (
@@ -103,6 +104,15 @@ export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
                 className="p-1.5 text-text-muted hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <RotateCcw className={`w-4 h-4 ${isPending ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={onRecoveryTest}
+                disabled={isPending}
+                title="Run Recovery Test"
+                aria-label="Run Recovery Test"
+                className="p-1.5 text-text-muted hover:text-green-400 hover:bg-green-500/10 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Play className="w-4 h-4" />
               </button>
             </div>
           </div>

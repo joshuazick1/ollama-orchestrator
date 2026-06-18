@@ -6,6 +6,7 @@ import {
   forceOpenCircuitBreaker,
   forceCloseCircuitBreaker,
   getBans,
+  triggerRecoveryTest,
   type CircuitBreakerInfo,
 } from '../api';
 import { Shield, RefreshCw, Ban } from 'lucide-react';
@@ -85,6 +86,10 @@ export const CircuitBreakers = memo(() => {
     serverId: string;
     model?: string;
   } | null>(null);
+  const [pendingRecoveryTest, setPendingRecoveryTest] = useState<{
+    serverId: string;
+    model: string;
+  } | null>(null);
 
   const { data, isLoading, refetch } = useQuery<CircuitBreakerResponse>({
     queryKey: ['circuitBreakers'],
@@ -152,6 +157,18 @@ export const CircuitBreakers = memo(() => {
     },
   });
 
+  const recoveryTestMutation = useMutation({
+    mutationFn: ({ serverId, model }: { serverId: string; model: string }) =>
+      triggerRecoveryTest(serverId, model),
+    onSuccess: (_data, vars) => {
+      toastSuccess(`Recovery test triggered for ${vars.model} on ${vars.serverId}`);
+      queryClient.invalidateQueries({ queryKey: ['circuitBreakers'] });
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : `Failed to trigger recovery test`);
+    },
+  });
+
   const toggleServer = (serverId: string) => {
     setExpandedServers(prev => {
       const newSet = new Set(prev);
@@ -164,7 +181,11 @@ export const CircuitBreakers = memo(() => {
     });
   };
 
-  const isPending = resetMutation.isPending || openMutation.isPending || closeMutation.isPending;
+  const isPending =
+    resetMutation.isPending ||
+    openMutation.isPending ||
+    closeMutation.isPending ||
+    recoveryTestMutation.isPending;
 
   if (isLoading) {
     return (
@@ -261,6 +282,7 @@ export const CircuitBreakers = memo(() => {
                   onReset={(serverId, model) => resetMutation.mutate({ serverId, model })}
                   onOpen={(serverId, model) => setPendingForceOpen({ serverId, model })}
                   onClose={(serverId, model) => closeMutation.mutate({ serverId, model })}
+                  onRecoveryTest={(serverId, model) => setPendingRecoveryTest({ serverId, model })}
                   isPending={isPending}
                 />
               ))
@@ -307,6 +329,41 @@ export const CircuitBreakers = memo(() => {
           ]}
           confirmLabel="Force Open"
           isPending={openMutation.isPending}
+        />
+      )}
+
+      {pendingRecoveryTest && (
+        <ConfirmationModal
+          isOpen={!!pendingRecoveryTest}
+          onClose={() => setPendingRecoveryTest(null)}
+          onConfirm={() => {
+            if (pendingRecoveryTest) {
+              recoveryTestMutation.mutate(
+                { serverId: pendingRecoveryTest.serverId, model: pendingRecoveryTest.model },
+                {
+                  onSuccess: () => {
+                    toastSuccess('Recovery test triggered successfully');
+                    setPendingRecoveryTest(null);
+                  },
+                  onError: error => {
+                    toastError(
+                      error instanceof Error ? error.message : 'Failed to trigger recovery test'
+                    );
+                    setPendingRecoveryTest(null);
+                  },
+                }
+              );
+            }
+          }}
+          title="Run Recovery Test?"
+          message={`This will send a test request to ${pendingRecoveryTest?.model} on ${pendingRecoveryTest?.serverId} to check if the circuit can recover.`}
+          consequences={[
+            'A test request will be sent to the server',
+            'The circuit breaker state will be updated based on the result',
+            'If successful, the circuit may transition to half-open or closed state',
+          ]}
+          confirmLabel="Run Test"
+          isPending={recoveryTestMutation.isPending}
         />
       )}
     </div>
