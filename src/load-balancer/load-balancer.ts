@@ -52,6 +52,10 @@ export interface LoadBalancerConfig {
     vram: number; // Weight for VRAM availability (default: 0.05)
     temporal: number; // Weight for temporal scoring (default: 0.10)
     context: number; // Weight for context fit scoring (default: 0.05)
+    itl?: number; // Weight for ITL signal (default: 0.05)
+    cacheHit?: number; // Weight for cache hit rate (default: 0.05)
+    promptSize?: number; // Weight for prompt size latency (default: 0.03)
+    errorType?: number; // Weight for error type distribution (default: 0.03)
   };
   thresholds: {
     maxP95Latency: number; // Max acceptable P95 in ms (default: 5000)

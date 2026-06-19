@@ -152,6 +152,10 @@ export const loadBalancerConfigSchema = z.object({
       vram: z.number().min(0).max(1).default(0.05),
       temporal: z.number().min(0).max(1).default(0.1),
       context: z.number().min(0).max(1).default(0.05),
+      itl: z.number().min(0).max(1).default(0.05),
+      cacheHit: z.number().min(0).max(1).default(0.05),
+      promptSize: z.number().min(0).max(1).default(0.03),
+      errorType: z.number().min(0).max(1).default(0.03),
     })
     .refine(
       weights => {
@@ -165,7 +169,11 @@ export const loadBalancerConfigSchema = z.object({
           weights.throughput +
           weights.vram +
           weights.temporal +
-          weights.context;
+          weights.context +
+          (weights.itl ?? 0) +
+          (weights.cacheHit ?? 0) +
+          (weights.promptSize ?? 0) +
+          (weights.errorType ?? 0);
         return Math.abs(sum - 1) < 0.001;
       },
       { message: 'Weights must sum to 1.0' }
@@ -220,6 +228,40 @@ export const loadBalancerConfigSchema = z.object({
     minSamplesForExact: z.number().int().min(1).default(5), // Min samples before preferring exact
     fallbackWeight: z.number().min(0).max(1).default(0.5), // How much to trust inferred vs actual
   }),
+  // Fallback to fastest-response kill switch for all algorithms
+  fallbackToFastestResponse: z.boolean().default(false),
+  // Prefix-cache-aware routing settings
+  prefixCacheAware: z
+    .object({
+      enabled: z.boolean().default(false),
+      hashTokenCount: z.number().int().min(1).default(512),
+      hashBuckets: z.number().int().min(1).default(256),
+    })
+    .default({ enabled: false, hashTokenCount: 512, hashBuckets: 256 }),
+  // SLO fallback mode settings
+  sloFallback: z
+    .object({
+      enabled: z.boolean().default(false),
+      ttftThresholdMs: z.number().int().min(100).default(2000),
+      p95WindowMs: z.number().int().min(1000).default(60000),
+    })
+    .default({ enabled: false, ttftThresholdMs: 2000, p95WindowMs: 60000 }),
+  // Token-weighted load tracking settings
+  tokenWeightedLoad: z
+    .object({
+      enabled: z.boolean().default(true),
+      promptTokenWeight: z.number().min(0).default(1.0),
+      outputTokenWeight: z.number().min(0).default(4.0),
+    })
+    .default({ enabled: true, promptTokenWeight: 1.0, outputTokenWeight: 4.0 }),
+  // Cold start magnitude tracking settings
+  coldStartMagnitude: z
+    .object({
+      enabled: z.boolean().default(true),
+      thresholdMs: z.number().int().min(100).default(1000),
+      penaltyDurationMs: z.number().int().min(1000).default(60000),
+    })
+    .default({ enabled: true, thresholdMs: 1000, penaltyDurationMs: 60000 }),
 });
 
 /**
