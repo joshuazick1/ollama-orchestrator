@@ -14,6 +14,7 @@ import {
 import { logger } from '../utils/logger.js';
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
+import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 
 const anthropicMessagesRequestSchema = z
   .object({
@@ -236,6 +237,16 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
 
   const orchestrator = getOrchestratorInstance();
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (stream) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
@@ -254,6 +265,9 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
             req.headers,
             orchestrator.getTimeout(server.id, model)
           );
+
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
 
           const { response, activityController } = await fetchWithActivityTimeout(upstreamUrl, {
             method: 'POST',
@@ -275,6 +289,8 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
             const errorText = await response.text();
             throw new Error(errorText || `Upstream returned ${String(response.status)}`);
           }
+
+          activeStreamState.activityController = activityController;
 
           try {
             await passthroughAnthropicSSE(

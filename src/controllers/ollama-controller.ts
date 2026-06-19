@@ -50,6 +50,7 @@ import {
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 import { APP_VERSION } from '../utils/version.js';
 import { isInternalAdmin } from '../middleware/auth.js';
+import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 
 /**
  * Handle /api/tags - Get aggregated tags from all servers
@@ -104,6 +105,16 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
   const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (useStreaming) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
@@ -120,6 +131,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
+          activeStreamState.streamingRequestId = requestId;
 
           const { stallThreshold, stallCheckInterval } = computeStallThresholds(timeoutMs, {
             factor: _config.timeout.stallThresholdMultiplier,
@@ -162,6 +176,8 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               },
             }
           );
+
+          activeStreamState.activityController = activityController;
 
           if (!response.ok) {
             activityController.clearTimeout();
@@ -518,6 +534,16 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
   const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (useStreaming) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
@@ -533,6 +559,9 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
+          activeStreamState.streamingRequestId = requestId;
           const { stallThreshold, stallCheckInterval } = computeStallThresholds(timeoutMs, {
             factor: _config.timeout.stallThresholdMultiplier,
             upperBound: _config.timeout.stallThresholdCapMs,
@@ -586,6 +615,8 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               },
             }
           );
+
+          activeStreamState.activityController = activityController;
 
           if (!response.ok) {
             activityController.clearTimeout();
@@ -1494,6 +1525,16 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
   const useStreaming = isStreamingRequest(body);
   const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'ollama' };
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (useStreaming) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
       serverId,
@@ -1504,6 +1545,8 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             req.headers,
             orchestrator.getTimeout(server.id, model)
           );
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
             {
@@ -1534,6 +1577,8 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
           }
 
           const streamingRequestId = context?.requestId;
+          activeStreamState.streamingRequestId = streamingRequestId;
+          activeStreamState.activityController = activityController;
 
           // Register streaming request with InFlightManager for tracking
           if (streamingRequestId) {
@@ -1688,6 +1733,16 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
   const useStreaming = isStreamingRequest(body);
   const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'ollama' };
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (useStreaming) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown> | null>(
       serverId,
@@ -1698,6 +1753,8 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             req.headers,
             orchestrator.getTimeout(server.id, model)
           );
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
@@ -1716,6 +1773,8 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             }
           );
 
+          activeStreamState.activityController = activityController;
+
           if (!response.ok) {
             activityController.clearTimeout();
             const errorMessage = await parseOllamaError(response);
@@ -1728,6 +1787,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
           }
 
           const streamingRequestId = context?.requestId;
+          activeStreamState.streamingRequestId = streamingRequestId;
 
           // Register streaming request with InFlightManager for tracking
           if (streamingRequestId) {

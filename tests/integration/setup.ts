@@ -145,6 +145,13 @@ export async function setupIntegrationTest() {
   return { orchestrator, baseUrl };
 }
 
+export function getIntegrationTestBaseUrl(): string {
+  if (!baseUrl) {
+    throw new Error('setupIntegrationTest not called');
+  }
+  return baseUrl;
+}
+
 /**
  * Fetch a CSRF token from the test server's /csrf-token endpoint.
  * Returns the token value (64-char hex string).

@@ -40,6 +40,7 @@ import {
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 import { isInternalAdmin } from '../middleware/auth.js';
+import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 
 /**
  * Get headers for backend requests including optional auth
@@ -592,6 +593,16 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
   const routingContext: RoutingContext = {};
   const responseId = generateId('chatcmpl');
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (stream) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   // Build Ollama options from OpenAI parameters
   const ollamaOptions: Record<string, unknown> = {};
   if (body.temperature !== undefined) {
@@ -637,6 +648,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
+          activeStreamState.streamingRequestId = requestId;
           const { stallThreshold, stallCheckInterval } = computeStallThresholds(timeoutMs, {
             factor: _config.timeout.stallThresholdMultiplier,
             upperBound: _config.timeout.stallThresholdCapMs,
@@ -680,6 +694,8 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               },
             }
           );
+
+          activeStreamState.activityController = activityController;
 
           if (!response.ok) {
             activityController.clearTimeout();
@@ -1017,6 +1033,16 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (stream) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     // Extract user info for access control scoping
     const userId = req.user?.id;
@@ -1032,6 +1058,8 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             req.headers,
             orchestrator.getTimeout(server.id, model)
           );
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
@@ -1049,6 +1077,8 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               },
             }
           );
+
+          activeStreamState.activityController = activityController;
 
           if (!response.ok) {
             activityController.clearTimeout();
@@ -1381,6 +1411,16 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
   const config = getConfigManager().getConfig();
   const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'openai' };
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (useStreaming) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
       serverId,
@@ -1398,6 +1438,9 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
             orchestrator.getTimeout(server.id, model)
           );
           const requestId = context?.requestId;
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
+          activeStreamState.streamingRequestId = requestId;
           const stallThreshold = config.streaming.stallThresholdMs;
           const stallCheckInterval = config.streaming.stallCheckIntervalMs;
 
@@ -1430,6 +1473,8 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               },
             }
           );
+
+          activeStreamState.activityController = activityController;
 
           if (!response.ok) {
             activityController.clearTimeout();
@@ -1645,6 +1690,16 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
   const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = { algorithm: 'direct', protocol: 'openai' };
 
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (useStreaming) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
   try {
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
       serverId,
@@ -1660,6 +1715,8 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
             req.headers,
             orchestrator.getTimeout(server.id, model)
           );
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.COMPLETIONS}`,
             {
@@ -1677,6 +1734,8 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
               },
             }
           );
+
+          activeStreamState.activityController = activityController;
 
           if (!response.ok) {
             activityController.clearTimeout();

@@ -31,8 +31,16 @@ export class InFlightManager {
   private inFlightBypass: Map<string, number> = new Map();
   private streamingRequests: Map<string, StreamingRequestProgress> = new Map();
   private cleanupInterval?: ReturnType<typeof setInterval>;
+  private cleanedUpStreamingRequestIds: Set<string> = new Set();
+  private cleanupsByReason: Map<string, number> = new Map();
+  private leaksPrevented: number = 0;
+  private staleSweepsByReason: Map<string, number> = new Map();
 
-  constructor(_config?: InFlightManagerConfig) {}
+  constructor(_config?: InFlightManagerConfig) {
+    this.cleanupsByReason.set('client_disconnect', 0);
+    this.cleanupsByReason.set('stale_sweep', 0);
+    this.cleanupsByReason.set('normal_completion', 0);
+  }
 
   startPeriodicCleanup(intervalMs: number = 60_000, maxAgeMs: number = 10 * 60 * 1000): void {
     this.stopPeriodicCleanup();
@@ -272,6 +280,12 @@ export class InFlightManager {
     this.inFlight.clear();
     this.inFlightBypass.clear();
     this.streamingRequests.clear();
+    this.cleanedUpStreamingRequestIds.clear();
+    this.cleanupsByReason.set('client_disconnect', 0);
+    this.cleanupsByReason.set('stale_sweep', 0);
+    this.cleanupsByReason.set('normal_completion', 0);
+    this.leaksPrevented = 0;
+    this.staleSweepsByReason.clear();
   }
 
   /**
@@ -375,8 +389,149 @@ export class InFlightManager {
    */
   removeStreamingRequest(requestId: string): StreamingRequestProgress | undefined {
     const removed = this.streamingRequests.get(requestId);
-    this.streamingRequests.delete(requestId);
+    if (removed) {
+      this.streamingRequests.delete(requestId);
+      const prev = this.cleanupsByReason.get('normal_completion') ?? 0;
+      this.cleanupsByReason.set('normal_completion', prev + 1);
+    }
     return removed;
+  }
+
+  cleanupInFlightTracking(
+    serverId: string,
+    model: string,
+    streamingRequestId?: string,
+    abortController?: AbortController,
+    reason: 'client_disconnect' | 'stale_sweep' | 'normal_completion' = 'client_disconnect'
+  ): {
+    inFlightDecremented: boolean;
+    streamingRequestRemoved: boolean;
+    upstreamAborted: boolean;
+    alreadyCleaned: boolean;
+  } {
+    const result = {
+      inFlightDecremented: false,
+      streamingRequestRemoved: false,
+      upstreamAborted: false,
+      alreadyCleaned: false,
+    };
+
+    if (streamingRequestId && this.cleanedUpStreamingRequestIds.has(streamingRequestId)) {
+      result.alreadyCleaned = true;
+      if (abortController && !abortController.signal.aborted) {
+        try {
+          abortController.abort();
+          result.upstreamAborted = true;
+        } catch (e) {
+          logger.debug('AbortController.abort() threw during cleanup (idempotent path)', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+      return result;
+    }
+
+    if (streamingRequestId) {
+      const removed = this.streamingRequests.get(streamingRequestId);
+      if (removed) {
+        this.streamingRequests.delete(streamingRequestId);
+        this.cleanedUpStreamingRequestIds.add(streamingRequestId);
+        result.streamingRequestRemoved = true;
+        const totalInFlight = this.getInFlight(serverId, model);
+        if (totalInFlight > 0) {
+          const key = `${serverId}:${model}`;
+          const regular = this.inFlight.get(key) ?? 0;
+          if (regular > 0) {
+            if (regular <= 1) {
+              this.inFlight.delete(key);
+            } else {
+              this.inFlight.set(key, regular - 1);
+            }
+            result.inFlightDecremented = true;
+          } else {
+            const bypass = this.inFlightBypass.get(key) ?? 0;
+            if (bypass > 0) {
+              if (bypass <= 1) {
+                this.inFlightBypass.delete(key);
+              } else {
+                this.inFlightBypass.set(key, bypass - 1);
+              }
+              result.inFlightDecremented = true;
+            }
+          }
+        }
+        const prev = this.cleanupsByReason.get(reason) ?? 0;
+        this.cleanupsByReason.set(reason, prev + 1);
+        logger.info('In-flight tracking cleaned up', {
+          reason,
+          serverId,
+          model,
+          streamingRequestId,
+          chunkCount: removed.chunkCount,
+          inFlightDecremented: result.inFlightDecremented,
+        });
+      } else {
+        result.alreadyCleaned = true;
+        this.cleanedUpStreamingRequestIds.add(streamingRequestId);
+      }
+    } else {
+      const totalInFlight = this.getInFlight(serverId, model);
+      if (totalInFlight > 0) {
+        const key = `${serverId}:${model}`;
+        const regular = this.inFlight.get(key) ?? 0;
+        if (regular > 0) {
+          if (regular <= 1) {
+            this.inFlight.delete(key);
+          } else {
+            this.inFlight.set(key, regular - 1);
+          }
+          result.inFlightDecremented = true;
+        } else {
+          const bypass = this.inFlightBypass.get(key) ?? 0;
+          if (bypass > 0) {
+            if (bypass <= 1) {
+              this.inFlightBypass.delete(key);
+            } else {
+              this.inFlightBypass.set(key, bypass - 1);
+            }
+            result.inFlightDecremented = true;
+          }
+        }
+      }
+      const prev = this.cleanupsByReason.get(reason) ?? 0;
+      this.cleanupsByReason.set(reason, prev + 1);
+    }
+
+    if (abortController && !abortController.signal.aborted) {
+      try {
+        abortController.abort();
+        result.upstreamAborted = true;
+      } catch (e) {
+        logger.debug('AbortController.abort() threw during cleanup', {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    return result;
+  }
+
+  getCleanupStats(): {
+    cleanupsByReason: Record<string, number>;
+    leaksPrevented: number;
+    staleSweepsByReason: Record<string, number>;
+  } {
+    return {
+      cleanupsByReason: Object.fromEntries(this.cleanupsByReason),
+      leaksPrevented: this.leaksPrevented,
+      staleSweepsByReason: Object.fromEntries(this.staleSweepsByReason),
+    };
+  }
+
+  recordLeakPrevented(count: number = 1): void {
+    if (count > 0) {
+      this.leaksPrevented += count;
+    }
   }
 
   /**
@@ -530,25 +685,47 @@ export class InFlightManager {
    */
   cleanupStaleStreamingRequests(maxAgeMs: number = 10 * 60 * 1000): number {
     const now = Date.now();
-    const staleIds: string[] = [];
+    const staleEntries: Array<{ id: string; request: StreamingRequestProgress }> = [];
 
     for (const [id, request] of this.streamingRequests) {
       if (now - request.startTime > maxAgeMs) {
-        staleIds.push(id);
+        staleEntries.push({ id, request });
       }
     }
 
-    for (const id of staleIds) {
+    for (const { id, request } of staleEntries) {
       this.streamingRequests.delete(id);
+      this.cleanedUpStreamingRequestIds.add(id);
+      const key = `${request.serverId}:${request.model}`;
+      const regular = this.inFlight.get(key) ?? 0;
+      if (regular > 0) {
+        if (regular <= 1) {
+          this.inFlight.delete(key);
+        } else {
+          this.inFlight.set(key, regular - 1);
+        }
+      } else {
+        const bypass = this.inFlightBypass.get(key) ?? 0;
+        if (bypass > 0) {
+          if (bypass <= 1) {
+            this.inFlightBypass.delete(key);
+          } else {
+            this.inFlightBypass.set(key, bypass - 1);
+          }
+        }
+      }
     }
 
-    if (staleIds.length > 0) {
-      logger.warn(`Cleaned up ${staleIds.length} stale streaming request(s)`, {
-        requestIds: staleIds.slice(0, 10),
+    if (staleEntries.length > 0) {
+      this.leaksPrevented += staleEntries.length;
+      const prev = this.cleanupsByReason.get('stale_sweep') ?? 0;
+      this.cleanupsByReason.set('stale_sweep', prev + staleEntries.length);
+      logger.warn(`Cleaned up ${staleEntries.length} stale streaming request(s)`, {
+        requestIds: staleEntries.slice(0, 10).map(e => e.id),
       });
     }
 
-    return staleIds.length;
+    return staleEntries.length;
   }
 }
 

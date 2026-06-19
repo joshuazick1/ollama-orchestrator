@@ -4,6 +4,7 @@
  */
 
 import type { TimeWindow } from '../orchestrator/orchestrator.types.js';
+import { getInFlightManager } from '../utils/in-flight-manager.js';
 
 import type { MetricsAggregator } from './metrics-aggregator.js';
 import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
@@ -159,6 +160,31 @@ export class PrometheusExporter {
     }
 
     // Probe metrics
+    lines.push('# HELP orchestrator_in_flight_cleanups_total In-flight tracking cleanups');
+    lines.push('# TYPE orchestrator_in_flight_cleanups_total counter');
+    try {
+      const cleanupStats = getInFlightManager().getCleanupStats();
+      const reasonCounts: Record<string, number> = {
+        client_disconnect: 0,
+        stale_sweep: 0,
+        normal_completion: 0,
+        ...cleanupStats.cleanupsByReason,
+      };
+      for (const reason of ['client_disconnect', 'stale_sweep', 'normal_completion']) {
+        const count = reasonCounts[reason] ?? 0;
+        lines.push(`orchestrator_in_flight_cleanups_total{reason="${reason}"} ${count}`);
+      }
+      lines.push(
+        '# HELP orchestrator_in_flight_leaks_prevented_total Leaks prevented by stale sweep'
+      );
+      lines.push('# TYPE orchestrator_in_flight_leaks_prevented_total counter');
+      lines.push(`orchestrator_in_flight_leaks_prevented_total ${cleanupStats.leaksPrevented}`);
+    } catch (e) {
+      lines.push(
+        `# WARN in-flight cleanup metrics unavailable: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
+
     lines.push('# HELP probe_state_transitions_total Probe state transitions');
     lines.push('# TYPE probe_state_transitions_total counter');
     for (const [key, count] of this.probeMetrics.transitions) {
