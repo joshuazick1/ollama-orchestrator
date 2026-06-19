@@ -173,6 +173,36 @@ export class OperationalStore {
       .run(Date.now(), serverId, model);
   }
 
+  cleanupStaleState(activeServerIds: string[]): void {
+    const ids = new Set(activeServerIds);
+
+    const staleCB = this.db.prepare(`SELECT server_id, model FROM circuit_breaker_state`).all() as {
+      server_id: string;
+      model: string;
+    }[];
+    for (const row of staleCB) {
+      if (!ids.has(row.server_id)) {
+        this.db
+          .prepare(`DELETE FROM circuit_breaker_state WHERE server_id = ? AND model = ?`)
+          .run(row.server_id, row.model);
+      }
+    }
+
+    const staleBans = this.db.prepare(`SELECT id, server_id FROM bans`).all() as {
+      id: number;
+      server_id: string;
+    }[];
+    for (const row of staleBans) {
+      if (!ids.has(row.server_id)) {
+        this.db.prepare(`DELETE FROM bans WHERE id = ?`).run(row.id);
+      }
+    }
+
+    logger.info(`OperationalStore: cleaned stale state, removed entries for unknown servers`, {
+      activeCount: activeServerIds.length,
+    });
+  }
+
   getActiveBans(): Array<{
     serverId: string;
     model: string;

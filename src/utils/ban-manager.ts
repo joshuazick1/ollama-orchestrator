@@ -326,7 +326,7 @@ export class BanManager {
     };
   }
 
-  cleanupExpiredCooldowns(): number {
+  cleanupExpiredCooldowns(cleanupAllStale: boolean = false): number {
     const now = Date.now();
     let cleaned = 0;
     const keysToDelete: string[] = [];
@@ -342,8 +342,31 @@ export class BanManager {
       cleaned++;
     }
 
+    if (cleanupAllStale) {
+      const staleTrackerKeys: string[] = [];
+      for (const [key, tracker] of this.modelFailureTracker) {
+        const recent = tracker.timestamps.filter(t => now - t < 15 * 60 * 1000);
+        if (recent.length === 0) {
+          staleTrackerKeys.push(key);
+        }
+      }
+      for (const key of staleTrackerKeys) {
+        this.modelFailureTracker.delete(key);
+        cleaned++;
+      }
+
+      const staleServerKeys: string[] = [];
+      for (const [serverId] of this.serverFailureCount) {
+        staleServerKeys.push(serverId);
+      }
+      for (const key of staleServerKeys) {
+        this.serverFailureCount.delete(key);
+        cleaned++;
+      }
+    }
+
     if (cleaned > 0) {
-      logger.info(`Cleaned up ${cleaned} expired cooldowns`);
+      logger.info(`Cleaned up ${cleaned} expired/stale entries`);
     }
 
     return cleaned;

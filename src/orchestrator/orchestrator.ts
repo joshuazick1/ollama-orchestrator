@@ -37,6 +37,7 @@ import { ModelAggregator } from '../utils/model-aggregator.js';
 import { canHandleContext, getDefaultContextSize } from '../utils/prompt-estimator.js';
 import { RetryBudget } from '../utils/retry-budget.js';
 import { TimeoutManager } from '../utils/timeout-manager.js';
+import { filterValidModels } from '../utils/model-validator.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
 
 import { OrchestratorModels } from './models.js';
@@ -879,7 +880,7 @@ export class AIOrchestrator {
       }
 
       if (server.v1Models) {
-        for (const modelId of server.v1Models) {
+        for (const modelId of filterValidModels(server.v1Models)) {
           if (!seenModels.has(modelId)) {
             seenModels.add(modelId);
             modelToServers.set(modelId, []);
@@ -892,7 +893,7 @@ export class AIOrchestrator {
       }
 
       if (server.discoveredV1Models) {
-        for (const modelId of server.discoveredV1Models) {
+        for (const modelId of filterValidModels(server.discoveredV1Models)) {
           if (!seenModels.has(modelId)) {
             seenModels.add(modelId);
             modelToServers.set(modelId, []);
@@ -3259,6 +3260,7 @@ export class AIOrchestrator {
     totalModels: number;
     inFlightRequests: number;
     circuitBreakers: Record<string, { state: string; failureCount: number }>;
+    circuitBreakersByState: Record<string, number>;
   } {
     const healthyServers = this.servers.filter(s => s.healthy).length;
 
@@ -3272,11 +3274,13 @@ export class AIOrchestrator {
 
     const allStates = this.probeOrchestrator.getAllStates();
     const circuitBreakers: Record<string, { state: string; failureCount: number }> = {};
+    const circuitBreakersByState: Record<string, number> = {};
     for (const [id, state] of allStates) {
       circuitBreakers[id] = {
         state: state.state,
         failureCount: state.consecutiveFailures,
       };
+      circuitBreakersByState[state.state] = (circuitBreakersByState[state.state] ?? 0) + 1;
     }
 
     return {
@@ -3286,6 +3290,7 @@ export class AIOrchestrator {
       totalModels: this.getAllModels().length,
       inFlightRequests: inFlightTotal,
       circuitBreakers,
+      circuitBreakersByState,
     };
   }
 

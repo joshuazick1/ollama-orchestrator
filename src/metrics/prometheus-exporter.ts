@@ -157,6 +157,22 @@ export class PrometheusExporter {
       lines.push(
         `orchestrator_avg_tokens_per_request{${labels}} ${metric.avgTokensPerRequest.toFixed(2)}`
       );
+
+      // TTFT metrics if available
+      if (metric.streamingMetrics) {
+        lines.push(
+          `orchestrator_ttft_seconds_avg{${labels}} ${(metric.streamingMetrics.avgTTFT / 1000).toFixed(4)}`
+        );
+        lines.push(
+          `orchestrator_ttft_seconds_p50{${labels}} ${(metric.streamingMetrics.ttftPercentiles.p50 / 1000).toFixed(4)}`
+        );
+        lines.push(
+          `orchestrator_ttft_seconds_p95{${labels}} ${(metric.streamingMetrics.ttftPercentiles.p95 / 1000).toFixed(4)}`
+        );
+        lines.push(
+          `orchestrator_ttft_seconds_p99{${labels}} ${(metric.streamingMetrics.ttftPercentiles.p99 / 1000).toFixed(4)}`
+        );
+      }
     }
 
     // Probe metrics

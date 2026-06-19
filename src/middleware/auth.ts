@@ -172,11 +172,15 @@ export function requireAuth(
         next();
         return;
       } catch (err) {
-        // JWT verification failed - fall through to API key check
-        logger.debug('JWT verification failed, falling back to API key', {
+        logger.warn('JWT verification failed for Bearer token', {
           path: req.path,
           error: err instanceof Error ? err.message : String(err),
         });
+        res.status(401).json({
+          error: 'Authentication failed',
+          message: 'Invalid Bearer token',
+        });
+        return;
       }
     }
 

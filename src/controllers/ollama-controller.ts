@@ -466,7 +466,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound } =
         classifyOrchestratorRoutingError(errorMessage);
 
       // Include routing context in error responses when debug is requested
@@ -474,7 +474,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
-      if (isAccessDenied) {
+      if (isModelNotFound) {
+        res.status(404).json({
+          error: errorMessage,
+          model,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isAccessDenied) {
         res.status(403).json({
           error: errorMessage,
           model,
@@ -953,14 +959,20 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound } =
         classifyOrchestratorRoutingError(errorMessage);
 
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
-      if (isAccessDenied) {
+      if (isModelNotFound) {
+        res.status(404).json({
+          error: errorMessage,
+          model,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isAccessDenied) {
         res.status(403).json({
           error: errorMessage,
           model,
@@ -1056,14 +1068,20 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     logger.error('Embeddings request failed:', { error, model });
 
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+    const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound } =
       classifyOrchestratorRoutingError(errorMessage);
 
     const debugPayload = isDebugRequested(req)
       ? getDebugInfo(routingContext, { lastError: errorMessage })
       : undefined;
 
-    if (isAccessDenied) {
+    if (isModelNotFound) {
+      res.status(404).json({
+        error: errorMessage,
+        model,
+        ...(debugPayload && { debug: debugPayload }),
+      });
+    } else if (isAccessDenied) {
       res.status(403).json({
         error: errorMessage,
         model,
