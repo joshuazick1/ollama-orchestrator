@@ -20,6 +20,7 @@ import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metrics-controller.js';
 import { requireAuth, requireAdmin, isAuthEnabled } from './middleware/auth.js';
+import { requestIdMiddleware } from './middleware/request-id.js';
 import {
   createMonitoringRateLimiter,
   createAdminRateLimiter,
@@ -95,6 +96,8 @@ app.use((req, res, next) => {
     xssFilter: true,
   })(req, res, next);
 });
+
+app.use(requestIdMiddleware);
 
 // CORS middleware - use configured origins
 // Empty array = same-origin only (no CORS), ['*'] = all origins, specific = whitelist

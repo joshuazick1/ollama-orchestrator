@@ -20,8 +20,10 @@ const LOG_LEVELS = {
   error: 3,
 };
 
+let customLogLevel: string | null = null;
+
 function getLogLevel(): string {
-  return process.env.LOG_LEVEL ?? 'info';
+  return customLogLevel ?? process.env.LOG_LEVEL ?? 'info';
 }
 
 function shouldLog(level: string): boolean {
@@ -128,6 +130,9 @@ export const logger = {
     if (process.env.DEBUG !== 'true') {
       return;
     }
+    if (customLogLevel !== null && !shouldLog('debug')) {
+      return;
+    }
     const timestamp = new Date().toISOString();
     const entry: LogEntry = { timestamp, level: 'debug', message, meta };
     addToBuffer(entry);
@@ -144,5 +149,17 @@ export const logger = {
 
   clearLogs: (): void => {
     logBuffer.length = 0;
+  },
+
+  setLevel: (level: 'debug' | 'info' | 'warn' | 'error'): void => {
+    customLogLevel = level;
+  },
+
+  getLevel: (): 'debug' | 'info' | 'warn' | 'error' => {
+    const level = customLogLevel ?? process.env.LOG_LEVEL ?? 'info';
+    if (level === 'debug' || level === 'info' || level === 'warn' || level === 'error') {
+      return level;
+    }
+    return 'info';
   },
 };
