@@ -1,6 +1,70 @@
 ## [Unreleased] - Orchestrator Stability Release
 
-See `.sisyphus/plans/orchestrator-stability-release.md` for full details. Includes new `prefix-cache-aware` load balancing algorithm, SLO fallback mode, token-weighted load tracking, cold-start magnitude penalty, 36 bug fixes, and Prometheus metric expansions.
+Orchestrator Stability Release bringing production hardening, new load balancing algorithms, comprehensive metrics, and 36 bug fixes. See `.sisyphus/plans/orchestrator-stability-release.md` for full implementation details.
+
+**Kill switch**: If issues arise with the new scoring components, set `loadBalancer.fallbackToFastestResponse = true` to immediately revert all algorithms to `fastest-response` behavior.
+
+### Added
+
+- `prefix-cache-aware` load balancing algorithm: maximizes upstream prefix-cache hit rates via consistent hashing of prompt token prefixes (config: `loadBalancer.prefixCacheAware`)
+- SLO fallback mode: when P95 TTFT exceeds threshold, routes to the server with best recent recovery rate (config: `loadBalancer.sloFallback`)
+- Token-weighted load tracking: request weight = `promptTokens * 1.0 + outputTokens * 4.0` instead of simple concurrency count (config: `loadBalancer.tokenWeightedLoad`)
+- Cold-start magnitude penalty: time-limited score penalty for servers with recent cold starts (config: `loadBalancer.coldStartMagnitude`)
+- New metrics: ITL (Inference Time Lag) histogram, per-prompt-size latency buckets, per-error-type histogram, jitter/stddev, cache hit rate, cold-start magnitude, token-weighted load
+- New types: `PrefixHashResult`, `ServerScoreBreakdown`, `SLOMode`, `TokenWeightedLoad`, `ColdStartEvent`, `ErrorTypeMetric`, `PerSizeLatencyBucket`
+- Debug observability: lifecycle events (`LIFECYCLE_*`) emitted at every request stage, request ID middleware (`X-Request-Id`), `logLevel` wiring to config
+- `ps-poll-coordinator.ts`: coordinates per-server `/api/ps` polling to maintain live model availability across the fleet
+
+### Changed
+
+- Scoring components are now real values: `circuitBreakerScore` is no longer hardcoded to 1.0 and reflects actual circuit breaker state
+- `DecisionEvent` expanded from 4 to 10 score components: latency, success, load, capacity, circuitBreaker, timeout, throughput, vram, temporal, context
+- Prometheus exporter updated with new metrics: ITL histogram buckets, per-size latency buckets, error-type counts, jitter/stddev gauges, cache hit rate, cold-start magnitude
+- `/api/orchestrator/analytics/decisions` now includes all 10 score components in the breakdown
+
+### Fixed
+
+- B1: `selectionReason='failover_routing'` was used for 72% of primary LB decisions (mislabeled)
+- B2: `/api/orchestrator/circuit-breakers` returned HTTP 500
+- B3: stale circuit breaker keys in metrics store (MiniMax-M3, server-cpu entries)
+- B4: 32 ghost servers reported (healthy but 0 models)
+- B5: `circuitBreakers.byState` returned empty object
+- B6: responses missing `X-Request-Id` debug headers
+- B7: DecisionEvent captured only 4 of 10 score components
+- B8: `orchestrator_avg_latency_ms` showed stale 52 seconds (decay not applying)
+- B9: cold-start magnitude not tracked in metrics (load_duration magnitude)
+- B10: streaming TTFT baseline was 541ms (should be tracked and visible in Prometheus)
+- B11: 94 suspicious entries in `/v1/models` response (attack/cloud names — security fix)
+- B12: non-existent model returned HTTP 500 instead of 404
+- B13: 27b model routed to only 2 of 11+ servers (over-restrictive filter)
+- B14: empty prompt validation still returned HTTP 400 (verify no regression)
+- B15: 100-concurrent embed requests had 17% failure rate
+- B16: 60-concurrent chat 27b requests had 87% failure rate
+- B17: `/v1/models` listed `:cloud` models that were not routable
+- B18: streaming responses missing `X-*` debug headers (covered by B6)
+- B19: non-existent embed model returned HTTP 500 instead of 404
+- B20: cross-model concurrent requests (verify no regression)
+- B21: server flapping behavior (verify stability)
+- B22 (CRITICAL): streaming client disconnect leaked in-flight tracking (memory grew, real users got 503s)
+- B23: invalid Bearer token returned HTTP 200 (info disclosure)
+- B24: model name resolution inconsistent (`qwen2.5` vs `qwen2.5:7b-coder` vs `llama3.2`)
+- B25: in-flight leak on abort (subsumed by B22 — same root cause)
+- B26: long responses work correctly (200 tokens in 1.5s — verify no regression)
+- B27: memory growth healthy under burst load (verify < 10% growth)
+- B28: `X-User-Id` header accepted without breaking requests (verify no harm)
+- B29: rate limiting was not enforced on inference endpoints
+- B30: in-flight leak under concurrent load (subsumed by B22 — same root cause)
+- B31: metrics endpoint stable under concurrent scrapes (verify < 50ms)
+- B32: no response caching issues (verify identical parallel requests all return 200)
+- B33: `/health` not rate-limited (acceptable — verify 100 rapid requests return 200)
+- B34: stale ban entries present in ban manager
+- B35: in-flight leak symptom on sustained load (subsumed by B22 — same root cause)
+- B36: concurrent decisions produced race conditions on requestId (verify stable)
+
+### Security
+
+- B29: Rate limiting is now properly enforced on all inference endpoints
+- B11: Suspicious `/v1/models` entries (94 attacker/cloud names) are now filtered
 
 ---
 
