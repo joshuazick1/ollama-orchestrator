@@ -15,6 +15,7 @@ Files of record:
 - [endpoint-registry.ts](endpoint-registry.ts) — `EndpointRegistry`. Tracks which endpoints belong to which server:model tuples; supports soft-revoke for capability detection.
 - [wal-store.ts](wal-store.ts) — `WalStore` (singleton via `getWalStore`). Append-only WAL for probe state transitions; provides persistence and event replay.
 - [types.ts](types.ts) — Shared probe types: `ProbeState`, `ProbeKey`, `WalEvent`, `UiState`, `RecoveryConfig`.
+- [ps-poll-coordinator.ts](ps-poll-coordinator.ts) — `PsPollCoordinator`. Coordinates per-server `/api/ps` polling to track which models are currently loaded on each server; supports fleet-wide model availability tracking and stale-cache invalidation.
 
 ## Negative Probing
 
@@ -58,6 +59,22 @@ Negative probing is controlled by these `capabilityProbe` config fields in `src/
 - [failure-classifier-negative.ts](failure-classifier-negative.ts) — `classifyNegativeResult`. Pure function classifier for negative probe responses.
 
 The positive probe executor lives in `src/orchestrator/probe-executor-negative.ts` (probes inference endpoints) alongside the negative classifier integration.
+
+## Polling Subsystem
+
+The `ps-poll-coordinator` (`ps-poll-coordinator.ts`) periodically polls each server's `/api/ps` endpoint to build and maintain a live picture of which models are loaded where in the fleet. This replaces snapshot-only model tracking with a continuously refreshed view.
+
+### How It Works
+
+The coordinator maintains a per-server polling schedule with stagger offsets to avoid simultaneous load on all servers. It merges results into the shared `EndpointRegistry` and surfaces server:model load state to the load balancer for routing decisions.
+
+### Configuration
+
+Polling is controlled by the `loadBalancer.psPoll` config section (if present) or falls back to defaults. Fields: `enabled` (default true), `intervalMs` (default 30000), `staggerOffsetMs` (default 1000), `requestTimeoutMs` (default 5000).
+
+### Integration
+
+The `PsPollCoordinator` is started during probe subsystem initialization and is accessed via `getPsPollCoordinator()` from `src/probe/probe-scheduler-instance.ts`. It reads server URLs from the orchestrator and writes model availability to the `EndpointRegistry`.
 
 ## Ownership
 

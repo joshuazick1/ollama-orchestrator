@@ -25,6 +25,8 @@ Files of record:
 - Decay config is read from the config manager (`MetricsDecayConfig`); default half-life is 5 minutes, minimum factor 0.1, stale threshold 2 minutes.
 - The metrics aggregator is not a singleton. The orchestrator instantiates it. Tests must construct a fresh instance per test.
 - TTFT tracker options (`TTFTOptions`) and the streaming telemetry meta from [src/streaming.ts](../streaming.ts) must agree on the streaming metric shape.
+- Percentile calculations use t-digest for accuracy at extreme percentiles (p99.9). The `tdigest` helper in [src/utils/tdigest.ts](../utils/tdigest.ts) is used for approximating percentiles from histogram data.
+- New metrics added in the orchestrator stability release: ITL (Inference Time Lag — time from request start to first token), per-prompt-size latency buckets, per-error-type counts, jitter/stddev, cache hit rate, and cold-start magnitude.
 
 ## Work Guidance
 
@@ -35,6 +37,6 @@ Files of record:
 
 ## Verification
 
-- `npm test` — covers `metrics-aggregator.test.ts`, `metrics-persistence.test.ts`, `prometheus-exporter.test.ts`, `ttft-tracker.test.ts`, `client-metrics.test.ts` in [tests/unit/](../../tests/unit/).
+- `npm test` — covers `metrics-aggregator.test.ts`, `metrics-persistence.test.ts`, `prometheus-exporter.test.ts`, `ttft-tracker.test.ts`, `client-metrics.test.ts`, and new tests for ITL, per-size buckets, error-type histogram, jitter/stddev, cache hit rate, and cold-start magnitude in [tests/unit/](../../tests/unit/).
 - `npm run test:integration` — covers `metrics-endpoints.test.ts`.
 - Manual: hit `/metrics` and `/api/orchestrator/metrics/prometheus` after a run of `npm run test:load:quick` and confirm counters move.

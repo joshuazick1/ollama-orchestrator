@@ -30,6 +30,8 @@ Files of record (grouped by concern):
 - [backoff/](backoff/) — `calculator.ts`, `from-config.ts`, `types.ts`, and strategies (decorrelated, fixed, etc.). Re-exported via `index.ts`.
 - [timer.ts](timer.ts) — `Timer` helper for scheduled jobs (avoids Node timer leaks).
 - [probe-coordinator.ts](probe-coordinator.ts) — `probeCoordinator` singleton for inference/health probes.
+- [lifecycle.ts](lifecycle.ts) — Lifecycle event emitter for orchestrator startup, shutdown, and health state transitions. Used for debug observability and structured logging of state changes.
+- [streaming-cleanup.ts](streaming-cleanup.ts) — Streaming cleanup utilities: abort handler registration, stale stream detection, and resource teardown for mid-stream failures.
 
 **Streaming**
 
@@ -58,6 +60,7 @@ Files of record (grouped by concern):
 **Statistics & modeling**
 
 - [statistics.ts](statistics.ts) — `Statistics` (mean, p50, p95, p99, stddev).
+- [tdigest.ts](tdigest.ts) — T-digest data structure for accurate percentile estimation at extreme quantiles (e.g., p99.9). Used by the metrics aggregator for ITL and latency percentile approximations.
 - [prompt-estimator.ts](prompt-estimator.ts) — `canHandleContext`, `getDefaultContextSize`. Token/context estimation.
 - [model-aggregator.ts](model-aggregator.ts) — Tag aggregation across servers.
 - [token-metrics-extractor.ts](token-metrics-extractor.ts) — Token count extraction from upstream responses.
@@ -67,6 +70,7 @@ Files of record (grouped by concern):
 - [circuit-breaker-helpers.ts](circuit-breaker-helpers.ts) — Circuit-breaker helpers.
 - [request-context-builder.ts](request-context-builder.ts) — Build `RequestContext` for a request.
 - [async-helpers.ts](async-helpers.ts) — `sleep`, async utilities.
+- [hash.ts](hash.ts) — Hashing utilities: consistent hash ring construction for prefix-cache-aware routing.
 
 **Metadata**
 

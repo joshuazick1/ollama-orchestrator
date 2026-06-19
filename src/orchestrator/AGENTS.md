@@ -17,7 +17,7 @@ Files of record:
 - [orchestrator.ts](orchestrator.ts) — Main `Orchestrator` class (`getOrchestratorInstance` is a singleton accessor in [orchestrator-instance.ts](orchestrator-instance.ts)).
 - [routing.ts](routing.ts) — Request routing pipeline (server selection, retries, failover).
 - [models.ts](models.ts) — Model registry, fleet model stats, server model control.
-- [orchestrator.types.ts](orchestrator.types.ts) — Domain types: `AIServer`, `ServerModelMetrics`, `GlobalMetrics`, `RequestContext`, `StreamingMetrics`, `LatencyPercentiles`, `TimeWindow`, `MetricsWindow`, `MetricsExport`.
+- [orchestrator.types.ts](orchestrator.types.ts) — Domain types: `AIServer`, `ServerModelMetrics`, `GlobalMetrics`, `RequestContext`, `StreamingMetrics`, `LatencyPercentiles`, `TimeWindow`, `MetricsWindow`, `MetricsExport`, plus orchestrator-stability-release types: `PrefixHashResult`, `ServerScoreBreakdown`, `SLOMode`, `TokenWeightedLoad`, `ColdStartEvent`, `ErrorTypeMetric`, `PerSizeLatencyBucket`.
 - [orchestrator-persistence.ts](orchestrator-persistence.ts) and [persistence.ts](persistence.ts) — Fleet state persistence (server list, model map).
 - [probe-executor-negative.ts](probe-executor-negative.ts) — `probeExecutorNegative`. Negative probe executor for capability detection: sends intentionally invalid model names and inspects response bodies to detect capability gaps.
 
@@ -34,6 +34,7 @@ Files of record:
 - Public type re-exports go through `src/shared-types.ts` — never import `orchestrator.types` directly from the frontend.
 - The `CapabilityProbeScheduler` singleton (`getCapabilityProbeScheduler()` from `src/probe/probe-scheduler-instance.ts`) is started during orchestrator initialization and uses `orchestrator.getServer(id)` to resolve server descriptors for negative probing.
 - Manual capability probe is available via `POST /api/orchestrator/servers/:id/capability-probe` (admin routes, requires admin auth). The controller handler `capabilityProbe` in [servers-controller.ts](../controllers/servers-controller.ts) delegates to `capabilityProbeScheduler.runOnce(id)`.
+- The `ps-poll-coordinator` polling subsystem (in `src/probe/`) coordinates model availability polling across the server fleet.
 
 ## Work Guidance
 
