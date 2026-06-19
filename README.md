@@ -386,11 +386,15 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 
 ### Intelligent Load Balancing
 
-- Default algorithm: `fastest-response` — selects the server with the lowest predicted response time based on recent measurements. Also available: `weighted` (multi-factor scoring), `round-robin`, `least-connections`.
+- Default algorithm: `fastest-response` — selects the server with the lowest predicted response time based on recent measurements. Also available: `weighted` (multi-factor scoring), `round-robin`, `least-connections`, `prefix-cache-aware` (opt-in, maximizes upstream prefix-cache hit rates via consistent hashing of prompt prefixes).
 - Weighted scoring (when `weighted` algorithm is selected): latency (17%), success rate (17%), load (17%), capacity (5%), plus circuitBreaker, timeout, throughput, VRAM, temporal, and context factors
 - Historical metrics with sliding windows (1m, 5m, 15m, 1h)
 - Circuit breakers prevent routing to failing servers
 - Considers in-flight requests, model availability, health
+- Token-weighted load: request weight = `promptTokens * promptTokenWeight + outputTokens * outputTokenWeight` (default: prompt=1.0, output=4.0), replacing simple concurrency count
+- SLO fallback mode: if P95 TTFT exceeds threshold, routes to the server with best recent recovery rate
+- Cold-start magnitude penalty: servers with recent cold starts (TTFT > threshold) receive a time-limited score penalty
+- Kill switch: `loadBalancer.fallbackToFastestResponse = true` reverts all algorithms to `fastest-response` behavior
 
 ### Request Failover and Retry
 
@@ -398,6 +402,7 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - Configurable retries (default 2) for transient errors
 - Error classification: permanent, non-retryable, transient, retryable
 - Cooldown periods for failed server:model combos
+- SLO fallback: when server TTFT degrades beyond threshold, failover shifts to recovery-rate prioritization
 
 ### Model Management
 
@@ -467,7 +472,12 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - Default fallback latency: 1000ms
 - Default max concurrency: 4
 - Streaming optimization: TTFT 60%, duration 40%
-- Algorithms: fastest-response, weighted, round-robin, least-connections
+- Algorithms: fastest-response, weighted, round-robin, least-connections, prefix-cache-aware
+- Kill switch: `fallbackToFastestResponse` (default false) — reverts all algorithms to fastest-response behavior
+- `prefixCacheAware`: { enabled, hashTokenCount, hashBuckets } — prefix-cache-aware routing (defaults: false, 512, 256)
+- `sloFallback`: { enabled, ttftThresholdMs, p95WindowMs } — SLO fallback mode (defaults: false, 2000ms, 60000ms)
+- `tokenWeightedLoad`: { enabled, promptTokenWeight, outputTokenWeight } — token-weighted request accounting (defaults: true, 1.0, 4.0)
+- `coldStartMagnitude`: { enabled, thresholdMs, penaltyDurationMs } — cold-start penalty (defaults: true, 1000ms, 60000ms)
 
 ### Circuit Breaker
 

@@ -1,4 +1,8 @@
-## 2026-06-18: Phase 5 Final Polish (A11y, Tests, DOX)
+## [Unreleased] - Orchestrator Stability Release
+
+See `.sisyphus/plans/orchestrator-stability-release.md` for full details. Includes new `prefix-cache-aware` load balancing algorithm, SLO fallback mode, token-weighted load tracking, cold-start magnitude penalty, 36 bug fixes, and Prometheus metric expansions.
+
+---
 
 Phase 5 completion: accessibility improvements, test coverage, and documentation updates.
 
