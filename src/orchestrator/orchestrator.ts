@@ -940,35 +940,71 @@ export class AIOrchestrator {
     return false;
   }
 
-  /**
-   * Resolve model name by appending :latest tag if needed
-   */
   public resolveModelName(model: string, availableModels: string[]): string | null {
-    // Direct match
-    if (availableModels.includes(model)) {
-      return model;
-    }
+    if (availableModels.includes(model)) return model;
 
-    // If no tag specified, try :latest
+    const tagResult = this.resolveTagVariants(model, availableModels);
+    if (tagResult) return tagResult;
+
+    const fuzzyResult = this.resolveByFamilyAndSize(model, availableModels);
+    if (fuzzyResult) return fuzzyResult;
+
+    return null;
+  }
+
+  private resolveTagVariants(model: string, availableModels: string[]): string | null {
     if (!model.includes(':')) {
       const withLatest = `${model}:latest`;
-      if (availableModels.includes(withLatest)) {
-        return withLatest;
-      }
+      if (availableModels.includes(withLatest)) return withLatest;
     }
 
     if (model.endsWith(':latest')) {
       const withoutLatest = model.slice(0, -7);
-      if (availableModels.includes(withoutLatest)) {
-        return withoutLatest;
-      }
+      if (availableModels.includes(withoutLatest)) return withoutLatest;
       const withLatestSuffix = `${withoutLatest}:latest`;
-      if (availableModels.includes(withLatestSuffix)) {
-        return withLatestSuffix;
-      }
+      if (availableModels.includes(withLatestSuffix)) return withLatestSuffix;
     }
 
     return null;
+  }
+
+  private parseModelParts(model: string): { family: string; tag: string } {
+    const colonIdx = model.lastIndexOf(':');
+    if (colonIdx === -1) return { family: model, tag: 'latest' };
+    return {
+      family: model.slice(0, colonIdx),
+      tag: model.slice(colonIdx + 1),
+    };
+  }
+
+  private extractModelSize(tag: string): number | null {
+    const match = tag.match(/^(\d+(?:\.\d+)?)b$/i);
+    if (!match) return null;
+    return parseFloat(match[1]);
+  }
+
+  private resolveByFamilyAndSize(model: string, availableModels: string[]): string | null {
+    const { family, tag } = this.parseModelParts(model);
+    const requestedSize = this.extractModelSize(tag);
+
+    if (!requestedSize) return null;
+
+    const candidates: Array<{ modelName: string; size: number }> = [];
+
+    for (const avail of availableModels) {
+      const parts = this.parseModelParts(avail);
+      if (parts.family !== family) continue;
+      const availSize = this.extractModelSize(parts.tag);
+      if (availSize !== null) {
+        candidates.push({ modelName: avail, size: availSize });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => Math.abs(a.size - requestedSize) - Math.abs(b.size - requestedSize));
+
+    return candidates[0].modelName;
   }
 
   /**
@@ -3072,9 +3108,16 @@ export class AIOrchestrator {
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {
         this.timeoutManager.applyDecay();
-        // Reset timeouts for server:models that have been idle for 10+ minutes
         this.timeoutManager.resetAllAfterIdle(600000);
       }, DECAY_INTERVAL_MS);
+
+      const GHOST_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+      this.escalationIntervalId = setInterval(() => {
+        const removed = this.cleanupGhostServers();
+        if (removed > 0) {
+          logger.info(`[Ghost] Cleaned up ${removed} ghost servers`);
+        }
+      }, GHOST_CLEANUP_INTERVAL_MS);
 
       logger.info(
         'Orchestrator initialized with persistence, circuit breakers, and recovery test coordinator'
@@ -3327,6 +3370,24 @@ export class AIOrchestrator {
    */
   getCircuitBreakerStats() {
     return this.probeOrchestrator.getAllStates();
+  }
+
+  cleanupGhostServers(ghostTtlMs: number = 86_400_000): number {
+    const now = Date.now();
+    const ghostIds: string[] = [];
+    for (const server of this.servers) {
+      if (server.healthy === false || !server.healthy) {
+        const age = now - server.lastResponseTime;
+        if (age >= ghostTtlMs) {
+          ghostIds.push(server.id);
+        }
+      }
+    }
+    for (const id of ghostIds) {
+      this.removeServer(id);
+      logger.warn(`[Ghost] Removed offline server ${id}`);
+    }
+    return ghostIds.length;
   }
 
   /**
