@@ -32,6 +32,10 @@ export interface ServerScore {
     vramScore: number;
     temporalScore?: number;
     contextScore?: number;
+    itlScore?: number;
+    cacheHitScore?: number;
+    promptSizeScore?: number;
+    errorTypeScore?: number;
   };
   metrics?: ServerModelMetrics;
   temporalAdjustment?: TemporalAdjustment;
@@ -264,6 +268,13 @@ export function calculateServerScore(
   const capacityScore = Math.max(0, (availableCapacity / maxConcurrency) * 100);
 
   let circuitBreakerScore = 100;
+  if (metrics?.windows && metrics.windows['5m']) {
+    const win = metrics.windows['5m'];
+    if (win.count > 0) {
+      const errorRate = win.errors / win.count;
+      circuitBreakerScore = Math.max(0, (1 - errorRate) * 100);
+    }
+  }
 
   // Timeout score: lower timeout is better
   // Normalize: 30s = 100, 300s = 0 (5 min timeout = worst)
@@ -365,8 +376,35 @@ export function calculateServerScore(
     }
   }
 
+  let itlScore = 100;
+  let cacheHitScore = 100;
+  let promptSizeScore = 100;
+  let errorTypeScore = 100;
+
+  if (metrics) {
+    if (metrics.streamingMetrics?.avgChunkGapMs) {
+      const gapMax = 500;
+      itlScore = Math.max(0, 100 - (metrics.streamingMetrics.avgChunkGapMs / gapMax) * 100);
+    }
+    if (metrics.cacheHitRate !== undefined) {
+      cacheHitScore = metrics.cacheHitRate * 100;
+    }
+    if (metrics.parameterSize) {
+      const size = parseInt(metrics.parameterSize) || 0;
+      promptSizeScore = size > 0 ? Math.min(100, (100 / size) * 50) : 50;
+    }
+    if (metrics.errorTypeHistogram) {
+      const totalErrors = [...metrics.errorTypeHistogram.values()].reduce((s, c) => s + c, 0);
+      errorTypeScore = totalErrors > 0 ? Math.max(0, 100 - Math.min(totalErrors * 10, 100)) : 100;
+    }
+  }
+
   // Calculate weighted total score (Phase 3: includes temporal weight)
   const contextWeight = config.weights.context ?? 0.05;
+  const itlWeight = config.weights.itl ?? 0;
+  const cacheHitWeight = config.weights.cacheHit ?? 0;
+  const promptSizeWeight = config.weights.promptSize ?? 0;
+  const errorTypeWeight = config.weights.errorType ?? 0;
   const totalScore =
     latencyScore * config.weights.latency +
     successRateScore * config.weights.successRate +
@@ -377,7 +415,11 @@ export function calculateServerScore(
     throughputScore * config.weights.throughput +
     vramScore * config.weights.vram +
     temporalScore * (config.weights.temporal ?? 0) +
-    contextScore * contextWeight;
+    contextScore * contextWeight +
+    itlScore * itlWeight +
+    cacheHitScore * cacheHitWeight +
+    promptSizeScore * promptSizeWeight +
+    errorTypeScore * errorTypeWeight;
 
   return {
     server,
@@ -393,6 +435,10 @@ export function calculateServerScore(
       vramScore,
       temporalScore,
       contextScore,
+      itlScore,
+      cacheHitScore,
+      promptSizeScore,
+      errorTypeScore,
     },
     metrics,
     temporalAdjustment,
