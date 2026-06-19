@@ -107,9 +107,9 @@ sudo bash scripts/deploy-orchestrator-stability.sh --soft-kill-switch
 Or manually:
 
 ```bash
-curl -X POST http://localhost:5100/api/orchestrator/config \
+curl -X PATCH http://localhost:5100/api/orchestrator/config/loadBalancer \
   -H "Content-Type: application/json" \
-  -d '{"loadBalancer": {"fallbackToFastestResponse": true}}'
+  -d '{"fallbackToFastestResponse": true}'
 ```
 
 This causes **all** load-balancing algorithms (weighted, prefix-cache-aware,
@@ -128,9 +128,9 @@ curl -s http://localhost:5100/api/orchestrator/config \
 To disable again (after fixing the underlying issue):
 
 ```bash
-curl -X POST http://localhost:5100/api/orchestrator/config \
+curl -X PATCH http://localhost:5100/api/orchestrator/config/loadBalancer \
   -H "Content-Type: application/json" \
-  -d '{"loadBalancer": {"fallbackToFastestResponse": false}}'
+  -d '{"fallbackToFastestResponse": false}'
 ```
 
 ### Hard rollback (full revert to previous binary)

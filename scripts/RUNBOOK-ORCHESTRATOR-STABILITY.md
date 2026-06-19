@@ -87,17 +87,17 @@ to `fastest-response` behavior **without a service restart**.
 ### Enable kill switch
 
 ```bash
-curl -X POST http://localhost:5100/api/orchestrator/config \
+curl -X PATCH http://localhost:5100/api/orchestrator/config/loadBalancer \
   -H "Content-Type: application/json" \
-  -d '{"loadBalancer": {"fallbackToFastestResponse": true}}'
+  -d '{"fallbackToFastestResponse": true}'
 ```
 
 ### Disable kill switch
 
 ```bash
-curl -X POST http://localhost:5100/api/orchestrator/config \
+curl -X PATCH http://localhost:5100/api/orchestrator/config/loadBalancer \
   -H "Content-Type: application/json" \
-  -d '{"loadBalancer": {"fallbackToFastestResponse": false}}'
+  -d '{"fallbackToFastestResponse": false}'
 ```
 
 ### Verify current state
@@ -128,9 +128,9 @@ recovery rate.
 ### Enable
 
 ```bash
-curl -X POST http://localhost:5100/api/orchestrator/config \
+curl -X PATCH http://localhost:5100/api/orchestrator/config/loadBalancer \
   -H "Content-Type: application/json" \
-  -d '{"loadBalancer": {"sloFallback": {"enabled": true, "ttftThresholdMs": 2000, "p95WindowMs": 60000}}}'
+  -d '{"sloFallback": {"enabled": true, "ttftThresholdMs": 2000, "p95WindowMs": 60000}}'
 ```
 
 ### Verify
@@ -147,14 +147,11 @@ consistent hash of the leading token prefix, maximizing cache hit rates.
 ### Enable
 
 ```bash
-curl -X POST http://localhost:5100/api/orchestrator/config \
+# Set the algorithm and enable prefix-cache-aware
+curl -X PATCH http://localhost:5100/api/orchestrator/config/loadBalancer \
   -H "Content-Type: application/json" \
-  -d '{
-    "loadBalancer": {
-      "algorithm": "prefix-cache-aware",
-      "prefixCacheAware": {"enabled": true, "hashTokenCount": 512, "hashBuckets": 256}
-    }
-  }'
+  -d '{"prefixCacheAware": {"enabled": true, "hashTokenCount": 512, "hashBuckets": 256}}'
+# (algorithm selection requires editing the JSON config; the default is fastest-response)
 ```
 
 ### Verify routing

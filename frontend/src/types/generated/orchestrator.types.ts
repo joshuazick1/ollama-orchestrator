@@ -230,6 +230,9 @@ export interface ServerModelMetrics {
 
   promptSizeTTFTBuckets?: Record<string, PerSizeLatencyBucket>;
 
+  /** Token-weighted in-flight load (prompt + output tokens) */
+  tokenWeightedLoad?: number;
+
   // Streaming-specific metrics
   streamingMetrics?: StreamingMetrics;
 

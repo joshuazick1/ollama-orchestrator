@@ -175,6 +175,57 @@ export class PrometheusExporter {
           `orchestrator_ttft_seconds_p99{${labels}} ${(metric.streamingMetrics.ttftPercentiles.p99 / 1000).toFixed(4)}`
         );
       }
+
+      // ITL (inter-token latency) from streaming gap tracking
+      if (metric.streamingMetrics?.chunkGapPercentiles) {
+        const itl = metric.streamingMetrics.chunkGapPercentiles;
+        const itlLabels = `${labels},statistic="p50"`;
+        lines.push(`# HELP orchestrator_itl_ms Inter-token latency (streaming chunk gap) in ms`);
+        lines.push(`# TYPE orchestrator_itl_ms gauge`);
+        lines.push(`orchestrator_itl_ms${itlLabels} ${itl.p50.toFixed(2)}`);
+        lines.push(`orchestrator_itl_ms{${labels},statistic="p95"} ${itl.p95.toFixed(2)}`);
+        lines.push(`orchestrator_itl_ms{${labels},statistic="p99"} ${itl.p99.toFixed(2)}`);
+      }
+
+      // Cold-start magnitude
+      if (metric.coldStartCount > 0 || metric.coldStartMagnitudeMs !== undefined) {
+        lines.push('# HELP orchestrator_cold_start_count Total cold-start events');
+        lines.push('# TYPE orchestrator_cold_start_count counter');
+        lines.push(`orchestrator_cold_start_count{${labels}} ${metric.coldStartCount}`);
+        if (metric.coldStartMagnitudeMs !== undefined) {
+          lines.push('# HELP orchestrator_cold_start_magnitude_ms Last cold-start load duration');
+          lines.push('# TYPE orchestrator_cold_start_magnitude_ms gauge');
+          lines.push(
+            `orchestrator_cold_start_magnitude_ms{${labels}} ${metric.coldStartMagnitudeMs.toFixed(2)}`
+          );
+        }
+      }
+
+      // Cache hit rate
+      if (metric.cacheHitRate !== undefined) {
+        lines.push('# HELP orchestrator_cache_hit_rate Cache hit rate (0-1)');
+        lines.push('# TYPE orchestrator_cache_hit_rate gauge');
+        lines.push(`orchestrator_cache_hit_rate{${labels}} ${metric.cacheHitRate.toFixed(4)}`);
+      }
+
+      // Error type histogram
+      if (metric.errorTypeHistogram && metric.errorTypeHistogram.size > 0) {
+        lines.push('# HELP orchestrator_errors_by_type Total errors by type');
+        lines.push('# TYPE orchestrator_errors_by_type counter');
+        for (const [errorType, count] of metric.errorTypeHistogram) {
+          const errLabels = `${labels},error_type="${errorType}"`;
+          lines.push(`orchestrator_errors_by_type{${errLabels}} ${count}`);
+        }
+      }
+
+      // Token-weighted load (B16/B21 mitigation)
+      if (metric.tokenWeightedLoad !== undefined) {
+        lines.push('# HELP orchestrator_token_weighted_load Current token-weighted in-flight load');
+        lines.push('# TYPE orchestrator_token_weighted_load gauge');
+        lines.push(
+          `orchestrator_token_weighted_load{${labels}} ${metric.tokenWeightedLoad.toFixed(2)}`
+        );
+      }
     }
 
     // Probe metrics
