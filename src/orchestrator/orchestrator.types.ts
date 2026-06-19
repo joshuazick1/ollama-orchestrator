@@ -3,6 +3,8 @@
  * Type definitions for AI orchestrator
  */
 
+import type { PerSizeLatencyBucket } from '../load-balancer/types.js';
+
 export interface LoadedModel {
   name: string;
   sizeVram: number;
@@ -224,6 +226,8 @@ export interface ServerModelMetrics {
 
   /** Error type histogram (Map<ErrorType, count>) for scoring */
   errorTypeHistogram?: Map<string, number>;
+
+  promptSizeTTFTBuckets?: Record<string, PerSizeLatencyBucket>;
 
   // Streaming-specific metrics
   streamingMetrics?: StreamingMetrics;

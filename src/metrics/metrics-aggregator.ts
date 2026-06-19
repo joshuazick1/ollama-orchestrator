@@ -17,8 +17,26 @@ import type {
 } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
+import { TDigest } from '../utils/tdigest.js';
 
 import { MetricsPersistence, type MetricsData } from './metrics-persistence.js';
+
+const PROMPT_SIZE_BUCKETS: { key: string; min: number; max: number }[] = [
+  { key: '0-100', min: 0, max: 100 },
+  { key: '100-500', min: 100, max: 500 },
+  { key: '500-1000', min: 500, max: 1000 },
+  { key: '1000-5000', min: 1000, max: 5000 },
+  { key: '5000+', min: 5000, max: Infinity },
+];
+
+function getPromptSizeBucket(promptTokens: number): string | undefined {
+  for (const b of PROMPT_SIZE_BUCKETS) {
+    if (promptTokens >= b.min && promptTokens < b.max) {
+      return b.key;
+    }
+  }
+  return undefined;
+}
 
 export const DEFAULT_METRICS_DECAY_CONFIG: MetricsDecayConfig = {
   enabled: true,
@@ -243,8 +261,6 @@ export class MetricsAggregator {
 
     // Track streaming metrics if applicable
     if (context.streaming && metrics.streamingMetrics) {
-      // Track TTFT (time to first token)
-      // Only record when > 0 (undefined, null, and 0 should be ignored)
       if (context.ttft !== undefined && context.ttft !== null && context.ttft > 0) {
         metrics.streamingMetrics.recentTTFTs.push(context.ttft);
         if (metrics.streamingMetrics.recentTTFTs.length > this.maxRecentTTFTs) {
@@ -256,6 +272,33 @@ export class MetricsAggregator {
         metrics.streamingMetrics.avgTTFT = this.calculateAvgTTFT(
           metrics.streamingMetrics.recentTTFTs
         );
+
+        if (context.tokensPrompt !== undefined && context.tokensPrompt > 0) {
+          const bucketKey = getPromptSizeBucket(context.tokensPrompt);
+          if (bucketKey) {
+            if (!metrics.promptSizeTTFTBuckets) {
+              metrics.promptSizeTTFTBuckets = {};
+            }
+            const now = Date.now();
+            const bucket = metrics.promptSizeTTFTBuckets[bucketKey];
+            if (bucket) {
+              bucket.tdigest.add(context.ttft);
+              bucket.sampleCount++;
+              bucket.lastUpdated = now;
+            } else {
+              const td = new TDigest();
+              td.add(context.ttft);
+              const bucketRange = PROMPT_SIZE_BUCKETS.find(b => b.key === bucketKey);
+              metrics.promptSizeTTFTBuckets[bucketKey] = {
+                rangeMin: bucketRange?.min ?? 0,
+                rangeMax: bucketRange?.max ?? Infinity,
+                tdigest: td,
+                sampleCount: 1,
+                lastUpdated: now,
+              };
+            }
+          }
+        }
       }
 
       // Track total streaming duration
@@ -475,6 +518,24 @@ export class MetricsAggregator {
     if (!metrics) return undefined;
     if (!metrics.errorTypeHistogram) return undefined;
     return Object.fromEntries(metrics.errorTypeHistogram);
+  }
+
+  getPromptSizeTTFTPercentiles(
+    serverId: string,
+    model: string,
+    promptTokens: number
+  ): { p50: number; p95: number; p99: number } | undefined {
+    const metrics = this.metrics.get(`${serverId}:${model}`);
+    if (!metrics?.promptSizeTTFTBuckets) return undefined;
+    const bucketKey = getPromptSizeBucket(promptTokens);
+    if (!bucketKey) return undefined;
+    const bucket = metrics.promptSizeTTFTBuckets[bucketKey];
+    if (!bucket || bucket.sampleCount < 5) return undefined;
+    return {
+      p50: bucket.tdigest.percentile(0.5),
+      p95: bucket.tdigest.percentile(0.95),
+      p99: bucket.tdigest.percentile(0.99),
+    };
   }
 
   /**
@@ -1110,6 +1171,7 @@ export class MetricsAggregator {
         avgChunkGapMs: 0,
         chunkGapPercentiles: { p50: 0, p95: 0, p99: 0 },
       },
+      promptSizeTTFTBuckets: {},
       lastUpdated: now,
       recentLatencies: [],
     };
