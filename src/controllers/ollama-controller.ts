@@ -194,6 +194,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                 totalBytes?: number;
                 maxChunkGapMs?: number;
                 avgChunkSizeBytes?: number;
+                chunkGaps?: number[];
               }
             | undefined;
           let capturedOllamaDurations: OllamaDurations | undefined;
@@ -346,6 +347,9 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
               // preEnd: write debug chunk before stream ends
               isDebugRequested(req) && !res.writableEnded
                 ? () => {
+                    const chunkGapPercentiles = streamingChunkData?.chunkGaps?.length
+                      ? computeChunkGapPercentiles(streamingChunkData.chunkGaps)
+                      : undefined;
                     const debugInfo = getDebugInfo(routingContext, {
                       requestId: streamingRequestId,
                       requestTimestamp: streamStartTime,
@@ -359,6 +363,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
                             totalBytes: streamingChunkData.totalBytes,
                             maxChunkGapMs: streamingChunkData.maxChunkGapMs,
                             avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+                            chunkGapPercentiles,
                           }
                         : undefined,
                       stallDetected,
@@ -639,6 +644,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                 totalBytes?: number;
                 maxChunkGapMs?: number;
                 avgChunkSizeBytes?: number;
+                chunkGaps?: number[];
               }
             | undefined;
           let capturedOllamaDurations: OllamaDurations | undefined;
@@ -837,6 +843,9 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
               // preEnd: write debug chunk before stream ends
               isDebugRequested(req) && !res.writableEnded
                 ? () => {
+                    const chunkGapPercentiles = streamingChunkData?.chunkGaps?.length
+                      ? computeChunkGapPercentiles(streamingChunkData.chunkGaps)
+                      : undefined;
                     const debugInfo = getDebugInfo(routingContext, {
                       requestId,
                       requestTimestamp: streamStartTime,
@@ -850,6 +859,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
                             totalBytes: streamingChunkData.totalBytes,
                             maxChunkGapMs: streamingChunkData.maxChunkGapMs,
                             avgChunkSizeBytes: streamingChunkData.avgChunkSizeBytes,
+                            chunkGapPercentiles,
                           }
                         : undefined,
                       stallDetected: chatStallDetected,
@@ -2025,4 +2035,11 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
       ...(debugPayload && { debug: debugPayload }),
     });
   }
+}
+
+function computeChunkGapPercentiles(gaps: number[]): { p50: number; p95: number; p99: number } {
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const p = (n: number) =>
+    sorted[Math.max(0, Math.min(sorted.length - 1, Math.round((n / 100) * sorted.length - 1)))];
+  return { p50: p(50), p95: p(95), p99: p(99) };
 }

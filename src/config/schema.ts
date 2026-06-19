@@ -126,6 +126,10 @@ export const cooldownConfigSchema = z.object({
   defaultMaxConcurrency: z.number().int().min(1).max(100).default(4),
 });
 
+export const debugConfigSchema = z.object({
+  streamProgress: z.boolean().default(false),
+});
+
 /**
  * Rate limit configuration schema
  */
@@ -601,6 +605,7 @@ export const orchestratorConfigSchema = z.object({
   probeScheduler: probeSchedulerConfigSchema,
   probe: probeConfigSchema.optional(),
   capabilityProbe: capabilityProbeConfigSchema,
+  debug: debugConfigSchema,
   anthropic: anthropicConfigSchema,
   errorAggregator: errorAggregatorConfigSchema,
   adaptiveWeightTuner: z.object({
@@ -640,6 +645,7 @@ export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
 export type ProbeConfig = z.infer<typeof probeConfigSchema>;
 export type CapabilityProbeConfig = z.infer<typeof capabilityProbeConfigSchema>;
+export type DebugConfig = z.infer<typeof debugConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type ErrorAggregatorConfig = z.infer<typeof errorAggregatorConfigSchema>;
 export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;

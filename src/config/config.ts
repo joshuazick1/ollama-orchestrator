@@ -16,6 +16,7 @@ import { logger } from '../utils/logger.js';
 import type {
   CircuitBreakerConfig,
   CapabilityProbeConfig,
+  DebugConfig,
   ProbeConfig,
   RecoveryBackoffConfig,
 } from './schema.js';
@@ -242,6 +243,7 @@ export interface OrchestratorConfig {
   probeScheduler: ProbeSchedulerConfig;
   probe?: ProbeConfig | undefined;
   capabilityProbe: CapabilityProbeConfig;
+  debug: DebugConfig;
   anthropic: AnthropicConfig;
   errorAggregator: ErrorAggregatorConfig;
   adaptiveWeightTuner: { enabled: boolean };
@@ -532,6 +534,10 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     requestTimeoutMs: 5000,
     staggerOffsetMs: 30000,
     allowPrivateNetwork: false,
+  },
+
+  debug: {
+    streamProgress: false,
   },
 
   anthropic: {
@@ -988,6 +994,7 @@ export class ConfigManager {
       probeScheduler: { ...DEFAULT_CONFIG.probeScheduler, ...partial.probeScheduler },
       probe: partial.probe ?? DEFAULT_CONFIG.probe,
       capabilityProbe: { ...DEFAULT_CONFIG.capabilityProbe, ...partial.capabilityProbe },
+      debug: { ...DEFAULT_CONFIG.debug, ...partial.debug },
       anthropic: { ...DEFAULT_CONFIG.anthropic, ...partial.anthropic },
       errorAggregator: { ...DEFAULT_CONFIG.errorAggregator, ...partial.errorAggregator },
       adaptiveWeightTuner: {

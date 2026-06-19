@@ -14,6 +14,9 @@ export interface ChunkDebugData {
   totalBytes?: number;
   maxChunkGapMs?: number;
   avgChunkSizeBytes?: number;
+  prefixHash?: string;
+  chunkGapPercentiles?: { p50: number; p95: number; p99: number };
+  isColdStart?: boolean;
 }
 
 export interface DebugInfo {
@@ -58,6 +61,10 @@ export interface DebugInfo {
   handoffSuccess?: boolean;
   handoffTargetServer?: string;
 
+  streamProgress?: boolean;
+  prefixHash?: string;
+  isColdStart?: boolean;
+
   // Error context
   lastError?: string;
 
@@ -83,6 +90,9 @@ export interface DebugInfoOptions {
   handoffAttempted?: boolean;
   handoffSuccess?: boolean;
   handoffTargetServer?: string;
+  prefixHash?: string;
+  isColdStart?: boolean;
+  streamProgress?: boolean;
 }
 
 /**
@@ -196,7 +206,10 @@ export function getDebugInfo(
     options?.lastError ||
     options?.chunkData ||
     options?.queueWaitTime !== undefined ||
-    options?.stallDetected;
+    options?.stallDetected ||
+    options?.streamProgress !== undefined ||
+    options?.prefixHash ||
+    options?.isColdStart !== undefined;
 
   if (!hasDebugInfo) {
     return undefined;
@@ -313,6 +326,16 @@ export function getDebugInfo(
   }
   if (options?.handoffTargetServer) {
     debugInfo.handoffTargetServer = options.handoffTargetServer;
+  }
+
+  if (options?.streamProgress !== undefined) {
+    debugInfo.streamProgress = options.streamProgress;
+  }
+  if (options?.prefixHash) {
+    debugInfo.prefixHash = options.prefixHash;
+  }
+  if (options?.isColdStart !== undefined) {
+    debugInfo.isColdStart = options.isColdStart;
   }
 
   // Error context
