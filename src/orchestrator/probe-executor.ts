@@ -6,8 +6,8 @@
  * using the probe subsystem's failure classifier.
  */
 
-import type { Tuple, Classification } from '../probe/types.js';
 import { classify } from '../probe/failure-classifier.js';
+import type { Tuple, Classification } from '../probe/types.js';
 
 /**
  * Maps ProbeEndpoint types to their HTTP URL paths.

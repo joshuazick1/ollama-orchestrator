@@ -10,9 +10,9 @@ import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-import { logger } from '../utils/logger.js';
 import type { Tuple, ProbeState, UIState, StateProjection } from '../probe/types.js';
 import { tupleKey } from '../probe/types.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Map internal 4-state probe system to UI 3-state.
@@ -37,7 +37,7 @@ function toUIState(internal: ProbeState): UIState {
  * Default endpoint to use for circuit breaker operations.
  * This is used when the API doesn't specify an endpoint.
  */
-const DEFAULT_ENDPOINT = 'ollama_chat' as const;
+const DEFAULT_ENDPOINT = 'ollama_chat';
 
 /**
  * Build a Tuple from serverId and model (using default endpoint).
@@ -133,10 +133,14 @@ export function getBreakerDetails(req: Request, res: Response): void {
 function computeErrorRate(
   tupleState: { consecutiveSuccesses: number; errorWindow: number[] } | undefined
 ): number {
-  if (!tupleState) return 0;
+  if (!tupleState) {
+    return 0;
+  }
   const { consecutiveSuccesses, errorWindow } = tupleState;
   const total = consecutiveSuccesses + errorWindow.length;
-  if (total === 0) return 0;
+  if (total === 0) {
+    return 0;
+  }
   return errorWindow.length / total;
 }
 

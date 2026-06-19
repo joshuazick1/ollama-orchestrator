@@ -8,8 +8,8 @@ import type { Request, Response } from 'express';
 import type { MetricsAggregator } from '../metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../metrics/prometheus-exporter.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-import { getOperationalStore } from '../storage/operational-store.js';
 import { WALStore } from '../probe/wal-store.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 
 /**

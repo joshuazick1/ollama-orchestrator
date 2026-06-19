@@ -4,12 +4,12 @@
  */
 
 import type { TimeWindow } from '../orchestrator/orchestrator.types.js';
-import { getInFlightManager } from '../utils/in-flight-manager.js';
-
-import type { MetricsAggregator } from './metrics-aggregator.js';
 import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import type { TupleKey, ProbeState } from '../probe/types.js';
 import { tupleKey } from '../probe/types.js';
+import { getInFlightManager } from '../utils/in-flight-manager.js';
+
+import type { MetricsAggregator } from './metrics-aggregator.js';
 
 interface ProbeMetrics {
   transitions: Map<string, number>;
@@ -68,7 +68,9 @@ export class PrometheusExporter {
    * Call this before export() if you want to capture latest state.
    */
   refreshProbeStates(): void {
-    if (!this.probeOrchestrator) return;
+    if (!this.probeOrchestrator) {
+      return;
+    }
     const states = this.probeOrchestrator.getAllStates();
     for (const [key, ts] of states) {
       this.probeMetrics.currentStates.set(key, ts.state);

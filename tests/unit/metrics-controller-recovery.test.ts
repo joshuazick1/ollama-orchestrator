@@ -23,8 +23,8 @@ import {
   getBreakerRecoveryMetrics,
 } from '../../src/controllers/metrics-controller.js';
 import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
-import { OperationalStore } from '../../src/storage/operational-store.js';
 import { WALStore } from '../../src/probe/wal-store.js';
+import { OperationalStore } from '../../src/storage/operational-store.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 

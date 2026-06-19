@@ -13,8 +13,8 @@ import {
 } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
-import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
+import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 const anthropicMessagesRequestSchema = z
   .object({

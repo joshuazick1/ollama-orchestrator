@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getUserStore } from '../storage/user-store.js';
+
 import { createAdminRateLimiter } from '../middleware/rate-limiter.js';
+import { getUserStore } from '../storage/user-store.js';
 
 const setupSchema = z.object({
   username: z

@@ -3,8 +3,9 @@ import type { AddressInfo } from 'net';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { getInFlightManager } from '../../src/utils/in-flight-manager.js';
 import { resetOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
+import { getInFlightManager } from '../../src/utils/in-flight-manager.js';
+
 import {
   setupIntegrationTest,
   teardownIntegrationTest,

@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 
 import { getConfigManager } from '../config/config.js';
 import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
+import { isInternalAdmin } from '../middleware/auth.js';
 import {
   getOrchestratorInstance,
   type RoutingContext,
@@ -34,13 +35,12 @@ import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-erro
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 // import { performStreamHandoff } from '../utils/stream-handoff.js';
+import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 import {
   computeStallThresholds,
   createStreamingStallHandler,
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
-import { isInternalAdmin } from '../middleware/auth.js';
-import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 
 /**
  * Get headers for backend requests including optional auth

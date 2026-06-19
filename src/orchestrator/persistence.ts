@@ -3,14 +3,14 @@
  * Orchestrator Persistence - Centralized persistence management
  */
 
+import { serversConfig } from '../config/config-manager.js';
+import type { ProbeState } from '../probe/types.js';
+import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 import type { TimeoutState } from '../utils/timeout-manager.js';
 
 import { AIOrchestrator, type RoutingContext } from './orchestrator.js';
 import type { AIServer } from './orchestrator.types.js';
-import { getOperationalStore } from '../storage/operational-store.js';
-import { serversConfig } from '../config/config-manager.js';
-import type { ProbeState } from '../probe/types.js';
 
 /**
  * Re-export helpers from orchestrator-persistence.ts for backwards compatibility
@@ -62,7 +62,7 @@ export class OrchestratorPersistence {
 
     const result: Record<string, TimeoutState> = {};
     for (const [key, state] of Object.entries(raw)) {
-      const s = state as TimeoutState;
+      const s = state;
       result[key] = {
         baseTimeout: typeof s.baseTimeout === 'number' ? s.baseTimeout : defaultTimeout,
         currentTimeout: s.currentTimeout,
@@ -110,8 +110,12 @@ export class OrchestratorPersistence {
 
     // Map internal 4-state probe system to UI 3-state circuit breaker model
     const mapState = (s: ProbeState): 'open' | 'closed' | 'half-open' => {
-      if (s === 'UNHEALTHY') return 'open';
-      if (s === 'RECOVERING') return 'half-open';
+      if (s === 'UNHEALTHY') {
+        return 'open';
+      }
+      if (s === 'RECOVERING') {
+        return 'half-open';
+      }
       return 'closed'; // HEALTHY or SUSPECT
     };
 

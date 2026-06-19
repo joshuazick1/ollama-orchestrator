@@ -145,7 +145,9 @@ export class ProbeOrchestrator {
   }
 
   async restoreFromWAL(): Promise<void> {
-    if (!this.wal) return;
+    if (!this.wal) {
+      return;
+    }
 
     const snapshot = await this.wal.loadLatestSnapshot();
     if (snapshot) {
@@ -202,7 +204,9 @@ export class ProbeOrchestrator {
   }
 
   async createSnapshot(): Promise<void> {
-    if (!this.wal) return;
+    if (!this.wal) {
+      return;
+    }
 
     const data = new Map<TupleKey, TupleSnapshotState>();
     for (const [key, ts] of this.states) {
@@ -222,7 +226,9 @@ export class ProbeOrchestrator {
     this.stateChangeCallbacks.push(callback);
     return () => {
       const idx = this.stateChangeCallbacks.indexOf(callback);
-      if (idx !== -1) this.stateChangeCallbacks.splice(idx, 1);
+      if (idx !== -1) {
+        this.stateChangeCallbacks.splice(idx, 1);
+      }
     };
   }
 
@@ -240,7 +246,9 @@ export class ProbeOrchestrator {
    */
   canServe(tuple: Tuple, caller: 'routing' | 'probe' | 'admin'): boolean {
     const ts = this.states.get(tupleKey(tuple));
-    if (!ts) return caller === 'admin' || caller === 'routing'; // unknown tuple: routing/admin eligible; probe-only tuples stay blocked
+    if (!ts) {
+      return caller === 'admin' || caller === 'routing';
+    } // unknown tuple: routing/admin eligible; probe-only tuples stay blocked
 
     switch (caller) {
       case 'admin':
@@ -258,8 +266,12 @@ export class ProbeOrchestrator {
    */
   canProbe(tuple: Tuple): boolean {
     const ts = this.states.get(tupleKey(tuple));
-    if (!ts) return false;
-    if (ts.state !== 'UNHEALTHY') return false;
+    if (!ts) {
+      return false;
+    }
+    if (ts.state !== 'UNHEALTHY') {
+      return false;
+    }
     return ts.nextProbeAt <= Date.now();
   }
 
@@ -276,9 +288,15 @@ export class ProbeOrchestrator {
   markProbing(tuple: Tuple): boolean {
     const key = tupleKey(tuple);
     const ts = this.states.get(key);
-    if (!ts) return false;
-    if (ts.state !== 'UNHEALTHY') return false;
-    if (ts.nextProbeAt > Date.now()) return false;
+    if (!ts) {
+      return false;
+    }
+    if (ts.state !== 'UNHEALTHY') {
+      return false;
+    }
+    if (ts.nextProbeAt > Date.now()) {
+      return false;
+    }
 
     // Atomic: no await between read and write
     ts.nextProbeAt = Number.MAX_SAFE_INTEGER;
@@ -374,7 +392,9 @@ export class ProbeOrchestrator {
   }
 
   private _computeErrorRate(ts: TupleState): number {
-    if (ts.errorWindow.length === 0) return 0;
+    if (ts.errorWindow.length === 0) {
+      return 0;
+    }
     const total = ts.consecutiveSuccesses + ts.errorWindow.length;
     return ts.errorWindow.length / Math.max(1, total);
   }
@@ -400,7 +420,9 @@ export class ProbeOrchestrator {
     success: boolean,
     classification?: Classification
   ): string {
-    if (success) return `${from} + success`;
+    if (success) {
+      return `${from} + success`;
+    }
     const kind = classification?.kind ?? 'unknown';
     return `${from} + failure(${kind})`;
   }

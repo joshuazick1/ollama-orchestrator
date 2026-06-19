@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { isValidModelName, filterValidModels } from '../../src/utils/model-validator.js';
 
 describe('model-validator', () => {

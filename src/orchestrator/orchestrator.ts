@@ -21,6 +21,14 @@ import {
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { MetricsAggregator } from '../metrics/index.js';
 import { getModelManager } from '../model-manager.js';
+import { EndpointRegistry } from '../probe/endpoint-registry.js';
+import { classify, type Classification } from '../probe/failure-classifier.js';
+import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import { BackoffSchedule } from '../probe/recovery-driver.js';
+import { RecoveryDriver } from '../probe/recovery-driver.js';
+import type { Tuple, ProbeState, ProbeEndpoint } from '../probe/types.js';
+import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
+import { WALStore } from '../probe/wal-store.js';
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
@@ -34,10 +42,10 @@ import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.
 import { safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { ModelAggregator } from '../utils/model-aggregator.js';
+import { filterValidModels } from '../utils/model-validator.js';
 import { canHandleContext, getDefaultContextSize } from '../utils/prompt-estimator.js';
 import { RetryBudget } from '../utils/retry-budget.js';
 import { TimeoutManager } from '../utils/timeout-manager.js';
-import { filterValidModels } from '../utils/model-validator.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
 
 import { OrchestratorModels } from './models.js';
@@ -50,15 +58,6 @@ import type {
 } from './orchestrator.types.js';
 import { OrchestratorPersistence } from './persistence.js';
 import { TagsCacheStore } from './tags-cache.js';
-
-import type { Tuple, ProbeState, ProbeEndpoint } from '../probe/types.js';
-import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
-import { classify, type Classification } from '../probe/failure-classifier.js';
-import { BackoffSchedule } from '../probe/recovery-driver.js';
-import { EndpointRegistry } from '../probe/endpoint-registry.js';
-import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
-import { RecoveryDriver } from '../probe/recovery-driver.js';
-import { WALStore } from '../probe/wal-store.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -366,8 +365,9 @@ export class AIOrchestrator {
       probeConfig,
       async tuple => {
         const server = this.servers.find(s => s.id === tuple.serverId);
-        if (!server)
+        if (!server) {
           return { success: false, classification: { kind: 'transient', retryable: true } };
+        }
         const { probeExecutor } = await import('./probe-executor.js');
         return probeExecutor(tuple, { serverUrl: server.url, apiKey: server.apiKey });
       }
@@ -941,13 +941,19 @@ export class AIOrchestrator {
   }
 
   public resolveModelName(model: string, availableModels: string[]): string | null {
-    if (availableModels.includes(model)) return model;
+    if (availableModels.includes(model)) {
+      return model;
+    }
 
     const tagResult = this.resolveTagVariants(model, availableModels);
-    if (tagResult) return tagResult;
+    if (tagResult) {
+      return tagResult;
+    }
 
     const fuzzyResult = this.resolveByFamilyAndSize(model, availableModels);
-    if (fuzzyResult) return fuzzyResult;
+    if (fuzzyResult) {
+      return fuzzyResult;
+    }
 
     return null;
   }
@@ -955,14 +961,20 @@ export class AIOrchestrator {
   private resolveTagVariants(model: string, availableModels: string[]): string | null {
     if (!model.includes(':')) {
       const withLatest = `${model}:latest`;
-      if (availableModels.includes(withLatest)) return withLatest;
+      if (availableModels.includes(withLatest)) {
+        return withLatest;
+      }
     }
 
     if (model.endsWith(':latest')) {
       const withoutLatest = model.slice(0, -7);
-      if (availableModels.includes(withoutLatest)) return withoutLatest;
+      if (availableModels.includes(withoutLatest)) {
+        return withoutLatest;
+      }
       const withLatestSuffix = `${withoutLatest}:latest`;
-      if (availableModels.includes(withLatestSuffix)) return withLatestSuffix;
+      if (availableModels.includes(withLatestSuffix)) {
+        return withLatestSuffix;
+      }
     }
 
     return null;
@@ -970,7 +982,9 @@ export class AIOrchestrator {
 
   private parseModelParts(model: string): { family: string; tag: string } {
     const colonIdx = model.lastIndexOf(':');
-    if (colonIdx === -1) return { family: model, tag: 'latest' };
+    if (colonIdx === -1) {
+      return { family: model, tag: 'latest' };
+    }
     return {
       family: model.slice(0, colonIdx),
       tag: model.slice(colonIdx + 1),
@@ -979,7 +993,9 @@ export class AIOrchestrator {
 
   private extractModelSize(tag: string): number | null {
     const match = tag.match(/^(\d+(?:\.\d+)?)b$/i);
-    if (!match) return null;
+    if (!match) {
+      return null;
+    }
     return parseFloat(match[1]);
   }
 
@@ -987,20 +1003,26 @@ export class AIOrchestrator {
     const { family, tag } = this.parseModelParts(model);
     const requestedSize = this.extractModelSize(tag);
 
-    if (!requestedSize) return null;
+    if (!requestedSize) {
+      return null;
+    }
 
     const candidates: Array<{ modelName: string; size: number }> = [];
 
     for (const avail of availableModels) {
       const parts = this.parseModelParts(avail);
-      if (parts.family !== family) continue;
+      if (parts.family !== family) {
+        continue;
+      }
       const availSize = this.extractModelSize(parts.tag);
       if (availSize !== null) {
         candidates.push({ modelName: avail, size: availSize });
       }
     }
 
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) {
+      return null;
+    }
 
     candidates.sort((a, b) => Math.abs(a.size - requestedSize) - Math.abs(b.size - requestedSize));
 

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { requestIdMiddleware } from '../../src/middleware/request-id.js';
 

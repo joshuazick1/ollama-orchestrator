@@ -20,14 +20,26 @@ export type IsBlockedUrlResult = {
 
 function isPrivateIPv4(ip: string): boolean {
   const parts = ip.split('.').map(Number);
-  if (parts.length !== 4) {return false;}
+  if (parts.length !== 4) {
+    return false;
+  }
   const [a, b, _c] = parts;
 
-  if (a === 10) {return true;}
-  if (a === 172 && b >= 16 && b <= 31) {return true;}
-  if (a === 192 && b === 168) {return true;}
-  if (a === 127) {return true;}
-  if (a === 169 && b === 254) {return true;}
+  if (a === 10) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  if (a === 127) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
 
   return false;
 }
@@ -35,9 +47,15 @@ function isPrivateIPv4(ip: string): boolean {
 function isPrivateIPv6(ip: string): boolean {
   const lower = ip.toLowerCase();
 
-  if (lower === '::1') {return true;}
-  if (lower.startsWith('fc') || lower.startsWith('fd')) {return true;}
-  if (lower.startsWith('fe80')) {return true;}
+  if (lower === '::1') {
+    return true;
+  }
+  if (lower.startsWith('fc') || lower.startsWith('fd')) {
+    return true;
+  }
+  if (lower.startsWith('fe80')) {
+    return true;
+  }
 
   return false;
 }
@@ -52,18 +70,34 @@ function isPrivateIP(ip: string): boolean {
 function getBlockReason(ip: string): string {
   const lower = ip.toLowerCase();
 
-  if (lower === '::1') {return 'loopback';}
-  if (lower.startsWith('fe80')) {return 'link_local';}
-  if (lower.startsWith('fc') || lower.startsWith('fd')) {return 'private_ip';}
+  if (lower === '::1') {
+    return 'loopback';
+  }
+  if (lower.startsWith('fe80')) {
+    return 'link_local';
+  }
+  if (lower.startsWith('fc') || lower.startsWith('fd')) {
+    return 'private_ip';
+  }
 
   const parts = ip.split('.').map(Number);
   if (parts.length === 4) {
     const [a, b] = parts;
-    if (a === 127) {return 'loopback';}
-    if (a === 169 && b === 254) {return 'link_local';}
-    if (a === 10) {return 'private_ip';}
-    if (a === 172 && b >= 16 && b <= 31) {return 'private_ip';}
-    if (a === 192 && b === 168) {return 'private_ip';}
+    if (a === 127) {
+      return 'loopback';
+    }
+    if (a === 169 && b === 254) {
+      return 'link_local';
+    }
+    if (a === 10) {
+      return 'private_ip';
+    }
+    if (a === 172 && b >= 16 && b <= 31) {
+      return 'private_ip';
+    }
+    if (a === 192 && b === 168) {
+      return 'private_ip';
+    }
   }
 
   return 'private_ip';
@@ -125,8 +159,11 @@ export async function isBlockedUrl(
     try {
       const result = await new Promise<{ address: string; family: number }>((resolve, reject) => {
         dns.lookup(normalizedHost, (err, address, family) => {
-          if (err) {reject(err);}
-          else {resolve({ address, family });}
+          if (err) {
+            reject(err);
+          } else {
+            resolve({ address, family });
+          }
         });
       });
       ip = result.address;

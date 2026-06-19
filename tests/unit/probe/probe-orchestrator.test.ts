@@ -107,8 +107,8 @@ describe('ProbeOrchestrator', () => {
       o.setStateForTesting(TUPLE, 'RECOVERING');
       for (let i = 0; i < 5; i++) {
         const result = await o.recordProbeResult(TUPLE, true);
-        if (i < 4) expect(result).toBe('RECOVERING');
-        else expect(result).toBe('HEALTHY');
+        if (i < 4) {expect(result).toBe('RECOVERING');}
+        else {expect(result).toBe('HEALTHY');}
       }
       expect(o.getState(TUPLE)).toBe('HEALTHY');
       expect(o.getTupleState(TUPLE)?.recoveryAttempts).toBe(0);

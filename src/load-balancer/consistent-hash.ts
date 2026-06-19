@@ -7,7 +7,9 @@ export class ConsistentHashRing<T> {
   private readonly virtualNodesPerWeight = 150;
 
   addNode(id: T, weight: number = 1): void {
-    if (this.nodes.some(n => n === id)) return;
+    if (this.nodes.some(n => n === id)) {
+      return;
+    }
     this.nodes.push(id);
     const idStr = String(id);
     const virtualCount = Math.round(weight * this.virtualNodesPerWeight);
@@ -21,7 +23,6 @@ export class ConsistentHashRing<T> {
   }
 
   removeNode(id: T): void {
-    const idStr = String(id);
     const newHashes: string[] = [];
     for (const hash of this.sortedHashes) {
       const nodeId = this.hashToNode.get(hash);
@@ -36,7 +37,9 @@ export class ConsistentHashRing<T> {
   }
 
   getNode(key: string): T | null {
-    if (this.sortedHashes.length === 0) return null;
+    if (this.sortedHashes.length === 0) {
+      return null;
+    }
     const keyHash = crypto.createHash('sha256').update(key, 'utf-8').digest('hex');
 
     let low = 0;

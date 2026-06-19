@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 
 describe('Capability Probe Endpoint Integration', () => {

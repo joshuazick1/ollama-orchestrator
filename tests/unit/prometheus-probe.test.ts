@@ -5,10 +5,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+import type { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../../src/metrics/prometheus-exporter.js';
 import type { ProbeOrchestrator, TupleState } from '../../src/probe/probe-orchestrator.js';
 import type { Tuple, ProbeState } from '../../src/probe/types.js';
-import type { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
 
 function makeMockAggregator(): MetricsAggregator {
   return {
@@ -230,7 +230,7 @@ describe('PrometheusExporter probe metrics', () => {
       const exporter = new PrometheusExporter(aggregator, mockOrchestrator);
 
       const stateChangeCallback = (mockOrchestrator.onStateChange as ReturnType<typeof vi.fn>).mock
-        .calls[0]![0];
+        .calls[0][0];
       stateChangeCallback(
         makeTuple('s1', 'm1', 'generate'),
         'HEALTHY',
@@ -287,7 +287,7 @@ describe('PrometheusExporter probe metrics', () => {
       const exporter = new PrometheusExporter(aggregator, mockOrchestrator);
 
       const stateChangeCallback = (mockOrchestrator.onStateChange as ReturnType<typeof vi.fn>).mock
-        .calls[0]![0];
+        .calls[0][0];
       stateChangeCallback(
         makeTuple('s1', 'm1', 'generate'),
         'SUSPECT',

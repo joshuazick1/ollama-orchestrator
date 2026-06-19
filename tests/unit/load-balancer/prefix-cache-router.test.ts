@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { PrefixCacheRouter } from '../../../src/load-balancer/prefix-cache-router.js';
+
 import { ConsistentHashRing } from '../../../src/load-balancer/consistent-hash.js';
-import { hashPrefix, PREFIX_HASH_DEFAULT_TOKEN_COUNT } from '../../../src/utils/hash.js';
+import { PrefixCacheRouter } from '../../../src/load-balancer/prefix-cache-router.js';
 import type { AIServer, ServerModelMetrics } from '../../../src/orchestrator/orchestrator.types.js';
+import { hashPrefix, PREFIX_HASH_DEFAULT_TOKEN_COUNT } from '../../../src/utils/hash.js';
 
 function makeServer(id: string, model: string): AIServer {
   return {

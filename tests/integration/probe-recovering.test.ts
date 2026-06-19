@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import { createDiverseMockServer, cleanupMockServers } from '../utils/mock-server-factory.js';
 import { delay } from '../utils/test-helpers.js';
 
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
-import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 
 let serverCounter = 0;
 const getUniqueServerId = (prefix = 'recovering') => `${prefix}-${Date.now()}-${++serverCounter}`;

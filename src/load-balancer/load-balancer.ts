@@ -4,19 +4,16 @@
  */
 
 import type { AIServer, ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
-import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import type { EndpointRegistry } from '../probe/endpoint-registry.js';
-import type { Tuple, ProbeEndpoint } from '../probe/types.js';
-import { tupleKey } from '../probe/types.js';
+import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import { getUserStore } from '../storage/user-store.js';
 import { BoundedMap } from '../utils/bounded-map.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
 
-import { getTemporalScorer, type TemporalAdjustment } from './temporal-scorer.js';
 import { PrefixCacheRouter } from './prefix-cache-router.js';
 import { SLOFallbackMonitor } from './slo-fallback.js';
-import { ConsistentHashRing } from './consistent-hash.js';
+import { getTemporalScorer, type TemporalAdjustment } from './temporal-scorer.js';
 
 /**
  * Server score with breakdown

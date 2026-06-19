@@ -501,7 +501,9 @@ export class MetricsAggregator {
     model: string
   ): { magnitudeMs: number; eventCount: number; secondsSinceLast: number } | undefined {
     const metrics = this.metrics.get(`${serverId}:${model}`);
-    if (!metrics) return undefined;
+    if (!metrics) {
+      return undefined;
+    }
     const now = Date.now();
     const secondsSinceLast = metrics.lastColdStartTime
       ? (now - metrics.lastColdStartTime) / 1000
@@ -515,8 +517,12 @@ export class MetricsAggregator {
 
   getErrorTypeDistribution(serverId: string, model: string): Record<string, number> | undefined {
     const metrics = this.metrics.get(`${serverId}:${model}`);
-    if (!metrics) return undefined;
-    if (!metrics.errorTypeHistogram) return undefined;
+    if (!metrics) {
+      return undefined;
+    }
+    if (!metrics.errorTypeHistogram) {
+      return undefined;
+    }
     return Object.fromEntries(metrics.errorTypeHistogram);
   }
 
@@ -526,11 +532,17 @@ export class MetricsAggregator {
     promptTokens: number
   ): { p50: number; p95: number; p99: number } | undefined {
     const metrics = this.metrics.get(`${serverId}:${model}`);
-    if (!metrics?.promptSizeTTFTBuckets) return undefined;
+    if (!metrics?.promptSizeTTFTBuckets) {
+      return undefined;
+    }
     const bucketKey = getPromptSizeBucket(promptTokens);
-    if (!bucketKey) return undefined;
+    if (!bucketKey) {
+      return undefined;
+    }
     const bucket = metrics.promptSizeTTFTBuckets[bucketKey];
-    if (!bucket || bucket.sampleCount < 5) return undefined;
+    if (!bucket || bucket.sampleCount < 5) {
+      return undefined;
+    }
     return {
       p50: bucket.tdigest.percentile(0.5),
       p95: bucket.tdigest.percentile(0.95),

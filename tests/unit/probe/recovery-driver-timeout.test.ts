@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import { RecoveryDriver, BackoffSchedule } from '../../../src/probe/recovery-driver.js';
-import { ProbeOrchestrator } from '../../../src/probe/probe-orchestrator.js';
 import { EndpointRegistry } from '../../../src/probe/endpoint-registry.js';
+import { ProbeOrchestrator } from '../../../src/probe/probe-orchestrator.js';
+import { RecoveryDriver, BackoffSchedule } from '../../../src/probe/recovery-driver.js';
 import { DEFAULT_PROBE_CONFIG, type Tuple, type Classification } from '../../../src/probe/types.js';
 
 const TUPLE: Tuple = { serverId: 'srv1', model: 'llama3', endpoint: 'ollama_chat' };

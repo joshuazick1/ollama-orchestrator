@@ -50,7 +50,9 @@ const NON_SUPPORT_PATTERNS = [/does not support/i, /not support/i] as const;
  * - HTTP date: "Wed, 21 Oct 2025 07:28:00 GMT" → computed from now
  */
 function parseRetryAfterHeader(header: string | undefined): number | undefined {
-  if (!header) return undefined;
+  if (!header) {
+    return undefined;
+  }
 
   const trimmed = header.trim();
 

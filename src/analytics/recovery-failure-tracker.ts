@@ -4,8 +4,8 @@
  * Includes circuit breaker state transition tracking
  */
 
-import { WALStore } from '../probe/wal-store.js';
 import { parseTupleKey } from '../probe/types.js';
+import { WALStore } from '../probe/wal-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
 import { logger } from '../utils/logger.js';
 
@@ -186,7 +186,9 @@ export class RecoveryFailureTracker {
 
     const transitions: CircuitBreakerTransitionRecord[] = [];
     for (const event of filtered) {
-      if (event.fromState === null || event.toState === null) continue;
+      if (event.fromState === null || event.toState === null) {
+        continue;
+      }
       try {
         const parsed = parseTupleKey(event.tupleKey);
         transitions.push({
@@ -241,14 +243,20 @@ export class RecoveryFailureTracker {
     let lastOpenReason: string | undefined;
 
     for (const event of allEvents) {
-      if (event.fromState === null || event.toState === null) continue;
+      if (event.fromState === null || event.toState === null) {
+        continue;
+      }
       const toState = this.probeStateToCBState(event.toState);
       if (toState === 'open') {
         openTransitions++;
-        if (event.reason) lastOpenReason = event.reason;
+        if (event.reason) {
+          lastOpenReason = event.reason;
+        }
         try {
           const parsed = parseTupleKey(event.tupleKey);
-          if (parsed.model) modelLevelIssues++;
+          if (parsed.model) {
+            modelLevelIssues++;
+          }
         } catch {
           // skip
         }

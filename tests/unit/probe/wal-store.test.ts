@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { OperationalStore } from '../../../src/storage/operational-store.js';
+
 import { WALStore } from '../../../src/probe/wal-store.js';
+import { OperationalStore } from '../../../src/storage/operational-store.js';
 
 describe('WALStore', () => {
   let store: OperationalStore;

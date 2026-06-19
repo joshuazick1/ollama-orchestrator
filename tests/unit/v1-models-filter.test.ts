@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { filterValidModels } from '../../src/utils/model-validator.js';
 
 describe('v1-models filter (B17)', () => {

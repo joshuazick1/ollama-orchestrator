@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request } from 'express';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { lifecycle } from '../../src/utils/lifecycle.js';
 import { logger } from '../../src/utils/logger.js';

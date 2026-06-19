@@ -511,7 +511,6 @@ export class ModelManager {
       });
 
       logger.error(`Warmup failed for ${job.model} on ${job.serverId}: ${errorMessage}`);
-
     }
   }
 

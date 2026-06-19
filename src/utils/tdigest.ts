@@ -67,7 +67,7 @@ export class TDigestAggregator {
       if (this.digests.size >= this.maxKeys) {
         const firstKey = this.digests.keys().next().value;
         if (firstKey !== undefined) {
-          this.digests.delete(firstKey as string);
+          this.digests.delete(firstKey);
         }
       }
       d = new TDigest(compression);

@@ -36,10 +36,10 @@
  * counter used by the recovery probe scheduler.
  */
 
+import type { EndpointRegistry } from './endpoint-registry.js';
+import type { ProbeOrchestrator } from './probe-orchestrator.js';
 import type { ProbeConfig, Tuple, TupleKey, Classification } from './types.js';
 import { tupleKey } from './types.js';
-import type { ProbeOrchestrator } from './probe-orchestrator.js';
-import type { EndpointRegistry } from './endpoint-registry.js';
 
 /** 1 hour in milliseconds */
 const ONE_HOUR_MS = 3_600_000;
@@ -108,13 +108,13 @@ export class BackoffSchedule {
 
     // Attempts 0–4: use the config schedule directly
     if (recoveryAttempts < schedule.length) {
-      return schedule[recoveryAttempts]!;
+      return schedule[recoveryAttempts];
     }
 
     // Attempts 5+: exponential doubling, capped at 1 hour
     // Start from the last schedule value and double once for each attempt beyond the last slot.
     // e.g. schedule.length=5, recoveryAttempts=5 → 1 doubling (5-4=1); 6 → 2 doublings (6-4=2)
-    let delay = schedule[schedule.length - 1]!;
+    let delay = schedule[schedule.length - 1];
     const doublings = recoveryAttempts - (schedule.length - 1);
     for (let i = 0; i < doublings; i++) {
       delay = Math.min(ONE_HOUR_MS, delay * 2);
@@ -206,14 +206,20 @@ export class RecoveryDriver {
     const allStates = this.orchestrator.getAllStates();
 
     for (const [tupleKey, ts] of allStates) {
-      if (ts.state !== 'UNHEALTHY') continue;
-      if (ts.nextProbeAt > now) continue;
+      if (ts.state !== 'UNHEALTHY') {
+        continue;
+      }
+      if (ts.nextProbeAt > now) {
+        continue;
+      }
 
       // Parse tuple key back to Tuple for markProbing
       const tuple = this.#parseTupleKey(tupleKey);
 
       // Atomic check-and-set — returns false if already being probed by someone else
-      if (!this.orchestrator.markProbing(tuple)) continue;
+      if (!this.orchestrator.markProbing(tuple)) {
+        continue;
+      }
 
       this.probing.add(tupleKey);
       // Fire-and-forget: execute probe without awaiting

@@ -7,11 +7,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { OperationalStore } from '../../../src/storage/operational-store.js';
-import { WALStore } from '../../../src/probe/wal-store.js';
-import { ProbeOrchestrator } from '../../../src/probe/probe-orchestrator.js';
+
 import { EndpointRegistry } from '../../../src/probe/endpoint-registry.js';
+import { ProbeOrchestrator } from '../../../src/probe/probe-orchestrator.js';
 import type { Tuple, Classification } from '../../../src/probe/types.js';
+import { WALStore } from '../../../src/probe/wal-store.js';
+import { OperationalStore } from '../../../src/storage/operational-store.js';
 
 function makeClassification(kind: Classification['kind']): Classification {
   return { kind, retryable: true };

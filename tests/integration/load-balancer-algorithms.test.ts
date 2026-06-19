@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+import { ConsistentHashRing } from '../../src/load-balancer/consistent-hash.js';
 import { LoadBalancer, type LoadBalancerAlgorithm } from '../../src/load-balancer/load-balancer.js';
 import { PrefixCacheRouter } from '../../src/load-balancer/prefix-cache-router.js';
-import { ConsistentHashRing } from '../../src/load-balancer/consistent-hash.js';
 import { SLOFallbackMonitor } from '../../src/load-balancer/slo-fallback.js';
 import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 
@@ -135,7 +136,7 @@ describe('Load Balancer Algorithm Integration', () => {
           undefined,
           'same prompt every time'
         );
-        if (result) results.push(result.id);
+        if (result) {results.push(result.id);}
       }
 
       expect(results.length).toBe(100);
@@ -165,7 +166,7 @@ describe('Load Balancer Algorithm Integration', () => {
           undefined,
           `different prompt number ${i} with some unique content ${Math.random()}`
         );
-        if (result) results.add(result.id);
+        if (result) {results.add(result.id);}
       }
 
       expect(results.size).toBeGreaterThan(1);

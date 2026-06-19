@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { ProbeOrchestrator } from '../../../src/probe/probe-orchestrator.js';
 import { BackoffSchedule, RecoveryDriver } from '../../../src/probe/recovery-driver.js';
 import { DEFAULT_PROBE_CONFIG } from '../../../src/probe/types.js';

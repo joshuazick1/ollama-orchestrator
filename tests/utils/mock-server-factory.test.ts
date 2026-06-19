@@ -1,5 +1,7 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { createServer, Server } from 'http';
+
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+
 import {
   modelNotFound,
   notSupported,
@@ -24,7 +26,7 @@ async function fetchJson(
     body: options?.body,
   } as any);
   const body = await response.json().catch(() => null);
-  return { status: response.status, body, headers: response.headers as Headers };
+  return { status: response.status, body, headers: response.headers };
 }
 
 describe('mock-server-factory negative probe variants', () => {

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+
 import { LoadBalancer } from '../../src/load-balancer/load-balancer.js';
 import type { AIServer } from '../../src/orchestrator/orchestrator.types.js';
-import type { ProbeOrchestrator } from '../../src/probe/probe-orchestrator.js';
 import type { EndpointRegistry } from '../../src/probe/endpoint-registry.js';
+import type { ProbeOrchestrator } from '../../src/probe/probe-orchestrator.js';
 import type { Tuple, ProbeEndpoint } from '../../src/probe/types.js';
 
 function createMockServer(id: string): AIServer {
@@ -31,10 +32,10 @@ class MockProbeOrchestrator implements Pick<ProbeOrchestrator, 'canServe'> {
 
   canServe(tuple: Tuple, caller: 'routing' | 'probe' | 'admin'): boolean {
     const state = this.states.get(`${tuple.serverId}:${tuple.model}:${tuple.endpoint}`);
-    if (!state) return caller === 'admin';
-    if (caller === 'admin') return true;
-    if (caller === 'probe') return state === 'RECOVERING';
-    if (caller === 'routing') return state === 'HEALTHY' || state === 'SUSPECT';
+    if (!state) {return caller === 'admin';}
+    if (caller === 'admin') {return true;}
+    if (caller === 'probe') {return state === 'RECOVERING';}
+    if (caller === 'routing') {return state === 'HEALTHY' || state === 'SUSPECT';}
     return false;
   }
 }

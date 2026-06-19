@@ -12,8 +12,8 @@ import { timingSafeEqual } from 'crypto';
 
 import type { Request, Response, NextFunction } from 'express';
 
-import { logger } from '../utils/logger.js';
 import { verifyAccessToken } from '../utils/jwt.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Constant-time string comparison to prevent timing attacks

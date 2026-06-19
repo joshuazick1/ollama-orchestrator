@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import { isBlockedUrl } from '../../../src/utils/url-safety.js';
 
 vi.mock('dns', () => {

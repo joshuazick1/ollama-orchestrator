@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { OperationalStore } from '../../../src/storage/operational-store.js';
-import { WALStore } from '../../../src/probe/wal-store.js';
+
 import { ProbeOrchestrator } from '../../../src/probe/probe-orchestrator.js';
 import type { Tuple, Classification } from '../../../src/probe/types.js';
+import { WALStore } from '../../../src/probe/wal-store.js';
+import { OperationalStore } from '../../../src/storage/operational-store.js';
 
 const TUPLE: Tuple = { serverId: 'srv1', model: 'llama3', endpoint: 'ollama_chat' };
 const TUPLE2: Tuple = { serverId: 'srv2', model: 'llama3', endpoint: 'ollama_chat' };

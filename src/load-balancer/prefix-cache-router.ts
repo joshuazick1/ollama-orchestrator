@@ -1,9 +1,6 @@
-import type {
-  AIServer,
-  ServerModelMetrics,
-  RequestContext,
-} from '../orchestrator/orchestrator.types.js';
+import type { AIServer, ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
 import { hashPrefix, PREFIX_HASH_DEFAULT_TOKEN_COUNT } from '../utils/hash.js';
+
 import { ConsistentHashRing } from './consistent-hash.js';
 
 export interface PrefixCacheRouterConfig {
@@ -35,13 +32,19 @@ export class PrefixCacheRouter {
       getMetrics: (serverId: string, model: string) => ServerModelMetrics | undefined
     ) => AIServer | undefined
   ): AIServer | null {
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) {
+      return null;
+    }
 
     const healthyCandidates = filterByProbeHealth(candidates, model);
-    if (healthyCandidates.length === 0) return null;
+    if (healthyCandidates.length === 0) {
+      return null;
+    }
 
     const modelCandidates = healthyCandidates.filter(s => s.models.includes(model));
-    if (modelCandidates.length === 0) return null;
+    if (modelCandidates.length === 0) {
+      return null;
+    }
 
     if (prompt && prompt.trim().length > 0) {
       const prefixHash = hashPrefix(prompt, this.hashTokenCount);

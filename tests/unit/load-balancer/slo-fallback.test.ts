@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
 import { SLOFallbackMonitor } from '../../../src/load-balancer/slo-fallback.js';
 
 describe('SLOFallbackMonitor', () => {

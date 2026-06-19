@@ -9,7 +9,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const FRONTEND_TYPES_PATH = join(process.cwd(), 'frontend/src/types.ts');
-const BACKEND_TYPES_PATH = join(process.cwd(), 'src/orchestrator.types.ts');
+const BACKEND_TYPES_PATH = join(process.cwd(), 'src/orchestrator/orchestrator.types.ts');
 
 const FRONTEND_TYPES_TO_CHECK = [
   'AIServer',

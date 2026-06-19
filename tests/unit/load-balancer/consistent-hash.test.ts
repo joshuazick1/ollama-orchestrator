@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { ConsistentHashRing } from '../../../src/load-balancer/consistent-hash.js';
 
 describe('ConsistentHashRing', () => {
@@ -24,8 +25,8 @@ describe('ConsistentHashRing', () => {
     let heavy = 0;
     for (let i = 0; i < 5000; i++) {
       const node = ring.getNode(`key-${i}`);
-      if (node === 'light') light++;
-      else heavy++;
+      if (node === 'light') {light++;}
+      else {heavy++;}
     }
 
     const ratio = heavy / Math.max(light, 1);
@@ -69,7 +70,7 @@ describe('ConsistentHashRing', () => {
     let remapped = 0;
     for (const [key, origNode] of initialMapping) {
       const newNode = ring.getNode(key);
-      if (newNode !== origNode) remapped++;
+      if (newNode !== origNode) {remapped++;}
     }
 
     const fraction = remapped / 5000;

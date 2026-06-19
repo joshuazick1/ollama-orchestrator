@@ -6,11 +6,11 @@ vi.mock('../../src/orchestrator/test-server-capabilities.js');
 vi.mock('../../src/utils/url-safety.js');
 vi.mock('../../src/config/config.js');
 
-import { testConnection } from '../../src/controllers/servers-controller.js';
-import { getTestStore } from '../../src/orchestrator/test-store-instance.js';
-import { testServerCapabilities } from '../../src/orchestrator/test-server-capabilities.js';
-import { isBlockedUrl } from '../../src/utils/url-safety.js';
 import { getConfigManager } from '../../src/config/config.js';
+import { testConnection } from '../../src/controllers/servers-controller.js';
+import { testServerCapabilities } from '../../src/orchestrator/test-server-capabilities.js';
+import { getTestStore } from '../../src/orchestrator/test-store-instance.js';
+import { isBlockedUrl } from '../../src/utils/url-safety.js';
 
 describe('testConnection controller', () => {
   let mockTestStore: ReturnType<typeof vi.fn>;

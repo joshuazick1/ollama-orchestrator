@@ -26,7 +26,9 @@ export class SLOFallbackMonitor {
     }
 
     const values = Object.values(ttftP95PerServer);
-    if (values.length === 0) return;
+    if (values.length === 0) {
+      return;
+    }
 
     const avgP95 = values.reduce((s, v) => s + v, 0) / values.length;
     const now = Date.now();
@@ -36,7 +38,9 @@ export class SLOFallbackMonitor {
     const cutoff = now - this.windowMs;
     this.entries = this.entries.filter(e => e.timestamp >= cutoff);
 
-    if (this.entries.length < 3) return;
+    if (this.entries.length < 3) {
+      return;
+    }
 
     const allExceedThreshold = this.entries.every(e => e.p95 > this.thresholdMs);
     const allBelowThreshold = this.entries.every(e => e.p95 <= this.thresholdMs);
