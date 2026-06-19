@@ -341,7 +341,7 @@ export function getCircuitBreakers(req: Request, res: Response): void {
           : 0;
 
       return {
-        serverId: tupleKey,
+        serverId,
         serverIdOnly: serverId,
         model,
         endpoint,
@@ -805,7 +805,7 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
     model: decodedModel,
     circuitBreaker: {
       name: tupleKey,
-      serverId: tupleKey,
+      serverId,
       serverIdOnly: serverId,
       model: decodedModel,
       endpoint,

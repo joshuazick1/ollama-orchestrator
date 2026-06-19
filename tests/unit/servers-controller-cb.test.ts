@@ -90,6 +90,10 @@ describe('serversController CB methods', () => {
       const response = (mockRes.json as any).mock.calls[0][0];
       expect(response.success).toBe(true);
       expect(response.circuitBreakers).toHaveLength(2);
+      expect(response.circuitBreakers[0].serverId).toBe('srv1');
+      expect(response.circuitBreakers[0].serverIdOnly).toBe('srv1');
+      expect(response.circuitBreakers[1].serverId).toBe('srv2');
+      expect(response.circuitBreakers[1].serverIdOnly).toBe('srv2');
     });
 
     it('should return empty array when no tuples exist', () => {
