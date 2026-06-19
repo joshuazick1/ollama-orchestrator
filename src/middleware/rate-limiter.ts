@@ -137,18 +137,13 @@ export function createAuthRateLimiter(): any {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createInferenceRateLimiter(): any {
   return createRateLimiter({
-    enabled: false, // Inference rate limiting disabled - let Ollama servers handle their own limits
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    maxRequests: 100, // 100 inference requests per 15 minutes per key/IP
+    enabled: true,
+    windowMs: 15 * 60 * 1000,
+    maxRequests: 100,
     skipSuccessfulRequests: false,
     keyGenerator: defaultKeyGenerator,
     skip: (req: Request) => {
       if (req.path === '/health' || req.path === '/metrics') {
-        return true;
-      }
-      const authDisabled =
-        process.env.ORCHESTRATOR_ENABLE_AUTH === 'false' || process.env.ENABLE_AUTH === 'false';
-      if (authDisabled) {
         return true;
       }
       return false;

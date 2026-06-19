@@ -16,6 +16,7 @@ import {
   handleOpenAIEmbeddingsToServer,
 } from '../controllers/openai-controller.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
+import { createInferenceRateLimiter } from '../middleware/rate-limiter.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asyncHandler =
@@ -26,23 +27,42 @@ const asyncHandler =
     );
   };
 
+const inferenceRateLimit = createInferenceRateLimiter();
+
 export const v1Router = Router();
 
-v1Router.post('/chat/completions', requireAuth(), asyncHandler(handleChatCompletions));
-v1Router.post('/completions', requireAuth(), asyncHandler(handleCompletions));
-v1Router.post('/embeddings', requireAuth(), asyncHandler(handleOpenAIEmbeddings));
-v1Router.get('/models', optionalAuth(), asyncHandler(handleListModels));
-v1Router.get('/models/:model', optionalAuth(), asyncHandler(handleGetModel));
+v1Router.post(
+  '/chat/completions',
+  inferenceRateLimit,
+  requireAuth(),
+  asyncHandler(handleChatCompletions)
+);
+v1Router.post('/completions', inferenceRateLimit, requireAuth(), asyncHandler(handleCompletions));
+v1Router.post(
+  '/embeddings',
+  inferenceRateLimit,
+  requireAuth(),
+  asyncHandler(handleOpenAIEmbeddings)
+);
+v1Router.get('/models', inferenceRateLimit, optionalAuth(), asyncHandler(handleListModels));
+v1Router.get('/models/:model', inferenceRateLimit, optionalAuth(), asyncHandler(handleGetModel));
 
 // Server-specific routes (/v1/:endpoint--$serverid) for testing/debugging
 v1Router.post(
   '/chat/completions--:serverId',
+  inferenceRateLimit,
   requireAuth(),
   asyncHandler(handleChatCompletionsToServer)
 );
-v1Router.post('/completions--:serverId', requireAuth(), asyncHandler(handleCompletionsToServer));
+v1Router.post(
+  '/completions--:serverId',
+  inferenceRateLimit,
+  requireAuth(),
+  asyncHandler(handleCompletionsToServer)
+);
 v1Router.post(
   '/embeddings--:serverId',
+  inferenceRateLimit,
   requireAuth(),
   asyncHandler(handleOpenAIEmbeddingsToServer)
 );

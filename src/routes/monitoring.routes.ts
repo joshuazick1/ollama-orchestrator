@@ -63,6 +63,7 @@ import {
   getCircuitBreakerDetails,
 } from '../controllers/servers-controller.js';
 import { requireAuth } from '../middleware/auth.js';
+import { createMonitoringRateLimiter } from '../middleware/rate-limiter.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 
 // Async handler wrapper
@@ -75,9 +76,12 @@ const asyncHandler =
     );
   };
 
+const monitoringRateLimit = createMonitoringRateLimiter();
+
 export const monitoringRouter = Router();
 
 // Basic monitoring endpoints
+monitoringRouter.use(monitoringRateLimit);
 monitoringRouter.get('/servers', requireAuth(), getServers);
 monitoringRouter.get('/model-map', requireAuth(), getModelMap);
 monitoringRouter.get('/models', requireAuth(), getModels);
