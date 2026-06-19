@@ -10,3 +10,5 @@ export {
   type AnthropicEndpoint,
 } from './api-endpoints.js';
 export { ERROR_MESSAGES, type ErrorMessageKey } from './error-messages.js';
+
+export const PREFIX_HASH_DEFAULT_TOKEN_COUNT = 512;
