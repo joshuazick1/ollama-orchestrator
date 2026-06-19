@@ -15,6 +15,9 @@ Files of record (grouped by concern):
 - [ollama-orchestrator.service](ollama-orchestrator.service) — systemd unit file installed by `install.sh`.
 - [logrotate-ollama-orchestrator](logrotate-ollama-orchestrator) — logrotate config installed by `install.sh`.
 - [verify-env.sh](verify-env.sh) — Validate the runtime environment (Node version, dependencies, env vars).
+- [deploy-orchestrator-stability.sh](deploy-orchestrator-stability.sh) — Deploy / rollback script for the orchestrator-stability-release. Supports `--rollback` (full revert), `--soft-kill-switch` (toggle kill switch via API), `--status`. Idempotent; automatic rollback on health-check timeout.
+- [DEPLOY-ORCHESTRATOR-STABILITY.md](DEPLOY-ORCHESTRATOR-STABILITY.md) — Step-by-step deploy and rollback procedure.
+- [RUNBOOK-ORCHESTRATOR-STABILITY.md](RUNBOOK-ORCHESTRATOR-STABILITY.md) — Operational runbook: health checks, kill switch, SLO fallback, prefix-cache-aware routing, common failure modes.
 
 **Type synchronization**
 
