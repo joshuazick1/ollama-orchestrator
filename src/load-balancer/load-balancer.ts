@@ -486,6 +486,7 @@ export function selectBestServer(candidates: ServerScore[]): AIServer | undefine
  */
 export type LoadBalancerAlgorithm =
   | 'weighted'
+  | 'weighted-v2'
   | 'round-robin'
   | 'least-connections'
   | 'random'
@@ -699,6 +700,7 @@ export class LoadBalancer {
     const filteredCandidates = this.filterByUserAccess(candidates, model, userId, isAdmin);
     switch (this.algorithm) {
       case 'weighted':
+      case 'weighted-v2':
         return this.selectWeighted(
           filteredCandidates,
           model,
@@ -1055,6 +1057,28 @@ export class LoadBalancer {
         if (recentErrorRate > overallErrorRate * 1.5) {
           // Recent error rate is significantly worse - server may be degrading
           adjustedLatency *= 1.3;
+        }
+      }
+
+      if (metrics?.avgColdStartMagnitudeMs && metrics.avgColdStartMagnitudeMs > 1000) {
+        const coldFactor = Math.min(1.3, 1 + metrics.avgColdStartMagnitudeMs / 30000);
+        adjustedLatency *= coldFactor;
+      }
+
+      if (
+        metrics?.streamingMetrics?.avgChunkGapMs &&
+        metrics.streamingMetrics.avgChunkGapMs > 200
+      ) {
+        const gapPenalty = Math.min(1.2, 1 + metrics.streamingMetrics.avgChunkGapMs / 2000);
+        adjustedLatency *= gapPenalty;
+      }
+
+      if (metrics?.errorTypeHistogram) {
+        const fatalCount =
+          (metrics.errorTypeHistogram.get('fatal') ?? 0) +
+          (metrics.errorTypeHistogram.get('model_load_failure') ?? 0);
+        if (fatalCount > 0) {
+          adjustedLatency *= Math.min(1.3, 1 + fatalCount * 0.05);
         }
       }
 
