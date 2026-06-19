@@ -19,6 +19,10 @@ Files of record (grouped by concern):
 **Type synchronization**
 
 - [sync-types.sh](sync-types.sh) — Regenerates the frontend type mirror from the backend's `src/shared-types.ts`. Run by `prebuild`.
+  - **Workflow**: after every type change in `src/orchestrator/orchestrator.types.ts`, run `bash scripts/sync-types.sh` (or `npm run prebuild`).
+  - The script copies `src/orchestrator/orchestrator.types.ts` → `frontend/src/types/generated/orchestrator.types.ts`, stripping backend-only imports.
+  - Generated files in `frontend/src/types/generated/` must never be edited manually — always run the script.
+  - See also `npm run validate-types` which checks for drift between frontend and backend types.
 
 **Type validation**
 
