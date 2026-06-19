@@ -1,19 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-vi.mock('../src/storage/metrics-store.js');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const projectRoot = join(__dirname, '../..');
 
 describe('selectionReason values', () => {
-  it('should use load_balancer for primary selection in orchestrator.ts', async () => {
-    const mod = await import('../src/orchestrator/orchestrator.js');
-    const src = mod.Orchestrator?.toString() ?? '';
-    const primarySelectionCode = src.includes('load_balancer');
-    expect(primarySelectionCode).toBe(true);
+  it('should use load_balancer for primary selection in orchestrator.ts', () => {
+    const src = readFileSync(join(projectRoot, 'src/orchestrator/orchestrator.ts'), 'utf-8');
+    const primaryCallCount = (src.match(/'load_balancer'/g) || []).length;
+    expect(primaryCallCount).toBeGreaterThanOrEqual(2);
   });
 
-  it('should use load_balancer for primary selection in routing.ts', async () => {
-    const mod = await import('../src/orchestrator/routing.js');
-    const src = mod.RoutingPipeline?.toString() ?? '';
-    const primarySelectionCode = src.includes('load_balancer');
-    expect(primarySelectionCode).toBe(true);
+  it('should use load_balancer for primary selection in routing.ts', () => {
+    const src = readFileSync(join(projectRoot, 'src/orchestrator/routing.ts'), 'utf-8');
+    expect(src.includes("'load_balancer'")).toBe(true);
   });
 });
