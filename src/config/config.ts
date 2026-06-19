@@ -323,6 +323,17 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       minSamplesForExact: 5,
       fallbackWeight: 0.5,
     },
+    fallbackToFastestResponse: false,
+    prefixCacheAware: {
+      enabled: false,
+      hashTokenCount: 512,
+      hashBuckets: 256,
+    },
+    sloFallback: {
+      enabled: false,
+      ttftThresholdMs: 2000,
+      p95WindowMs: 60000,
+    },
   },
 
   circuitBreaker: {

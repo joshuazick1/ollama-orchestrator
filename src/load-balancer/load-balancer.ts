@@ -14,6 +14,9 @@ import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
 
 import { getTemporalScorer, type TemporalAdjustment } from './temporal-scorer.js';
+import { PrefixCacheRouter } from './prefix-cache-router.js';
+import { SLOFallbackMonitor } from './slo-fallback.js';
+import { ConsistentHashRing } from './consistent-hash.js';
 
 /**
  * Server score with breakdown
@@ -108,6 +111,20 @@ export interface LoadBalancerConfig {
     minSamplesForExact: number; // Min samples before preferring exact (default: 5)
     fallbackWeight: number; // How much to trust inferred vs actual (default: 0.5)
   };
+  // Kill switch: force all algorithms to behave like fastest-response
+  fallbackToFastestResponse: boolean;
+  // Prefix-cache-aware routing settings
+  prefixCacheAware: {
+    enabled: boolean;
+    hashTokenCount: number;
+    hashBuckets: number;
+  };
+  // SLO fallback mode settings
+  sloFallback: {
+    enabled: boolean;
+    ttftThresholdMs: number;
+    p95WindowMs: number;
+  };
 }
 
 /**
@@ -164,6 +181,17 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     useParameterSize: true,
     minSamplesForExact: 5,
     fallbackWeight: 0.5,
+  },
+  fallbackToFastestResponse: false,
+  prefixCacheAware: {
+    enabled: false,
+    hashTokenCount: 512,
+    hashBuckets: 256,
+  },
+  sloFallback: {
+    enabled: false,
+    ttftThresholdMs: 2000,
+    p95WindowMs: 60000,
   },
 };
 
@@ -491,7 +519,8 @@ export type LoadBalancerAlgorithm =
   | 'least-connections'
   | 'random'
   | 'fastest-response'
-  | 'streaming-optimized';
+  | 'streaming-optimized'
+  | 'prefix-cache-aware';
 
 /**
  * Sticky session entry
@@ -518,6 +547,8 @@ export class LoadBalancer {
   private stickySessionCleanupInterval?: NodeJS.Timeout;
   private probeOrchestrator?: ProbeOrchestrator;
   private endpointRegistry?: EndpointRegistry;
+  private prefixCacheRouter?: PrefixCacheRouter;
+  private sloFallbackMonitor?: SLOFallbackMonitor;
 
   constructor(config: Partial<LoadBalancerConfig> = {}) {
     this.config = {
@@ -525,6 +556,8 @@ export class LoadBalancer {
       ...config,
       roundRobin: { ...DEFAULT_LB_CONFIG.roundRobin, ...config.roundRobin },
       leastConnections: { ...DEFAULT_LB_CONFIG.leastConnections, ...config.leastConnections },
+      prefixCacheAware: { ...DEFAULT_LB_CONFIG.prefixCacheAware, ...config.prefixCacheAware },
+      sloFallback: { ...DEFAULT_LB_CONFIG.sloFallback, ...config.sloFallback },
     };
 
     // Initialize LRU-bounded sticky sessions after config merge so maxStickySessions is available
@@ -608,6 +641,16 @@ export class LoadBalancer {
       thresholds: { ...this.config.thresholds, ...config.thresholds },
       roundRobin: { ...this.config.roundRobin, ...config.roundRobin },
       leastConnections: { ...this.config.leastConnections, ...config.leastConnections },
+      prefixCacheAware: {
+        ...DEFAULT_LB_CONFIG.prefixCacheAware,
+        ...this.config.prefixCacheAware,
+        ...config.prefixCacheAware,
+      },
+      sloFallback: {
+        ...DEFAULT_LB_CONFIG.sloFallback,
+        ...this.config.sloFallback,
+        ...config.sloFallback,
+      },
     };
 
     // Start/stop sticky session cleanup based on config change
@@ -675,6 +718,14 @@ export class LoadBalancer {
     this.endpointRegistry = endpointRegistry;
   }
 
+  setPrefixCacheRouter(router: PrefixCacheRouter): void {
+    this.prefixCacheRouter = router;
+  }
+
+  setSLOFallbackMonitor(monitor: SLOFallbackMonitor): void {
+    this.sloFallbackMonitor = monitor;
+  }
+
   /**
    * Get current algorithm
    */
@@ -694,10 +745,32 @@ export class LoadBalancer {
     estimatedPromptTokens?: number,
     getContextLimit?: (serverId: string, model: string) => number,
     userId?: string,
-    isAdmin?: boolean
+    isAdmin?: boolean,
+    prompt?: string
   ): AIServer | undefined {
     // Apply user access filtering before scoring
     const filteredCandidates = this.filterByUserAccess(candidates, model, userId, isAdmin);
+
+    if (this.sloFallbackMonitor?.isActive() && this.config.fallbackToFastestResponse !== true) {
+      return this.selectFastestResponse(
+        filteredCandidates,
+        model,
+        getLoad,
+        getTotalLoad,
+        getMetrics
+      );
+    }
+
+    if (this.config.fallbackToFastestResponse) {
+      return this.selectFastestResponse(
+        filteredCandidates,
+        model,
+        getLoad,
+        getTotalLoad,
+        getMetrics
+      );
+    }
+
     switch (this.algorithm) {
       case 'weighted':
       case 'weighted-v2':
@@ -740,6 +813,16 @@ export class LoadBalancer {
           isStreaming
         );
 
+      case 'prefix-cache-aware':
+        return this.selectPrefixCacheAware(
+          filteredCandidates,
+          model,
+          getLoad,
+          getTotalLoad,
+          getMetrics,
+          prompt
+        );
+
       default:
         return this.selectWeighted(
           filteredCandidates,
@@ -775,7 +858,7 @@ export class LoadBalancer {
    * Filter candidates to only those with at least one active endpoint tuple
    * that can serve routing traffic (HEALTHY or SUSPECT probe state).
    */
-  private filterByProbeHealth(candidates: AIServer[], model: string): AIServer[] {
+  filterByProbeHealth(candidates: AIServer[], model: string): AIServer[] {
     if (!this.probeOrchestrator || !this.endpointRegistry) {
       return candidates;
     }
@@ -982,7 +1065,7 @@ export class LoadBalancer {
    * Uses a combination of recent response time and P95 latency
    * Includes hot/cold model awareness - prefers servers where model is already loaded
    */
-  private selectFastestResponse(
+  private selectFastestResponseInner(
     candidates: AIServer[],
     model: string,
     getLoad: (serverId: string, model: string) => number,
@@ -1106,6 +1189,40 @@ export class LoadBalancer {
     });
 
     return scored[0].server;
+  }
+
+  selectFastestResponse(
+    candidates: AIServer[],
+    model: string,
+    getLoad: (serverId: string, model: string) => number,
+    getTotalLoad: (serverId: string) => number,
+    getMetrics: (serverId: string, model: string) => ServerModelMetrics | undefined
+  ): AIServer | undefined {
+    return this.selectFastestResponseInner(candidates, model, getLoad, getTotalLoad, getMetrics);
+  }
+
+  private selectPrefixCacheAware(
+    candidates: AIServer[],
+    model: string,
+    getLoad: (serverId: string, model: string) => number,
+    getTotalLoad: (serverId: string) => number,
+    getMetrics: (serverId: string, model: string) => ServerModelMetrics | undefined,
+    prompt?: string
+  ): AIServer | undefined {
+    if (!this.prefixCacheRouter || !this.config.prefixCacheAware.enabled) {
+      return this.selectFastestResponseInner(candidates, model, getLoad, getTotalLoad, getMetrics);
+    }
+    const result = this.prefixCacheRouter.selectPrefixCacheAware(
+      prompt,
+      model,
+      candidates,
+      (servers, m) => this.filterByProbeHealth(servers, m),
+      getLoad,
+      getTotalLoad,
+      getMetrics,
+      (servers, m, gl, gtl, gm) => this.selectFastestResponseInner(servers, m, gl, gtl, gm)
+    );
+    return result ?? undefined;
   }
 
   /**
