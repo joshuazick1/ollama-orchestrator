@@ -29,3 +29,13 @@ export type {
 } from './orchestrator/orchestrator.types.js';
 
 export type { StateProjection, UIState } from './probe/types.js';
+
+export type {
+  PrefixHashResult,
+  ServerScoreBreakdown,
+  SLOMode,
+  TokenWeightedLoad,
+  ColdStartEvent,
+  ErrorTypeMetric,
+  PerSizeLatencyBucket,
+} from './load-balancer/types.js';
