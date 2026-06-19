@@ -319,7 +319,7 @@ export class OrchestratorRouter {
           selected,
           this.orchestrator.getLoadBalancer().getAlgorithm(),
           scores,
-          'failover_routing'
+          'load_balancer'
         );
         firstDecisionRecorded = true;
       }

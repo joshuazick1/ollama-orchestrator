@@ -1497,7 +1497,7 @@ export class AIOrchestrator {
           selected,
           this.loadBalancer.getAlgorithm(),
           scores,
-          'failover_routing'
+          'load_balancer'
         );
         firstDecisionRecorded = true;
       }
