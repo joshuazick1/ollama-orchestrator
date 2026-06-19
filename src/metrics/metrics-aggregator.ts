@@ -629,8 +629,30 @@ export class MetricsAggregator {
 
     // Create a copy with decayed values
     // Decay affects confidence in historical data, so we blend towards conservative defaults
+    const decayedWindows = Object.fromEntries(
+      (Object.keys(this.windowSizes) as TimeWindow[]).map(key => {
+        const w = metrics.windows[key];
+        return [
+          key,
+          {
+            startTime: w.startTime,
+            endTime: w.endTime,
+            count: Math.round(w.count * decayFactor),
+            userRequests: Math.round(w.userRequests * decayFactor),
+            latencySum: w.latencySum * decayFactor,
+            latencySquaredSum: w.latencySquaredSum * decayFactor,
+            minLatency: w.minLatency,
+            maxLatency: w.maxLatency,
+            errors: Math.round(w.errors * decayFactor),
+            tokensGenerated: Math.round(w.tokensGenerated * decayFactor),
+            tokensPrompt: Math.round(w.tokensPrompt * decayFactor),
+          },
+        ];
+      })
+    ) as Record<TimeWindow, MetricsWindow>;
     const decayedMetrics: ServerModelMetrics = {
       ...metrics,
+      windows: decayedWindows,
       // Success rate decays towards 0.5 (conservative neutral) — stale metrics should not
       // make servers appear artificially reliable after extended idle periods
       successRate: this.decayTowards(metrics.successRate, 0.5, decayFactor),
@@ -747,12 +769,17 @@ export class MetricsAggregator {
 
     for (const metrics of this.metrics.values()) {
       const window = metrics.windows['5m'];
-      totalRequests += window.count;
-      totalUserRequests += window.userRequests;
-      totalErrors += window.errors;
-      totalTokens += window.tokensGenerated;
-      latencySum += window.latencySum;
-      latencyCount += window.count;
+      const age = Date.now() - metrics.lastUpdated;
+      const isStale = this.decayConfig.enabled && age > this.decayConfig.staleThresholdMs;
+      const decayFactor = isStale
+        ? Math.max(this.decayConfig.minDecayFactor, Math.pow(2, -age / this.decayConfig.halfLifeMs))
+        : 1;
+      totalRequests += Math.round(window.count * decayFactor);
+      totalUserRequests += Math.round(window.userRequests * decayFactor);
+      totalErrors += Math.round(window.errors * decayFactor);
+      totalTokens += Math.round(window.tokensGenerated * decayFactor);
+      latencySum += window.latencySum * decayFactor;
+      latencyCount += Math.round(window.count * decayFactor);
     }
 
     const avgLatency = latencyCount > 0 ? latencySum / latencyCount : 0;
