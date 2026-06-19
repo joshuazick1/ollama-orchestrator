@@ -2280,6 +2280,7 @@ export class AIOrchestrator {
               totalBytes?: number;
               maxChunkGapMs?: number;
               avgChunkSizeBytes?: number;
+              chunkGaps?: number[];
             };
           }
         )._chunkData;
@@ -2288,6 +2289,7 @@ export class AIOrchestrator {
           requestContext.totalBytes = chunkData.totalBytes;
           requestContext.maxChunkGapMs = chunkData.maxChunkGapMs;
           requestContext.avgChunkSizeBytes = chunkData.avgChunkSizeBytes;
+          requestContext.chunkGaps = chunkData.chunkGaps;
         }
       }
 

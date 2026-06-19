@@ -58,6 +58,7 @@ export interface ChunkData {
   totalBytes: number;
   maxChunkGapMs: number;
   avgChunkSizeBytes: number;
+  chunkGaps?: number[];
 }
 
 // Re-export TTFTOptions for convenience
@@ -285,6 +286,7 @@ export async function streamResponse(
   let stallTriggered = false;
   let hasReceivedFirstChunk = false;
   let maxChunkGap = 0;
+  const allChunkGaps: number[] = [];
   let lastLogTime = startTime;
   let doneChunkReceived = false;
   let lastChunkPreview = '';
@@ -412,6 +414,7 @@ export async function streamResponse(
       if (chunkGap > maxChunkGap) {
         maxChunkGap = chunkGap;
       }
+      allChunkGaps.push(chunkGap);
       lastChunkTime = now;
 
       chunkCount++;
@@ -772,6 +775,7 @@ export async function streamResponse(
       totalBytes,
       maxChunkGapMs: maxChunkGap,
       avgChunkSizeBytes: chunkCount > 0 ? Math.round(totalBytes / chunkCount) : 0,
+      chunkGaps: allChunkGaps,
     };
 
     // Fire preEnd BEFORE clientResponse.end() so caller can write final debug chunk

@@ -154,6 +154,11 @@ export interface StreamingMetrics {
   avgChunkSizeBytes: number;
   recentChunkSizes: number[];
   chunkSizePercentiles: LatencyPercentiles;
+
+  // ITL (inter-token latency) tracking via all gaps
+  recentChunkGaps: number[];
+  avgChunkGapMs: number;
+  chunkGapPercentiles: LatencyPercentiles;
 }
 
 /**
@@ -194,6 +199,31 @@ export interface ServerModelMetrics {
   avgNetworkOverheadMs?: number;
   /** Average queue/routing wait time in ms before server selection completes */
   avgQueueWaitTimeMs?: number;
+
+  // Wave 4: Metrics expansion fields
+  /** Cold start magnitude in ms (EMA of load durations > 1000ms) */
+  coldStartMagnitudeMs?: number;
+  /** Average cold start magnitude (EMA, alpha=0.2) */
+  avgColdStartMagnitudeMs?: number;
+  /** Count of cold start events (load_duration > thresholdMs) */
+  coldStartEventCount?: number;
+  /** Time of last cold start event */
+  lastColdStartTime?: number;
+
+  /** Cache hit rate proxy (0-1) from prompt_eval_duration */
+  cacheHitRate?: number;
+  /** Baseline prompt eval duration in ms (first 20 samples) */
+  baselinePromptEvalMs?: number;
+  /** Current average prompt eval duration in ms (EMA, alpha=0.2) */
+  avgPromptEvalDurationMs?: number;
+  /** Samples collected for baseline */
+  promptEvalSampleCount?: number;
+
+  /** Latency jitter in ms (derived stddev of window-blended latencies) */
+  jitterMs?: number;
+
+  /** Error type histogram (Map<ErrorType, count>) for scoring */
+  errorTypeHistogram?: Map<string, number>;
 
   // Streaming-specific metrics
   streamingMetrics?: StreamingMetrics;
@@ -252,6 +282,10 @@ export interface RequestContext {
   isColdStart?: boolean; // true when load_duration > cold-start threshold
   /** Queue/routing wait time in ms (time from request receipt to server selection) */
   queueWaitTime?: number;
+  /** All inter-chunk gaps (ms) for ITL tracking */
+  chunkGaps?: number[];
+  /** Error type from classification (for error type histogram) */
+  errorType?: string;
 }
 
 /**

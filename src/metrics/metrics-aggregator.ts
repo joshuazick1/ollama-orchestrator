@@ -141,6 +141,20 @@ export class MetricsAggregator {
       });
     }
 
+    const loadDurationMs = context.loadDuration !== undefined ? context.loadDuration / 1e6 : 0;
+    if (loadDurationMs > 1000) {
+      metrics.coldStartEventCount = (metrics.coldStartEventCount ?? 0) + 1;
+      metrics.lastColdStartTime = now;
+      if (metrics.coldStartMagnitudeMs === undefined || metrics.coldStartMagnitudeMs === 0) {
+        metrics.coldStartMagnitudeMs = loadDurationMs;
+        metrics.avgColdStartMagnitudeMs = loadDurationMs;
+      } else {
+        metrics.avgColdStartMagnitudeMs =
+          (metrics.avgColdStartMagnitudeMs ?? loadDurationMs) * 0.8 + loadDurationMs * 0.2;
+        metrics.coldStartMagnitudeMs = loadDurationMs;
+      }
+    }
+
     // REC-35: Compute network overhead = client latency - server total_duration
     if (
       context.duration !== undefined &&
@@ -161,6 +175,45 @@ export class MetricsAggregator {
         metrics.avgQueueWaitTimeMs = context.queueWaitTime;
       } else {
         metrics.avgQueueWaitTimeMs = metrics.avgQueueWaitTimeMs * 0.8 + context.queueWaitTime * 0.2;
+      }
+    }
+
+    if (!success && context.errorType) {
+      const etKey = context.errorType;
+      if (!metrics.errorTypeHistogram) {
+        metrics.errorTypeHistogram = new Map([[etKey, 1]]);
+      } else {
+        metrics.errorTypeHistogram.set(etKey, (metrics.errorTypeHistogram.get(etKey) ?? 0) + 1);
+      }
+    }
+
+    if (context.promptEvalDuration !== undefined && context.promptEvalDuration > 0) {
+      const promptEvalMs = context.promptEvalDuration / 1e6;
+      const sampleCount = (metrics.promptEvalSampleCount ?? 0) + 1;
+      metrics.promptEvalSampleCount = sampleCount;
+      if (sampleCount <= 20) {
+        if (metrics.baselinePromptEvalMs === undefined || metrics.baselinePromptEvalMs === 0) {
+          metrics.baselinePromptEvalMs = promptEvalMs;
+        } else {
+          metrics.baselinePromptEvalMs =
+            (metrics.baselinePromptEvalMs * (sampleCount - 1) + promptEvalMs) / sampleCount;
+        }
+      }
+      if (metrics.avgPromptEvalDurationMs === undefined || metrics.avgPromptEvalDurationMs === 0) {
+        metrics.avgPromptEvalDurationMs = promptEvalMs;
+      } else {
+        metrics.avgPromptEvalDurationMs =
+          metrics.avgPromptEvalDurationMs * 0.8 + promptEvalMs * 0.2;
+      }
+      if (
+        metrics.baselinePromptEvalMs !== undefined &&
+        metrics.baselinePromptEvalMs > 0 &&
+        sampleCount >= 20
+      ) {
+        metrics.cacheHitRate = Math.max(
+          0,
+          Math.min(1, 1 - metrics.avgPromptEvalDurationMs / metrics.baselinePromptEvalMs)
+        );
       }
     }
 
@@ -247,6 +300,21 @@ export class MetricsAggregator {
         );
       }
 
+      if (context.chunkGaps && context.chunkGaps.length > 0) {
+        for (const gap of context.chunkGaps) {
+          metrics.streamingMetrics.recentChunkGaps.push(gap);
+          if (metrics.streamingMetrics.recentChunkGaps.length > this.maxRecentTTFTs) {
+            metrics.streamingMetrics.recentChunkGaps.shift();
+          }
+        }
+        metrics.streamingMetrics.chunkGapPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentChunkGaps
+        );
+        metrics.streamingMetrics.avgChunkGapMs = this.calculateAverage(
+          metrics.streamingMetrics.recentChunkGaps
+        );
+      }
+
       // Track chunk sizes
       if (context.avgChunkSizeBytes && context.avgChunkSizeBytes > 0) {
         metrics.streamingMetrics.recentChunkSizes.push(context.avgChunkSizeBytes);
@@ -267,6 +335,7 @@ export class MetricsAggregator {
     metrics.throughput = this.calculateThroughput(metrics.windows['5m']);
     metrics.avgTokensPerRequest = this.calculateAvgTokens(metrics.windows['5m']);
     metrics.avgPromptTokens = this.calculateAvgPromptTokens(metrics.windows['5m']);
+    metrics.jitterMs = this.calculateBlendedJitter(metrics);
     metrics.lastUpdated = now;
 
     // Schedule persistence save
@@ -382,6 +451,30 @@ export class MetricsAggregator {
       return this.applyDecay(metrics);
     }
     return metrics;
+  }
+
+  getColdStartStatus(
+    serverId: string,
+    model: string
+  ): { magnitudeMs: number; eventCount: number; secondsSinceLast: number } | undefined {
+    const metrics = this.metrics.get(`${serverId}:${model}`);
+    if (!metrics) return undefined;
+    const now = Date.now();
+    const secondsSinceLast = metrics.lastColdStartTime
+      ? (now - metrics.lastColdStartTime) / 1000
+      : -1;
+    return {
+      magnitudeMs: metrics.avgColdStartMagnitudeMs ?? 0,
+      eventCount: metrics.coldStartEventCount ?? 0,
+      secondsSinceLast,
+    };
+  }
+
+  getErrorTypeDistribution(serverId: string, model: string): Record<string, number> | undefined {
+    const metrics = this.metrics.get(`${serverId}:${model}`);
+    if (!metrics) return undefined;
+    if (!metrics.errorTypeHistogram) return undefined;
+    return Object.fromEntries(metrics.errorTypeHistogram);
   }
 
   /**
@@ -1013,6 +1106,9 @@ export class MetricsAggregator {
         avgChunkSizeBytes: 0,
         recentChunkSizes: [],
         chunkSizePercentiles: { p50: 0, p95: 0, p99: 0 },
+        recentChunkGaps: [],
+        avgChunkGapMs: 0,
+        chunkGapPercentiles: { p50: 0, p95: 0, p99: 0 },
       },
       lastUpdated: now,
       recentLatencies: [],
@@ -1142,6 +1238,27 @@ export class MetricsAggregator {
       return 0;
     }
     return window.tokensPrompt / window.count;
+  }
+
+  private calculateBlendedJitter(metrics: ServerModelMetrics): number {
+    const windowNames: TimeWindow[] = ['1m', '5m', '15m'];
+    const weights = [0.5, 0.3, 0.2];
+    let totalWeight = 0;
+    let blendedStddev = 0;
+    for (let i = 0; i < windowNames.length; i++) {
+      const w = metrics.windows[windowNames[i]];
+      if (w.count >= 10) {
+        const mean = w.latencySum / w.count;
+        const variance = w.latencySquaredSum / w.count - mean * mean;
+        const stddev = Math.sqrt(Math.max(0, variance));
+        blendedStddev += stddev * weights[i];
+        totalWeight += weights[i];
+      }
+    }
+    if (totalWeight === 0) {
+      return 0;
+    }
+    return blendedStddev / totalWeight;
   }
 
   /**
