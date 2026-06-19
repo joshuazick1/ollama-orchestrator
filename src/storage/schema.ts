@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 /**
  * All DDL statements for schema version 1.
@@ -481,6 +481,13 @@ CREATE INDEX IF NOT EXISTS idx_user_model_access_user ON user_model_access(user_
 CREATE INDEX IF NOT EXISTS idx_user_model_access_server ON user_model_access(server_id);
 `;
 
+export const SCHEMA_V6_MIGRATION = `
+ALTER TABLE decision_candidates ADD COLUMN cb_score REAL;
+ALTER TABLE decision_candidates ADD COLUMN timeout_score REAL;
+ALTER TABLE decision_candidates ADD COLUMN throughput_score REAL;
+ALTER TABLE decision_candidates ADD COLUMN vram_score REAL;
+`;
+
 export const SCHEMA_V5_MIGRATION = `
 -- ============================================================
 -- V5: Drop old circuit_breaker tables, create probe WAL
@@ -516,6 +523,7 @@ export const MIGRATIONS: Record<number, string> = {
   3: SCHEMA_V3_MIGRATION,
   4: SCHEMA_V4_MIGRATION,
   5: SCHEMA_V5_MIGRATION,
+  6: SCHEMA_V6_MIGRATION,
 };
 
 /**

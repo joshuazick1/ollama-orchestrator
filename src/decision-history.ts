@@ -41,6 +41,12 @@ export interface DecisionEvent {
       successRateScore: number;
       loadScore: number;
       capacityScore: number;
+      circuitBreakerScore: number;
+      vramScore: number;
+      temporalScore: number;
+      contextScore: number;
+      throughputScore: number;
+      timeoutScore: number;
     };
     metrics?: {
       p95Latency: number;
@@ -131,6 +137,30 @@ export class DecisionHistory {
           successRateScore: Math.round(score.breakdown.successRateScore * 100) / 100,
           loadScore: Math.round(score.breakdown.loadScore * 100) / 100,
           capacityScore: Math.round(score.breakdown.capacityScore * 100) / 100,
+          circuitBreakerScore:
+            score.breakdown.circuitBreakerScore !== undefined
+              ? Math.round(score.breakdown.circuitBreakerScore * 100) / 100
+              : 0,
+          vramScore:
+            score.breakdown.vramScore !== undefined
+              ? Math.round(score.breakdown.vramScore * 100) / 100
+              : 0,
+          temporalScore:
+            score.breakdown.temporalScore !== undefined
+              ? Math.round(score.breakdown.temporalScore * 100) / 100
+              : 0,
+          contextScore:
+            score.breakdown.contextScore !== undefined
+              ? Math.round(score.breakdown.contextScore * 100) / 100
+              : 0,
+          throughputScore:
+            score.breakdown.throughputScore !== undefined
+              ? Math.round(score.breakdown.throughputScore * 100) / 100
+              : 0,
+          timeoutScore:
+            score.breakdown.timeoutScore !== undefined
+              ? Math.round(score.breakdown.timeoutScore * 100) / 100
+              : 0,
         },
         metrics: score.metrics
           ? {
@@ -161,6 +191,10 @@ export class DecisionHistory {
           successRateScore: c.breakdown.successRateScore,
           loadScore: c.breakdown.loadScore,
           capacityScore: c.breakdown.capacityScore,
+          cbScore: c.breakdown.circuitBreakerScore,
+          timeoutScore: c.breakdown.timeoutScore,
+          throughputScore: c.breakdown.throughputScore,
+          vramScore: c.breakdown.vramScore,
           p95Latency: c.metrics?.p95Latency,
           successRate: c.metrics?.successRate,
           inFlight: c.metrics?.inFlight,
@@ -579,6 +613,12 @@ export class DecisionHistory {
             successRateScore: row.success_rate_score ?? 0,
             loadScore: row.load_score ?? 0,
             capacityScore: row.capacity_score ?? 0,
+            circuitBreakerScore: row.cb_score ?? 0,
+            vramScore: row.vram_score ?? 0,
+            temporalScore: 0,
+            contextScore: 0,
+            throughputScore: row.throughput_score ?? 0,
+            timeoutScore: row.timeout_score ?? 0,
           },
           metrics:
             row.p95_latency != null &&

@@ -656,10 +656,12 @@ export class MetricsStore {
         INSERT INTO decision_candidates (
           decision_id, server_id,
           total_score, latency_score, success_rate_score, load_score, capacity_score,
+          cb_score, timeout_score, throughput_score, vram_score,
           p95_latency, success_rate, in_flight, throughput
         ) VALUES (
           ?, ?,
           ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
           ?, ?, ?, ?
         )
       `),
@@ -780,6 +782,10 @@ export class MetricsStore {
               cand.successRateScore,
               cand.loadScore,
               cand.capacityScore,
+              cand.cbScore ?? null,
+              cand.timeoutScore ?? null,
+              cand.throughputScore ?? null,
+              cand.vramScore ?? null,
               cand.p95Latency ?? null,
               cand.successRate ?? null,
               cand.inFlight ?? null,

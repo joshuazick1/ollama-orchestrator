@@ -100,6 +100,10 @@ export interface DecisionCandidateRow {
   success_rate_score: number | null;
   load_score: number | null;
   capacity_score: number | null;
+  cb_score: number | null;
+  timeout_score: number | null;
+  throughput_score: number | null;
+  vram_score: number | null;
   p95_latency: number | null;
   success_rate: number | null;
   in_flight: number | null;
