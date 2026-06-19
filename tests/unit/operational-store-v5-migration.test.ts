@@ -5,6 +5,7 @@ import {
   applySchema,
   CURRENT_SCHEMA_VERSION,
   SCHEMA_V5_MIGRATION,
+  SCHEMA_V6_MIGRATION,
 } from '../../src/storage/schema.js';
 
 describe('OperationalStore V5 Migration', () => {
@@ -25,13 +26,13 @@ describe('OperationalStore V5 Migration', () => {
       applySchema(db);
     });
 
-    it('CURRENT_SCHEMA_VERSION is 5', () => {
-      expect(CURRENT_SCHEMA_VERSION).toBe(5);
+    it('CURRENT_SCHEMA_VERSION is 6', () => {
+      expect(CURRENT_SCHEMA_VERSION).toBe(6);
     });
 
-    it('user_version is set to 5 after applySchema', () => {
+    it('user_version is set to 6 after applySchema', () => {
       const version = db.pragma('user_version', { simple: true });
-      expect(version).toBe(5);
+      expect(version).toBe(6);
     });
 
     it('drops circuit_breaker_state table', () => {
@@ -310,6 +311,46 @@ describe('OperationalStore V5 Migration', () => {
         )
         .run('srv1:llama3', 'probe_fail', 'healthy', 'unhealthy', 'connection error', null, now);
       expect(result.changes).toBe(1);
+    });
+  });
+
+  describe('upgrade from V5', () => {
+    beforeEach(() => {
+      db = new Database(':memory:');
+      db.pragma('journal_mode = WAL');
+      db.pragma('user_version = 5');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS decision_candidates (
+          decision_id INTEGER NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+          server_id TEXT NOT NULL,
+          total_score REAL,
+          latency_score REAL,
+          success_rate_score REAL,
+          load_score REAL,
+          capacity_score REAL,
+          p95_latency REAL,
+          success_rate REAL,
+          in_flight INTEGER,
+          throughput REAL,
+          PRIMARY KEY (decision_id, server_id)
+        )
+      `);
+      applySchema(db);
+    });
+
+    it('user_version is set to 6 after upgrade', () => {
+      const version = db.pragma('user_version', { simple: true });
+      expect(version).toBe(6);
+    });
+
+    it('V6 columns are added to decision_candidates', () => {
+      const columns = db.prepare("PRAGMA table_info('decision_candidates')").all() as Array<{
+        name: string;
+      }>;
+      const names = columns.map(c => c.name);
+      expect(names).toContain('cb_score');
+      expect(names).toContain('timeout_score');
+      expect(names).toContain('vram_score');
     });
   });
 });
