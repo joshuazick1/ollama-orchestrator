@@ -171,7 +171,8 @@ export class ErrorEventStore extends NdjsonFileStore<ErrorEvent> {
   private getDatesToSearch(startTime?: string, endTime?: string): string[] {
     const dates: Set<string> = new Set();
 
-    const start = startTime ? new Date(startTime) : new Date(Date.now() - 86400000);
+    const epochStart = new Date(0);
+    const start = startTime ? new Date(startTime) : endTime ? epochStart : epochStart;
     const end = endTime ? new Date(endTime) : startTime ? new Date('2100-01-01') : new Date();
 
     const current = new Date(start);
