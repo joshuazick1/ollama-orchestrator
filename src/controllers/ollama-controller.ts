@@ -561,6 +561,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
     // Extract user info for access control scoping
     const userId = req.user?.id;
     const isAdmin = isInternalAdmin(req);
+    const requestId = req.requestId;
 
     const result = await orchestrator.tryRequestWithFailover(
       model,
@@ -940,7 +941,8 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
       undefined,
       estimateChatTokens((messages || []) as Array<{ role?: string; content?: string }>),
       userId,
-      isAdmin
+      isAdmin,
+      requestId
     );
 
     // Only send JSON response if not streaming
