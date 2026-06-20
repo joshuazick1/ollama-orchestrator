@@ -338,6 +338,11 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       staleThresholdMs: 300000,
       removeOnCleanup: false,
     },
+    tokenWeightedLoad: {
+      enabled: true,
+      promptTokenWeight: 1.0,
+      outputTokenWeight: 4.0,
+    },
   },
 
   circuitBreaker: {

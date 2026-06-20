@@ -2279,21 +2279,19 @@ export class AIOrchestrator {
       }
 
       const result = await fn(server, { requestId: requestContext.id });
-      this.decrementInFlight(server.id, model);
 
-      // Record successful request metrics
-      requestContext.endTime = Date.now();
-      requestContext.duration = requestContext.endTime - requestContext.startTime;
-      requestContext.success = true;
+      // Extract token metrics BEFORE decrementing in-flight (needed for token-weighted tracking)
+      let tokensGenerated = 0;
+      let tokensPrompt = 0;
 
       // Extract token metrics from Ollama response for non-streaming requests
       if (!isStreaming && result && typeof result === 'object') {
         const ollamaResponse = result as Record<string, unknown>;
         if (typeof ollamaResponse.eval_count === 'number') {
-          requestContext.tokensGenerated = ollamaResponse.eval_count;
+          tokensGenerated = ollamaResponse.eval_count;
         }
         if (typeof ollamaResponse.prompt_eval_count === 'number') {
-          requestContext.tokensPrompt = ollamaResponse.prompt_eval_count;
+          tokensPrompt = ollamaResponse.prompt_eval_count;
         }
       }
 
@@ -2304,13 +2302,27 @@ export class AIOrchestrator {
         )._tokenMetrics;
         if (tokenMetrics) {
           if (typeof tokenMetrics.tokensGenerated === 'number') {
-            requestContext.tokensGenerated = tokenMetrics.tokensGenerated;
+            tokensGenerated = tokenMetrics.tokensGenerated;
           }
           if (typeof tokenMetrics.tokensPrompt === 'number') {
-            requestContext.tokensPrompt = tokenMetrics.tokensPrompt;
+            tokensPrompt = tokenMetrics.tokensPrompt;
           }
         }
       }
+
+      // Use token-weighted decrement when we have token information
+      if (tokensPrompt > 0 || tokensGenerated > 0) {
+        this.decrementInFlightWithTokens(server.id, model, tokensPrompt, tokensGenerated);
+      } else {
+        this.decrementInFlight(server.id, model);
+      }
+
+      // Record successful request metrics
+      requestContext.endTime = Date.now();
+      requestContext.duration = requestContext.endTime - requestContext.startTime;
+      requestContext.success = true;
+      requestContext.tokensGenerated = tokensGenerated || undefined;
+      requestContext.tokensPrompt = tokensPrompt || undefined;
 
       // Extract chunk data if present
       if (isStreaming && result && typeof result === 'object' && '_chunkData' in result) {
@@ -2491,12 +2503,50 @@ export class AIOrchestrator {
         }
 
         const result = await fn(server, { requestId: requestContext.id });
-        this.decrementInFlight(server.id, model);
+
+        // Extract token metrics BEFORE decrementing in-flight (needed for token-weighted tracking)
+        let tokensGenerated = 0;
+        let tokensPrompt = 0;
+
+        // Extract token metrics from Ollama response for non-streaming requests
+        if (!isStreaming && result && typeof result === 'object') {
+          const ollamaResponse = result as Record<string, unknown>;
+          if (typeof ollamaResponse.eval_count === 'number') {
+            tokensGenerated = ollamaResponse.eval_count;
+          }
+          if (typeof ollamaResponse.prompt_eval_count === 'number') {
+            tokensPrompt = ollamaResponse.prompt_eval_count;
+          }
+        }
+
+        // Extract token metrics from streaming responses
+        if (isStreaming && result && typeof result === 'object' && '_tokenMetrics' in result) {
+          const tokenMetrics = (
+            result as { _tokenMetrics?: { tokensGenerated?: number; tokensPrompt?: number } }
+          )._tokenMetrics;
+          if (tokenMetrics) {
+            if (typeof tokenMetrics.tokensGenerated === 'number') {
+              tokensGenerated = tokenMetrics.tokensGenerated;
+            }
+            if (typeof tokenMetrics.tokensPrompt === 'number') {
+              tokensPrompt = tokenMetrics.tokensPrompt;
+            }
+          }
+        }
+
+        // Use token-weighted decrement when we have token information
+        if (tokensPrompt > 0 || tokensGenerated > 0) {
+          this.decrementInFlightWithTokens(server.id, model, tokensPrompt, tokensGenerated);
+        } else {
+          this.decrementInFlight(server.id, model);
+        }
 
         // Record successful request metrics
         requestContext.endTime = Date.now();
         requestContext.duration = requestContext.endTime - requestContext.startTime;
         requestContext.success = true;
+        requestContext.tokensGenerated = tokensGenerated || undefined;
+        requestContext.tokensPrompt = tokensPrompt || undefined;
 
         // Extract streaming metrics if present
         if (isStreaming && result && typeof result === 'object' && '_streamingMetrics' in result) {
@@ -2910,10 +2960,50 @@ export class AIOrchestrator {
   }
 
   /**
+   * Increment in-flight request count with token-weighted tracking
+   */
+  incrementInFlightWithTokens(
+    serverId: string,
+    model: string,
+    promptTokens: number,
+    outputTokens: number,
+    bypass: boolean = false
+  ): void {
+    this.inFlightManager.incrementInFlightWithTokens(
+      serverId,
+      model,
+      promptTokens,
+      outputTokens,
+      bypass
+    );
+    this.metricsAggregator.incrementInFlight(serverId, model);
+  }
+
+  /**
    * Decrement in-flight request count
    */
   decrementInFlight(serverId: string, model: string, bypass: boolean = false): void {
     this.inFlightManager.decrementInFlight(serverId, model, bypass);
+    this.metricsAggregator.decrementInFlight(serverId, model);
+  }
+
+  /**
+   * Decrement in-flight request count with token-weighted tracking
+   */
+  decrementInFlightWithTokens(
+    serverId: string,
+    model: string,
+    promptTokens: number,
+    outputTokens: number,
+    bypass: boolean = false
+  ): void {
+    this.inFlightManager.decrementInFlightWithTokens(
+      serverId,
+      model,
+      promptTokens,
+      outputTokens,
+      bypass
+    );
     this.metricsAggregator.decrementInFlight(serverId, model);
   }
 

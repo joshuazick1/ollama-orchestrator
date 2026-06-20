@@ -127,6 +127,12 @@ export interface LoadBalancerConfig {
     staleThresholdMs: number;
     removeOnCleanup: boolean;
   };
+  // Token-weighted load tracking settings
+  tokenWeightedLoad?: {
+    enabled: boolean;
+    promptTokenWeight: number;
+    outputTokenWeight: number;
+  };
 }
 
 /**
@@ -199,6 +205,11 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     staleThresholdMs: 300000,
     removeOnCleanup: false,
   },
+  tokenWeightedLoad: {
+    enabled: true,
+    promptTokenWeight: 1.0,
+    outputTokenWeight: 4.0,
+  },
 };
 
 /**
@@ -216,7 +227,17 @@ export function calculateServerScore(
   getContextLimit?: (serverId: string, model: string) => number
 ): ServerScore {
   const maxConcurrency = server.maxConcurrency ?? config.defaultMaxConcurrency;
-  const availableCapacity = maxConcurrency - currentLoad;
+
+  // When token-weighted load is enabled, use token-weighted load instead of simple count
+  let effectiveCurrentLoad = currentLoad;
+  let effectiveTotalLoad = totalLoad;
+  if (config.tokenWeightedLoad?.enabled) {
+    const inFlightManager = getInFlightManager();
+    effectiveCurrentLoad = inFlightManager.getTokenWeightedLoad(server.id, model);
+    effectiveTotalLoad = inFlightManager.getTotalTokenWeightedLoad(server.id);
+  }
+
+  const availableCapacity = maxConcurrency - effectiveCurrentLoad;
 
   // Default scores if no metrics available
   let latencyScore = 100;
@@ -287,7 +308,7 @@ export function calculateServerScore(
   // Load score: lower total load is better
   // Normalize: 0 load = 100, maxConcurrency * 2 = 0
   const maxExpectedLoad = maxConcurrency * 2;
-  let loadScore = Math.max(0, 100 - (totalLoad / maxExpectedLoad) * 100);
+  let loadScore = Math.max(0, 100 - (effectiveTotalLoad / maxExpectedLoad) * 100);
 
   // B.4: Queue wait time penalty — high avg queue wait means this server is congested.
   // >200ms wait is notable; >2000ms is severe. Scales load score down by up to 25%.

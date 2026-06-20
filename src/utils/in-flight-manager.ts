@@ -3,6 +3,8 @@ import { logger } from './logger.js';
 export interface InFlightManagerConfig {
   maxConcurrentPerModel?: number;
   maxConcurrentPerServer?: number;
+  promptTokenWeight?: number;
+  outputTokenWeight?: number;
 }
 
 /**
@@ -35,11 +37,20 @@ export class InFlightManager {
   private cleanupsByReason: Map<string, number> = new Map();
   private leaksPrevented: number = 0;
   private staleSweepsByReason: Map<string, number> = new Map();
+  private tokenWeightedLoad: Map<string, number> = new Map();
+  private promptTokenWeight: number;
+  private outputTokenWeight: number;
 
-  constructor(_config?: InFlightManagerConfig) {
+  constructor(config?: InFlightManagerConfig) {
     this.cleanupsByReason.set('client_disconnect', 0);
     this.cleanupsByReason.set('stale_sweep', 0);
     this.cleanupsByReason.set('normal_completion', 0);
+    this.promptTokenWeight = config?.promptTokenWeight ?? 1.0;
+    this.outputTokenWeight = config?.outputTokenWeight ?? 4.0;
+  }
+
+  private tokenWeightedKey(serverId: string, model: string): string {
+    return `${serverId}:${model}`;
   }
 
   startPeriodicCleanup(intervalMs: number = 60_000, maxAgeMs: number = 10 * 60 * 1000): void {
@@ -103,6 +114,79 @@ export class InFlightManager {
     logger.debug(
       `In-flight decremented for ${key}, bypass: ${bypass}, total: ${this.getInFlight(serverId, model)}`
     );
+  }
+
+  /**
+   * Increment in-flight with token-weighted load tracking.
+   * Adds weighted token contribution to tokenWeightedLoad map and also increments regular counter.
+   */
+  incrementInFlightWithTokens(
+    serverId: string,
+    model: string,
+    promptTokens: number,
+    outputTokens: number,
+    bypass: boolean = false
+  ): void {
+    const k = this.tokenWeightedKey(serverId, model);
+    const weight = promptTokens * this.promptTokenWeight + outputTokens * this.outputTokenWeight;
+    const currentWeighted = this.tokenWeightedLoad.get(k) ?? 0;
+    this.tokenWeightedLoad.set(k, currentWeighted + weight);
+
+    // Also increment the simple counter for backward compat
+    this.incrementInFlight(serverId, model, bypass);
+
+    logger.debug(
+      `Token-weighted in-flight incremented for ${k}, weight: ${weight}, total weighted: ${this.tokenWeightedLoad.get(k)}`
+    );
+  }
+
+  /**
+   * Decrement in-flight with token-weighted load tracking.
+   * Subtracts weighted token contribution from tokenWeightedLoad map and also decrements regular counter.
+   * Weighted load is clamped to 0 to prevent negative values.
+   */
+  decrementInFlightWithTokens(
+    serverId: string,
+    model: string,
+    promptTokens: number,
+    outputTokens: number,
+    bypass: boolean = false
+  ): void {
+    const k = this.tokenWeightedKey(serverId, model);
+    const weight = promptTokens * this.promptTokenWeight + outputTokens * this.outputTokenWeight;
+    const currentWeighted = this.tokenWeightedLoad.get(k) ?? 0;
+    this.tokenWeightedLoad.set(k, Math.max(0, currentWeighted - weight));
+
+    // Also decrement the simple counter
+    this.decrementInFlight(serverId, model, bypass);
+
+    logger.debug(
+      `Token-weighted in-flight decremented for ${k}, weight: ${weight}, total weighted: ${this.tokenWeightedLoad.get(k)}`
+    );
+  }
+
+  /**
+   * Get token-weighted load for a specific server:model combination.
+   * Returns the sum of (promptTokens * promptTokenWeight + outputTokens * outputTokenWeight)
+   * for all in-flight requests on this server:model.
+   */
+  getTokenWeightedLoad(serverId: string, model: string): number {
+    return this.tokenWeightedLoad.get(this.tokenWeightedKey(serverId, model)) ?? 0;
+  }
+
+  /**
+   * Get total token-weighted load across all models for a specific server.
+   * Sums all token-weighted load entries that start with the serverId prefix.
+   */
+  getTotalTokenWeightedLoad(serverId: string): number {
+    let total = 0;
+    const prefix = `${serverId}:`;
+    for (const [key, load] of this.tokenWeightedLoad.entries()) {
+      if (key.startsWith(prefix)) {
+        total += load;
+      }
+    }
+    return total;
   }
 
   getInFlight(serverId: string, model: string): number {
