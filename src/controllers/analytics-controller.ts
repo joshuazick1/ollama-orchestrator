@@ -10,7 +10,9 @@ import { getAnalyticsEngine } from '../analytics/analytics-engine.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
+import type { TupleKey } from '../probe/types.js';
 
 /**
  * Get top models by usage
@@ -891,6 +893,55 @@ export function getTemporalAdjustment(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get temporal adjustments',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get circuit breaker analytics with state aggregation
+ * GET /api/orchestrator/analytics/circuit-breakers
+ */
+export function getCircuitBreakerAnalytics(_req: Request, res: Response): void {
+  try {
+    const orchestrator = getOrchestratorInstance();
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    const allStates = probeOrchestrator.getAllStates();
+
+    const byState: Record<string, number> = { OPEN: 0, CLOSED: 0, HALF_OPEN: 0, UNKNOWN: 0 };
+    const topBreakers: Array<{
+      serverId: string;
+      model: string;
+      state: string;
+      failureCount: number;
+      lastFailure: number;
+    }> = [];
+
+    for (const [tupleKey, state] of allStates) {
+      const uiState = probeStateToUIState(state.state);
+      const normalizedState = uiState.replace(/-/g, '_') as keyof typeof byState;
+      byState[normalizedState] = (byState[normalizedState] || 0) + 1;
+      const parsed = parseTupleKey(tupleKey as TupleKey);
+      topBreakers.push({
+        serverId: parsed.serverId,
+        model: parsed.model,
+        state: uiState,
+        failureCount: state.consecutiveFailures || 0,
+        lastFailure: state.lastTransition || 0,
+      });
+    }
+
+    topBreakers.sort((a, b) => b.failureCount - a.failureCount);
+    const top10 = topBreakers.slice(0, 10);
+
+    res.status(200).json({
+      byState,
+      total: allStates.size,
+      topBreakers: top10,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get circuit breaker analytics',
       details: error instanceof Error ? error.message : String(error),
     });
   }

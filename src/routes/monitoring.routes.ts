@@ -30,6 +30,7 @@ import {
   browseRequests,
   getTemporalProfile,
   getTemporalAdjustment,
+  getCircuitBreakerAnalytics,
 } from '../controllers/analytics-controller.js';
 import {
   getErrors,
@@ -125,6 +126,7 @@ monitoringRouter.get('/analytics/errors', requireAuth(), getErrorAnalysis);
 monitoringRouter.get('/analytics/capacity', requireAuth(), getCapacityAnalysis);
 monitoringRouter.get('/analytics/trends/:metric', requireAuth(), getTrendAnalysis);
 monitoringRouter.get('/analytics/summary', requireAuth(), getAnalyticsSummary);
+monitoringRouter.get('/analytics/circuit-breakers', requireAuth(), getCircuitBreakerAnalytics);
 
 // Decision History
 monitoringRouter.get('/analytics/decisions', requireAuth(), getDecisionHistory);

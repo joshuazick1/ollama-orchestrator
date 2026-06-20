@@ -34,3 +34,4 @@ export type AnthropicEndpoint =
 
 export const CAPABILITY_PROBE = '/api/orchestrator/servers/:id/capability-probe';
 export const TEST_CONNECTION = '/api/orchestrator/servers/test-connection';
+export const ANALYTICS_CIRCUIT_BREAKERS = '/api/orchestrator/analytics/circuit-breakers';
