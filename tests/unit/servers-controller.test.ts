@@ -65,6 +65,11 @@ describe('Servers Controller', () => {
         isEmbeddingModel: vi.fn().mockReturnValue(false),
       }),
       getModelCircuitBreakerPublic: vi.fn(),
+      getRecoveryDriver: vi.fn().mockReturnValue({
+        triggerRecoveryTest: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+      }),
     };
 
     (getOrchestratorInstance as any).mockReturnValue(mockOrchestrator);
@@ -1104,18 +1109,16 @@ describe('Servers Controller', () => {
       };
       const mockProbeOrch = {
         setStateForTesting: vi.fn(),
-        getTupleState: vi
-          .fn()
-          .mockReturnValue({
-            state: 'RECOVERING',
-            consecutiveFailures: 3,
-            consecutiveSuccesses: 2,
-            errorWindow: [],
-            nextProbeAt: null,
-            lastTransition: null,
-            recoveryAttempts: 1,
-            lastErrorKind: 'error',
-          }),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'RECOVERING',
+          consecutiveFailures: 3,
+          consecutiveSuccesses: 2,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 1,
+          lastErrorKind: 'error',
+        }),
       };
       mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
       mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);

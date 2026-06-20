@@ -69,6 +69,9 @@ describe('serverModelsController', () => {
       getServers: vi.fn().mockReturnValue([]),
       updateServerStatus: vi.fn(),
       removeModelCircuitBreaker: vi.fn(),
+      getProbeOrchestrator: vi.fn().mockReturnValue({
+        evictTuple: vi.fn(),
+      }),
     };
     mockGetOrchestratorInstance.mockReturnValue(mockOrchestrator);
 
@@ -110,6 +113,9 @@ describe('serverModelsController', () => {
         }),
       } as any;
       mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue({
+        models: [{ name: 'llama3:latest', size: 1000 }],
+      });
 
       mockReq.params = { id: 'server-1' };
 
@@ -195,6 +201,7 @@ describe('serverModelsController', () => {
         json: vi.fn().mockResolvedValue({ models: [] }),
       } as any;
       mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue({ models: [] });
 
       mockReq.params = { id: 'server-1' };
 
@@ -217,6 +224,7 @@ describe('serverModelsController', () => {
         json: vi.fn().mockResolvedValue({}),
       } as any;
       mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue({});
 
       mockReq.params = { id: 'server-1' };
 
@@ -248,6 +256,16 @@ describe('serverModelsController', () => {
         }),
       } as any;
       mockFetchWithTimeout.mockResolvedValue(mockResponse);
+      mockParseResponse.mockResolvedValue({
+        models: [
+          {
+            name: 'llama3:latest',
+            modified_at: '2024-01-15T10:30:00Z',
+            size: 4000000000,
+            digest: 'abc123def456',
+          },
+        ],
+      });
 
       mockReq.params = { id: 'server-1' };
 
@@ -509,10 +527,17 @@ describe('serverModelsController', () => {
 
       await deleteModelFromServer(mockReq as Request, mockRes as Response);
 
-      expect(mockOrchestrator.removeModelCircuitBreaker).toHaveBeenCalledWith(
-        'server-1',
-        'llama3:latest'
-      );
+      const probeOrchestrator = mockOrchestrator.getProbeOrchestrator();
+      expect(probeOrchestrator.evictTuple).toHaveBeenCalledWith({
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'ollama_generate',
+      });
+      expect(probeOrchestrator.evictTuple).toHaveBeenCalledWith({
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'ollama_embeddings',
+      });
       expect(mockRes.status).toHaveBeenCalledWith(200);
     });
 
@@ -617,10 +642,12 @@ describe('serverModelsController', () => {
 
       const callArg = mockFetchWithTimeout.mock.calls[0]?.[1];
       expect(callArg?.body).toContain('llama3/latest');
-      expect(mockOrchestrator.removeModelCircuitBreaker).toHaveBeenCalledWith(
-        'server-1',
-        'llama3/latest'
-      );
+      const probeOrchestrator = mockOrchestrator.getProbeOrchestrator();
+      expect(probeOrchestrator.evictTuple).toHaveBeenCalledWith({
+        serverId: 'server-1',
+        model: 'llama3/latest',
+        endpoint: 'ollama_generate',
+      });
     });
 
     it('should handle empty model param', async () => {

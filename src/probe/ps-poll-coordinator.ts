@@ -99,7 +99,7 @@ export class PsPollCoordinator {
   /**
    * Poll all healthy servers with stagger offset to avoid thundering herd.
    */
-  pollAllServers(): void {
+  async pollAllServers(): Promise<void> {
     if (this.isPolling) {
       logger.debug('[ps-poll] poll already in progress, skipping');
       return;
@@ -109,16 +109,20 @@ export class PsPollCoordinator {
       const orchestrator = getOrchestratorInstance();
       const servers = orchestrator.getServers().filter(s => s.healthy);
 
+      const pollPromises: Promise<void>[] = [];
       for (let i = 0; i < servers.length; i++) {
         const server = servers[i];
         const delay = i * this.config.staggerOffsetMs;
         const timeout = setTimeout(() => {
-          this.refreshServer(server.id).catch(err =>
-            logger.warn('[ps-poll] refresh failed', { serverId: server.id, error: String(err) })
+          pollPromises.push(
+            this.refreshServer(server.id).catch(err =>
+              logger.warn('[ps-poll] refresh failed', { serverId: server.id, error: String(err) })
+            )
           );
         }, delay);
         this.staggerTimeouts.set(server.id, timeout);
       }
+      await Promise.all(pollPromises);
     } finally {
       this.isPolling = false;
     }

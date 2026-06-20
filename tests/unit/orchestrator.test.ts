@@ -16,6 +16,7 @@ vi.mock('../../src/storage/operational-store.js', () => ({
     getActiveBans: vi.fn().mockReturnValue([]),
     runStartupMigrations: vi.fn(),
     close: vi.fn(),
+    getAllTimeouts: vi.fn().mockReturnValue([]),
   }),
   initOperationalStore: vi.fn(),
 }));
@@ -37,8 +38,7 @@ describe('AIOrchestrator', () => {
       successThreshold: 2,
       backoffMultiplier: 1.5,
     });
-    orchestrator['healthCheckScheduler'].stop();
-    orchestrator['probeScheduler'].stop();
+    // healthCheckScheduler and probeScheduler no longer exist - they were removed in the probe refactor
   });
 
   describe('Server Management', () => {

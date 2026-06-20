@@ -174,10 +174,8 @@ export class RecoveryDriver {
       clearInterval(this.intervalHandle);
     }
     this.intervalHandle = setInterval(() => {
-      // Fire-and-forget: tick() is async but we don't await in the interval callback
-      this.tick().catch(() => {
-        // Swallow errors in the interval callback — errors are recorded inside tick/executeProbe
-      });
+      // Fire-and-forget: tick() handles errors internally
+      this.tick();
     }, 1000);
   }
 
@@ -282,7 +280,7 @@ export class RecoveryDriver {
    * Default no-op probe executor used when none is injected.
    * Always returns success: true (healthy endpoint).
    */
-  #defaultProbeExecutor: ProbeExecutor = () => {
+  #defaultProbeExecutor: ProbeExecutor = async () => {
     return { success: true };
   };
 

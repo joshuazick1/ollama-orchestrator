@@ -169,7 +169,6 @@ async function initialize(): Promise<void> {
         logger.info('Default admin user created from ADMIN_USERNAME env var');
       } else {
         logger.warn('No admin users exist. Setup wizard will be served at GET /setup');
-        setupMode = true;
       }
     }
 
