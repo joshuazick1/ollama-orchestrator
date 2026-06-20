@@ -279,6 +279,7 @@ export function getDecisionHistory(req: Request, res: Response): void {
         algorithm: event.algorithm,
         candidates: event.candidates,
         selectionReason: event.selectionReason,
+        requestId: event.requestId,
       })),
     });
   } catch (error) {

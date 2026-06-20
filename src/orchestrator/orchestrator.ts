@@ -1179,7 +1179,8 @@ export class AIOrchestrator {
     isStreaming: boolean = false,
     estimatedPromptTokens?: number,
     userId?: string,
-    isAdmin?: boolean
+    isAdmin?: boolean,
+    requestId?: string
   ): AIServer | undefined {
     // Filter candidates based on hard requirements
     const candidates = this.servers.filter(server => {
@@ -1267,7 +1268,8 @@ export class AIOrchestrator {
         selected,
         this.loadBalancer.getAlgorithm(),
         scores,
-        'single_candidate'
+        'single_candidate',
+        requestId
       );
       return selected;
     }
@@ -1314,7 +1316,8 @@ export class AIOrchestrator {
         selected,
         this.loadBalancer.getAlgorithm(),
         scores,
-        'load_balancer'
+        'load_balancer',
+        requestId
       );
     }
 

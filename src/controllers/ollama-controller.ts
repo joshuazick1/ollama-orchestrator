@@ -1295,7 +1295,14 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     const userId = req.user?.id;
     const isAdmin = isInternalAdmin(req);
 
-    const server = orchestrator.getBestServerForModel(model, false, undefined, userId, isAdmin);
+    const server = orchestrator.getBestServerForModel(
+      model,
+      false,
+      undefined,
+      userId,
+      isAdmin,
+      req.requestId
+    );
     if (!server) {
       res.status(404).json({
         error: `model '${model}' not found on any healthy server`,

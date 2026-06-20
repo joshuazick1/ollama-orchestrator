@@ -56,6 +56,7 @@ export interface DecisionEvent {
     };
   }>;
   selectionReason: string;
+  requestId?: string;
 }
 
 /**
@@ -122,7 +123,8 @@ export class DecisionHistory {
     selectedServer: AIServer,
     algorithm: string,
     scores: ServerScore[],
-    selectionReason: string = 'best_score'
+    selectionReason: string = 'best_score',
+    requestId?: string
   ): void {
     const event: DecisionEvent = {
       timestamp: Date.now(),
@@ -172,6 +174,7 @@ export class DecisionHistory {
           : undefined,
       })),
       selectionReason,
+      requestId,
     };
 
     this.events.push(event);
