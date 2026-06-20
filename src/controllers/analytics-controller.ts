@@ -243,7 +243,10 @@ export function getAnalyticsSummary(req: Request, res: Response): void {
       summary: {
         ...summary,
         requestsPerSecond: Math.round(globalMetrics.requestsPerSecond * 100) / 100,
-        errorRate: globalMetrics.errorRate,
+        errorRate:
+          summary.totalRequests > 0
+            ? Math.round((summary.totalErrors / summary.totalRequests) * 1000) / 1000
+            : 0,
       },
     });
   } catch (error) {

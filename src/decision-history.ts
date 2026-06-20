@@ -421,13 +421,21 @@ export class DecisionHistory {
     }
   > {
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
+    let sourceEvents = this.events.filter(e => e.timestamp >= cutoff);
+
+    if (this.isLongWindow(hours)) {
+      const sqliteEvents = this.fetchEventsFromSQLite({ hours, limit: 50000 });
+      if (sqliteEvents.length > 0) {
+        sourceEvents = this.mergeEvents(sourceEvents, sqliteEvents).filter(
+          e => e.timestamp >= cutoff
+        );
+      }
+    }
+
     const counts: Record<string, number> = {};
     let total = 0;
 
-    for (const event of this.events) {
-      if (event.timestamp < cutoff) {
-        continue;
-      }
+    for (const event of sourceEvents) {
       counts[event.algorithm] = (counts[event.algorithm] || 0) + 1;
       total++;
     }
@@ -592,7 +600,7 @@ export class DecisionHistory {
    * Whether this hour window exceeds the 24h in-memory retention.
    */
   private isLongWindow(hours: number): boolean {
-    return hours > 24;
+    return hours >= 24;
   }
 
   /**

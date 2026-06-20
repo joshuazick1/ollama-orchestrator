@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 
 import { logger } from '../utils/logger.js';
+import { getConfigManager } from '../config/config.js';
 
 /**
  * IMPORTANT: This middleware uses the default in-memory store for express-rate-limit.
@@ -136,10 +137,11 @@ export function createAuthRateLimiter(): any {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createInferenceRateLimiter(): any {
+  const config = getConfigManager().getConfig();
   return createRateLimiter({
     enabled: true,
-    windowMs: 15 * 60 * 1000,
-    maxRequests: 100,
+    windowMs: config.security.rateLimitWindowMs,
+    maxRequests: config.security.rateLimitMax,
     skipSuccessfulRequests: false,
     keyGenerator: defaultKeyGenerator,
     skip: (req: Request) => {
