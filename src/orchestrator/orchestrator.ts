@@ -1421,7 +1421,8 @@ export class AIOrchestrator {
     signal?: AbortSignal,
     estimatedPromptTokens?: number,
     userId?: string,
-    isAdmin?: boolean
+    isAdmin?: boolean,
+    requestId?: string
   ): Promise<T> {
     const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
     const routingStartTime = Date.now();
@@ -1574,7 +1575,8 @@ export class AIOrchestrator {
           selected,
           this.loadBalancer.getAlgorithm(),
           scores,
-          'load_balancer'
+          'load_balancer',
+          requestId
         );
         firstDecisionRecorded = true;
       }
