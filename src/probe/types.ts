@@ -47,6 +47,20 @@ export const EMBEDDING_MODEL_PATTERNS: readonly string[] = [
 ];
 
 /**
+ * Known probe endpoint values for parsing tuple keys.
+ * Used by parseTupleKey to handle colons in model names.
+ */
+export const KNOWN_PROBE_ENDPOINTS: readonly ProbeEndpoint[] = [
+  'ollama_chat',
+  'ollama_generate',
+  'ollama_embeddings',
+  'openai_chat',
+  'openai_completions',
+  'openai_embeddings',
+  'anthropic_messages',
+];
+
+/**
  * Internal probe state machine states
  */
 export type ProbeState = 'HEALTHY' | 'SUSPECT' | 'UNHEALTHY' | 'RECOVERING';
@@ -216,17 +230,22 @@ export function tupleKey(t: Tuple): TupleKey {
 
 /**
  * Parse a TupleKey string back into its component Tuple.
- * @throws Error if the key does not have exactly 3 colon-separated parts
+ * Handles colons in model names by finding the endpoint from known values.
+ * @throws Error if the key does not contain a known endpoint
  */
 export function parseTupleKey(k: TupleKey): Tuple {
   const parts = k.split(':');
-  if (parts.length !== 3) {
+  if (parts.length < 3) {
     throw new Error(`Invalid tuple key: "${k}" (expected "serverId:model:endpoint")`);
+  }
+  const endpointPart = parts[parts.length - 1];
+  if (!KNOWN_PROBE_ENDPOINTS.includes(endpointPart as ProbeEndpoint)) {
+    throw new Error(`Invalid tuple key: "${k}" (no valid endpoint found)`);
   }
   return {
     serverId: parts[0],
-    model: parts[1],
-    endpoint: parts[2] as ProbeEndpoint,
+    model: parts.slice(1, parts.length - 1).join(':'),
+    endpoint: endpointPart as ProbeEndpoint,
   };
 }
 
