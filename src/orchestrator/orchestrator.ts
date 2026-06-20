@@ -8,7 +8,7 @@ import {
   getRecoveryFailureTracker,
   type RecoveryFailureRecord,
 } from '../analytics/recovery-failure-tracker.js';
-import type { HealthCheckConfig, OrchestratorConfig, RetryConfig } from '../config/config.js';
+import type { OrchestratorConfig, RetryConfig } from '../config/config.js';
 import { DEFAULT_CONFIG, getConfigManager } from '../config/config.js';
 import { API_ENDPOINTS, ERROR_MESSAGES } from '../constants/index.js';
 import { getDecisionHistory } from '../decision-history.js';
@@ -22,14 +22,14 @@ import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { MetricsAggregator } from '../metrics/index.js';
 import { getModelManager } from '../model-manager.js';
 import { EndpointRegistry } from '../probe/endpoint-registry.js';
-import { classify, type Classification } from '../probe/failure-classifier.js';
+import { classify } from '../probe/failure-classifier.js';
 import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { BackoffSchedule } from '../probe/recovery-driver.js';
 import { RecoveryDriver } from '../probe/recovery-driver.js';
 import type { Tuple, ProbeState, ProbeEndpoint } from '../probe/types.js';
 import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
 import { WALStore } from '../probe/wal-store.js';
-import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
@@ -40,7 +40,6 @@ import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
 import { classifyError, ErrorCategory, type ErrorType } from '../utils/error-classifier.js';
 import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
-import { safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { ModelAggregator } from '../utils/model-aggregator.js';
 import { filterValidModels } from '../utils/model-validator.js';
@@ -489,7 +488,7 @@ export class AIOrchestrator {
       if (removedServer) {
         for (const model of removedServer.models) {
           for (const endpoint of [...GENERATION_ENDPOINTS, ...EMBEDDING_ENDPOINTS]) {
-            this.probeOrchestrator.evictTuple({ serverId, model, endpoint });
+            void this.probeOrchestrator.evictTuple({ serverId, model, endpoint });
           }
         }
       }
@@ -2405,7 +2404,7 @@ export class AIOrchestrator {
         wasActiveTest: wasActiveTestAtStart,
       });
 
-      this.probeOrchestrator.recordProbeResult({ serverId: server.id, model, endpoint }, true);
+      void this.probeOrchestrator.recordProbeResult({ serverId: server.id, model, endpoint }, true);
 
       return { success: true, value: result };
     } catch (error) {
@@ -2900,7 +2899,7 @@ export class AIOrchestrator {
 
     // Feed the probe system with the failure result
     const classification = classify(new Error(errorMessage));
-    this.probeOrchestrator.recordProbeResult(
+    void this.probeOrchestrator.recordProbeResult(
       { serverId: server.id, model, endpoint },
       false,
       classification
@@ -3306,7 +3305,7 @@ export class AIOrchestrator {
 
     if (removed > 0) {
       // Evict probe tuples for this server to reset circuit breaker state
-      this.probeOrchestrator.evictTuple({ serverId, model: '', endpoint: 'ollama_generate' });
+      void this.probeOrchestrator.evictTuple({ serverId, model: '', endpoint: 'ollama_generate' });
 
       // Clear cooldowns for this server
       this.banManager.clearCooldown(serverId, '');
@@ -3631,7 +3630,7 @@ export class AIOrchestrator {
     await this.metricsAggregator.shutdown();
 
     // Save probe state snapshot
-    await this.probeOrchestrator.createSnapshot();
+    this.probeOrchestrator.createSnapshot();
 
     // Persist timeouts on shutdown to ensure they're saved
     if (this.config.enablePersistence) {

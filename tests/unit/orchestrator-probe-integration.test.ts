@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
+import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 import { createServer } from '../fixtures/factories.js';
 
 vi.mock('../../src/storage/operational-store.js', () => ({
@@ -39,9 +41,6 @@ vi.mock('../../src/storage/operational-store.js', () => ({
   }),
   initOperationalStore: vi.fn(),
 }));
-
-import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
-import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
 describe('AIOrchestrator - Probe Integration', () => {
   let orchestrator: AIOrchestrator;

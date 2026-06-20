@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { LoadBalancer } from '../../src/load-balancer/load-balancer.js';
 import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 

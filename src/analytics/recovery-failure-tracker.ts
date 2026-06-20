@@ -164,13 +164,13 @@ export class RecoveryFailureTracker {
   /**
    * Get circuit breaker transitions for a server by querying WAL
    */
-  async getCircuitBreakerTransitions(
+  getCircuitBreakerTransitions(
     serverId: string,
     model?: string,
     limit = 100
-  ): Promise<CircuitBreakerTransitionRecord[]> {
+  ): CircuitBreakerTransitionRecord[] {
     const wal = new WALStore(getOperationalStore());
-    const allEvents = await wal.getEventsForServerId(serverId);
+    const allEvents = wal.getEventsForServerId(serverId);
 
     const filtered =
       model !== undefined
@@ -224,7 +224,7 @@ export class RecoveryFailureTracker {
   /**
    * Analyze if circuit breakers are causing server health issues by querying WAL
    */
-  async analyzeCircuitBreakerImpact(serverId: string): Promise<{
+  analyzeCircuitBreakerImpact(serverId: string): {
     isImpacted: boolean;
     totalTransitions: number;
     openTransitions: number;
@@ -232,10 +232,10 @@ export class RecoveryFailureTracker {
     averageTimeInOpenState: number;
     modelLevelIssues: number;
     recommendations: string[];
-  }> {
+  } {
     const stats = this.serverStats.get(serverId);
     const wal = new WALStore(getOperationalStore());
-    const allEvents = await wal.getEventsForServerId(serverId);
+    const allEvents = wal.getEventsForServerId(serverId);
 
     let openTransitions = 0;
     let closedTransitions = 0;

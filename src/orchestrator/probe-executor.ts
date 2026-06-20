@@ -6,6 +6,7 @@
  * using the probe subsystem's failure classifier.
  */
 
+import { API_ENDPOINTS } from '../constants/api-endpoints.js';
 import { classify } from '../probe/failure-classifier.js';
 import type { Tuple, Classification } from '../probe/types.js';
 
@@ -13,13 +14,13 @@ import type { Tuple, Classification } from '../probe/types.js';
  * Maps ProbeEndpoint types to their HTTP URL paths.
  */
 export const ENDPOINT_PATHS: Record<Tuple['endpoint'], string> = {
-  ollama_chat: '/api/chat',
-  ollama_generate: '/api/generate',
-  ollama_embeddings: '/api/embeddings',
-  openai_chat: '/v1/chat/completions',
-  openai_completions: '/v1/completions',
-  openai_embeddings: '/v1/embeddings',
-  anthropic_messages: '/v1/messages',
+  ollama_chat: API_ENDPOINTS.OLLAMA.CHAT,
+  ollama_generate: API_ENDPOINTS.OLLAMA.GENERATE,
+  ollama_embeddings: API_ENDPOINTS.OLLAMA.EMBEDDINGS,
+  openai_chat: API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS,
+  openai_completions: API_ENDPOINTS.OPENAI.COMPLETIONS,
+  openai_embeddings: API_ENDPOINTS.OPENAI.EMBEDDINGS,
+  anthropic_messages: API_ENDPOINTS.ANTHROPIC.MESSAGES,
 };
 
 /**

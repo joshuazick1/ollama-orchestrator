@@ -10,9 +10,9 @@ vi.mock('../../../src/utils/logger.js', () => ({
   },
 }));
 
-import { PsPollCoordinator } from '../../../src/probe/ps-poll-coordinator.js';
 import { getOrchestratorInstance } from '../../../src/orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../../../src/orchestrator/orchestrator.types.js';
+import { PsPollCoordinator } from '../../../src/probe/ps-poll-coordinator.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 

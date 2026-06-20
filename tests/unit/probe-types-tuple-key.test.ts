@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { parseTupleKey } from '../../src/probe/types.js';
 
 describe('parseTupleKey', () => {

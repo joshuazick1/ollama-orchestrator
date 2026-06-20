@@ -12,7 +12,6 @@ import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
-import type { TupleKey } from '../probe/types.js';
 
 /**
  * Get top models by usage
@@ -919,9 +918,9 @@ export function getCircuitBreakerAnalytics(_req: Request, res: Response): void {
 
     for (const [tupleKey, state] of allStates) {
       const uiState = probeStateToUIState(state.state);
-      const normalizedState = uiState.replace(/-/g, '_') as keyof typeof byState;
+      const normalizedState = uiState.replace(/-/g, '_');
       byState[normalizedState] = (byState[normalizedState] || 0) + 1;
-      const parsed = parseTupleKey(tupleKey as TupleKey);
+      const parsed = parseTupleKey(tupleKey);
       topBreakers.push({
         serverId: parsed.serverId,
         model: parsed.model,

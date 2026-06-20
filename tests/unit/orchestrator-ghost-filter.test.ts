@@ -38,8 +38,8 @@ vi.mock('../../src/probe/ps-poll-coordinator-instance.js', () => ({
 }));
 
 import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
-import { createServer } from '../fixtures/factories.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
+import { createServer } from '../fixtures/factories.js';
 
 describe('AIOrchestrator Ghost Filter', () => {
   let orchestrator: AIOrchestrator;

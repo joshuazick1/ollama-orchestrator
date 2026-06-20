@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import { createServer } from '../../fixtures/factories.js';
-
 vi.mock('../../../src/storage/operational-store.js', () => ({
   getOperationalStore: () => ({
     addBan: vi.fn(),
@@ -19,6 +17,7 @@ vi.mock('../../../src/storage/operational-store.js', () => ({
 
 import { AIOrchestrator } from '../../../src/orchestrator/orchestrator.js';
 import { resetInFlightManager } from '../../../src/utils/in-flight-manager.js';
+import { createServer } from '../../fixtures/factories.js';
 
 describe('Auto-populate v1Models from discovery', () => {
   let orchestrator: AIOrchestrator;

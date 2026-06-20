@@ -1,3 +1,5 @@
+import dns from 'dns';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { isBlockedUrl } from '../../../src/utils/url-safety.js';
@@ -11,8 +13,6 @@ vi.mock('dns', () => {
     lookup: mockLookup,
   };
 });
-
-import dns from 'dns';
 
 const mockLookup = dns.lookup as ReturnType<typeof vi.fn>;
 

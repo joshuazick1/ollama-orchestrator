@@ -42,12 +42,13 @@ export class OrchestratorPersistence {
   saveServersToDisk(servers: AIServer[]): void {
     try {
       logger.info(`Saving ${servers.length} servers to disk at ${serversConfig.getPath()}...`);
-      const success = serversConfig.set(servers);
-      if (!success) {
-        logger.error('Failed to save servers to disk - configManager.set() returned false');
-      } else {
-        logger.info(`Successfully saved ${servers.length} servers to disk`);
-      }
+      void serversConfig.set(servers).then(success => {
+        if (!success) {
+          logger.error('Failed to save servers to disk - configManager.set() returned false');
+        } else {
+          logger.info(`Successfully saved ${servers.length} servers to disk`);
+        }
+      });
     } catch (err) {
       logger.error('Exception while saving servers:', { error: err });
     }

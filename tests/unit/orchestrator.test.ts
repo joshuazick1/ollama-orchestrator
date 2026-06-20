@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+import { DEFAULT_CONFIG } from '../../src/config/config.js';
+import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
+import { classifyError } from '../../src/utils/error-classifier.js';
+import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 import { createServer } from '../fixtures/factories.js';
 
 vi.mock('../../src/storage/operational-store.js', () => ({
@@ -15,11 +19,6 @@ vi.mock('../../src/storage/operational-store.js', () => ({
   }),
   initOperationalStore: vi.fn(),
 }));
-
-import { DEFAULT_CONFIG } from '../../src/config/config.js';
-import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
-import { classifyError } from '../../src/utils/error-classifier.js';
-import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 
 describe('AIOrchestrator', () => {
   let orchestrator: AIOrchestrator;

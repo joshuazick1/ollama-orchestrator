@@ -7,8 +7,8 @@
  * This replaces snapshot-only model tracking with continuously refreshed data.
  */
 
-import { logger } from '../utils/logger.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { logger } from '../utils/logger.js';
 
 export interface PsPollConfig {
   enabled: boolean;
@@ -99,7 +99,7 @@ export class PsPollCoordinator {
   /**
    * Poll all healthy servers with stagger offset to avoid thundering herd.
    */
-  async pollAllServers(): Promise<void> {
+  pollAllServers(): void {
     if (this.isPolling) {
       logger.debug('[ps-poll] poll already in progress, skipping');
       return;

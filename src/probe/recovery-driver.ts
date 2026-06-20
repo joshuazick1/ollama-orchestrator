@@ -201,7 +201,7 @@ export class RecoveryDriver {
    * - For each, call markProbing (atomic); if false, skip (already probing)
    * - If true, fire executeProbe (fire-and-forget, don't await)
    */
-  async tick(): Promise<void> {
+  tick(): void {
     const now = Date.now();
     const allStates = this.orchestrator.getAllStates();
 
@@ -241,7 +241,7 @@ export class RecoveryDriver {
     const key = tupleKey(tuple);
     try {
       const result = await (this.probeExecutor ?? this.#defaultProbeExecutor)(tuple);
-      this.orchestrator.recordProbeResult(tuple, result.success, result.classification);
+      void this.orchestrator.recordProbeResult(tuple, result.success, result.classification);
 
       if (result.success) {
         this.backoff.resetRecoveryAttempts(tuple);
@@ -250,7 +250,7 @@ export class RecoveryDriver {
       }
     } catch (err) {
       // Probe executor threw — treat as a transient failure
-      this.orchestrator.recordProbeResult(tuple, false, {
+      void this.orchestrator.recordProbeResult(tuple, false, {
         kind: 'transient',
         retryable: true,
       });
@@ -282,7 +282,7 @@ export class RecoveryDriver {
    * Default no-op probe executor used when none is injected.
    * Always returns success: true (healthy endpoint).
    */
-  #defaultProbeExecutor: ProbeExecutor = async () => {
+  #defaultProbeExecutor: ProbeExecutor = () => {
     return { success: true };
   };
 

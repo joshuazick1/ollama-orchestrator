@@ -8,8 +8,8 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 vi.mock('../../src/orchestrator/orchestrator-instance.js');
 
-import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 import { getCircuitBreakerAnalytics } from '../../src/controllers/analytics-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
 
 const mockGetOrchestratorInstance = vi.mocked(getOrchestratorInstance);
 

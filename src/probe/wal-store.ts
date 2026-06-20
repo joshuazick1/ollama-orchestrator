@@ -59,7 +59,7 @@ interface SnapshotRow {
 export class WALStore {
   constructor(private store: OperationalStore) {}
 
-  async append(event: Omit<ProbeEvent, 'id' | 'createdAt'>): Promise<ProbeEvent> {
+  append(event: Omit<ProbeEvent, 'id' | 'createdAt'>): ProbeEvent {
     const createdAt = Date.now();
     const row = this.store.transaction(
       () =>
@@ -92,7 +92,7 @@ export class WALStore {
     };
   }
 
-  async *replay(): AsyncIterable<ProbeEvent> {
+  *replay(): Iterable<ProbeEvent> {
     const rows = this.store
       .prepare(`SELECT * FROM probe_state_wal ORDER BY id ASC`)
       .all() as WalRow[];
@@ -102,7 +102,7 @@ export class WALStore {
     }
   }
 
-  async *replayForTuple(tupleKey: string): AsyncIterable<ProbeEvent> {
+  *replayForTuple(tupleKey: string): Iterable<ProbeEvent> {
     const rows = this.store
       .prepare(`SELECT * FROM probe_state_wal WHERE tuple_key = ? ORDER BY id ASC`)
       .all(tupleKey) as WalRow[];
@@ -112,7 +112,7 @@ export class WALStore {
     }
   }
 
-  async getEventsForTuple(tupleKey: string): Promise<ProbeEvent[]> {
+  getEventsForTuple(tupleKey: string): ProbeEvent[] {
     const rows = this.store
       .prepare(`SELECT * FROM probe_state_wal WHERE tuple_key = ? ORDER BY id ASC`)
       .all(tupleKey) as WalRow[];
@@ -120,7 +120,7 @@ export class WALStore {
     return rows.map(r => this.rowToEvent(r));
   }
 
-  async loadLatestSnapshot(): Promise<Snapshot | null> {
+  loadLatestSnapshot(): Snapshot | null {
     const row = this.store
       .prepare(`SELECT * FROM probe_state_snapshots ORDER BY id DESC LIMIT 1`)
       .get() as SnapshotRow | undefined;
@@ -136,7 +136,7 @@ export class WALStore {
     };
   }
 
-  async saveSnapshot(state: Map<TupleKey, TupleSnapshotState>): Promise<void> {
+  saveSnapshot(state: Map<TupleKey, TupleSnapshotState>): void {
     this.store.transaction(() => {
       this.store
         .prepare(`INSERT INTO probe_state_snapshots (snapshot_data, created_at) VALUES (?, ?)`)
@@ -144,13 +144,13 @@ export class WALStore {
     });
   }
 
-  async truncate(beforeId: number): Promise<number> {
+  truncate(beforeId: number): number {
     const result = this.store.prepare(`DELETE FROM probe_state_wal WHERE id < ?`).run(beforeId);
 
     return result.changes;
   }
 
-  async count(): Promise<number> {
+  count(): number {
     const row = this.store.prepare(`SELECT COUNT(*) as cnt FROM probe_state_wal`).get() as {
       cnt: number;
     };
@@ -158,7 +158,7 @@ export class WALStore {
     return row.cnt;
   }
 
-  async getEventsAfter(timestamp: number): Promise<ProbeEvent[]> {
+  getEventsAfter(timestamp: number): ProbeEvent[] {
     const rows = this.store
       .prepare(`SELECT * FROM probe_state_wal WHERE created_at >= ? ORDER BY id ASC`)
       .all(timestamp) as WalRow[];
@@ -170,7 +170,7 @@ export class WALStore {
    * Get all probe events for a given serverId (all models, all endpoints).
    * Uses the index on tuple_key for efficient prefix matching.
    */
-  async getEventsForServerId(serverId: string): Promise<ProbeEvent[]> {
+  getEventsForServerId(serverId: string): ProbeEvent[] {
     const rows = this.store
       .prepare(
         `SELECT * FROM probe_state_wal WHERE tuple_key LIKE ? || ':' || ? || ':%' ORDER BY id ASC`

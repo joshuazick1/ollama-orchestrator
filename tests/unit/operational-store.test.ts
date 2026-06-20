@@ -207,6 +207,8 @@ describe('OperationalStore', () => {
     });
   });
 
+  describe('Circuit Breaker Management', () => {
+    describe('saveCircuitBreakerState / getCircuitBreakerState', () => {
       it('should return undefined for nonexistent server:model', () => {
         expect(store.getCircuitBreakerState('x', 'y')).toBeUndefined();
       });

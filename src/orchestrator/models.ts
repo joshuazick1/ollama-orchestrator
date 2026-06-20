@@ -86,7 +86,7 @@ export class OrchestratorModels {
     }
 
     const models = Array.from(allTags.values());
-    const filteredModels = models.filter(model => {
+    const filteredModels = models.filter(_model => {
       return true;
     });
 

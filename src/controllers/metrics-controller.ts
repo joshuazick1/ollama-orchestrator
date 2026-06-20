@@ -120,11 +120,11 @@ export function getPrometheusMetrics(req: Request, res: Response): void {
  * - RECOVERING → HEALTHY: recovery succeeded
  * - RECOVERING → UNHEALTHY: recovery failed
  */
-export async function getRecoveryTestMetrics(req: Request, res: Response): Promise<void> {
+export function getRecoveryTestMetrics(req: Request, res: Response): void {
   try {
     const wal = new WALStore(getOperationalStore());
 
-    const allEvents = await wal.getEventsAfter(0);
+    const allEvents = wal.getEventsAfter(0);
 
     const recoveryAttempts = { count: 0, byTuple: new Map<string, number>() };
     const recoverySuccesses = { count: 0, byTuple: new Map<string, number>() };
@@ -188,12 +188,12 @@ export async function getRecoveryTestMetrics(req: Request, res: Response): Promi
  * Queries WAL events for the specific tuple and returns chronological
  * list of recovery events with timestamps.
  */
-export async function getBreakerRecoveryMetrics(req: Request, res: Response): Promise<void> {
+export function getBreakerRecoveryMetrics(req: Request, res: Response): void {
   try {
     const breakerName = decodeURIComponent(req.params.breakerName as string);
     const wal = new WALStore(getOperationalStore());
 
-    const events = await wal.getEventsForTuple(breakerName);
+    const events = wal.getEventsForTuple(breakerName);
 
     const recoveryEvents: Array<{
       timestamp: number;

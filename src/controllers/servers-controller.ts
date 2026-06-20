@@ -438,7 +438,6 @@ export function getServersCircuitBreakers(req: Request, res: Response): void {
 
   try {
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
-    const endpointRegistry = orchestrator.getEndpointRegistry();
     const allStates = probeOrchestrator.getAllStates();
 
     // Group by serverId, aggregate worst state per server
@@ -559,7 +558,6 @@ export function getCircuitBreakersByModel(req: Request, res: Response): void {
 
   try {
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
-    const endpointRegistry = orchestrator.getEndpointRegistry();
     const allStates = probeOrchestrator.getAllStates();
     const modelBreakers = new Map<string, any[]>();
 
@@ -737,7 +735,7 @@ export function clearAllBans(req: Request, res: Response): void {
  * Manually trigger recovery test for a server:model breaker
  * POST /api/orchestrator/servers/:serverId/models/:model/recovery-test
  */
-export async function manualRecoveryTest(req: Request, res: Response): Promise<void> {
+export function manualRecoveryTest(req: Request, res: Response): void {
   const serverId = req.params.serverId as string;
   const model = req.params.model as string;
 
@@ -762,9 +760,8 @@ export async function manualRecoveryTest(req: Request, res: Response): Promise<v
       return;
     }
 
-    await recoveryDriver.tick();
+    recoveryDriver.tick();
 
-    const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
     const tupleState = probeOrchestrator.getTupleState({
       serverId,
       model: decodedModel,

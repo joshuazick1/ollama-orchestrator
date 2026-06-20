@@ -143,7 +143,7 @@ const adminPassword = process.env.ADMIN_PASSWORD;
 const userStore = getUserStore();
 
 // Track whether we're in setup mode (no admin exists)
-let setupMode = false;
+const _setupMode = false;
 
 // Initialize function to handle async setup with proper error handling
 async function initialize(): Promise<void> {
