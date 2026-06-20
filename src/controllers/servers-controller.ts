@@ -15,6 +15,7 @@ import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.j
 import { testServerCapabilities } from '../orchestrator/test-server-capabilities.js';
 import { getTestStore } from '../orchestrator/test-store-instance.js';
 import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
+import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
@@ -180,14 +181,33 @@ export async function refreshServerV1Models(req: Request, res: Response): Promis
 /**
  * Get all servers
  * GET /api/orchestrator/servers
+ * Query params:
+ *   - excludeGhosts: if "true", exclude servers with 0 models loaded (per PS poll)
+ *   - healthyOnly: if "true", return only healthy servers
  */
 export function getServers(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
-  const servers = orchestrator.getServers();
+
+  const excludeGhosts = req.query.excludeGhosts === 'true';
+  const healthyOnly = req.query.healthyOnly === 'true';
+
+  const options = {
+    excludeGhosts: excludeGhosts || undefined,
+    healthyOnly: healthyOnly || undefined,
+  };
+
+  const servers = orchestrator.getServers(options);
+
+  const ghostCount = (() => {
+    const allHealthy = orchestrator.getServers({ healthyOnly: true });
+    const psCoordinator = getPsPollCoordinator();
+    return allHealthy.filter(s => psCoordinator.getModelsOnServer(s.id).size === 0).length;
+  })();
 
   res.status(200).json({
     success: true,
     count: servers.length,
+    ghostCount,
     servers: servers.map(s => ({
       id: s.id,
       url: s.url,

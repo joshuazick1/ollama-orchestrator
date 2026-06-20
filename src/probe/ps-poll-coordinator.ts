@@ -187,6 +187,14 @@ export class PsPollCoordinator {
   }
 
   /**
+   * Get the last poll timestamp for a given server.
+   * Returns 0 if the server has not been polled yet.
+   */
+  getServerLastPollAt(serverId: string): number {
+    return this.state.get(serverId)?.lastPollAt ?? 0;
+  }
+
+  /**
    * Get all server IDs that have a given model loaded.
    */
   getServersWithModel(model: string): Set<string> {

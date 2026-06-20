@@ -508,10 +508,25 @@ export class AIOrchestrator {
 
   /**
    * Get all registered servers (deduplicated)
+   * @param options - Filter options
+   * @param options.healthyOnly - Return only healthy servers
+   * @param options.excludeGhosts - Return only servers with at least 1 model loaded (per PS poll coordinator)
    */
-  getServers(): AIServer[] {
+  getServers(options: { healthyOnly?: boolean; excludeGhosts?: boolean } = {}): AIServer[] {
+    let servers = Array.from(this.servers);
+
+    if (options.healthyOnly) {
+      servers = servers.filter(s => s.healthy);
+    }
+
+    if (options.excludeGhosts) {
+      const psCoordinator = getPsPollCoordinator();
+      servers = servers.filter(s => psCoordinator.getModelsOnServer(s.id).size > 0);
+    }
+
+    // Deduplicate by server id
     const seen = new Set<string>();
-    return this.servers.filter(s => {
+    return servers.filter(s => {
       if (seen.has(s.id)) {
         return false;
       }
@@ -3410,19 +3425,51 @@ export class AIOrchestrator {
   cleanupGhostServers(ghostTtlMs: number = 86_400_000): number {
     const now = Date.now();
     const ghostIds: string[] = [];
+    const ghostServerIds: string[] = [];
+
+    const config = getConfigManager().getConfig();
+    const ghostConfig = config.loadBalancer?.ghostServers ?? {
+      staleThresholdMs: 300000,
+      removeOnCleanup: false,
+    };
+
+    const psCoordinator = getPsPollCoordinator();
+
     for (const server of this.servers) {
       if (server.healthy === false || !server.healthy) {
         const age = now - server.lastResponseTime;
         if (age >= ghostTtlMs) {
           ghostIds.push(server.id);
         }
+      } else if (server.healthy) {
+        const models = psCoordinator.getModelsOnServer(server.id);
+        const lastPollAt = psCoordinator.getServerLastPollAt(server.id);
+        const hasModels = models.size > 0;
+        if (!hasModels && lastPollAt > 0) {
+          const staleDuration = now - lastPollAt;
+          if (staleDuration >= ghostConfig.staleThresholdMs) {
+            ghostServerIds.push(server.id);
+            logger.warn(
+              `[Ghost] Server ${server.id} is a ghost (healthy but 0 models for ${Math.round(staleDuration / 1000)}s)`
+            );
+          }
+        }
       }
     }
+
     for (const id of ghostIds) {
       this.removeServer(id);
       logger.warn(`[Ghost] Removed offline server ${id}`);
     }
-    return ghostIds.length;
+
+    if (ghostConfig.removeOnCleanup) {
+      for (const id of ghostServerIds) {
+        this.removeServer(id);
+        logger.warn(`[Ghost] Removed ghost server ${id} (removeOnCleanup=true)`);
+      }
+    }
+
+    return ghostIds.length + ghostServerIds.length;
   }
 
   /**

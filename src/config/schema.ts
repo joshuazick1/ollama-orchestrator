@@ -266,6 +266,13 @@ export const loadBalancerConfigSchema = z.object({
       penaltyDurationMs: z.number().int().min(1000).default(60000),
     })
     .default({ enabled: true, thresholdMs: 1000, penaltyDurationMs: 60000 }),
+  // Ghost server cleanup settings
+  ghostServers: z
+    .object({
+      staleThresholdMs: z.number().int().min(60000).default(300000), // 5 minutes - PS poll shows 0 models for this duration = ghost
+      removeOnCleanup: z.boolean().default(false), // Whether to auto-remove ghosts (default false, just mark)
+    })
+    .default({ staleThresholdMs: 300000, removeOnCleanup: false }),
 });
 
 /**

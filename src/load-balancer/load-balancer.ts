@@ -122,6 +122,11 @@ export interface LoadBalancerConfig {
     ttftThresholdMs: number;
     p95WindowMs: number;
   };
+  // Ghost server cleanup settings
+  ghostServers: {
+    staleThresholdMs: number;
+    removeOnCleanup: boolean;
+  };
 }
 
 /**
@@ -189,6 +194,10 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     enabled: false,
     ttftThresholdMs: 2000,
     p95WindowMs: 60000,
+  },
+  ghostServers: {
+    staleThresholdMs: 300000,
+    removeOnCleanup: false,
   },
 };
 

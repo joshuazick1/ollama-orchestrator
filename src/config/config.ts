@@ -334,6 +334,10 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       ttftThresholdMs: 2000,
       p95WindowMs: 60000,
     },
+    ghostServers: {
+      staleThresholdMs: 300000,
+      removeOnCleanup: false,
+    },
   },
 
   circuitBreaker: {
