@@ -45,7 +45,11 @@ export class ProbeOrchestrator {
     private wal: WALStore | null = null
   ) {}
 
-  recordProbeResult(tuple: Tuple, success: boolean, classification?: Classification): ProbeState {
+  async recordProbeResult(
+    tuple: Tuple,
+    success: boolean,
+    classification?: Classification
+  ): Promise<ProbeState> {
     const key = tupleKey(tuple);
     const now = Date.now();
 
@@ -73,7 +77,7 @@ export class ProbeOrchestrator {
       this._emitStateChange(tuple, fromState, toState, reason);
 
       if (this.wal) {
-        this.wal.append({
+        await this.wal.append({
           tupleKey: key,
           eventType: 'STATE_CHANGE',
           fromState,
@@ -118,12 +122,12 @@ export class ProbeOrchestrator {
     this.states.set(tupleKey(tuple), this._createInitialState());
   }
 
-  evictTuple(tuple: Tuple): void {
+  async evictTuple(tuple: Tuple): Promise<void> {
     const key = tupleKey(tuple);
     const ts = this.states.get(key);
 
     if (this.wal && ts) {
-      this.wal.append({
+      await this.wal.append({
         tupleKey: key,
         eventType: 'EVICTED',
         fromState: ts.state,
@@ -145,7 +149,7 @@ export class ProbeOrchestrator {
       return;
     }
 
-    const snapshot = this.wal.loadLatestSnapshot();
+    const snapshot = await this.wal.loadLatestSnapshot();
     if (snapshot) {
       for (const [key, snapState] of snapshot.data) {
         const ts: TupleState = {
@@ -199,7 +203,7 @@ export class ProbeOrchestrator {
     }
   }
 
-  createSnapshot(): void {
+  async createSnapshot(): Promise<void> {
     if (!this.wal) {
       return;
     }
@@ -215,7 +219,7 @@ export class ProbeOrchestrator {
       });
     }
 
-    this.wal.saveSnapshot(data);
+    await this.wal.saveSnapshot(data);
   }
 
   onStateChange(callback: StateChangeCallback): () => void {
