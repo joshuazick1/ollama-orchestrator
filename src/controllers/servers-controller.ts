@@ -385,9 +385,21 @@ export function getCircuitBreakers(req: Request, res: Response): void {
       };
     });
 
+    const byState: Record<string, number> = { OPEN: 0, CLOSED: 0, HALF_OPEN: 0, UNKNOWN: 0 };
+    for (const breaker of breakerArray) {
+      const raw = breaker.uiState || 'UNKNOWN';
+      const state = raw.replace(/-/g, '_');
+      if (state in byState) {
+        byState[state]++;
+      } else {
+        byState.UNKNOWN++;
+      }
+    }
+
     res.status(200).json({
       success: true,
       circuitBreakers: breakerArray,
+      byState,
     });
   } catch (error) {
     res.status(500).json({
