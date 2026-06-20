@@ -79,6 +79,13 @@ Default section order:
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md
 
+### Service Runtime
+
+- **The orchestrator runs as a systemd service**: `ollama-orchestrator.service` on port 5100 (managed by `systemctl start/stop/restart ollama-orchestrator`).
+- **Live verification** is mandatory for every change: build with `npx tsc`, restart with `systemctl restart ollama-orchestrator`, then `curl http://localhost:5100/health/ready` before running live API checks.
+- **Fleet backup is critical**: `data/servers.json` may be wiped by tests. The primary restore source is `data/servers.json.prune_backup` (1087 servers). Before any test run, verify fleet state via `curl /api/orchestrator/servers | jq 'length'` (expect > 1000); if < 1000, restore from backup and restart service.
+- **Do NOT run `npm test` against the live system** without first backing up `data/servers.json` to a timestamped file under `/var/backups/ollama-orchestrator/`.
+
 ## Child DOX Index
 
 The DOX tree is rooted at these child docs. Each child owns a durable boundary and links to its own children. See the linked doc for scope, contracts, work guidance, and verification.
