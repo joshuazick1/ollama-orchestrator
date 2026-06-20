@@ -35,7 +35,13 @@ export const safeJsonStringify = (
   space?: string | number
 ): string => {
   try {
-    return JSON.stringify(value, replacer as any, space as any);
+    if (replacer === null || replacer === undefined) {
+      return JSON.stringify(value, undefined, space);
+    }
+    if (Array.isArray(replacer)) {
+      return JSON.stringify(value, replacer, space);
+    }
+    return JSON.stringify(value, replacer, space);
   } catch (error) {
     if (process.env.DEBUG === 'true') {
       logger.error('Failed to stringify value:', { error });

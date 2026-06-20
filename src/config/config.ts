@@ -76,8 +76,6 @@ export interface HealthCheckConfig {
   retryAttempts: number; // Number of retries per server
   retryDelayMs: number; // Delay between retries
   recoveryIntervalMs: number; // How often to check unhealthy servers
-  failureThreshold: number; // Consecutive failures before marking unhealthy
-  successThreshold: number; // Consecutive successes for recovery
   backoffMultiplier: number; // Exponential backoff for retries
 }
 
@@ -440,7 +438,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     backoffMultiplier: 1.5,
     // failureThreshold and successThreshold were dropped in the rewrite (Task 6)
     // — the new probe subsystem uses consecutiveFailures and consecutiveSuccesses
-  } as any,
+  },
 
   tags: {
     cacheTtlMs: 300000, // 5 minutes

@@ -16,7 +16,7 @@ import { testServerCapabilities } from '../orchestrator/test-server-capabilities
 import { getTestStore } from '../orchestrator/test-store-instance.js';
 import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
 import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
-import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
+import { parseTupleKey, probeStateToUIState, type ProbeState } from '../probe/types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
 import { isBlockedUrl } from '../utils/url-safety.js';
@@ -1121,7 +1121,7 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
     success: true,
     serverId,
     state: worstState,
-    uiState: probeStateToUIState(worstState as any),
+    uiState: probeStateToUIState(worstState as ProbeState),
     tupleCount: serverTuples.length,
     failureCount: totalFailureCount,
     successCount: totalSuccessCount,

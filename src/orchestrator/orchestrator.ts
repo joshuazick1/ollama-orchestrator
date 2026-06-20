@@ -2811,7 +2811,7 @@ export class AIOrchestrator {
         // Only mark unhealthy after multiple consecutive failures
         this.markFailure(server.id, model);
         const failureCount = this.incrementServerFailureCount(server.id);
-        const threshold = this.config.healthCheck.failureThreshold ?? 3;
+        const threshold = this.config.circuitBreaker.baseFailureThreshold ?? 3;
 
         if (failureCount >= threshold) {
           server.healthy = false;
@@ -2871,7 +2871,7 @@ export class AIOrchestrator {
         // Retryable/unknown: put in cooldown, track failures
         this.markFailure(server.id, model);
         const unknownFailureCount = this.incrementServerFailureCount(server.id);
-        const unknownThreshold = this.config.healthCheck.failureThreshold ?? 3;
+        const unknownThreshold = this.config.circuitBreaker.baseFailureThreshold ?? 3;
 
         if (unknownFailureCount >= unknownThreshold) {
           server.healthy = false;
