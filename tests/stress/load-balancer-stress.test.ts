@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
 import { LoadBalancer } from '../../src/load-balancer/load-balancer.js';
 import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 import {
@@ -146,7 +147,7 @@ describe('Load Balancer Stress Tests', () => {
       expect(duration).toBeLessThan(60_000);
 
       // Should have distributed across servers (not all to one)
-      const selectedServers = new Set(results.filter(r => r !== undefined).map(r => r!.id));
+      const selectedServers = new Set(results.filter(r => r !== undefined).map(r => r.id));
       expect(selectedServers.size).toBeGreaterThan(1);
 
       console.log(
@@ -368,7 +369,7 @@ describe('Load Balancer Stress Tests', () => {
       }
 
       // Verify distribution
-      const selectedServers = new Set(results.filter(r => r !== undefined).map(r => r!.id));
+      const selectedServers = new Set(results.filter(r => r !== undefined).map(r => r.id));
       expect(selectedServers.size).toBeGreaterThan(1);
 
       console.log(

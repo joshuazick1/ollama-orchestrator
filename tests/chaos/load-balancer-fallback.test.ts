@@ -11,13 +11,13 @@
 
 import { describe, it, expect, afterAll, afterEach, vi, beforeEach } from 'vitest';
 
-import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 import type { LoadBalancerConfig } from '../../src/load-balancer/load-balancer.js';
 import {
   LoadBalancer,
   DEFAULT_LB_CONFIG,
   calculateServerScore,
 } from '../../src/load-balancer/load-balancer.js';
+import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
 import {
   createDiverseMockServer,
   mockServerFactory,

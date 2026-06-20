@@ -5,8 +5,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import type { AIServer, ServerModelMetrics } from '../../../src/orchestrator/orchestrator.types.js';
 import { LoadBalancer } from '../../../src/load-balancer/load-balancer.js';
+import type { AIServer, ServerModelMetrics } from '../../../src/orchestrator/orchestrator.types.js';
 
 vi.mock('../../../src/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },

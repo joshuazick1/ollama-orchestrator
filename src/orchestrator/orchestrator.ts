@@ -3632,7 +3632,7 @@ export class AIOrchestrator {
     await this.metricsAggregator.shutdown();
 
     // Save probe state snapshot
-    this.probeOrchestrator.createSnapshot();
+    await this.probeOrchestrator.createSnapshot();
 
     // Persist timeouts on shutdown to ensure they're saved
     if (this.config.enablePersistence) {

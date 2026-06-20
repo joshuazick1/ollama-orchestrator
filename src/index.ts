@@ -8,7 +8,6 @@ import 'dotenv/config';
 // Refresh auth config from env vars BEFORE any route modules are imported.
 // This ensures DEFAULT_AUTH_CONFIG reflects the runtime ENABLE_AUTH setting
 // before requireAuth() is called in route modules during the import chain.
-import { refreshAuthConfig } from './middleware/auth.js';
 refreshAuthConfig();
 
 import cluster from 'cluster';
@@ -25,7 +24,7 @@ import helmet from 'helmet';
 import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metrics-controller.js';
-import { requireAuth, requireAdmin, isAuthEnabled } from './middleware/auth.js';
+import { requireAuth, requireAdmin, isAuthEnabled, refreshAuthConfig } from './middleware/auth.js';
 import {
   createMonitoringRateLimiter,
   createAdminRateLimiter,

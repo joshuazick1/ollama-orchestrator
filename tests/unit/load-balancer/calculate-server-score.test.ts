@@ -17,9 +17,9 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-import type { AIServer, ServerModelMetrics } from '../../../src/orchestrator/orchestrator.types.js';
-import type { TemporalAdjustment } from '../../../src/load-balancer/temporal-scorer.js';
 import { DEFAULT_LB_CONFIG } from '../../../src/load-balancer/load-balancer.js';
+import type { TemporalAdjustment } from '../../../src/load-balancer/temporal-scorer.js';
+import type { AIServer, ServerModelMetrics } from '../../../src/orchestrator/orchestrator.types.js';
 
 // Mock logger to suppress debug output during tests
 vi.mock('../../../src/utils/logger.js', () => ({
