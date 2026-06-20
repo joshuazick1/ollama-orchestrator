@@ -147,7 +147,7 @@ export function requireAuth(
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction): void => {
     // If auth is disabled, set req.auth to internal admin and allow request
-    if (!config.enabled) {
+    if (!DEFAULT_AUTH_CONFIG.enabled) {
       req.auth = { isAdmin: true, apiKey: 'internal' };
       next();
       return;

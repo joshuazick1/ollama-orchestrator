@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 
 import { validateCsrfToken } from '../middleware/csrf.js';
+import { DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
 import { getUserStore, type User } from '../storage/user-store.js';
 import { verifyAccessToken, getTokenFromCookie } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
@@ -53,6 +54,19 @@ export const userRouter = Router();
 
 userRouter.use(
   asyncHandler((req: Request, res: Response, next: NextFunction) => {
+    // If auth is disabled, bypass token requirement
+    if (!DEFAULT_AUTH_CONFIG.enabled) {
+      req.currentUser = {
+        id: 'default',
+        username: 'admin',
+        email: 'admin@local',
+        role: 'admin',
+        isActive: true,
+      } as User;
+      next();
+      return;
+    }
+
     const token = getTokenFromCookie(req);
     if (!token) {
       res.status(401).json({
