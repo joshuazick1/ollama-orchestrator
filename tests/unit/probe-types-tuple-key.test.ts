@@ -65,6 +65,33 @@ describe('parseTupleKey', () => {
         endpoint: 'anthropic_messages',
       });
     });
+
+    it('should parse pipe-separated key with colon in model name (huihui_ai/qwen3.6-abliterated:27b)', () => {
+      const result = parseTupleKey('srv-1|huihui_ai/qwen3.6-abliterated:27b|ollama_generate');
+      expect(result).toEqual({
+        serverId: 'srv-1',
+        model: 'huihui_ai/qwen3.6-abliterated:27b',
+        endpoint: 'ollama_generate',
+      });
+    });
+
+    it('should parse pipe-separated key with simple model', () => {
+      const result = parseTupleKey('srv-1|model|ollama_chat');
+      expect(result).toEqual({
+        serverId: 'srv-1',
+        model: 'model',
+        endpoint: 'ollama_chat',
+      });
+    });
+
+    it('should parse pipe-separated key with multi-part model name', () => {
+      const result = parseTupleKey('srv-1|llama3.2:1b:instruct-q4_K_M|ollama_generate');
+      expect(result).toEqual({
+        serverId: 'srv-1',
+        model: 'llama3.2:1b:instruct-q4_K_M',
+        endpoint: 'ollama_generate',
+      });
+    });
   });
 
   describe('invalid tuple keys', () => {

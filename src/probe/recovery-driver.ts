@@ -39,7 +39,7 @@
 import type { EndpointRegistry } from './endpoint-registry.js';
 import type { ProbeOrchestrator } from './probe-orchestrator.js';
 import type { ProbeConfig, Tuple, TupleKey, Classification } from './types.js';
-import { tupleKey } from './types.js';
+import { tupleKey, parseTupleKey } from './types.js';
 
 /** 1 hour in milliseconds */
 const ONE_HOUR_MS = 3_600_000;
@@ -288,17 +288,10 @@ export class RecoveryDriver {
 
   /**
    * Parse a TupleKey string back into its component Tuple.
-   * @throws Error if the key does not have exactly 3 colon-separated parts
+   * Delegates to the public parseTupleKey which handles both | and : separators.
+   * @throws Error if the key does not contain a known endpoint
    */
   #parseTupleKey(k: TupleKey): Tuple {
-    const parts = k.split(':');
-    if (parts.length !== 3) {
-      throw new Error(`Invalid tuple key: "${k}" (expected "serverId:model:endpoint")`);
-    }
-    return {
-      serverId: parts[0],
-      model: parts[1],
-      endpoint: parts[2] as Tuple['endpoint'],
-    };
+    return parseTupleKey(k);
   }
 }

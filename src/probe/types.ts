@@ -230,11 +230,13 @@ export function tupleKey(t: Tuple): TupleKey {
 
 /**
  * Parse a TupleKey string back into its component Tuple.
- * Handles colons in model names by finding the endpoint from known values.
+ * Handles both legacy ':' and older '|' separators, as well as colons in model names.
  * @throws Error if the key does not contain a known endpoint
  */
 export function parseTupleKey(k: TupleKey): Tuple {
-  const parts = k.split(':');
+  // Try splitting on | first ( unambiguous since endpoint names don't contain |),
+  // then fall back to : (legacy)
+  const parts = k.includes('|') ? k.split('|') : k.split(':');
   if (parts.length < 3) {
     throw new Error(`Invalid tuple key: "${k}" (expected "serverId:model:endpoint")`);
   }
