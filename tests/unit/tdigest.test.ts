@@ -28,7 +28,7 @@ describe('TDigest', () => {
       td.add(Math.random() * 1000);
     }
     expect(td.size()).toBeLessThan(200);
-  });
+  }, 30000); // 30 second timeout for 1M insertions
 
   it('should merge correctly', () => {
     const td1 = new TDigest(100);

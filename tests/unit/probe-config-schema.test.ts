@@ -125,16 +125,20 @@ describe('orchestratorConfigSchema with probe', () => {
     inferenceTimeoutMs: 90000,
     loadBalancer: {
       weights: {
-        latency: 0.17,
-        successRate: 0.17,
-        load: 0.17,
-        capacity: 0.05,
-        circuitBreaker: 0.12,
-        timeout: 0.05,
-        throughput: 0.07,
-        vram: 0.05,
-        temporal: 0.1,
-        context: 0.05,
+        latency: 0.14,
+        successRate: 0.14,
+        load: 0.14,
+        capacity: 0.04,
+        circuitBreaker: 0.1,
+        timeout: 0.04,
+        throughput: 0.06,
+        vram: 0.04,
+        temporal: 0.08,
+        context: 0.06,
+        itl: 0.05,
+        cacheHit: 0.05,
+        promptSize: 0.03,
+        errorType: 0.03,
       },
       thresholds: {
         maxP95Latency: 5000,
@@ -382,6 +386,17 @@ describe('orchestratorConfigSchema with probe', () => {
     servers: [],
     persistencePath: './data',
     configReloadIntervalMs: 0,
+    capabilityProbe: {
+      enabled: true,
+      intervalMs: 300000,
+      consecutiveFailureThreshold: 3,
+      requestTimeoutMs: 5000,
+      staggerOffsetMs: 30000,
+      allowPrivateNetwork: false,
+    },
+    debug: {
+      streamProgress: false,
+    },
   };
 
   it('should accept orchestrator config with probe section', () => {

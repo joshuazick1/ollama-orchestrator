@@ -237,7 +237,15 @@ describe('user.routes', () => {
   });
 
   it('should return 404 when user not found for GET /users/:id', () => {
-    const mockUserStoreInstance = { getUserById: vi.fn().mockReturnValue(undefined) };
+    // getUserById is called twice: once in middleware (for currentUser from token),
+    // once in route handler (for target user). Use mockReturnValueOnce to handle
+    // different return values based on call order.
+    const mockUserStoreInstance = {
+      getUserById: vi
+        .fn()
+        .mockReturnValueOnce(mockUser) // middleware: currentUser lookup -> valid user
+        .mockReturnValueOnce(undefined), // handler: target user 'other' not found
+    };
     mockUserStore.getUserStore.mockReturnValue(mockUserStoreInstance as any);
 
     mockJwt.getTokenFromCookie.mockReturnValue('valid');
@@ -289,7 +297,7 @@ describe('user.routes', () => {
 
   it('should delete user successfully for admin', () => {
     const mockUserStoreInstance = {
-      getUserById: vi.fn().mockReturnValue(mockUser),
+      getUserById: vi.fn().mockReturnValueOnce(mockAdmin).mockReturnValueOnce(mockUser),
       deleteUser: vi.fn().mockReturnValue(true),
     };
     mockUserStore.getUserStore.mockReturnValue(mockUserStoreInstance as any);

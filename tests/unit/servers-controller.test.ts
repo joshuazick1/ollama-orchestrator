@@ -74,7 +74,9 @@ describe('Servers Controller', () => {
 
     (getOrchestratorInstance as any).mockReturnValue(mockOrchestrator);
 
-    mockReq = {};
+    mockReq = {
+      query: {},
+    };
     mockRes = {
       status: vi.fn().mockReturnThis(),
       json: vi.fn(),
@@ -437,7 +439,8 @@ describe('Servers Controller', () => {
       const jsonCall = (mockRes.json as any).mock.calls[0][0];
       expect(jsonCall.success).toBe(true);
       expect(jsonCall.circuitBreakers).toHaveLength(1);
-      expect(jsonCall.circuitBreakers[0].serverId).toBe('server-1:model-a:ollama_chat');
+      expect(jsonCall.circuitBreakers[0].serverId).toBe('server-1');
+      expect(jsonCall.circuitBreakers[0].tupleKey).toBe('server-1:model-a:ollama_chat');
       expect(jsonCall.circuitBreakers[0].state).toBe('HEALTHY');
     });
 
@@ -450,6 +453,7 @@ describe('Servers Controller', () => {
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
         circuitBreakers: [],
+        byState: { OPEN: 0, CLOSED: 0, HALF_OPEN: 0, UNKNOWN: 0 },
       });
     });
 
@@ -747,13 +751,17 @@ describe('Servers Controller', () => {
         }),
         setStateForTesting: vi.fn(),
       };
+      const mockRecoveryDriver = {
+        tick: vi.fn(),
+      };
       mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockReturnValue(mockEndpoints);
       mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getRecoveryDriver.mockReturnValue(mockRecoveryDriver);
       mockReq.params = { serverId: 'server-1', model: 'model-a' };
 
       await manualRecoveryTest(mockReq as Request, mockRes as Response);
 
-      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
+      expect(mockRecoveryDriver.tick).toHaveBeenCalled();
       expect(mockRes.status).toHaveBeenCalledWith(200);
       expect(mockRes.json).toHaveBeenCalledWith({
         success: true,
