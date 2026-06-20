@@ -29,6 +29,7 @@ import { RecoveryDriver } from '../probe/recovery-driver.js';
 import type { Tuple, ProbeState, ProbeEndpoint } from '../probe/types.js';
 import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
 import { WALStore } from '../probe/wal-store.js';
+import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
@@ -3132,6 +3133,13 @@ export class AIOrchestrator {
       await this.probeOrchestrator.restoreFromWAL();
       this.recoveryDriver.start();
 
+      // Start PS poll coordinator (non-blocking, does not throw on polling failures)
+      try {
+        getPsPollCoordinator().start();
+      } catch (err) {
+        logger.warn('[ps-poll] coordinator start failed (non-fatal)', { error: String(err) });
+      }
+
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {
         this.timeoutManager.applyDecay();
@@ -3511,6 +3519,9 @@ export class AIOrchestrator {
 
     this.inFlightManager.clear();
     this.banManager.clearAllCooldowns();
+
+    // Stop PS poll coordinator
+    getPsPollCoordinator().stop();
 
     getOperationalStore().close();
 
