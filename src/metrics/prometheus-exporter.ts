@@ -187,6 +187,45 @@ export class PrometheusExporter {
         lines.push(`orchestrator_itl_ms{${labels},statistic="p99"} ${itl.p99.toFixed(2)}`);
       }
 
+      if (metric.streamingMetrics?.recentChunkCounts) {
+        const totalChunks = metric.streamingMetrics.recentChunkCounts.reduce((a, b) => a + b, 0);
+        if (totalChunks > 0) {
+          lines.push('# HELP orchestrator_stream_chunks_total Total streaming chunks received');
+          lines.push('# TYPE orchestrator_stream_chunks_total counter');
+          lines.push(`orchestrator_stream_chunks_total{${labels}} ${totalChunks}`);
+        }
+      }
+
+      if (metric.streamingMetrics?.recentMaxChunkGaps) {
+        const gaps = metric.streamingMetrics.recentMaxChunkGaps;
+        if (gaps.length > 0) {
+          lines.push(
+            '# HELP orchestrator_stream_max_chunk_gap_ms Maximum chunk gap in milliseconds'
+          );
+          lines.push('# TYPE orchestrator_stream_max_chunk_gap_ms gauge');
+          lines.push(
+            `orchestrator_stream_max_chunk_gap_ms{${labels}} ${gaps[gaps.length - 1].toFixed(2)}`
+          );
+        }
+      }
+
+      if (metric.streamingMetrics?.recentChunkSizes) {
+        const totalBytes = metric.streamingMetrics.recentChunkSizes.reduce((a, b) => a + b, 0);
+        if (totalBytes > 0) {
+          lines.push('# HELP orchestrator_stream_total_bytes Total bytes from streaming responses');
+          lines.push('# TYPE orchestrator_stream_total_bytes counter');
+          lines.push(`orchestrator_stream_total_bytes{${labels}} ${totalBytes}`);
+        }
+      }
+
+      if (metric.avgQueueWaitTimeMs !== undefined && metric.avgQueueWaitTimeMs > 0) {
+        lines.push('# HELP orchestrator_queue_wait_seconds Queue wait time in seconds');
+        lines.push('# TYPE orchestrator_queue_wait_seconds gauge');
+        lines.push(
+          `orchestrator_queue_wait_seconds{${labels}} ${(metric.avgQueueWaitTimeMs / 1000).toFixed(4)}`
+        );
+      }
+
       // Cold-start magnitude
       if (metric.coldStartCount > 0 || metric.coldStartMagnitudeMs !== undefined) {
         lines.push('# HELP orchestrator_cold_start_count Total cold-start events');
