@@ -546,6 +546,12 @@ export class LoadBalancer {
   private endpointRegistry?: EndpointRegistry;
   private prefixCacheRouter?: PrefixCacheRouter;
   private sloFallbackMonitor?: SLOFallbackMonitor;
+  /**
+   * Round-robin state per model for diversity tie-breaking in fastest-response.
+   * When multiple servers are within 5% of the best score, we round-robin
+   * among them to ensure traffic diversity instead of always picking the single best.
+   */
+  private lastSelectedByModel: Map<string, string> = new Map();
 
   constructor(config: Partial<LoadBalancerConfig> = {}) {
     this.config = {
@@ -1104,8 +1110,9 @@ export class LoadBalancer {
       // Hot/cold model awareness: prefer servers where model is already loaded
       const loadedModel = server.hardware?.loadedModels?.find(m => m.name === model);
       if (loadedModel) {
-        // Model is hot - apply significant boost (lower latency = higher priority)
-        adjustedLatency *= 0.5; // 50% latency reduction for hot models
+        // Model is hot - apply moderate boost (lower latency = higher priority)
+        // Reduced from 0.5x to 0.8x to allow diversity when multiple servers are competitive
+        adjustedLatency *= 0.8;
 
         // Penalize servers near eviction (model about to be unloaded)
         if (loadedModel.expiresAt) {
@@ -1174,6 +1181,25 @@ export class LoadBalancer {
     // Sort by adjusted latency (ascending - lower is better)
     scored.sort((a, b) => a.latency - b.latency);
 
+    // Diversity tie-breaker: if top candidates are within 5% of best score, round-robin among them
+    const bestLatency = scored[0].latency;
+    const threshold = bestLatency * 1.05;
+    const closeCandidates = scored.filter(s => s.latency <= threshold);
+
+    let selectedEntry: (typeof scored)[0];
+    if (closeCandidates.length > 1) {
+      // Round-robin: find last selected server for this model, pick the next in the close group
+      const lastSelectedId = this.lastSelectedByModel.get(model);
+      const lastIndex = lastSelectedId
+        ? closeCandidates.findIndex(s => s.server.id === lastSelectedId)
+        : -1;
+      const nextIndex = (lastIndex + 1) % closeCandidates.length;
+      selectedEntry = closeCandidates[nextIndex];
+      this.lastSelectedByModel.set(model, selectedEntry.server.id);
+    } else {
+      selectedEntry = scored[0];
+    }
+
     logger.debug('Fastest response selection', {
       candidates: scored.map((s, i) => ({
         rank: i + 1,
@@ -1182,10 +1208,14 @@ export class LoadBalancer {
         rawLatency: s.rawLatency,
         load: s.load,
         isHot: s.isHot,
+        inCloseGroup: s.latency <= threshold,
       })),
+      selected: selectedEntry.server.id,
+      closeGroupSize: closeCandidates.length,
+      diversityTieBreak: closeCandidates.length > 1,
     });
 
-    return scored[0].server;
+    return selectedEntry.server;
   }
 
   selectFastestResponse(
