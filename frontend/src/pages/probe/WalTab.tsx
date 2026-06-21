@@ -41,13 +41,13 @@ export const WalTab = memo(() => {
     refetchInterval: 30000,
   });
 
-  const { data: serversData } = useQuery<{ servers: AIServer[] }>({
+  const { data: servers } = useQuery<AIServer[]>({
     queryKey: ['servers'],
     queryFn: getServers,
   });
 
-  const servers = useMemo(() => serversData?.servers || [], [serversData?.servers]);
-  const serverIds = useMemo(() => servers.map(s => s.id), [servers]);
+  const serverList = useMemo(() => servers || [], [servers]);
+  const serverIds = useMemo(() => serverList.map(s => s.id), [serverList]);
 
   const walEntries = useMemo<WalEntry[]>(() => {
     if (!recoveryStats) return [];

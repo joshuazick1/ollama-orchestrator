@@ -39,17 +39,19 @@ export const EndpointsTab = memo(() => {
   const [searchQuery, setSearchQuery] = useState('');
   const [serverFilter, setServerFilter] = useState('');
 
-  const { data: serversData, isLoading: serversLoading } = useQuery<{ servers: AIServer[] }>({
+  const { data: servers, isLoading: serversLoading } = useQuery<AIServer[]>({
     queryKey: ['servers'],
     queryFn: getServers,
   });
 
-  const servers = useMemo(() => serversData?.servers || [], [serversData?.servers]);
+  const serverList = useMemo(() => servers || [], [servers]);
 
   const serverModelData = useQuery({
     queryKey: ['serverModels', serverFilter],
     queryFn: async () => {
-      const targetServers = serverFilter ? servers.filter(s => s.id === serverFilter) : servers;
+      const targetServers = serverFilter
+        ? serverList.filter(s => s.id === serverFilter)
+        : serverList;
       const results: ModelEndpointData[] = [];
 
       for (const server of targetServers) {
@@ -85,11 +87,11 @@ export const EndpointsTab = memo(() => {
 
       return results;
     },
-    enabled: servers.length > 0,
+    enabled: serverList.length > 0,
   });
 
   const endpointData = useMemo(() => serverModelData.data || [], [serverModelData.data]);
-  const serverIds = useMemo(() => servers.map(s => s.id), [servers]);
+  const serverIds = useMemo(() => serverList.map(s => s.id), [serverList]);
 
   const filteredData = useMemo(() => {
     return endpointData.filter(item => {
@@ -148,7 +150,7 @@ export const EndpointsTab = memo(() => {
     );
   }
 
-  if (servers.length === 0) {
+  if (serverList.length === 0) {
     return (
       <EmptyState
         type="no-servers"

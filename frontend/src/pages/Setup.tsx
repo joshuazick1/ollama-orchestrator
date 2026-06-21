@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { ShieldCheck } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 import { AdminStep, type AdminFormData } from '../setup/AdminStep';
 import { WelcomeStep } from '../setup/WelcomeStep';
 import { ServerStep } from '../setup/ServerStep';
@@ -48,9 +49,29 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
 }
 
 export function Setup() {
+  const { authEnabled, setupRequired, isLoading } = useAuth();
   const [step, setStep] = useState<Step>('welcome');
   const [adminData, setAdminData] = useState<AdminFormData | null>(null);
   const navigate = useNavigate();
+
+  // Wait for auth context to settle
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center p-4">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  // Dev mode: auth disabled, setup not needed
+  if (authEnabled === false) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Setup already completed
+  if (setupRequired === false) {
+    return <Navigate to="/login" replace />;
+  }
 
   const handleWelcomeNext = () => setStep('admin');
   const handleAdminNext = (data: AdminFormData) => {

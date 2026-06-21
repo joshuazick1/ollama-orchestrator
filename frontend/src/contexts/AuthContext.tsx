@@ -15,6 +15,8 @@ interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  authEnabled: boolean | null;
+  setupRequired: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
@@ -37,6 +39,8 @@ interface AuthProviderProps {
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authEnabled, setAuthEnabled] = useState<boolean | null>(null);
+  const [setupRequired, setSetupRequired] = useState(false);
 
   const restoreSession = useCallback(async () => {
     try {
@@ -45,8 +49,23 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     } catch (error) {
       console.error('AuthContext: restoreSession failed', error);
       setUser(null);
-    } finally {
-      setIsLoading(false);
+    }
+  }, []);
+
+  const fetchAuthStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/orchestrator/auth/status');
+      if (!response.ok) {
+        throw new Error('status ' + response.status);
+      }
+      const data = (await response.json()) as { enabled: boolean; setupRequired?: boolean };
+      setAuthEnabled(data.enabled);
+      if (data.setupRequired !== undefined) {
+        setSetupRequired(data.setupRequired);
+      }
+    } catch {
+      // API failed - fall back to env var
+      setAuthEnabled(import.meta.env.VITE_ORCHESTRATOR_AUTH_ENABLED !== 'false');
     }
   }, []);
 
@@ -57,8 +76,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   }, []);
 
   useEffect(() => {
-    restoreSession();
-  }, [restoreSession]);
+    // Run both async operations and set isLoading false only after both complete
+    Promise.all([restoreSession(), fetchAuthStatus()]).finally(() => {
+      setIsLoading(false);
+    });
+  }, [restoreSession, fetchAuthStatus]);
 
   const login = async (email: string, password: string) => {
     try {
@@ -98,6 +120,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         user,
         isAuthenticated: !!user,
         isLoading,
+        authEnabled,
+        setupRequired,
         login,
         logout,
         refreshToken,

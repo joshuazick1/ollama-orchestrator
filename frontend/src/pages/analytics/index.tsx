@@ -42,6 +42,7 @@ import { RequestsTab } from './RequestsTab';
 import { RecoveryTab } from './RecoveryTab';
 import { StreamingTab } from './StreamingTab';
 import { TrendsTab } from './TrendsTab';
+export type { TimeRange } from './RollupsTab';
 import { RollupsTab } from './RollupsTab';
 import { TemporalProfileTab } from './TemporalProfileTab';
 

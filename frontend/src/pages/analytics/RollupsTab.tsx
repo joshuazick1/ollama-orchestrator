@@ -19,7 +19,7 @@ interface RollupsTabProps {
   models?: string[];
 }
 
-type TimeRange = '24h' | '7d' | '30d';
+export type TimeRange = '24h' | '7d' | '30d';
 
 function getStartTimeMs(range: TimeRange): number {
   const rangeMs: Record<TimeRange, number> = {
