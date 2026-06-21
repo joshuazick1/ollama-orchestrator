@@ -57,9 +57,8 @@ const PORT = process.env.PORT ?? 5100;
 // Server reference for graceful shutdown
 let server: ReturnType<typeof app.listen> | undefined;
 
-// Get CORS origins from config
+// Config manager singleton (used by dynamic CORS below)
 const configManager = getConfigManager();
-const corsOrigins = configManager.getConfig().security.corsOrigins;
 
 // Generate a unique CSP nonce per request
 app.use((_req, res, next) => {
@@ -105,16 +104,32 @@ app.use((req, res, next) => {
 
 app.use(requestIdMiddleware);
 
-// CORS middleware - use configured origins
+// CORS middleware - dynamic lookup on each request for hot-reload support
 // Empty array = same-origin only (no CORS), ['*'] = all origins, specific = whitelist
-const corsOptions: cors.CorsOptions = {
-  origin: corsOrigins.includes('*') ? true : corsOrigins.length > 0 ? corsOrigins : false,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key'],
-  credentials: corsOrigins.length > 0 && !corsOrigins.includes('*'),
-  maxAge: 86400,
-};
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const corsOrigins = configManager.getConfig().security.corsOrigins;
+      if (corsOrigins.includes('*')) {
+        callback(null, true);
+        return;
+      }
+      if (corsOrigins.length === 0) {
+        callback(null, false);
+        return;
+      }
+      if (origin && corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-API-Key'],
+    credentials: true,
+    maxAge: 86400,
+  })
+);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
