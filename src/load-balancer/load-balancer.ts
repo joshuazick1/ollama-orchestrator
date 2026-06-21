@@ -150,6 +150,10 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     vram: 0.05,
     temporal: 0.1,
     context: 0.05,
+    itl: 0,
+    cacheHit: 0,
+    promptSize: 0,
+    errorType: 0,
   },
   thresholds: {
     maxP95Latency: 5000,
