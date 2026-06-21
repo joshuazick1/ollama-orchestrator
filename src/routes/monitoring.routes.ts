@@ -6,6 +6,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
+import { PERFORMANCE_PROBE_STATUS, PERFORMANCE_PROBE_CANCEL } from '../constants/api-endpoints.js';
 import {
   getTopModels,
   getServerPerformance,
@@ -52,6 +53,7 @@ import {
   getIdleModels,
   getModelStatus,
 } from '../controllers/model-controller.js';
+import { getPerfProbeStatus, cancelPerfProbe } from '../controllers/perf-probe-controller.js';
 import { getFleetModelStats } from '../controllers/server-models-controller.js';
 import {
   getServers,
@@ -173,7 +175,39 @@ monitoringRouter.get(
   '/cluster-status',
   requireAuth(),
   asyncHandler((req: Request, res: Response) => {
-    const status = getOrchestratorInstance().getClusterStatus();
-    res.json({ status: 'ok', data: status });
+    const orchestrator = getOrchestratorInstance();
+    const stats = orchestrator.getStats();
+    const servers = orchestrator.getServers();
+    const circuitBreakerStates = stats.circuitBreakersByState || {};
+    const totalCb =
+      (circuitBreakerStates.UNHEALTHY || 0) +
+      (circuitBreakerStates.HEALTHY || 0) +
+      (circuitBreakerStates.RECOVERING || 0) +
+      (circuitBreakerStates.SUSPECT || 0);
+    const errorRate = totalCb > 0 ? (circuitBreakerStates.UNHEALTHY || 0) / totalCb : 0;
+    res.json({
+      status: 'ok',
+      data: {
+        totalServers: stats.totalServers,
+        healthyServers: stats.healthyServers,
+        degradedServers:
+          (circuitBreakerStates.RECOVERING || 0) + (circuitBreakerStates.SUSPECT || 0),
+        downServers: circuitBreakerStates.UNHEALTHY || 0,
+        averageResponseTime: 0,
+        totalInFlight: stats.inFlightRequests,
+        errorRate,
+        servers: servers.map(s => ({
+          serverId: s.id,
+          status: s.healthy ? 'healthy' : 'down',
+          lastHealthCheck: 0,
+          responseTime: 0,
+          inFlight: 0,
+          errorRate: 0,
+        })),
+      },
+    });
   })
 );
+
+monitoringRouter.get(PERFORMANCE_PROBE_STATUS, requireAuth(), asyncHandler(getPerfProbeStatus));
+monitoringRouter.delete(PERFORMANCE_PROBE_CANCEL, requireAuth(), asyncHandler(cancelPerfProbe));
