@@ -48,7 +48,7 @@ export const Probe = memo(() => {
       setNextProbeCountdown(30);
       queryClient.invalidateQueries({ queryKey: ['allModelsStatus'] });
     },
-    onError: (_error: Error) => {
+    onError: () => {
       toastError('Failed to trigger probe');
     },
   });
