@@ -8,11 +8,7 @@ import { TextInput } from '../components/TextInput';
 
 interface StorageTabProps {
   config: OrchestratorConfig;
-  onUpdateField: <K extends keyof OrchestratorConfig>(
-    section: K,
-    field: keyof OrchestratorConfig[K] | null,
-    value: unknown
-  ) => void;
+  onUpdateField: (section: string, field: string | null, value: unknown) => void;
 }
 
 export const StorageTab = memo<StorageTabProps>(({ config, onUpdateField }) => {
@@ -47,8 +43,7 @@ export const StorageTab = memo<StorageTabProps>(({ config, onUpdateField }) => {
               label="Database Path"
               value={storage.dbPath ?? './data/metrics.db'}
               onChange={(value: unknown) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (onUpdateField as any)('storage', 'dbPath', value);
+                onUpdateField('storage', 'dbPath', value);
               }}
               description="Path to the SQLite database file"
             />
@@ -62,8 +57,7 @@ export const StorageTab = memo<StorageTabProps>(({ config, onUpdateField }) => {
               label="Requests"
               value={storage.retention?.requests ?? 30}
               onChange={value => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (onUpdateField as any)('storage', 'retention', {
+                onUpdateField('storage', 'retention', {
                   ...storage.retention,
                   requests: value,
                 });
@@ -75,8 +69,7 @@ export const StorageTab = memo<StorageTabProps>(({ config, onUpdateField }) => {
               label="Decisions"
               value={storage.retention?.decisions ?? 30}
               onChange={value => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (onUpdateField as any)('storage', 'retention', {
+                onUpdateField('storage', 'retention', {
                   ...storage.retention,
                   decisions: value,
                 });
@@ -88,8 +81,7 @@ export const StorageTab = memo<StorageTabProps>(({ config, onUpdateField }) => {
               label="Rollups"
               value={storage.retention?.rollups ?? 90}
               onChange={value => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (onUpdateField as any)('storage', 'retention', {
+                onUpdateField('storage', 'retention', {
                   ...storage.retention,
                   rollups: value,
                 });
@@ -107,8 +99,7 @@ export const StorageTab = memo<StorageTabProps>(({ config, onUpdateField }) => {
               label="Batch Size"
               value={storage.performance?.batchSize ?? 100}
               onChange={value => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (onUpdateField as any)('storage', 'performance', {
+                onUpdateField('storage', 'performance', {
                   ...storage.performance,
                   batchSize: value,
                 });
@@ -120,8 +111,7 @@ export const StorageTab = memo<StorageTabProps>(({ config, onUpdateField }) => {
               label="Batch Flush Interval"
               value={storage.performance?.batchFlushIntervalMs ?? 100}
               onChange={value => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (onUpdateField as any)('storage', 'performance', {
+                onUpdateField('storage', 'performance', {
                   ...storage.performance,
                   batchFlushIntervalMs: value,
                 });
