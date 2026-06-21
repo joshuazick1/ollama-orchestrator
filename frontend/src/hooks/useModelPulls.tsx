@@ -215,7 +215,7 @@ export function ModelPullsProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <ModelPullsContext.Provider value={{ store: storeRef, startPull, cancelPull, dismissPull }}>
+    <ModelPullsContext.Provider value={{ storeRef, startPull, cancelPull, dismissPull }}>
       {children}
     </ModelPullsContext.Provider>
   );

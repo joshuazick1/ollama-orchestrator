@@ -72,7 +72,7 @@ export function useLiveUpdates(options?: UseLiveUpdatesOptions): UseLiveUpdatesR
 
   return {
     status,
-    lastMessage,
+    lastMessage: lastMessage as LiveUpdateMessage | null,
     isLive: status === 'connected',
   };
 }

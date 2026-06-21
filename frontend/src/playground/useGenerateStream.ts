@@ -3,6 +3,7 @@ import { useState, useCallback, useRef } from 'react';
 export interface GenerateStreamOptions {
   temperature?: number;
   max_tokens?: number;
+  num_predict?: number;
   top_p?: number;
   top_k?: number;
   stop?: string[];

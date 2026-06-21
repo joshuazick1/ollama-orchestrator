@@ -251,7 +251,7 @@ export const StreamingTab = ({ metricsData }: StreamingTabProps) => {
                     color: uiColors.textLight,
                     borderRadius: '0.5rem',
                   }}
-                  formatter={(value: number) => [`${Math.round(value)}ms`, 'TTFT']}
+                  formatter={(value: number | undefined) => [`${Math.round(value ?? 0)}ms`, 'TTFT']}
                 />
                 <Bar dataKey="value" name="TTFT" radius={[0, 4, 4, 0]}>
                   {[chartColors.green, chartColors.yellow, chartColors.red].map((color, index) => (

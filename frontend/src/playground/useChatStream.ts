@@ -3,6 +3,7 @@ import { useState, useCallback, useRef } from 'react';
 export interface ChatStreamOptions {
   temperature?: number;
   max_tokens?: number;
+  num_predict?: number;
   top_p?: number;
   stop?: string[];
 }

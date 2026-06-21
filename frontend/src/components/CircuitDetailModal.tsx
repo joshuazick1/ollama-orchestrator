@@ -200,7 +200,35 @@ export const CircuitDetailModal = ({
             <CircuitMetricsTab metricsData={metricsData} />
           </TabsContent>
           <TabsContent value="streaming" className="flex-1 overflow-y-auto p-6 mt-0">
-            <CircuitHistoryTab metricsData={metricsData} />
+            <CircuitHistoryTab
+              metricsData={
+                metricsData as unknown as {
+                  metrics?: {
+                    historical?: Record<
+                      string,
+                      {
+                        streamingMetrics?: {
+                          avgTTFT?: number;
+                          avgTotalDuration?: number;
+                          avgStreamingDuration?: number;
+                          totalTokens?: number;
+                          avgChunkCount?: number;
+                          avgChunkSizeBytes?: number;
+                        };
+                      }
+                    >;
+                    streamingMetrics?: {
+                      avgTTFT?: number;
+                      avgTotalDuration?: number;
+                      avgStreamingDuration?: number;
+                      totalTokens?: number;
+                      avgChunkCount?: number;
+                      avgChunkSizeBytes?: number;
+                    };
+                  };
+                }
+              }
+            />
           </TabsContent>
           <TabsContent value="history" className="flex-1 overflow-y-auto p-6 mt-0">
             <CircuitDecisionsTab serverId={serverId} model={model} />

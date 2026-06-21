@@ -249,7 +249,6 @@ export type {
   LoadedModel,
   AIServer,
   ServerModelBenchmark,
-  CircuitBreakerInfo,
   MetricDataPoint,
   MetricsWindow,
   LatencyPercentiles,

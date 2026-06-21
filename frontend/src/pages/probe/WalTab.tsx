@@ -203,7 +203,7 @@ export const WalTab = memo(() => {
           </div>
           <div className="flex items-center gap-2">
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={page === 0}
@@ -214,7 +214,7 @@ export const WalTab = memo(() => {
               Page {page + 1} of {totalPages}
             </span>
             <Button
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}

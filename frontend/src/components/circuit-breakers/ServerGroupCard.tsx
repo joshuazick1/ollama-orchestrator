@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { ChevronDown, ChevronRight, Server, Shield } from 'lucide-react';
-import type { CircuitBreakerInfo } from '../../../api';
+import type { CircuitBreakerInfo } from '../../api';
 import { CircuitBreakerCard } from './CircuitBreakerCard';
 
 interface GroupedBreakers {

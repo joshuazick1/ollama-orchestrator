@@ -1,19 +1,19 @@
 // Extracted from Servers.tsx - ServerFilters component
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Plus } from 'lucide-react';
 import { DataToolbar } from '../../components/DataToolbar';
 import { Button } from '../../components/Button';
 
-interface SortConfig {
+type SortConfig = {
   key: string;
   direction: 'asc' | 'desc';
-}
+};
 
 interface ServerFiltersProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  sortConfig: SortConfig;
-  onSortChange: (config: SortConfig) => void;
+  sortConfig?: SortConfig | null;
+  onSortChange: (key: string) => void;
   filters: Record<string, string>;
   onFilterChange: (key: string, value: string) => void;
   groupConfig: 'none' | 'version' | 'healthy';

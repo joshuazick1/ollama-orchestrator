@@ -2,7 +2,7 @@ import { screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '../../../__tests__/setup';
 import { ServerCard } from '../ServerCard';
-import type { AIServer } from '../../types';
+import type { AIServer } from '../../../types';
 
 vi.mock('../ServerActionsMenu', () => ({
   ServerActionsMenu: vi.fn(() => <div data-testid="server-actions-menu">Actions Menu</div>),

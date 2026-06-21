@@ -1,16 +1,14 @@
 // Extracted from Servers.tsx - ServerCard component
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { ServerActionsMenu } from './ServerActionsMenu';
 import { Server as ServerIcon, Trash2, Download, CheckCircle, XCircle } from 'lucide-react';
-import type { AIServer, MetricsSummarySnapshot } from '../../types';
+import type { AIServer, MetricsExport } from '../../types';
 
 interface ServerCardProps {
   server: AIServer;
-  metricsData?: {
-    servers?: Record<string, MetricsSummarySnapshot>;
-  };
+  metricsData?: MetricsExport;
   expandedServerId: string | null;
   setExpandedServerId: (id: string | null) => void;
   isServerPulling: (serverId: string) => boolean;

@@ -43,13 +43,13 @@ export const Probe = memo(() => {
   const triggerProbeMutation = useMutation({
     mutationFn: triggerHealthCheck,
     onSuccess: () => {
-      toastSuccess('Capability probe triggered', 'Health check started');
+      toastSuccess('Capability probe triggered');
       setLastProbeTime(Date.now());
       setNextProbeCountdown(30);
       queryClient.invalidateQueries({ queryKey: ['allModelsStatus'] });
     },
-    onError: (error: Error) => {
-      toastError('Failed to trigger probe', error.message);
+    onError: (_error: Error) => {
+      toastError('Failed to trigger probe');
     },
   });
 

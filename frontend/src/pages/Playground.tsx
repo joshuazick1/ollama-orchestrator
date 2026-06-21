@@ -92,7 +92,7 @@ export const Playground = () => {
                       No models available
                     </SelectItem>
                   ) : (
-                    availableModels.map(m => (
+                    availableModels.map((m: string) => (
                       <SelectItem key={m} value={m}>
                         {m}
                       </SelectItem>
