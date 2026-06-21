@@ -13,6 +13,16 @@ export interface LoadBalancerWeights {
   successRate: number;
   load: number;
   capacity: number;
+  circuitBreaker: number;
+  timeout: number;
+  throughput: number;
+  vram: number;
+  temporal: number;
+  context: number;
+  itl: number;
+  cacheHit: number;
+  promptSize: number;
+  errorType: number;
 }
 
 export interface LoadBalancerThresholds {
@@ -20,6 +30,7 @@ export interface LoadBalancerThresholds {
   minSuccessRate: number;
   latencyPenalty: number;
   errorPenalty: number;
+  circuitBreakerPenalty: number;
 }
 
 export interface LoadBalancerStreaming {
@@ -56,6 +67,35 @@ export interface LoadBalancerLeastConnections {
   failureRatePenalty: number;
 }
 
+export interface LoadBalancerPrefixCacheAware {
+  enabled: boolean;
+  hashTokenCount: number;
+  hashBuckets: number;
+}
+
+export interface LoadBalancerSloFallback {
+  enabled: boolean;
+  ttftThresholdMs: number;
+  p95WindowMs: number;
+}
+
+export interface LoadBalancerTokenWeightedLoad {
+  enabled: boolean;
+  promptTokenWeight: number;
+  outputTokenWeight: number;
+}
+
+export interface LoadBalancerColdStartMagnitude {
+  enabled: boolean;
+  thresholdMs: number;
+  penaltyDurationMs: number;
+}
+
+export interface LoadBalancerGhostServers {
+  staleThresholdMs: number;
+  removeOnCleanup: boolean;
+}
+
 export interface LoadBalancerConfig {
   weights: LoadBalancerWeights;
   thresholds: LoadBalancerThresholds;
@@ -68,6 +108,12 @@ export interface LoadBalancerConfig {
   roundRobin: LoadBalancerRoundRobin;
   leastConnections: LoadBalancerLeastConnections;
   crossModelInference: LoadBalancerCrossModelInference;
+  fallbackToFastestResponse: boolean;
+  prefixCacheAware: LoadBalancerPrefixCacheAware;
+  sloFallback: LoadBalancerSloFallback;
+  tokenWeightedLoad: LoadBalancerTokenWeightedLoad;
+  coldStartMagnitude: LoadBalancerColdStartMagnitude;
+  ghostServers: LoadBalancerGhostServers;
 }
 
 export interface CircuitBreakerErrorPatterns {
@@ -75,11 +121,12 @@ export interface CircuitBreakerErrorPatterns {
   transient: string[];
 }
 
-export interface CircuitBreakerModelEscalation {
-  enabled: boolean;
-  ratioThreshold: number;
-  durationThresholdMs: number;
-  checkIntervalMs: number;
+export interface CircuitBreakerBackoff {
+  standardDelaysMs: number[];
+  permanentDelaysMs: number[];
+  rateLimitBaseMs: number;
+  rateLimitMultiplier: number;
+  rateLimitMaxMs: number;
 }
 
 export interface CircuitBreakerConfig {
@@ -89,6 +136,8 @@ export interface CircuitBreakerConfig {
   openTimeout: number;
   halfOpenTimeout: number;
   recoverySuccessThreshold: number;
+  activeTestTimeout: number;
+  maxHalfOpenPerServer: number;
   errorRateWindow: number;
   errorRateThreshold: number;
   adaptiveThresholds: boolean;
@@ -97,13 +146,15 @@ export interface CircuitBreakerConfig {
   adaptiveThresholdAdjustment: number;
   nonRetryableRatioThreshold: number;
   transientRatioThreshold: number;
-  modelEscalation: CircuitBreakerModelEscalation | undefined;
+  rateLimitFailureThreshold: number;
+  backoff?: CircuitBreakerBackoff;
 }
 
 export interface SecurityConfig {
   corsOrigins: string[];
   rateLimitWindowMs: number;
   rateLimitMax: number;
+  authMustBeEnabled: boolean;
   apiKeyHeader?: string;
   apiKeys?: string[];
   adminApiKeys?: string[];
@@ -120,7 +171,9 @@ export interface MetricsConfig {
   enabled: boolean;
   prometheusEnabled: boolean;
   prometheusPort: number;
-  historyWindowMinutes: number;
+  batchFlushIntervalMs: number;
+  pruneIntervalMs: number;
+  maxEntries: number;
   decay: MetricsDecay;
 }
 
@@ -147,8 +200,6 @@ export interface HealthCheckConfig {
   retryAttempts: number;
   retryDelayMs: number;
   recoveryIntervalMs: number;
-  failureThreshold: number;
-  successThreshold: number;
   backoffMultiplier: number;
 }
 
@@ -157,6 +208,7 @@ export interface TagsConfig {
   maxConcurrentRequests: number;
   batchDelayMs: number;
   requestTimeoutMs: number;
+  maxCachedModels: number;
 }
 
 export interface RetryConfig {
@@ -165,11 +217,104 @@ export interface RetryConfig {
   backoffMultiplier: number;
   maxRetryDelayMs: number;
   retryableStatusCodes: number[];
+  jitterFactor: number;
+  maxBudget: number;
+}
+
+export interface RateLimitConfig {
+  defaultRetryAfterMs: number;
+  maxRetryAfterMs: number;
+  enableRetryAfterHeader: boolean;
+  jitterFactor: number;
 }
 
 export interface CooldownConfig {
   failureCooldownMs: number;
   defaultMaxConcurrency: number;
+}
+
+export interface RecoveryTestConfig {
+  serverCooldownMs: number;
+  maxWaitForInFlightMs: number;
+  modelTestTimeoutMs: number;
+  tagsTestTimeoutMs: number;
+  testPromptTokens: number;
+}
+
+export interface TimeoutConfig {
+  defaultTimeoutMs: number;
+  minTimeoutMs: number;
+  maxTimeoutMs: number;
+  recoveryTestMultiplier: number;
+  normalRequestMultiplier: number;
+  decayRatePerMs: number;
+  stallThresholdMultiplier: number;
+  stallThresholdCapMs: number;
+}
+
+export interface ProbeSchedulerConfig {
+  enabled: boolean;
+  intervalMs: number;
+  maxConcurrentProbes: number;
+  maxProbesPerServer: number;
+  probeTimeoutMs: number;
+  cooldownAfterUserRequestMs: number;
+  minSamplesForCoverage: number;
+  onlyDuringLowTraffic: boolean;
+  lowTrafficThreshold: number;
+}
+
+export interface ProbeConfig {
+  enabled: boolean;
+  intervalMs: number;
+  suspectAfterFailures: number;
+  unhealthyAfterFailures: number;
+  errorRateSuspectThreshold: number;
+  errorRateUnhealthyThreshold: number;
+  suspectWindowMs: number;
+  recoveryBackoffMs: number[];
+  recoverySuccessThreshold: number;
+  probeTimeoutMs: number;
+  maxConcurrentProbes: number;
+  snapshotIntervalMs: number;
+  walTruncateThreshold: number;
+}
+
+export interface CapabilityProbeConfig {
+  enabled: boolean;
+  intervalMs: number;
+  consecutiveFailureThreshold: number;
+  requestTimeoutMs: number;
+  staggerOffsetMs: number;
+  allowPrivateNetwork: boolean;
+}
+
+export interface DebugConfig {
+  streamProgress: boolean;
+}
+
+export interface AnthropicConfig {
+  enabled: boolean;
+  apiKey?: string;
+  supportedFeatures: string[];
+}
+
+export interface ErrorAggregatorConfig {
+  enabled: boolean;
+  rateLimitThreshold: number;
+  timeWindowMs: number;
+  clusterBackoffMs: number;
+}
+
+export interface AdaptiveWeightTunerConfig {
+  enabled: boolean;
+}
+
+export interface RecoveryBackoffConfig {
+  modelCapability: number[];
+  modelFile: number[];
+  permanent: number[];
+  standard: number[];
 }
 
 export interface ModelManagerLoadTimeEstimates {
@@ -190,6 +335,16 @@ export interface ModelManagerConfig {
   gbPerBillionParams: number;
   defaultModelSizeGb: number;
   loadTimeEstimates: ModelManagerLoadTimeEstimates;
+  contextLimitTtlMs: number;
+}
+
+export interface StorageTemporalConfig {
+  enabled: boolean;
+  minConfidence: number;
+  maxAdjustment: number;
+  shadowMode: boolean;
+  modelFallbackConfidence: number;
+  serverFallbackConfidence: number;
 }
 
 export interface StorageConfig {
@@ -207,6 +362,7 @@ export interface StorageConfig {
     profileRebuildIntervalMs: number;
     retentionCheckIntervalMs: number;
   };
+  temporal: StorageTemporalConfig;
 }
 
 export interface OrchestratorConfig {
@@ -222,6 +378,8 @@ export interface OrchestratorConfig {
   enableStreaming: boolean;
   enablePersistence: boolean;
 
+  inferenceTimeoutMs: number;
+
   // Sub-configurations
   queue: QueueConfig;
   loadBalancer: LoadBalancerConfig;
@@ -233,7 +391,19 @@ export interface OrchestratorConfig {
   tags: TagsConfig;
   retry: RetryConfig;
   cooldown: CooldownConfig;
+  rateLimit: RateLimitConfig;
   modelManager: ModelManagerConfig;
+  recoveryTest: RecoveryTestConfig;
+  timeout: TimeoutConfig;
+  storage: StorageConfig;
+  probeScheduler: ProbeSchedulerConfig;
+  probe?: ProbeConfig;
+  capabilityProbe: CapabilityProbeConfig;
+  debug: DebugConfig;
+  anthropic: AnthropicConfig;
+  errorAggregator: ErrorAggregatorConfig;
+  adaptiveWeightTuner: AdaptiveWeightTunerConfig;
+  recoveryBackoff: RecoveryBackoffConfig;
 
   // Ollama servers
   servers: AIServer[];
@@ -241,7 +411,6 @@ export interface OrchestratorConfig {
   // Persistence
   persistencePath: string;
   configReloadIntervalMs: number;
-  storage?: StorageConfig;
 }
 
 // Shared types — sourced from backend via scripts/sync-types.sh

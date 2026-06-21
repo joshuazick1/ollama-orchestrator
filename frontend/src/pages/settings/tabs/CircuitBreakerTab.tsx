@@ -21,10 +21,16 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
     openTimeout: 120000,
     halfOpenTimeout: 300000,
     recoverySuccessThreshold: 3,
+    activeTestTimeout: 300000,
+    maxHalfOpenPerServer: 3,
     errorRateWindow: 60000,
-    errorRateThreshold: 0.3,
+    errorRateThreshold: 0.5,
     adaptiveThresholds: true,
     errorRateSmoothing: 0.3,
+    adaptiveThresholdAdjustment: 2,
+    nonRetryableRatioThreshold: 0.5,
+    transientRatioThreshold: 0.7,
+    rateLimitFailureThreshold: 2,
   };
 
   return (
@@ -50,6 +56,13 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               onChange={value => onUpdateField('circuitBreaker', 'maxFailureThreshold', value)}
               min={1}
               description="Maximum adaptive threshold"
+            />
+            <NumberInput
+              label="Min Failure Threshold"
+              value={cb.minFailureThreshold ?? 3}
+              onChange={value => onUpdateField('circuitBreaker', 'minFailureThreshold', value)}
+              min={1}
+              description="Minimum adaptive threshold"
             />
             <NumberInput
               label="Recovery Success Threshold"
@@ -83,13 +96,22 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               description="Time in half-open before reverting"
             />
             <NumberInput
-              label="Error Rate Window"
-              value={cb.errorRateWindow ?? 60000}
-              onChange={value => onUpdateField('circuitBreaker', 'errorRateWindow', value)}
-              min={1000}
+              label="Active Test Timeout"
+              value={cb.activeTestTimeout ?? 300000}
+              onChange={value => onUpdateField('circuitBreaker', 'activeTestTimeout', value)}
+              min={5000}
+              max={600000}
               step={1000}
               suffix="ms"
-              description="Time window for error rate calculation"
+              description="Timeout for active recovery tests"
+            />
+            <NumberInput
+              label="Max Half-Open Per Server"
+              value={cb.maxHalfOpenPerServer ?? 3}
+              onChange={value => onUpdateField('circuitBreaker', 'maxHalfOpenPerServer', value)}
+              min={1}
+              max={20}
+              description="Max half-open requests per server"
             />
           </div>
         </div>
@@ -99,13 +121,31 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <NumberInput
               label="Error Rate Threshold"
-              value={(cb.errorRateThreshold ?? 0.3) * 100}
+              value={(cb.errorRateThreshold ?? 0.5) * 100}
               onChange={value => onUpdateField('circuitBreaker', 'errorRateThreshold', value / 100)}
               min={0}
               max={100}
               step={1}
               suffix="%"
               description="Error rate that triggers open state"
+            />
+            <NumberInput
+              label="Error Rate Window"
+              value={cb.errorRateWindow ?? 60000}
+              onChange={value => onUpdateField('circuitBreaker', 'errorRateWindow', value)}
+              min={1000}
+              step={1000}
+              suffix="ms"
+              description="Time window for error rate calculation"
+            />
+            <NumberInput
+              label="Error Rate Smoothing"
+              value={cb.errorRateSmoothing ?? 0.3}
+              onChange={value => onUpdateField('circuitBreaker', 'errorRateSmoothing', value)}
+              min={0}
+              max={1}
+              step={0.05}
+              description="Smoothing factor for error rate"
             />
           </div>
         </div>
@@ -119,6 +159,50 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               onChange={value => onUpdateField('circuitBreaker', 'adaptiveThresholds', value)}
               description="Dynamically adjust thresholds based on conditions"
             />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NumberInput
+                label="Adaptive Threshold Adjustment"
+                value={cb.adaptiveThresholdAdjustment ?? 2}
+                onChange={value =>
+                  onUpdateField('circuitBreaker', 'adaptiveThresholdAdjustment', value)
+                }
+                min={1}
+                max={10}
+                description="Step size for adaptive threshold adjustment"
+              />
+              <NumberInput
+                label="Non-Retryable Ratio Threshold"
+                value={cb.nonRetryableRatioThreshold ?? 0.5}
+                onChange={value =>
+                  onUpdateField('circuitBreaker', 'nonRetryableRatioThreshold', value)
+                }
+                min={0}
+                max={1}
+                step={0.05}
+                description="Non-retryable error ratio threshold"
+              />
+              <NumberInput
+                label="Transient Ratio Threshold"
+                value={cb.transientRatioThreshold ?? 0.7}
+                onChange={value =>
+                  onUpdateField('circuitBreaker', 'transientRatioThreshold', value)
+                }
+                min={0}
+                max={1}
+                step={0.05}
+                description="Transient error ratio threshold"
+              />
+              <NumberInput
+                label="Rate Limit Failure Threshold"
+                value={cb.rateLimitFailureThreshold ?? 2}
+                onChange={value =>
+                  onUpdateField('circuitBreaker', 'rateLimitFailureThreshold', value)
+                }
+                min={1}
+                max={20}
+                description="Failures before rate limit triggers"
+              />
+            </div>
           </div>
         </div>
       </div>

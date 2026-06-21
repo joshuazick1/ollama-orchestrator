@@ -18,6 +18,7 @@ import type {
   CapabilityProbeConfig,
   DebugConfig,
   ProbeConfig,
+  QueueConfig,
   RecoveryBackoffConfig,
 } from './schema.js';
 import { validatePartialConfig } from './schema.js';
@@ -224,6 +225,7 @@ export interface OrchestratorConfig {
   inferenceTimeoutMs: number;
 
   // Sub-configurations
+  queue: QueueConfig;
   loadBalancer: LoadBalancerConfig;
   circuitBreaker: CircuitBreakerConfig;
   security: SecurityConfig;
@@ -268,6 +270,14 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   enablePersistence: true,
 
   inferenceTimeoutMs: 90000,
+
+  queue: {
+    maxSize: 1000,
+    timeout: 300000,
+    priorityBoostInterval: 5000,
+    priorityBoostAmount: 5,
+    maxPriority: 100,
+  },
 
   loadBalancer: {
     weights: {
@@ -989,6 +999,7 @@ export class ConfigManager {
       enableStreaming: partial.enableStreaming ?? DEFAULT_CONFIG.enableStreaming,
       enablePersistence: partial.enablePersistence ?? DEFAULT_CONFIG.enablePersistence,
       inferenceTimeoutMs: partial.inferenceTimeoutMs ?? DEFAULT_CONFIG.inferenceTimeoutMs,
+      queue: { ...DEFAULT_CONFIG.queue, ...partial.queue },
       loadBalancer: { ...DEFAULT_CONFIG.loadBalancer, ...partial.loadBalancer },
       circuitBreaker: { ...DEFAULT_CONFIG.circuitBreaker, ...partial.circuitBreaker },
       security: { ...DEFAULT_CONFIG.security, ...partial.security },

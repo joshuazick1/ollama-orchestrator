@@ -19,7 +19,9 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
     enabled: true,
     prometheusEnabled: true,
     prometheusPort: 9090,
-    historyWindowMinutes: 60,
+    batchFlushIntervalMs: 100,
+    pruneIntervalMs: 300000,
+    maxEntries: 100000,
     decay: {
       enabled: true,
       halfLifeMs: 300000,
@@ -71,14 +73,32 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 description="Port for Prometheus scrape endpoint"
               />
               <NumberInput
-                label="History Window"
-                value={metrics.historyWindowMinutes ?? 60}
-                onChange={value => onUpdateField('metrics', 'historyWindowMinutes', value)}
+                label="Batch Flush Interval"
+                value={metrics.batchFlushIntervalMs ?? 100}
+                onChange={value => onUpdateField('metrics', 'batchFlushIntervalMs', value)}
+                min={100}
+                step={10}
+                suffix="ms"
+                description="Max ms between forced flushes"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NumberInput
+                label="Prune Interval"
+                value={metrics.pruneIntervalMs ?? 300000}
+                onChange={value => onUpdateField('metrics', 'pruneIntervalMs', value)}
+                min={0}
+                step={10000}
+                suffix="ms"
+                description="Interval for pruning old metrics (0 to disable)"
+              />
+              <NumberInput
+                label="Max Entries"
+                value={metrics.maxEntries ?? 100000}
+                onChange={value => onUpdateField('metrics', 'maxEntries', value)}
                 min={1}
-                max={1440}
-                step={5}
-                suffix="min"
-                description="Metrics retention window"
+                step={1000}
+                description="Maximum metric entries"
               />
             </div>
           </div>
@@ -115,6 +135,17 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 step={10000}
                 suffix="ms"
                 description="Mark metrics as stale after this duration"
+              />
+              <NumberInput
+                label="Min Decay Factor"
+                value={decay.minDecayFactor ?? 0.1}
+                onChange={value =>
+                  onUpdateField('metrics', 'decay', { ...decay, minDecayFactor: value })
+                }
+                min={0}
+                max={1}
+                step={0.01}
+                description="Minimum decay factor floor"
               />
             </div>
           </div>

@@ -85,12 +85,30 @@ export const HealthCheckTab = memo<HealthCheckTabProps>(({ config, onUpdateField
               description="Maximum simultaneous health checks"
             />
             <NumberInput
-              label="Failure Threshold"
-              value={hc.failureThreshold ?? 3}
-              onChange={value => onUpdateField('healthCheck', 'failureThreshold', value)}
+              label="Retry Attempts"
+              value={hc.retryAttempts ?? 2}
+              onChange={value => onUpdateField('healthCheck', 'retryAttempts', value)}
+              min={0}
+              max={10}
+              description="Number of retries per server"
+            />
+            <NumberInput
+              label="Retry Delay"
+              value={hc.retryDelayMs ?? 1000}
+              onChange={value => onUpdateField('healthCheck', 'retryDelayMs', value)}
+              min={100}
+              step={100}
+              suffix="ms"
+              description="Delay between retries"
+            />
+            <NumberInput
+              label="Backoff Multiplier"
+              value={hc.backoffMultiplier ?? 1.5}
+              onChange={value => onUpdateField('healthCheck', 'backoffMultiplier', value)}
               min={1}
-              max={20}
-              description="Failures before marking server unhealthy"
+              max={10}
+              step={0.1}
+              description="Exponential backoff multiplier"
             />
           </div>
         </div>
