@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from 'fs';
 
+import { getConfigManager } from '../config/config.js';
 import { safeJsonStringify } from './json-utils.js';
 
 interface LogEntry {
@@ -163,3 +164,11 @@ export const logger = {
     return 'info';
   },
 };
+
+export function initLoggerConfigSubscription(): void {
+  getConfigManager().onChange(config => {
+    if (config.logLevel) {
+      logger.setLevel(config.logLevel);
+    }
+  });
+}

@@ -5,10 +5,9 @@
 
 import type { Response } from 'express';
 
-import { getConfigManager } from '../config/config.js';
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
-import { streamResponse } from '../streaming.js';
+import { getStreamingConfig, streamResponse } from '../streaming.js';
 import { fetchWithActivityTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
 
@@ -42,14 +41,14 @@ export async function performStreamHandoff(handoffRequest: HandoffRequest): Prom
     stallThresholdMs: handoffStallThreshold,
     stallCheckIntervalMs: handoffStallCheckInterval,
   } = handoffRequest;
-  const config = getConfigManager().getConfig();
-  const maxHandoffAttempts = config.streaming.maxHandoffAttempts;
+  const streamingConfig = getStreamingConfig();
+  const maxHandoffAttempts = streamingConfig.maxHandoffAttempts;
 
   // Default stall detection parameters for the handoff stream.
   // Use provided values, or fall back to config defaults.
-  const effectiveStallThreshold = handoffStallThreshold ?? config.streaming.stallThresholdMs;
+  const effectiveStallThreshold = handoffStallThreshold ?? streamingConfig.stallThresholdMs;
   const effectiveStallCheckInterval =
-    handoffStallCheckInterval ?? config.streaming.stallCheckIntervalMs;
+    handoffStallCheckInterval ?? streamingConfig.stallCheckIntervalMs;
 
   logger.info('Attempting stream handoff', {
     requestId: originalRequest.id,

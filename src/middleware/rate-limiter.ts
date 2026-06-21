@@ -133,22 +133,66 @@ export function createAuthRateLimiter(): any {
 
 /**
  * Inference endpoint rate limiter - protects /api and /v1 inference routes
- * from abuse while allowing reasonable throughput for legitimate usage
+ * from abuse while allowing reasonable throughput for legitimate usage.
+ *
+ * This implementation reads config dynamically on every request so that
+ * rateLimitMax and rateLimitWindowMs changes take effect without restart.
  */
+const inferenceRequestCounts: Map<string, { count: number; resetAt: number }> = new Map();
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createInferenceRateLimiter(): any {
-  const config = getConfigManager().getConfig();
-  return createRateLimiter({
-    enabled: true,
-    windowMs: config.security.rateLimitWindowMs,
-    maxRequests: config.security.rateLimitMax,
-    skipSuccessfulRequests: false,
-    keyGenerator: defaultKeyGenerator,
-    skip: (req: Request) => {
-      if (req.path === '/health' || req.path === '/metrics') {
-        return true;
-      }
-      return false;
-    },
-  });
+  return (req: Request, res: Response, next: () => void) => {
+    // Skip health and metrics endpoints
+    if (req.path === '/health' || req.path === '/metrics') {
+      return next();
+    }
+
+    // Read CURRENT config on every request (hot-reloadable)
+    const config = getConfigManager().getConfig();
+    const max = config.security?.rateLimitMax ?? 100;
+    const windowMs = config.security?.rateLimitWindowMs ?? 60000;
+    const windowSeconds = Math.ceil(windowMs / 1000);
+
+    const key = defaultKeyGenerator(req);
+    const now = Date.now();
+    const entry = inferenceRequestCounts.get(key);
+
+    // Initialize or reset window
+    if (!entry || entry.resetAt < now) {
+      inferenceRequestCounts.set(key, { count: 1, resetAt: now + windowMs });
+      res.setHeader('RateLimit-Policy', `${max};w=${windowSeconds}`);
+      res.setHeader('RateLimit-Limit', max.toString());
+      res.setHeader('RateLimit-Remaining', (max - 1).toString());
+      return next();
+    }
+
+    entry.count++;
+
+    if (entry.count > max) {
+      // Rate limit exceeded
+      res.setHeader('RateLimit-Policy', `${max};w=${windowSeconds}`);
+      res.setHeader('RateLimit-Limit', max.toString());
+      res.setHeader('RateLimit-Remaining', '0');
+      res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000).toString());
+
+      logger.warn(`Rate limit exceeded for ${req.ip}`, {
+        path: req.path,
+        method: req.method,
+        configuredMax: max,
+      });
+
+      return res.status(429).json({
+        error: 'Too many requests',
+        message: 'Rate limit exceeded. Please try again later.',
+        retryAfter: Math.ceil((entry.resetAt - now) / 1000),
+      });
+    }
+
+    // Within limit
+    res.setHeader('RateLimit-Policy', `${max};w=${windowSeconds}`);
+    res.setHeader('RateLimit-Limit', max.toString());
+    res.setHeader('RateLimit-Remaining', (max - entry.count).toString());
+    return next();
+  };
 }

@@ -45,7 +45,8 @@ import { setupRouter } from './routes/setup.routes.js';
 import { getMetricsStore } from './storage/metrics-store.js';
 import { getUserStore } from './storage/user-store.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
-import { logger } from './utils/logger.js';
+import { initLoggerConfigSubscription, logger } from './utils/logger.js';
+import { initAuthConfigSubscription } from './middleware/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -142,6 +143,9 @@ app.use((req, _res, next) => {
 // Initialize orchestrator
 const orchestrator = getOrchestratorInstance();
 logger.info('Orchestrator initialized');
+
+initAuthConfigSubscription();
+initLoggerConfigSubscription();
 
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;

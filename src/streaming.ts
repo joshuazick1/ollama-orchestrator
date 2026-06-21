@@ -5,6 +5,8 @@
 
 import type { Response } from 'express';
 
+import { getConfigManager } from './config/config.js';
+import type { StreamingConfig } from './config/config.js';
 import { TTFTTracker, type TTFTOptions } from './metrics/ttft-tracker.js';
 import { sleep } from './utils/async-helpers.js';
 import { calculateBackoff } from './utils/backoff/index.js';
@@ -100,6 +102,31 @@ export interface OllamaStreamChunk {
   /** Set to true in the final chunk when truncated due to max_tokens */
   truncated?: boolean;
 }
+
+let cachedStreamingConfig: StreamingConfig = {
+  enabled: true,
+  maxConcurrentStreams: 100,
+  timeoutMs: 300000,
+  bufferSize: 1024,
+  activityTimeoutMs: 60000,
+  stallThresholdMs: 300000,
+  stallCheckIntervalMs: 10000,
+  maxHandoffAttempts: 3,
+};
+
+export function updateStreamingConfig(streaming: StreamingConfig): void {
+  cachedStreamingConfig = streaming;
+}
+
+export function getStreamingConfig(): StreamingConfig {
+  return cachedStreamingConfig;
+}
+
+getConfigManager().onChange(config => {
+  if (config.streaming) {
+    updateStreamingConfig(config.streaming);
+  }
+});
 
 function parseStreamChunk(chunk: Uint8Array): {
   done?: boolean;

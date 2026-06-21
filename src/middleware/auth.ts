@@ -12,6 +12,7 @@ import { timingSafeEqual } from 'crypto';
 
 import type { Request, Response, NextFunction } from 'express';
 
+import { getConfigManager } from '../config/config.js';
 import { verifyAccessToken } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
 
@@ -302,6 +303,14 @@ export function optionalAuth(
 
     next();
   };
+}
+
+export function initAuthConfigSubscription(): void {
+  getConfigManager().onChange(config => {
+    if (config.security) {
+      refreshAuthConfig();
+    }
+  });
 }
 
 /**
