@@ -1,8 +1,15 @@
 import { memo } from 'react';
 import { Zap } from 'lucide-react';
+import { z } from 'zod';
 import type { OrchestratorConfig } from '../../../api';
 import { ConfigSection } from '../components';
 import { NumberInput } from '../components/NumberInput';
+
+const maxSizeSchema = z.number().int().min(1).max(10000);
+const timeoutSchema = z.number().int().min(1000);
+const priorityBoostIntervalSchema = z.number().int().min(1000);
+const priorityBoostAmountSchema = z.number().int().min(1);
+const maxPrioritySchema = z.number().int().min(1);
 
 interface QueueTabProps {
   config: OrchestratorConfig;
@@ -30,6 +37,7 @@ export const QueueTab = memo<QueueTabProps>(({ config, onUpdateField }) => {
           value={queue.maxSize}
           onChange={value => onUpdateField('queue', 'maxSize', value)}
           min={1}
+          validationSchema={maxSizeSchema}
           description="Maximum queue size per server"
         />
         <NumberInput
@@ -39,15 +47,17 @@ export const QueueTab = memo<QueueTabProps>(({ config, onUpdateField }) => {
           min={1000}
           step={1000}
           suffix="ms"
+          validationSchema={timeoutSchema}
           description="Queue request timeout"
         />
         <NumberInput
           label="Priority Boost Interval"
           value={queue.priorityBoostInterval}
           onChange={value => onUpdateField('queue', 'priorityBoostInterval', value)}
-          min={0}
+          min={1000}
           step={1000}
           suffix="ms"
+          validationSchema={priorityBoostIntervalSchema}
           description="How often to boost priority"
         />
         <NumberInput
@@ -55,6 +65,7 @@ export const QueueTab = memo<QueueTabProps>(({ config, onUpdateField }) => {
           value={queue.priorityBoostAmount}
           onChange={value => onUpdateField('queue', 'priorityBoostAmount', value)}
           min={1}
+          validationSchema={priorityBoostAmountSchema}
           description="How much to boost priority"
         />
         <NumberInput
@@ -62,6 +73,7 @@ export const QueueTab = memo<QueueTabProps>(({ config, onUpdateField }) => {
           value={queue.maxPriority}
           onChange={value => onUpdateField('queue', 'maxPriority', value)}
           min={1}
+          validationSchema={maxPrioritySchema}
           description="Maximum priority level"
         />
       </div>

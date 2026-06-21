@@ -1,9 +1,15 @@
 import { memo } from 'react';
+import { z } from 'zod';
 import { Settings2 } from 'lucide-react';
 import type { OrchestratorConfig } from '../../../api';
 import { ConfigSection, Toggle } from '../components';
 import { NumberInput } from '../components/NumberInput';
 import { TextInput } from '../components/TextInput';
+
+const portSchema = z.number().int().min(1).max(65535);
+const hostSchema = z.string().min(1);
+const logLevelSchema = z.enum(['debug', 'info', 'warn', 'error']);
+const inferenceTimeoutSchema = z.number().int().min(1000);
 
 interface GeneralTabProps {
   config: OrchestratorConfig;
@@ -26,12 +32,14 @@ export const GeneralTab = memo<GeneralTabProps>(({ config, onUpdateField }) => {
             min={1}
             max={65535}
             description="Server port number"
+            validationSchema={portSchema}
           />
           <TextInput
             label="Host"
             value={config.host ?? '0.0.0.0'}
             onChange={value => onUpdateField('host', null, value)}
             description="Server host address"
+            validationSchema={hostSchema}
           />
         </div>
         <TextInput
@@ -39,6 +47,7 @@ export const GeneralTab = memo<GeneralTabProps>(({ config, onUpdateField }) => {
           value={config.logLevel ?? 'info'}
           onChange={value => onUpdateField('logLevel', null, value)}
           description="Logging verbosity level"
+          validationSchema={logLevelSchema}
         />
         <NumberInput
           label="Inference Timeout"
@@ -48,6 +57,7 @@ export const GeneralTab = memo<GeneralTabProps>(({ config, onUpdateField }) => {
           step={1000}
           suffix="ms"
           description="Total request timeout for failover budget"
+          validationSchema={inferenceTimeoutSchema}
         />
 
         <div>

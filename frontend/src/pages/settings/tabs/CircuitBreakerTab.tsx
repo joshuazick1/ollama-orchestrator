@@ -1,8 +1,16 @@
 import { memo } from 'react';
 import { Shield } from 'lucide-react';
+import { z } from 'zod';
 import type { OrchestratorConfig } from '../../../api';
 import { ConfigSection, Toggle } from '../components';
 import { NumberInput } from '../components/NumberInput';
+
+const intMin1 = z.number().int().min(1);
+const intMin1000 = z.number().int().min(1000);
+const intMin5000Max600000 = z.number().int().min(5000).max(600000);
+const intMin1Max20 = z.number().int().min(1).max(20);
+const ratio01 = z.number().min(0).max(1);
+const intMin1Max10 = z.number().int().min(1).max(10);
 
 interface CircuitBreakerTabProps {
   config: OrchestratorConfig;
@@ -48,6 +56,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               value={cb.baseFailureThreshold ?? 5}
               onChange={value => onUpdateField('circuitBreaker', 'baseFailureThreshold', value)}
               min={1}
+              validationSchema={intMin1}
               description="Failures before opening circuit"
             />
             <NumberInput
@@ -55,6 +64,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               value={cb.maxFailureThreshold ?? 10}
               onChange={value => onUpdateField('circuitBreaker', 'maxFailureThreshold', value)}
               min={1}
+              validationSchema={intMin1}
               description="Maximum adaptive threshold"
             />
             <NumberInput
@@ -62,6 +72,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               value={cb.minFailureThreshold ?? 3}
               onChange={value => onUpdateField('circuitBreaker', 'minFailureThreshold', value)}
               min={1}
+              validationSchema={intMin1}
               description="Minimum adaptive threshold"
             />
             <NumberInput
@@ -69,6 +80,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               value={cb.recoverySuccessThreshold ?? 3}
               onChange={value => onUpdateField('circuitBreaker', 'recoverySuccessThreshold', value)}
               min={1}
+              validationSchema={intMin1}
               description="Consecutive successes to close"
             />
           </div>
@@ -84,6 +96,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               min={1000}
               step={1000}
               suffix="ms"
+              validationSchema={intMin1000}
               description="Time to stay open before half-open"
             />
             <NumberInput
@@ -93,6 +106,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               min={1000}
               step={1000}
               suffix="ms"
+              validationSchema={intMin1000}
               description="Time in half-open before reverting"
             />
             <NumberInput
@@ -103,6 +117,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               max={600000}
               step={1000}
               suffix="ms"
+              validationSchema={intMin5000Max600000}
               description="Timeout for active recovery tests"
             />
             <NumberInput
@@ -111,6 +126,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               onChange={value => onUpdateField('circuitBreaker', 'maxHalfOpenPerServer', value)}
               min={1}
               max={20}
+              validationSchema={intMin1Max20}
               description="Max half-open requests per server"
             />
           </div>
@@ -127,6 +143,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               max={100}
               step={1}
               suffix="%"
+              validationSchema={z.number().min(0).max(100)}
               description="Error rate that triggers open state"
             />
             <NumberInput
@@ -136,6 +153,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               min={1000}
               step={1000}
               suffix="ms"
+              validationSchema={intMin1000}
               description="Time window for error rate calculation"
             />
             <NumberInput
@@ -145,6 +163,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
               min={0}
               max={1}
               step={0.05}
+              validationSchema={ratio01}
               description="Smoothing factor for error rate"
             />
           </div>
@@ -168,6 +187,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
                 }
                 min={1}
                 max={10}
+                validationSchema={intMin1Max10}
                 description="Step size for adaptive threshold adjustment"
               />
               <NumberInput
@@ -179,6 +199,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
                 min={0}
                 max={1}
                 step={0.05}
+                validationSchema={ratio01}
                 description="Non-retryable error ratio threshold"
               />
               <NumberInput
@@ -190,6 +211,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
                 min={0}
                 max={1}
                 step={0.05}
+                validationSchema={ratio01}
                 description="Transient error ratio threshold"
               />
               <NumberInput
@@ -200,6 +222,7 @@ export const CircuitBreakerTab = memo<CircuitBreakerTabProps>(({ config, onUpdat
                 }
                 min={1}
                 max={20}
+                validationSchema={intMin1Max20}
                 description="Failures before rate limit triggers"
               />
             </div>

@@ -1,9 +1,17 @@
 import { memo } from 'react';
 import { BarChart3 } from 'lucide-react';
+import { z } from 'zod';
 import type { OrchestratorConfig } from '../../../api';
 import { ConfigSection } from '../components';
 import { NumberInput } from '../components/NumberInput';
 import { Toggle } from '../components/Toggle';
+
+const intMin1Max65535 = z.number().int().min(1).max(65535);
+const intMin100 = z.number().int().min(100);
+const intMin0 = z.number().int().min(0);
+const intMin1 = z.number().int().min(1);
+const ratio01 = z.number().min(0).max(1);
+const intMin1000 = z.number().int().min(1000);
 
 interface MetricsTabProps {
   config: OrchestratorConfig;
@@ -70,6 +78,7 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 min={1024}
                 max={65535}
                 step={1}
+                validationSchema={intMin1Max65535}
                 description="Port for Prometheus scrape endpoint"
               />
               <NumberInput
@@ -79,6 +88,7 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 min={100}
                 step={10}
                 suffix="ms"
+                validationSchema={intMin100}
                 description="Max ms between forced flushes"
               />
             </div>
@@ -90,6 +100,7 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 min={0}
                 step={10000}
                 suffix="ms"
+                validationSchema={intMin0}
                 description="Interval for pruning old metrics (0 to disable)"
               />
               <NumberInput
@@ -98,6 +109,7 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 onChange={value => onUpdateField('metrics', 'maxEntries', value)}
                 min={1}
                 step={1000}
+                validationSchema={intMin1}
                 description="Maximum metric entries"
               />
             </div>
@@ -123,6 +135,7 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 min={1000}
                 step={10000}
                 suffix="ms"
+                validationSchema={intMin1000}
                 description="Time for metrics to decay by half"
               />
               <NumberInput
@@ -134,6 +147,7 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 min={1000}
                 step={10000}
                 suffix="ms"
+                validationSchema={intMin1000}
                 description="Mark metrics as stale after this duration"
               />
               <NumberInput
@@ -145,6 +159,7 @@ export const MetricsTab = memo<MetricsTabProps>(({ config, onUpdateField }) => {
                 min={0}
                 max={1}
                 step={0.01}
+                validationSchema={ratio01}
                 description="Minimum decay factor floor"
               />
             </div>
