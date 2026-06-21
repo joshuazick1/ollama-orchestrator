@@ -35,3 +35,13 @@ export type AnthropicEndpoint =
 export const CAPABILITY_PROBE = '/api/orchestrator/servers/:id/capability-probe';
 export const TEST_CONNECTION = '/api/orchestrator/servers/test-connection';
 export const ANALYTICS_CIRCUIT_BREAKERS = '/api/orchestrator/analytics/circuit-breakers';
+
+/**
+ * Performance probe endpoints for orchestrator-managed load testing tasks.
+ * POST /api/orchestrator/performance-probe - Start a new performance probe task.
+ * GET  /api/orchestrator/performance-probe/:taskId - Get status of a running probe task.
+ * DELETE /api/orchestrator/performance-probe/:taskId - Cancel a running probe task.
+ */
+export const PERFORMANCE_PROBE = '/api/orchestrator/performance-probe';
+export const PERFORMANCE_PROBE_STATUS = '/api/orchestrator/performance-probe/:taskId';
+export const PERFORMANCE_PROBE_CANCEL = '/api/orchestrator/performance-probe/:taskId';
