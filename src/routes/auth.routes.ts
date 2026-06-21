@@ -6,7 +6,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 
-import { requireAuth, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
+import { requireAuth, isAuthEnabled, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
 import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf.js';
 import { getUserStore } from '../storage/user-store.js';
 import {
@@ -154,6 +154,17 @@ authRouter.post(
     });
   })
 );
+
+authRouter.get('/status', (req: Request, res: Response) => {
+  const userStore = getUserStore();
+  const adminCount = userStore.listUsersByRole('admin').length;
+  const enabled = isAuthEnabled();
+  const response: { enabled: boolean; setupRequired?: boolean } = { enabled };
+  if (enabled && adminCount === 0) {
+    response.setupRequired = true;
+  }
+  res.json(response);
+});
 
 authRouter.get(
   '/me',

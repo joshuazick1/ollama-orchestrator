@@ -192,6 +192,23 @@ export interface ModelManagerConfig {
   loadTimeEstimates: ModelManagerLoadTimeEstimates;
 }
 
+export interface StorageConfig {
+  dbPath: string;
+  retention: {
+    requests: number;
+    decisions: number;
+    rollups: number;
+    profiles: number;
+  };
+  performance: {
+    batchSize: number;
+    batchFlushIntervalMs: number;
+    rollupDeadlineMinutes: number;
+    profileRebuildIntervalMs: number;
+    retentionCheckIntervalMs: number;
+  };
+}
+
 export interface OrchestratorConfig {
   // Server settings
   port: number;
@@ -224,6 +241,7 @@ export interface OrchestratorConfig {
   // Persistence
   persistencePath: string;
   configReloadIntervalMs: number;
+  storage?: StorageConfig;
 }
 
 // Shared types — sourced from backend via scripts/sync-types.sh

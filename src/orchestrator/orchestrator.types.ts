@@ -3,7 +3,28 @@
  * Type definitions for AI orchestrator
  */
 
-import type { PerSizeLatencyBucket } from '../load-balancer/types.js';
+/**
+ * Structural interface for TDigest objects. Defined inline (instead of importing
+ * the TDigest class from utils/tdigest.js) so that the frontend type mirror
+ * produced by `scripts/sync-types.sh` is self-contained — the sync script strips
+ * `import` lines, which would leave a dangling reference.
+ *
+ * The actual `TDigest` class in src/utils/tdigest.ts satisfies this shape via
+ * structural typing, so the backend metrics-aggregator.ts can call `.add()` and
+ * `.percentile()` on values stored in `tdigest` fields.
+ */
+export interface TDigestLike {
+  add(value: number): void;
+  percentile(p: number): number;
+}
+
+export interface PerSizeLatencyBucket {
+  rangeMin: number;
+  rangeMax: number;
+  tdigest: TDigestLike;
+  sampleCount: number;
+  lastUpdated: number;
+}
 
 export interface LoadedModel {
   name: string;
@@ -69,6 +90,8 @@ export interface AIServer {
   modelContextLimits?: Record<string, number>;
   // Timestamp when context limits were last fetched (for cache invalidation)
   contextLimitsFetchedAt?: number;
+  // Endpoint probe results - capability detection probes for various HTTP endpoints
+  probedEndpoints?: Record<string, boolean>;
 }
 
 export interface ServerModelBenchmark {
