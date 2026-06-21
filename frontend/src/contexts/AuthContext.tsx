@@ -20,6 +20,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
+  refreshAuthStatus: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -114,6 +115,10 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
+  const refreshAuthStatus = async () => {
+    await fetchAuthStatus();
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -125,6 +130,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         login,
         logout,
         refreshToken,
+        refreshAuthStatus,
       }}
     >
       {children}
