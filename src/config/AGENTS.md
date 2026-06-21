@@ -29,6 +29,73 @@ Files of record:
 - Persistence of the config file uses atomic write through [json-file-handler.ts](json-file-handler.ts); never write the config file from outside this folder.
 - Probe config is named `probeConfig` in the schema; the prior `circuitBreakerConfig` name is superseded.
 
+## Hot-Reload Behavior Matrix
+
+The orchestrator supports hot-reload of most config sections via API. When `POST /api/orchestrator/config` or `PATCH /api/orchestrator/config/:section` is called, modules subscribed via `getConfigManager().onChange()` are notified and update their internal state.
+
+| Section                      | Hot-reloadable | Notes                                                 |
+| ---------------------------- | :------------: | ----------------------------------------------------- |
+| `adaptiveWeightTuner`        |       ✅       | Via LoadBalancer                                      |
+| `anthropic`                  |       ✅       |                                                       |
+| `capabilityProbe`            |       ✅       |                                                       |
+| `circuitBreaker`             |       ✅       | Via Orchestrator                                      |
+| `cooldown`                   |       ✅       | Via banManager                                        |
+| `errorAggregator`            |       ✅       | Via Orchestrator                                      |
+| `healthCheck`                |       ✅       |                                                       |
+| `inferenceTimeoutMs`         |       ✅       |                                                       |
+| `loadBalancer`               |       ✅       | Via LoadBalancer                                      |
+| `logLevel`                   |       ✅       | Wired via `initLoggerConfigSubscription()`            |
+| `metrics`                    |       ✅       |                                                       |
+| `modelManager`               |       ✅       |                                                       |
+| `probeScheduler`             |       ✅       |                                                       |
+| `rateLimit`                  |       ✅       |                                                       |
+| `recoveryBackoff`            |       ✅       |                                                       |
+| `recoveryTest`               |       ✅       |                                                       |
+| `retry`                      |       ✅       |                                                       |
+| `security.apiKeys`           |       ✅       | Wired via `initAuthConfigSubscription()`              |
+| `security.corsOrigins`       |       ✅       |                                                       |
+| `security.rateLimitMax`      |       ✅       | Custom middleware reads on every request              |
+| `security.rateLimitWindowMs` |       ✅       | Custom middleware reads on every request              |
+| `streaming`                  |       ✅       | Wired via cached config pattern                       |
+| `tags`                       |       ✅       |                                                       |
+| `timeout`                    |       ✅       |                                                       |
+| `port`                       |       ❌       | Express binds at startup; restart required            |
+| `host`                       |       ❌       | Express binds at startup; restart required            |
+| `persistencePath`            |       ❌       | Files may be open; restart required                   |
+| `servers`                    |       ❌       | Use dedicated `/api/orchestrator/servers/*` endpoints |
+
+### Reload from Environment
+
+When env vars are changed after startup, call `POST /api/orchestrator/config/reload-from-env` to re-apply them. This re-runs `applyEnvOverrides` and triggers all subscribers.
+
+### PATCH Endpoint Expansion
+
+`PATCH /api/orchestrator/config/:section` accepts all sections except `servers` (which has dedicated endpoints). The full list of accepted sections is in the response to an invalid PATCH (400 error).
+
+### Adding Hot-Reload to a New Module
+
+If you add a new module that reads config:
+
+1. **Avoid module-load-time subscriptions** — calling `getConfigManager()` at module top-level causes circular import errors (config.ts → logger.ts → config.ts).
+2. **Use the init function pattern** — export an `initXxxConfigSubscription()` function and call it from `src/index.ts` after `getOrchestratorInstance()`.
+3. **OR call `getConfigManager()` inside your functions** — works if the function is called per-request (like the custom rate limiter).
+
+Example:
+
+```typescript
+// In your module:
+export function initMyConfigSubscription(): void {
+  getConfigManager().onChange(config => {
+    if (config.mySection) {
+      updateMyState(config.mySection);
+    }
+  });
+}
+
+// In src/index.ts (after getOrchestratorInstance):
+initMyConfigSubscription();
+```
+
 ### Load Balancer Config Fields (orchestrator stability release)
 
 #### `loadBalancer.fallbackToFastestResponse` (kill switch)

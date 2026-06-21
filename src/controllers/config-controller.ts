@@ -8,6 +8,7 @@ import path from 'path';
 import type { Request, Response } from 'express';
 
 import { getConfigManager, type OrchestratorConfig } from '../config/config.js';
+import { applyEnvOverrides } from '../config/env-mapper.js';
 import { logger } from '../utils/logger.js';
 
 // Define allowed base directories for config files
@@ -222,6 +223,34 @@ export function updateConfigSection(req: Request, res: Response): void {
         details: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+}
+
+/**
+ * Reload env-mapper overrides onto the current config
+ * POST /api/orchestrator/config/reload-from-env
+ *
+ * Re-applies env-mapper overrides to the current config. Useful for
+ * picking up env var changes without a service restart.
+ */
+export function reloadFromEnv(req: Request, res: Response): void {
+  try {
+    const manager = getConfigManager();
+    const currentConfig = manager.getConfig();
+    const updated = applyEnvOverrides(currentConfig as unknown as Record<string, unknown>);
+    manager.updateConfig(updated as Partial<OrchestratorConfig>);
+
+    res.status(200).json({
+      success: true,
+      message: 'Configuration reloaded from environment',
+      config: sanitizeConfig(manager.getConfig()),
+    });
+  } catch (error) {
+    logger.error('Failed to reload from env:', { error });
+    res.status(500).json({
+      error: 'Failed to reload from environment',
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

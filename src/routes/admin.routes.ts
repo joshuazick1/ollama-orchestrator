@@ -18,6 +18,7 @@ import {
   updateConfig,
   updateConfigSection,
   reloadConfig,
+  reloadFromEnv,
   saveConfig,
   getConfigSchema,
   exportConfig,
@@ -159,6 +160,7 @@ adminRouter.get('/config/export', requireAdmin(), exportConfig);
 adminRouter.post('/config', requireAdmin(), asyncHandler(updateConfig));
 adminRouter.patch('/config/:section', requireAdmin(), asyncHandler(updateConfigSection));
 adminRouter.post('/config/reload', requireAdmin(), asyncHandler(reloadConfig));
+adminRouter.post('/config/reload-from-env', requireAdmin(), asyncHandler(reloadFromEnv));
 adminRouter.post('/config/save', requireAdmin(), asyncHandler(saveConfig));
 adminRouter.post('/config/import', requireAdmin(), validateCsrfToken, asyncHandler(importConfig));
 
