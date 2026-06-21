@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import React from 'react';
 import { ChatPanel } from '../ChatPanel';
 import * as useChatStreamModule from '../useChatStream';
 
@@ -12,7 +13,7 @@ vi.mock('../components/ui/button', () => ({
       className={className as string}
       {...props}
     >
-      {children}
+      {children as React.ReactNode}
     </button>
   ),
 }));
@@ -38,7 +39,7 @@ vi.mock('../components/ui/textarea', () => ({
 vi.mock('../components/ui/card', () => ({
   Card: ({ children, className, ...props }: Record<string, unknown>) => (
     <div className={className as string} {...props}>
-      {children}
+      {children as React.ReactNode}
     </div>
   ),
 }));

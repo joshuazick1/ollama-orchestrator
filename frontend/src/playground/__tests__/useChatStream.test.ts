@@ -7,7 +7,7 @@ describe('useChatStream', () => {
 
   beforeEach(() => {
     mockFetch = vi.fn();
-    global.fetch = mockFetch;
+    globalThis.fetch = mockFetch as typeof fetch;
   });
 
   afterEach(() => {

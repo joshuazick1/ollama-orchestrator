@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { Button } from '../button';
+import { createRef } from 'react';
+import { Button } from '../ui/button';
 
 describe('Button component', () => {
   it('renders with default variant', () => {
@@ -25,7 +26,7 @@ describe('Button component', () => {
   });
 
   it('forwards ref to button element', () => {
-    const ref = { current: null } as React.RefObject<HTMLButtonElement>;
+    const ref = createRef<HTMLButtonElement>();
     render(<Button ref={ref}>Button</Button>);
     expect(ref.current).not.toBeNull();
   });

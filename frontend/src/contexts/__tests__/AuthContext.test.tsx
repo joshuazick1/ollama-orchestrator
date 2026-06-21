@@ -39,7 +39,7 @@ describe('AuthContext', () => {
         ok: true,
         json: async () => ({ enabled: false, setupRequired: false }),
       });
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       mockGet.mockResolvedValue({ data: { user: null } });
 
@@ -50,12 +50,12 @@ describe('AuthContext', () => {
       expect(result.current.authEnabled).toBe(false);
       expect(mockFetch).toHaveBeenCalledWith('/api/orchestrator/auth/status');
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
 
     it('authEnabled falls back to env var when API fails', async () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       mockGet.mockResolvedValue({ data: { user: null } });
 
@@ -66,14 +66,14 @@ describe('AuthContext', () => {
       expect(result.current.authEnabled).toBe(true);
       expect(mockFetch).toHaveBeenCalledWith('/api/orchestrator/auth/status');
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
 
     it('authEnabled falls back to false when env var is "false" and API fails', async () => {
       import.meta.env.VITE_ORCHESTRATOR_AUTH_ENABLED = 'false';
 
       const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'));
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       mockGet.mockResolvedValue({ data: { user: null } });
 
@@ -83,7 +83,7 @@ describe('AuthContext', () => {
 
       expect(result.current.authEnabled).toBe(false);
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
   });
 
@@ -93,7 +93,7 @@ describe('AuthContext', () => {
         ok: true,
         json: async () => ({ enabled: true, setupRequired: true }),
       });
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       mockGet.mockResolvedValue({ data: { user: null } });
 
@@ -104,7 +104,7 @@ describe('AuthContext', () => {
       expect(result.current.setupRequired).toBe(true);
       expect(result.current.authEnabled).toBe(true);
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
 
     it('setupRequired is false when API returns it as false', async () => {
@@ -112,7 +112,7 @@ describe('AuthContext', () => {
         ok: true,
         json: async () => ({ enabled: true, setupRequired: false }),
       });
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       mockGet.mockResolvedValue({ data: { user: null } });
 
@@ -123,7 +123,7 @@ describe('AuthContext', () => {
       expect(result.current.setupRequired).toBe(false);
       expect(result.current.authEnabled).toBe(true);
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
 
     it('setupRequired defaults to false when API does not return it', async () => {
@@ -131,7 +131,7 @@ describe('AuthContext', () => {
         ok: true,
         json: async () => ({ enabled: true }),
       });
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       mockGet.mockResolvedValue({ data: { user: null } });
 
@@ -141,7 +141,7 @@ describe('AuthContext', () => {
 
       expect(result.current.setupRequired).toBe(false);
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
   });
 
@@ -160,7 +160,7 @@ describe('AuthContext', () => {
       mockGet.mockReturnValue(authMePromise);
 
       const mockFetch = vi.fn().mockReturnValue(authStatusPromise);
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
 
@@ -172,7 +172,7 @@ describe('AuthContext', () => {
       resolveAuthMe!({ data: { user: null } });
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
 
     it('isLoading becomes false even if /auth/me fails', async () => {
@@ -184,7 +184,7 @@ describe('AuthContext', () => {
       mockGet.mockRejectedValue(new Error('Unauthorized'));
 
       const mockFetch = vi.fn().mockReturnValue(authStatusPromise);
-      global.fetch = mockFetch;
+      globalThis.fetch = mockFetch;
 
       const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
 
@@ -195,7 +195,7 @@ describe('AuthContext', () => {
 
       expect(result.current.user).toBeNull();
 
-      delete (global as Record<string, unknown>).fetch;
+      delete (globalThis as Record<string, unknown>).fetch;
     });
   });
 });

@@ -1,5 +1,5 @@
 // Extracted from Servers.tsx - ServerActionsMenu component
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Button } from '../../components/Button';
 import { Trash2, Power, PowerOff, Wrench } from 'lucide-react';

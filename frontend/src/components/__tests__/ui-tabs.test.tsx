@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '../tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 
 const TabsTestComponent = () => {
   return (

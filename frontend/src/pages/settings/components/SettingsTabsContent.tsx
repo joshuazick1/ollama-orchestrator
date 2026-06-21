@@ -24,6 +24,18 @@ interface SettingsTabsContentProps {
 }
 
 export const SettingsTabsContent = memo<SettingsTabsContentProps>(({ config, updateField }) => {
+  const storageUpdateField: (section: string, field: string | null, value: unknown) => void = (
+    section,
+    field,
+    value
+  ) => {
+    updateField(
+      section as keyof OrchestratorConfig,
+      field as keyof OrchestratorConfig[keyof OrchestratorConfig] | null,
+      value
+    );
+  };
+
   return (
     <>
       <TabsContent value="general">
@@ -71,7 +83,7 @@ export const SettingsTabsContent = memo<SettingsTabsContentProps>(({ config, upd
       </TabsContent>
 
       <TabsContent value="storage">
-        <StorageTab config={config} onUpdateField={updateField} />
+        <StorageTab config={config} onUpdateField={storageUpdateField} />
       </TabsContent>
     </>
   );

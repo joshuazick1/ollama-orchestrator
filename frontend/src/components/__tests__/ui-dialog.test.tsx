@@ -9,7 +9,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '../dialog';
+} from '../ui/dialog';
 
 const DialogTestWrapper = ({
   open: controlledOpen,
