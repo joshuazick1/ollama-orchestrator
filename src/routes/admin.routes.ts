@@ -49,6 +49,9 @@ import {
   updateServer,
   updateServerConfig,
   refreshServerV1Models,
+  drainServer,
+  undrainServer,
+  setMaintenanceMode,
   getBans,
   removeBan,
   removeBansByServer,
@@ -122,6 +125,11 @@ adminRouter.post(
 );
 adminRouter.get('/servers/test-connection/:testId', requireAdmin(), asyncHandler(getTestResult));
 adminRouter.post('/servers/:id/test', requireAdmin(), asyncHandler(testExistingServer));
+
+// Server drain/undrain/maintenance
+adminRouter.post('/servers/:id/drain', requireAdmin(), asyncHandler(drainServer));
+adminRouter.post('/servers/:id/undrain', requireAdmin(), asyncHandler(undrainServer));
+adminRouter.post('/servers/:id/maintenance', requireAdmin(), asyncHandler(setMaintenanceMode));
 
 // Per-server model management
 adminRouter.get('/servers/:id/models', requireAuth(), asyncHandler(listServerModels));

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react';
 
+/**
+ * @deprecated useWebSocket is deprecated. The /api/ws endpoint no longer exists.
+ * Use useServerEvents (SSE) or migrate to REST polling with React Query.
+ * This hook will be removed in a future release.
+ */
+
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 interface WebSocketMessage {

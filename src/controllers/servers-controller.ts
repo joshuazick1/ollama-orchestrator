@@ -155,6 +155,103 @@ export function updateServerConfig(req: Request, res: Response): void {
 }
 
 /**
+ * Drain a server - marks it as draining to prevent new requests
+ * POST /api/orchestrator/servers/:id/drain
+ */
+export function drainServer(req: Request, res: Response): void {
+  const id = req.params.id as string;
+  const orchestrator = getOrchestratorInstance();
+
+  const server = orchestrator.getServer(id);
+  if (!server) {
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
+    return;
+  }
+
+  server.draining = true;
+  server.drainStartedAt = new Date();
+  orchestrator.persistServers();
+
+  logger.info('server_drain', {
+    adminUserId: req.user?.id ?? 'unknown',
+    serverId: id,
+    timestamp: new Date().toISOString(),
+  });
+
+  res.status(200).json({
+    success: true,
+    id,
+    draining: true,
+    drainStartedAt: server.drainStartedAt,
+  });
+}
+
+/**
+ * Undrain a server - reverses the drain state
+ * POST /api/orchestrator/servers/:id/undrain
+ */
+export function undrainServer(req: Request, res: Response): void {
+  const id = req.params.id as string;
+  const orchestrator = getOrchestratorInstance();
+
+  const server = orchestrator.getServer(id);
+  if (!server) {
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
+    return;
+  }
+
+  server.draining = false;
+  server.drainStartedAt = undefined;
+  orchestrator.persistServers();
+
+  logger.info('server_undrain', {
+    adminUserId: req.user?.id ?? 'unknown',
+    serverId: id,
+    timestamp: new Date().toISOString(),
+  });
+
+  res.status(200).json({
+    success: true,
+    id,
+    draining: false,
+  });
+}
+
+/**
+ * Set server maintenance mode
+ * POST /api/orchestrator/servers/:id/maintenance
+ */
+export function setMaintenanceMode(req: Request, res: Response): void {
+  const id = req.params.id as string;
+  const body = req.body as { enabled?: boolean };
+  const enabled = body.enabled === true;
+
+  const orchestrator = getOrchestratorInstance();
+
+  const server = orchestrator.getServer(id);
+  if (!server) {
+    res.status(404).json({ error: ERROR_MESSAGES.SERVER_NOT_FOUND(id) });
+    return;
+  }
+
+  server.maintenance = enabled;
+  orchestrator.persistServers();
+
+  logger.info('server_maintenance', {
+    adminUserId: req.user?.id ?? 'unknown',
+    serverId: id,
+    enabled,
+    timestamp: new Date().toISOString(),
+  });
+
+  res.status(200).json({
+    success: true,
+    id,
+    maintenance: enabled,
+  });
+}
+
+/**
  * Refresh V1 models for a server by triggering an immediate health check
  * POST /api/orchestrator/servers/:id/refresh-v1-models
  */

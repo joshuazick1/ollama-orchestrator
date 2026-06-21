@@ -387,7 +387,7 @@ export const getTemporalProfile = async (params: {
     queryParams.append('serverId', params.serverId);
     queryParams.append('model', params.model);
 
-    const response = await apiClient.get(`/analytics/temporal/profile?${queryParams.toString()}`);
+    const response = await apiClient.get(`/analytics/temporal-profile?${queryParams.toString()}`);
     return response.data;
   });
 };
@@ -404,7 +404,7 @@ export const getTemporalAdjustment = async (params: {
     }
 
     const response = await apiClient.get(
-      `/analytics/temporal/adjustments?${queryParams.toString()}`
+      `/analytics/temporal-adjustment?${queryParams.toString()}`
     );
     return response.data;
   });

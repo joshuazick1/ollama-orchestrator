@@ -1,6 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useWebSocket } from './useWebSocket';
 
 export type LiveUpdateMessageType =
   | 'server_status'
@@ -30,49 +29,87 @@ interface UseLiveUpdatesReturn {
 export function useLiveUpdates(options?: UseLiveUpdatesOptions): UseLiveUpdatesReturn {
   const { enabled = true, onMessage, invalidateQueries } = options ?? {};
   const queryClient = useQueryClient();
-
-  const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws`;
+  const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>(
+    'disconnected'
+  );
+  const [lastMessage, setLastMessage] = useState<LiveUpdateMessage | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const handleMessage = useCallback(
-    (message: { type?: string; payload?: unknown; timestamp?: number }) => {
-      let messageType: LiveUpdateMessageType = 'unknown';
-      if (typeof message.type === 'string') {
-        const t = message.type.toLowerCase();
-        if (t === 'server_status' || t === 'server_status_change') {
-          messageType = 'server_status';
-        } else if (t === 'model_status' || t === 'model_status_change') {
-          messageType = 'model_status';
-        } else if (t === 'stats_update' || t === 'metrics_update' || t === 'stats') {
-          messageType = 'stats_update';
-        } else if (t === 'error') {
-          messageType = 'error';
+    (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        let messageType: LiveUpdateMessageType = 'unknown';
+        if (typeof parsed.type === 'string') {
+          const t = parsed.type.toLowerCase();
+          if (t === 'server_status' || t === 'server_status_change') {
+            messageType = 'server_status';
+          } else if (t === 'model_status' || t === 'model_status_change') {
+            messageType = 'model_status';
+          } else if (
+            t === 'stats_update' ||
+            t === 'metrics_update' ||
+            t === 'stats' ||
+            t === 'metrics'
+          ) {
+            messageType = 'stats_update';
+          } else if (t === 'error') {
+            messageType = 'error';
+          }
         }
-      }
 
-      const liveMessage: LiveUpdateMessage = {
-        type: messageType,
-        payload: (message.payload ?? {}) as Record<string, unknown>,
-        timestamp: message.timestamp ?? Date.now(),
-      };
+        const liveMessage: LiveUpdateMessage = {
+          type: messageType,
+          payload: (parsed.payload ?? parsed) as Record<string, unknown>,
+          timestamp: parsed.timestamp ?? Date.now(),
+        };
 
-      onMessage?.(liveMessage);
+        setLastMessage(liveMessage);
+        onMessage?.(liveMessage);
 
-      if (invalidateQueries && invalidateQueries.length > 0) {
-        void queryClient.invalidateQueries({ queryKey: invalidateQueries });
+        if (invalidateQueries && invalidateQueries.length > 0) {
+          void queryClient.invalidateQueries({ queryKey: invalidateQueries });
+        }
+      } catch {
+        // Silently ignore parse errors for unrecognized SSE events
       }
     },
     [onMessage, invalidateQueries, queryClient]
   );
 
-  const { status, lastMessage } = useWebSocket({
-    url: wsUrl,
-    enabled,
-    onMessage: handleMessage,
-  });
+  useEffect(() => {
+    if (!enabled) {
+      setStatus('disconnected');
+      return;
+    }
+
+    setStatus('connecting');
+
+    const eventSource = new EventSource('/api/orchestrator/events');
+    eventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      setStatus('connected');
+    };
+
+    eventSource.onmessage = handleMessage;
+
+    eventSource.onerror = () => {
+      setStatus('error');
+      eventSource.close();
+      eventSourceRef.current = null;
+    };
+
+    return () => {
+      eventSource.close();
+      eventSourceRef.current = null;
+      setStatus('disconnected');
+    };
+  }, [enabled, handleMessage]);
 
   return {
     status,
-    lastMessage: lastMessage as LiveUpdateMessage | null,
+    lastMessage,
     isLive: status === 'connected',
   };
 }
