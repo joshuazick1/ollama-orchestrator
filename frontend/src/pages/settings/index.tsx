@@ -19,6 +19,12 @@ import {
   Heart,
   RotateCw,
   HardDrive,
+  Waves,
+  Boxes,
+  Clock,
+  TestTube,
+  Radar,
+  Sliders,
 } from 'lucide-react';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -128,6 +134,12 @@ export const Settings = memo(() => {
     { id: 'healthcheck', label: 'Health Check', icon: Heart },
     { id: 'retry', label: 'Retry', icon: RotateCw },
     { id: 'storage', label: 'Storage', icon: HardDrive },
+    { id: 'streaming', label: 'Streaming', icon: Waves },
+    { id: 'modelmanager', label: 'Model Manager', icon: Boxes },
+    { id: 'timeout', label: 'Timeout', icon: Clock },
+    { id: 'recoverytest', label: 'Recovery Test', icon: TestTube },
+    { id: 'probe', label: 'Probe', icon: Radar },
+    { id: 'advanced', label: 'Advanced', icon: Sliders },
   ];
 
   return (

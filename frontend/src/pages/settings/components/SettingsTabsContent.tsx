@@ -12,6 +12,12 @@ import { MetricsTab } from '../tabs/MetricsTab';
 import { HealthCheckTab } from '../tabs/HealthCheckTab';
 import { RetryTab } from '../tabs/RetryTab';
 import { StorageTab } from '../tabs/StorageTab';
+import { StreamingTab } from '../tabs/StreamingTab';
+import { ModelManagerTab } from '../tabs/ModelManagerTab';
+import { TimeoutTab } from '../tabs/TimeoutTab';
+import { RecoveryTestTab } from '../tabs/RecoveryTestTab';
+import { ProbeTab } from '../tabs/ProbeTab';
+import { AdvancedTab } from '../tabs/AdvancedTab';
 import { TabsContent } from '../../../components/ui/tabs';
 
 interface SettingsTabsContentProps {
@@ -84,6 +90,30 @@ export const SettingsTabsContent = memo<SettingsTabsContentProps>(({ config, upd
 
       <TabsContent value="storage">
         <StorageTab config={config} onUpdateField={storageUpdateField} />
+      </TabsContent>
+
+      <TabsContent value="streaming">
+        <StreamingTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="modelmanager">
+        <ModelManagerTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="timeout">
+        <TimeoutTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="recoverytest">
+        <RecoveryTestTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="probe">
+        <ProbeTab config={config} onUpdateField={updateField} />
+      </TabsContent>
+
+      <TabsContent value="advanced">
+        <AdvancedTab config={config} onUpdateField={updateField} />
       </TabsContent>
     </>
   );
