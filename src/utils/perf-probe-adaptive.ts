@@ -22,8 +22,9 @@
  * The adaptive module itself does NOT interpret CB state — it defers to the injected fn.
  */
 
-import { filterNonCloudModels } from './cloud-model-filter.js';
 import type { ProbeRunResult } from '../types/perf-probe.types.js';
+
+import { filterNonCloudModels } from './cloud-model-filter.js';
 import { logger } from './logger.js';
 
 /**
@@ -267,7 +268,9 @@ export async function runAdaptiveRound(
   const allModelToServers: Record<string, string[]> = {};
 
   for (const result of task.results) {
-    if (!result.success) continue;
+    if (!result.success) {
+      continue;
+    }
 
     if (!serverToModels[result.serverId]) {
       serverToModels[result.serverId] = [];
@@ -339,7 +342,7 @@ export async function runAdaptiveRound(
           onProgress(failureResult);
         }
 
-        logger.debug(`[perf-probe-adaptive] Probe ${triedKey} threw: ${err}`);
+        logger.debug(`[perf-probe-adaptive] Probe ${triedKey} threw: ${String(err)}`);
       }
     })
   );

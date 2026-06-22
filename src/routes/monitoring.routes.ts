@@ -7,11 +7,6 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
 import {
-  PERFORMANCE_PROBE,
-  PERFORMANCE_PROBE_STATUS,
-  PERFORMANCE_PROBE_CANCEL,
-} from '../constants/api-endpoints.js';
-import {
   getTopModels,
   getServerPerformance,
   getErrorAnalysis,

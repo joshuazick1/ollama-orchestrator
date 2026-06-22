@@ -98,7 +98,7 @@ export function selectProbeModels(modelToServers: ModelToServers, maxModels?: nu
     }
 
     selected.push(bestModel);
-    for (const s of modelToServers[bestModel]!) {
+    for (const s of modelToServers[bestModel]) {
       covered.add(s);
     }
   }
