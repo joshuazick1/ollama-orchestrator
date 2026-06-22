@@ -23,6 +23,7 @@ import { MetricsAggregator } from '../metrics/index.js';
 import { getModelManager } from '../model-manager.js';
 import { EndpointRegistry } from '../probe/endpoint-registry.js';
 import { classify } from '../probe/failure-classifier.js';
+import { getPerfProbeSchedulerInstance } from '../probe/perf-probe-scheduler-instance.js';
 import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { BackoffSchedule } from '../probe/recovery-driver.js';
@@ -3246,6 +3247,10 @@ export class AIOrchestrator {
         logger.warn('[ps-poll] coordinator start failed (non-fatal)', { error: String(err) });
       }
 
+      // Initialize the daily perf-probe scheduler
+      const perfProbeScheduler = getPerfProbeSchedulerInstance();
+      await perfProbeScheduler.start();
+
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {
         this.timeoutManager.applyDecay();
@@ -3660,6 +3665,9 @@ export class AIOrchestrator {
 
     // Stop PS poll coordinator
     getPsPollCoordinator().stop();
+
+    // Stop the daily perf-probe scheduler (await for graceful in-flight probe completion)
+    await getPerfProbeSchedulerInstance().stop();
 
     getOperationalStore().close();
 
