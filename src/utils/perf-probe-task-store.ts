@@ -83,6 +83,17 @@ class PerfProbeTaskStore {
   }
 
   /**
+   * List recent tasks sorted by creation time (most recent first).
+   * Triggers TTL cleanup before returning.
+   * @param limit Maximum number of tasks to return (default 5, max 20)
+   */
+  listTasks(limit = 5): PerfProbeTask[] {
+    this.evictExpired();
+    const sorted = Array.from(this.tasks.values()).sort((a, b) => b.createdAt - a.createdAt);
+    return sorted.slice(0, limit);
+  }
+
+  /**
    * Update a task's fields. Only allowed for non-terminal tasks.
    * Rejects invalid state transitions.
    */

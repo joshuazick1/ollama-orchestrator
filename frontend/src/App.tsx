@@ -25,10 +25,14 @@ const ErrorEvents = lazy(() =>
   import('./pages/ErrorEvents').then(m => ({ default: m.ErrorEvents }))
 );
 const Probe = lazy(() => import('./pages/Probe').then(m => ({ default: m.Probe })));
+const PerfProbeHistory = lazy(() =>
+  import('./pages/PerfProbeHistory').then(m => ({ default: m.PerfProbeHistory }))
+);
 const ClusterStatus = lazy(() =>
   import('./pages/ClusterStatus').then(m => ({ default: m.ClusterStatus }))
 );
 const Playground = lazy(() => import('./pages/Playground').then(m => ({ default: m.Playground })));
+const PerfProbe = lazy(() => import('./pages/PerfProbe').then(m => ({ default: m.PerfProbe })));
 const Setup = lazy(() => import('./pages/Setup').then(m => ({ default: m.Setup })));
 
 const queryClient = new QueryClient({
@@ -168,6 +172,14 @@ function AppContent() {
             }
           />
           <Route
+            path="perf-probe/history"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <PerfProbeHistory />
+              </Suspense>
+            }
+          />
+          <Route
             path="cluster"
             element={
               <Suspense fallback={<PageLoader />}>
@@ -180,6 +192,14 @@ function AppContent() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <Playground />
+              </Suspense>
+            }
+          />
+          <Route
+            path="perf-probe"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <PerfProbe />
               </Suspense>
             }
           />

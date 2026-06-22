@@ -48,3 +48,4 @@ export const PERFORMANCE_PROBE_CANCEL = '/api/orchestrator/performance-probe/:ta
 export const PERFORMANCE_PROBE_HISTORY = '/api/orchestrator/performance-probe/history';
 export const PERFORMANCE_PROBE_SCHEDULER_STATUS =
   '/api/orchestrator/performance-probe/scheduler-status';
+export const PERFORMANCE_PROBE_RECENT = '/api/orchestrator/performance-probe/recent';

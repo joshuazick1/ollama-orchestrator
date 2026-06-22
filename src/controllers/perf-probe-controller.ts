@@ -821,6 +821,22 @@ export function getPerfProbeSchedulerStatus(req: Request, res: Response): void {
   }
 }
 
+/**
+ * GET /api/orchestrator/performance-probe/recent?limit=N
+ * Returns the most recent probe tasks sorted by creation time (most recent first).
+ */
+export function getRecentPerfProbeTasks(req: Request, res: Response): void {
+  const limit = Math.min(parseInt((req.query.limit as string) ?? '5', 10) || 5, 20);
+  try {
+    const store = getPerfProbeTaskStore();
+    const tasks = store.listTasks(limit);
+    res.status(200).json(tasks);
+  } catch (err) {
+    logger.warn('[perf-probe] Failed to list recent tasks', { error: String(err) });
+    res.status(500).json({ error: 'Failed to list recent tasks' });
+  }
+}
+
 // Route wiring (used by routes/perf-probe.routes.ts — T8)
 export const perfProbeHandlers = {
   runPerfProbe: asyncHandler(runPerfProbe),
@@ -828,4 +844,5 @@ export const perfProbeHandlers = {
   cancelPerfProbe: asyncHandler(cancelPerfProbe),
   getPerfProbeHistory: asyncHandler(getPerfProbeHistory),
   getPerfProbeSchedulerStatus: asyncHandler(getPerfProbeSchedulerStatus),
+  getRecentPerfProbeTasks: asyncHandler(getRecentPerfProbeTasks),
 };
