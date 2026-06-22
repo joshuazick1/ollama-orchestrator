@@ -56,6 +56,7 @@ import {
   getPerfProbeStatus,
   cancelPerfProbe,
   runPerfProbe,
+  getPerfProbeHistory,
 } from '../controllers/perf-probe-controller.js';
 import { getFleetModelStats } from '../controllers/server-models-controller.js';
 import {
@@ -214,5 +215,10 @@ monitoringRouter.get(
 
 // Performance probe routes (async two-phase: POST starts task, GET status, DELETE cancel)
 monitoringRouter.post('/performance-probe', requireAuth(), asyncHandler(runPerfProbe));
+monitoringRouter.get(
+  '/performance-probe/history',
+  requireAuth(),
+  asyncHandler(getPerfProbeHistory)
+);
 monitoringRouter.get('/performance-probe/:taskId', requireAuth(), asyncHandler(getPerfProbeStatus));
 monitoringRouter.delete('/performance-probe/:taskId', requireAuth(), asyncHandler(cancelPerfProbe));

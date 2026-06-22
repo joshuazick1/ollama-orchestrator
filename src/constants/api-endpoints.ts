@@ -45,3 +45,4 @@ export const ANALYTICS_CIRCUIT_BREAKERS = '/api/orchestrator/analytics/circuit-b
 export const PERFORMANCE_PROBE = '/api/orchestrator/performance-probe';
 export const PERFORMANCE_PROBE_STATUS = '/api/orchestrator/performance-probe/:taskId';
 export const PERFORMANCE_PROBE_CANCEL = '/api/orchestrator/performance-probe/:taskId';
+export const PERFORMANCE_PROBE_HISTORY = '/api/orchestrator/performance-probe/history';

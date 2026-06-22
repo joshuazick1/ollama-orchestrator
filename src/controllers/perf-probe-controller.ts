@@ -686,9 +686,129 @@ export function cancelPerfProbe(req: Request, res: Response): void {
 
   res.status(200).json({ taskId, status: 'cancelled' });
 }
+
+/**
+ * GET /api/orchestrator/performance-probe/history
+ * Returns time-bucketed probe aggregation for a server (optionally filtered by model).
+ *
+ * Query params:
+ *   serverId        (required) — single server filter
+ *   model          (optional) — filter to specific model; if omitted, aggregates all models
+ *   startTime      (required, epoch ms) — window start
+ *   endTime        (required, epoch ms) — window end
+ *   intervalMinutes (optional, default: 15) — bucket size; one of 1, 5, 15, 60, 360, 1440
+ *
+ * Response: { serverId, model, startTime, endTime, intervalMinutes, dataPoints[] }
+ *
+ * Empty data sets return { dataPoints: [] } when serverId is valid (not 404).
+ * Returns 400 if bucket count would exceed 5000.
+ */
+export function getPerfProbeHistory(req: Request, res: Response): void {
+  const serverId = req.query.serverId as string | undefined;
+  const model = req.query.model as string | undefined;
+  const startTime = parseInt(req.query.startTime as string, 10);
+  const endTime = parseInt(req.query.endTime as string, 10);
+  const intervalMinutes = parseInt((req.query.intervalMinutes as string) ?? '15', 10);
+
+  // Validate required params
+  if (!serverId) {
+    res.status(400).json({ error: 'serverId is required' });
+    return;
+  }
+  if (isNaN(startTime) || isNaN(endTime)) {
+    res
+      .status(400)
+      .json({ error: 'startTime and endTime are required and must be valid epoch ms numbers' });
+    return;
+  }
+  if (startTime >= endTime) {
+    res.status(400).json({ error: 'startTime must be less than endTime' });
+    return;
+  }
+
+  // Validate intervalMinutes
+  const VALID_INTERVALS = [1, 5, 15, 60, 360, 1440];
+  if (!VALID_INTERVALS.includes(intervalMinutes)) {
+    res.status(400).json({
+      error: `intervalMinutes must be one of ${VALID_INTERVALS.join(', ')}`,
+    });
+    return;
+  }
+
+  // Check server exists
+  const orchestrator = getOrchestratorInstance();
+  if (!orchestrator.getServer(serverId)) {
+    res.status(404).json({ error: `server ${serverId} not found` });
+    return;
+  }
+
+  // Check response size cap
+  const intervalMs = intervalMinutes * 60 * 1000;
+  const bucketCount = Math.ceil((endTime - startTime) / intervalMs);
+  if (bucketCount > 5000) {
+    res.status(400).json({ error: 'Reduce time range or increase intervalMinutes' });
+    return;
+  }
+
+  // Query DB — no bucket limit, safety cap at 100 000 rows
+  const allRows = orchestrator.getMetricsStore().getRequests({
+    serverId,
+    model,
+    startTime,
+    endTime,
+    isProbe: true,
+    limit: 100_000,
+  });
+
+  // Bucket results in JavaScript
+  const buckets = new Map<
+    number,
+    { count: number; ttftSum: number; tokensSum: number; successSum: number; durationSum: number }
+  >();
+
+  for (const row of allRows) {
+    const bucketTs = Math.floor(row.timestamp / intervalMs) * intervalMs;
+    const existing = buckets.get(bucketTs) ?? {
+      count: 0,
+      ttftSum: 0,
+      tokensSum: 0,
+      successSum: 0,
+      durationSum: 0,
+    };
+    existing.count++;
+    existing.ttftSum += row.ttft_ms ?? 0;
+    existing.tokensSum += row.tokens_per_second ?? 0;
+    existing.successSum += row.success ? 1 : 0;
+    existing.durationSum += row.duration_ms ?? 0;
+    buckets.set(bucketTs, existing);
+  }
+
+  const dataPoints = Array.from(buckets.entries())
+    .map(([timestamp, agg]) => ({
+      timestamp,
+      count: agg.count,
+      ttft_avg: agg.count > 0 ? agg.ttftSum / agg.count : null,
+      tokens_per_sec_avg: agg.count > 0 ? agg.tokensSum / agg.count : null,
+      success_rate: agg.count > 0 ? agg.successSum / agg.count : null,
+      latency_avg: agg.count > 0 ? agg.durationSum / agg.count : null,
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  res.status(200).json({
+    success: true,
+    serverId,
+    model: model ?? null,
+    startTime,
+    endTime,
+    intervalMinutes,
+    dataPoints,
+  });
+}
+
 // Route wiring (used by routes/perf-probe.routes.ts — T8)
 export const perfProbeHandlers = {
   runPerfProbe: asyncHandler(runPerfProbe),
   getPerfProbeStatus: asyncHandler(getPerfProbeStatus),
   cancelPerfProbe: asyncHandler(cancelPerfProbe),
+  getPerfProbeHistory: asyncHandler(getPerfProbeHistory),
 };
