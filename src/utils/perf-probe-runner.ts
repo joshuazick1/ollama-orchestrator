@@ -94,6 +94,8 @@ export async function runProbe(
     let buffer = '';
     let finalData: Record<string, unknown> | null = null;
     let firstChunkProcessed = false;
+    let chunkCount = 0;
+    let totalBytes = 0;
 
     for (;;) {
       const { done, value } = await reader.read();
@@ -121,6 +123,9 @@ export async function runProbe(
             firstChunkProcessed = true;
           }
 
+          chunkCount++;
+          totalBytes += value.length;
+
           if ('eval_count' in data && 'eval_duration' in data) {
             finalData = data;
           }
@@ -143,6 +148,9 @@ export async function runProbe(
           tracker.markFirstChunk(buffer.length);
           firstChunkProcessed = true;
         }
+
+        chunkCount++;
+        totalBytes += Buffer.byteLength(line);
 
         if ('eval_count' in data && 'eval_duration' in data) {
           finalData = data;
@@ -194,6 +202,13 @@ export async function runProbe(
       tokensPerSec,
       totalDurationMs: Date.now() - startTime,
       score: undefined, // Score computed by caller
+      evalCount: finalData.eval_count as number,
+      evalDuration: finalData.eval_duration as number,
+      promptEvalDuration: finalData.prompt_eval_duration as number | undefined,
+      totalDuration: finalData.total_duration as number | undefined,
+      loadDuration: finalData.load_duration as number | undefined,
+      chunkCount,
+      totalBytes,
     };
   } catch (error) {
     clearTimeout(timeoutId);

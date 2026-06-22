@@ -100,6 +100,20 @@ export interface ProbeRunResult {
    * Undefined if no live score exists.
    */
   existingTotalScore?: number;
+  /** Ollama eval_count (number of tokens generated), raw count */
+  evalCount?: number;
+  /** Ollama eval_duration in nanoseconds */
+  evalDuration?: number;
+  /** Ollama prompt_eval_duration in nanoseconds */
+  promptEvalDuration?: number;
+  /** Ollama total_duration in nanoseconds (end-to-end) */
+  totalDuration?: number;
+  /** Ollama load_duration in nanoseconds (model load time) */
+  loadDuration?: number;
+  /** Number of chunks received in streaming response */
+  chunkCount?: number;
+  /** Total bytes received in streaming response */
+  totalBytes?: number;
 }
 
 /**
