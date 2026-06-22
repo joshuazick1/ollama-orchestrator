@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Locate metrics DB
+# Locate repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-METRICS_DB="${METRICS_DB:-$REPO_ROOT/data/metrics.db}"
 
 # Check sqlite3 availability
 if ! command -v sqlite3 >/dev/null 2>&1; then
@@ -13,53 +12,56 @@ if ! command -v sqlite3 >/dev/null 2>&1; then
   exit 1
 fi
 
-# Check DB exists
-if [[ ! -f "$METRICS_DB" ]]; then
-  echo "ERROR: metrics DB not found at $METRICS_DB" >&2
-  exit 1
-fi
-
-# Tables to clear
-ALL_TABLES=(
+# Tables to clear across DBs
+TABLES=(
   "circuit_breaker_state"
   "circuit_breaker_transitions"
   "probe_state_wal"
   "probe_state_snapshots"
 )
 
-# Filter to only tables that actually exist
-TABLES=()
-for t in "${ALL_TABLES[@]}"; do
-  if sqlite3 "$METRICS_DB" "SELECT name FROM sqlite_master WHERE type='table' AND name='$t';" 2>/dev/null | grep -q "^$t$"; then
-    TABLES+=("$t")
+# DB files to check (in order)
+DB_FILES=(
+  "$REPO_ROOT/data/operational.db"
+  "$REPO_ROOT/data/metrics.db"
+)
+
+any_cleared=0
+
+for db in "${DB_FILES[@]}"; do
+  if [[ ! -f "$db" ]]; then
+    echo "=== $(basename "$db") ==="
+    echo "  (file not present - skipping)"
+    echo ""
+    continue
   fi
+
+  echo "=== $(basename "$db") ==="
+  for t in "${TABLES[@]}"; do
+    # Check if table exists in this DB
+    exists=$(sqlite3 "$db" "SELECT name FROM sqlite_master WHERE type='table' AND name='$t';" 2>/dev/null || true)
+    if [[ -z "$exists" ]]; then
+      echo "  $t: (table not present)"
+      continue
+    fi
+
+    before=$(sqlite3 "$db" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo "?")
+    sqlite3 "$db" "DELETE FROM $t;" 2>/dev/null || true
+    after=$(sqlite3 "$db" "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo "?")
+    echo "  $t: $before → $after"
+    any_cleared=1
+  done
+  echo ""
 done
 
-if [[ ${#TABLES[@]} -eq 0 ]]; then
+if [[ $any_cleared -eq 0 ]]; then
   echo "No probe/CB state tables found - nothing to clear"
-  exit 0
+else
+  echo "Notes:"
+  echo "  - probe_state_wal and probe_state_snapshots in metrics.db ARE cleared by this script"
+  echo "  - circuit_breaker_state and circuit_breaker_transitions are checked in both operational.db and metrics.db"
+  echo "  - In-memory CB state in ProbeOrchestrator.states is NOT cleared by this script"
+  echo "    (requires service restart: systemctl restart ollama-orchestrator)"
+  echo ""
+  echo "OK: persisted probe state cleared"
 fi
-
-# Print counts before
-echo "Before:"
-for t in "${TABLES[@]}"; do
-  count=$(sqlite3 "$METRICS_DB" "SELECT COUNT(*) FROM $t;")
-  echo "  $t: $count"
-done
-
-# Clear (single transaction)
-TXN="BEGIN;"
-for t in "${TABLES[@]}"; do
-  TXN+="DELETE FROM $t;"
-done
-TXN+="COMMIT;"
-sqlite3 "$METRICS_DB" "$TXN"
-
-# Print counts after
-echo "After:"
-for t in "${TABLES[@]}"; do
-  count=$(sqlite3 "$METRICS_DB" "SELECT COUNT(*) FROM $t;")
-  echo "  $t: $count"
-done
-
-echo "OK: probe state cleared"
