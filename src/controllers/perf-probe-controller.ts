@@ -22,6 +22,7 @@
 import type { Request, Response, NextFunction } from 'express';
 
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { getPerfProbeSchedulerInstance } from '../probe/perf-probe-scheduler-instance.js';
 import { feedThreeSinks } from '../probe/three-sink-feeder.js';
 import type {
   PerfProbeRequest,
@@ -805,10 +806,26 @@ export function getPerfProbeHistory(req: Request, res: Response): void {
   });
 }
 
+/**
+ * GET /api/orchestrator/performance-probe/scheduler-status
+ * Returns the current scheduler status (running, config, schedule, stats).
+ */
+export function getPerfProbeSchedulerStatus(req: Request, res: Response): void {
+  try {
+    const scheduler = getPerfProbeSchedulerInstance();
+    const status = scheduler.getStatus();
+    res.status(200).json({ success: true, ...status });
+  } catch (err) {
+    logger.warn('[perf-probe] Failed to get scheduler status', { error: String(err) });
+    res.status(503).json({ error: 'scheduler not initialized' });
+  }
+}
+
 // Route wiring (used by routes/perf-probe.routes.ts — T8)
 export const perfProbeHandlers = {
   runPerfProbe: asyncHandler(runPerfProbe),
   getPerfProbeStatus: asyncHandler(getPerfProbeStatus),
   cancelPerfProbe: asyncHandler(cancelPerfProbe),
   getPerfProbeHistory: asyncHandler(getPerfProbeHistory),
+  getPerfProbeSchedulerStatus: asyncHandler(getPerfProbeSchedulerStatus),
 };

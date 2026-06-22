@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+
 import { PerformanceProbeScheduler } from '../../src/probe/perf-probe-scheduler.js';
 
 vi.mock('../../src/probe/three-sink-feeder.js', () => ({
@@ -297,5 +298,54 @@ describe('PerformanceProbeScheduler', () => {
     expect(status.cycleEndsAt).not.toBeNull();
     expect(status.config).toBeDefined();
     expect(status.stats).toBeDefined();
+  });
+
+  it('getStatus() returns running: false when stopped', async () => {
+    await scheduler.start();
+    expect(scheduler.getStatus().running).toBe(true);
+    await scheduler.stop();
+    const status = scheduler.getStatus();
+    expect(status.running).toBe(false);
+    expect(status.cycleStartedAt).toBeNull();
+    expect(status.cycleEndsAt).toBeNull();
+  });
+
+  it('getStatus() currentProbes list matches scheduled entries', async () => {
+    await scheduler.start();
+    const schedule = scheduler.getSchedule();
+    const status = scheduler.getStatus();
+    expect(status.currentProbes.length).toBe(schedule.length);
+    for (const entry of schedule) {
+      const found = status.currentProbes.find(
+        p => p.serverId === entry.serverId && p.model === entry.model
+      );
+      expect(found).toBeDefined();
+      expect(found?.firesAt).toBe(entry.firesAt);
+    }
+  });
+
+  it('getStatus() stats counters reflect probe activity', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    scheduler = new PerformanceProbeScheduler({
+      logger: mockLogger,
+      orchestrator: mockOrchestrator,
+      runProbe: mockRunProbe,
+      metricsStore: mockMetricsStore,
+      inFlightManager: mockInFlightManager,
+      schedulerId: 'test-scheduler',
+      config: { ...defaultConfig, intervalMs: 100 },
+    });
+    await scheduler.start();
+    vi.advanceTimersByTimeAsync(20);
+    await vi.advanceTimersByTimeAsync(0);
+    const status = scheduler.getStatus();
+    expect(status.stats.totalScheduledToday).toBeGreaterThan(0);
+    const totalProcessed =
+      status.stats.totalCompletedToday +
+      status.stats.totalFailedToday +
+      status.stats.totalSkippedCooldown +
+      status.stats.totalSkippedConcurrency;
+    expect(totalProcessed).toBeGreaterThan(0);
+    vi.spyOn(Math, 'random').mockRestore();
   });
 });

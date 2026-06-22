@@ -202,6 +202,10 @@ export class PerformanceProbeScheduler {
       this.cycleEndTimeout = null;
     }
 
+    // Reset cycle timestamps so getStatus() reflects stopped state
+    this.cycleStartedAt = null;
+    this.cycleEndsAt = null;
+
     this.opts.logger.info('perf-probe scheduler stopped', {
       schedulerId: this.schedulerId,
     });
