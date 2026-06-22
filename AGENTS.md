@@ -91,6 +91,20 @@ When the user requests a durable behavior change, record it here or in the relev
 
 - **Clear CB + probe state**: `bash scripts/clear-probe-state.sh`
 
+### Performance Probe Scheduler
+
+The daily randomized perf-probe scheduler uses these env vars:
+
+- `PERF_PROBE_ENABLED` — Whether the scheduler runs (default: `true`)
+- `PERF_PROBE_INTERVAL_MS` — Cycle interval in ms (default: `86400000` = 24h)
+- `PERF_PROBE_JITTER_MS` — Max jitter per probe delay in ms (default: `300000` = 5min)
+- `PERF_PROBE_MAX_CONCURRENT` — Global concurrency cap (default: `max(2, min(16, floor(serverCount / 100)))` — e.g., 10 for 1000 servers)
+- `PERF_PROBE_COOLDOWN_MS` — Skip window if same (server, model) was probed recently (default: `300000` = 5min)
+- `PERF_PROBE_MODEL_COUNT` — Max probe models selected by greedy set cover (default: `50`)
+- `PERF_PROBE_TIMEOUT_MS` — Per-probe timeout in ms (default: `30000` = 30s)
+
+For testing, set `PERF_PROBE_INTERVAL_MS=60000` (1-minute cycle) and `PERF_PROBE_JITTER_MS=5000` (5s jitter).
+
 ## Child DOX Index
 
 The DOX tree is rooted at these child docs. Each child owns a durable boundary and links to its own children. See the linked doc for scope, contracts, work guidance, and verification.
