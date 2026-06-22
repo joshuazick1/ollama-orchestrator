@@ -131,3 +131,23 @@ export {
   type ClusterServerStatus,
 } from './api/health';
 export { setup, type SetupInput, type SetupResult } from './api/setup';
+export {
+  getPerfProbeHistory,
+  getPerfProbeSchedulerStatus,
+  runPerfProbe,
+  getPerfProbeStatus,
+  cancelPerfProbe,
+  getRecentPerfProbeTasks,
+  type PerfProbeHistoryParams,
+  type PerfProbeDataPoint,
+  type PerfProbeHistoryResponse,
+  type SchedulerConfig,
+  type CurrentProbe,
+  type SchedulerStats,
+  type SchedulerStatusResponse,
+  type RunPerfProbeOptions,
+  type RunPerfProbeResponse,
+  type PerfProbeTaskStatus,
+  type CancelPerfProbeResponse,
+  type RecentPerfProbeTask,
+} from './api/perf-probe';
