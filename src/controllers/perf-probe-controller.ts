@@ -248,7 +248,12 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
     for (const model of probeModels) {
       const serverIds = vennData[model] ?? [];
       for (const serverId of serverIds) {
+        // When forceRefresh=true, bypass the canServe filter entirely. This is the
+        // cold-start case: we WANT to probe HEALTHY/SUSPECT/UNKNOWN servers to build
+        // initial metrics. The filter is too strict for warmup (only allows RECOVERING).
+        // When forceRefresh=false, the filter protects against probing OPEN breakers.
         if (
+          !forceRefresh &&
           !probeOrchestrator.canServe({ serverId, model, endpoint: 'ollama_generate' }, 'probe')
         ) {
           continue;
@@ -386,8 +391,10 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
       results,
     };
 
+    // When forceRefresh=true, bypass the canServe filter entirely during adaptive rounds too.
+    // This mirrors the initial-pass behavior above: cold-start warmup probes all tuples.
     const canServe: Parameters<typeof runAdaptiveRound>[2] = (tuple, caller) =>
-      probeOrchestrator.canServe({ ...tuple, endpoint: 'ollama_generate' }, caller);
+      forceRefresh || probeOrchestrator.canServe({ ...tuple, endpoint: 'ollama_generate' }, caller);
 
     for (let round = 0; round < maxAdaptiveRounds; round++) {
       const current = store.getTask(taskId);
