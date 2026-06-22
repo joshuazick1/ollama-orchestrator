@@ -22,6 +22,7 @@
 import type { Request, Response, NextFunction } from 'express';
 
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { feedThreeSinks } from '../probe/three-sink-feeder.js';
 import type {
   PerfProbeRequest,
   ServerScore,
@@ -43,42 +44,6 @@ import {
   type PerfProbeTask,
 } from '../utils/perf-probe-task-store.js';
 import { selectProbeModels } from '../utils/probe-model-selector.js';
-import { buildProbeRequestContext } from '../utils/probe-to-request-context.js';
-
-function feedThreeSinks(result: ProbeRunResult, probeTaskId: string, dryRun: boolean): void {
-  if (dryRun || result.skipped) {
-    return;
-  }
-  const orch = getOrchestratorInstance();
-  const ctx = buildProbeRequestContext(result, probeTaskId);
-  try {
-    orch.getMetricsAggregator().recordRequest(ctx);
-  } catch (err) {
-    logger.warn('[perf-probe] Failed to feed MetricsAggregator', {
-      serverId: result.serverId,
-      model: result.model,
-      err: String(err),
-    });
-  }
-  try {
-    orch.getRequestHistory().recordRequest(ctx);
-  } catch (err) {
-    logger.warn('[perf-probe] Failed to feed getRequestHistory', {
-      serverId: result.serverId,
-      model: result.model,
-      err: String(err),
-    });
-  }
-  try {
-    orch.getMetricsStore().recordRequest(ctx, { isProbe: true });
-  } catch (err) {
-    logger.warn('[perf-probe] Failed to feed getMetricsStore', {
-      serverId: result.serverId,
-      model: result.model,
-      err: String(err),
-    });
-  }
-}
 
 // asyncHandler — inline per monitoring.routes.ts / auth.routes.ts pattern
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
