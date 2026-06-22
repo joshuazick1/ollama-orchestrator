@@ -22,7 +22,6 @@
 import type { Request, Response, NextFunction } from 'express';
 
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-import { getOperationalStore } from '../storage/operational-store.js';
 import type {
   PerfProbeRequest,
   ServerScore,
@@ -44,6 +43,42 @@ import {
   type PerfProbeTask,
 } from '../utils/perf-probe-task-store.js';
 import { selectProbeModels } from '../utils/probe-model-selector.js';
+import { buildProbeRequestContext } from '../utils/probe-to-request-context.js';
+
+function feedThreeSinks(result: ProbeRunResult, probeTaskId: string, dryRun: boolean): void {
+  if (dryRun || result.skipped) {
+    return;
+  }
+  const orch = getOrchestratorInstance();
+  const ctx = buildProbeRequestContext(result, probeTaskId);
+  try {
+    orch.getMetricsAggregator().recordRequest(ctx);
+  } catch (err) {
+    logger.warn('[perf-probe] Failed to feed MetricsAggregator', {
+      serverId: result.serverId,
+      model: result.model,
+      err: String(err),
+    });
+  }
+  try {
+    orch.getRequestHistory().recordRequest(ctx);
+  } catch (err) {
+    logger.warn('[perf-probe] Failed to feed getRequestHistory', {
+      serverId: result.serverId,
+      model: result.model,
+      err: String(err),
+    });
+  }
+  try {
+    orch.getMetricsStore().recordRequest(ctx, { isProbe: true });
+  } catch (err) {
+    logger.warn('[perf-probe] Failed to feed getMetricsStore', {
+      serverId: result.serverId,
+      model: result.model,
+      err: String(err),
+    });
+  }
+}
 
 // asyncHandler — inline per monitoring.routes.ts / auth.routes.ts pattern
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,14 +94,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-const FRESH_SNAPSHOT_MS = 5 * 60 * 1000; // 5 minutes
-
-function isSnapshotFresh(snapshot: { lastRequestAt: number | null } | null | undefined): boolean {
-  if (!snapshot || !snapshot.lastRequestAt) {
-    return false;
-  }
-  return Date.now() - snapshot.lastRequestAt < FRESH_SNAPSHOT_MS;
-}
+const FRESH_SNAPSHOT_MS = 5 * 60 * 1000;
 
 function parseAndValidateBody(body: unknown): { opts: PerfProbeRequest; errors: string[] } {
   const errors: string[] = [];
@@ -170,7 +198,6 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
   const store = getPerfProbeTaskStore();
   const orchestrator = getOrchestratorInstance();
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
-  const operationalStore = getOperationalStore();
 
   const concurrency = opts.concurrency ?? 16;
   const timeoutMs = opts.timeoutMs ?? 300000;
@@ -234,82 +261,109 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
     const results: ProbeRunResult[] = [];
     const triedPairs = new Set<string>();
 
-    // Initial probe run with concurrency limit
-    await runWithConcurrency(tuples, concurrency, async tuple => {
-      // Check cancellation between probes
-      const current = store.getTask(taskId);
-      if (!current || current.status === 'cancelled') {
-        return;
+    const inFlightManager = orchestrator.getInFlightManager();
+
+    const serverProbes = new Map<string, string[]>();
+    for (const tuple of tuples) {
+      if (!serverProbes.has(tuple.serverId)) {
+        serverProbes.set(tuple.serverId, []);
       }
+      serverProbes.get(tuple.serverId)!.push(tuple.model);
+    }
 
-      const { serverId, model, serverUrl } = tuple;
-      triedPairs.add(`${serverId}:${model}`);
+    await runWithConcurrency(
+      Array.from(serverProbes.entries()),
+      concurrency,
+      async ([serverId, models]) => {
+        const server = orchestrator.getServer(serverId);
+        const serverMaxConcurrency = server?.maxConcurrency ?? 4;
+        const serverUrl = serverUrlMap[serverId];
 
-      // Check for fresh snapshot before probing
-      if (!forceRefresh) {
-        const snapshot = operationalStore.getMetricsSnapshot(serverId, model);
-        if (isSnapshotFresh(snapshot)) {
-          logger.debug(`[perf-probe] Skipping fresh snapshot for ${serverId}:${model}`);
-          usedExistingSnapshot = true;
-          const existingScore = orchestrator.getLBScoreForServerModel(serverId, model);
-          results.push({
+        for (const model of models) {
+          const current = store.getTask(taskId);
+          if (!current || current.status === 'cancelled') {
+            return;
+          }
+
+          triedPairs.add(`${serverId}:${model}`);
+
+          if (!forceRefresh) {
+            const recent = orchestrator.getMetricsStore().getRequests({
+              serverId,
+              model,
+              startTime: Date.now() - FRESH_SNAPSHOT_MS,
+              limit: 1,
+            });
+            if (recent.length > 0) {
+              logger.debug(`[perf-probe] Skipping fresh snapshot for ${serverId}:${model}`);
+              usedExistingSnapshot = true;
+              const existingScore = orchestrator.getLBScoreForServerModel(serverId, model);
+              const skippedResult: ProbeRunResult = {
+                serverId,
+                model,
+                success: false,
+                totalDurationMs: 0,
+                skipped: true,
+                skipReason: 'fresh_snapshot',
+                existingLBScore: existingScore ?? undefined,
+                existingTotalScore: existingScore?.totalScore,
+              };
+              results.push(skippedResult);
+              store.updateTask(taskId, { flat: [...results] });
+              continue;
+            }
+          }
+
+          const acquired = inFlightManager.tryIncrementInFlight(
             serverId,
             model,
-            success: true,
-            totalDurationMs: 0,
-            existingLBScore: existingScore ?? undefined,
-            existingTotalScore: existingScore?.totalScore,
-          });
+            serverMaxConcurrency
+          );
+          if (!acquired) {
+            logger.debug(`[perf-probe] Skipping ${serverId}:${model} — server at maxConcurrency`);
+            const skippedResult: ProbeRunResult = {
+              serverId,
+              model,
+              success: false,
+              totalDurationMs: 0,
+              skipped: true,
+              skipReason: 'in_flight_cap',
+            };
+            results.push(skippedResult);
+            store.updateTask(taskId, { flat: [...results] });
+            continue;
+          }
+
+          let result: ProbeRunResult;
+          try {
+            result = await runProbe(serverId, model, serverUrl, { timeoutMs });
+          } finally {
+            inFlightManager.decrementInFlight(serverId, model);
+          }
+
+          const existingScore = orchestrator.getLBScoreForServerModel(serverId, model);
+          if (existingScore) {
+            result.existingLBScore = existingScore;
+            result.existingTotalScore = existingScore.totalScore;
+          }
+
+          if (result.success && result.ttftMs !== undefined && result.tokensPerSec !== undefined) {
+            result.score = computeCompositeScore(result.ttftMs, result.tokensPerSec);
+          }
+
+          if (!dryRun && result.success) {
+            await probeOrchestrator.recordProbeResult(
+              { serverId, model, endpoint: 'ollama_generate' },
+              true
+            );
+          }
+
+          results.push(result);
           store.updateTask(taskId, { flat: [...results] });
-          return;
+          feedThreeSinks(result, taskId, dryRun);
         }
       }
-
-      const result = await runProbe(serverId, model, serverUrl, { timeoutMs });
-
-      // Attach existing LB score for reference
-      const existingScore = orchestrator.getLBScoreForServerModel(serverId, model);
-      if (existingScore) {
-        result.existingLBScore = existingScore;
-        result.existingTotalScore = existingScore.totalScore;
-      }
-
-      // Compute composite score for successful probes
-      if (result.success && result.ttftMs !== undefined && result.tokensPerSec !== undefined) {
-        result.score = computeCompositeScore(result.ttftMs, result.tokensPerSec);
-      }
-
-      // Record through probe orchestrator unless dry run
-      if (!dryRun && result.success) {
-        await probeOrchestrator.recordProbeResult(
-          { serverId, model, endpoint: 'ollama_generate' },
-          true
-        );
-      }
-
-      // Persist successful probe to server_metrics_snapshot
-      if (result.success) {
-        try {
-          operationalStore.saveMetricsSnapshot(serverId, model, {
-            latencyAvg: result.totalDurationMs,
-            latencyP95: result.totalDurationMs,
-            throughput: result.tokensPerSec,
-            tokensPerSecond: result.tokensPerSec,
-            ttftAvg: result.ttftMs,
-            totalRequests: 1,
-            lastRequestAt: Date.now(),
-            updatedAt: Date.now(),
-          });
-        } catch (err) {
-          logger.warn(`[perf-probe] Failed to persist metrics snapshot for ${serverId}:${model}`, {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      results.push(result);
-      store.updateTask(taskId, { flat: [...results] });
-    });
+    );
 
     // Servers that were considered (had RECOVERING CBs) but received no probes
     // because all their tuples were filtered out
@@ -355,27 +409,60 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
             };
           }
 
-          // Check for fresh snapshot before probing
           if (!forceRefresh) {
-            const snapshot = operationalStore.getMetricsSnapshot(serverId, model);
-            if (isSnapshotFresh(snapshot)) {
+            const recent = orchestrator.getMetricsStore().getRequests({
+              serverId,
+              model,
+              startTime: Date.now() - FRESH_SNAPSHOT_MS,
+              limit: 1,
+            });
+            if (recent.length > 0) {
               logger.debug(
                 `[perf-probe] Skipping fresh snapshot for ${serverId}:${model} (adaptive)`
               );
               usedExistingSnapshot = true;
               const existingScore = orchestrator.getLBScoreForServerModel(serverId, model);
-              return {
+              const skippedResult: ProbeRunResult = {
                 serverId,
                 model,
-                success: true,
+                success: false,
                 totalDurationMs: 0,
+                skipped: true,
+                skipReason: 'fresh_snapshot',
                 existingLBScore: existingScore ?? undefined,
                 existingTotalScore: existingScore?.totalScore,
               };
+              return skippedResult;
             }
           }
 
-          const result = await runProbe(serverId, model, url, { timeoutMs });
+          const server = orchestrator.getServer(serverId);
+          const serverMaxConcurrency = server?.maxConcurrency ?? 4;
+          const acquired = inFlightManager.tryIncrementInFlight(
+            serverId,
+            model,
+            serverMaxConcurrency
+          );
+          if (!acquired) {
+            logger.debug(
+              `[perf-probe] Skipping ${serverId}:${model} — server at maxConcurrency (adaptive)`
+            );
+            return {
+              serverId,
+              model,
+              success: false,
+              totalDurationMs: 0,
+              skipped: true,
+              skipReason: 'in_flight_cap',
+            } as ProbeRunResult;
+          }
+
+          let result: ProbeRunResult;
+          try {
+            result = await runProbe(serverId, model, url, { timeoutMs });
+          } finally {
+            inFlightManager.decrementInFlight(serverId, model);
+          }
 
           if (result.success && result.ttftMs !== undefined && result.tokensPerSec !== undefined) {
             result.score = computeCompositeScore(result.ttftMs, result.tokensPerSec);
@@ -388,29 +475,7 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
             );
           }
 
-          // Persist successful probe to server_metrics_snapshot
-          if (result.success) {
-            try {
-              operationalStore.saveMetricsSnapshot(serverId, model, {
-                latencyAvg: result.totalDurationMs,
-                latencyP95: result.totalDurationMs,
-                throughput: result.tokensPerSec,
-                tokensPerSecond: result.tokensPerSec,
-                ttftAvg: result.ttftMs,
-                totalRequests: 1,
-                lastRequestAt: Date.now(),
-                updatedAt: Date.now(),
-              });
-            } catch (err) {
-              logger.warn(
-                `[perf-probe] Failed to persist metrics snapshot for ${serverId}:${model}`,
-                {
-                  error: err instanceof Error ? err.message : String(err),
-                }
-              );
-            }
-          }
-
+          feedThreeSinks(result, taskId, dryRun);
           return result;
         },
         canServe,
@@ -445,9 +510,6 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
     }
 
     const rankedServers = rankServers(serverScoreList);
-
-    // T7b: Persist successful probes to server_metrics_snapshot via
-    // operationalStore.saveMetricsSnapshot(...)
 
     const metadata: ProbeMetadata = {
       probeDurationMs: Date.now() - (task.createdAt ?? Date.now()),

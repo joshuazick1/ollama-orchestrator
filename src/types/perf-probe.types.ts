@@ -114,6 +114,10 @@ export interface ProbeRunResult {
   chunkCount?: number;
   /** Total bytes received in streaming response */
   totalBytes?: number;
+  /** Whether this probe was skipped (fresh snapshot or in-flight cap) */
+  skipped?: boolean;
+  /** Reason for skipping when skipped is true */
+  skipReason?: 'fresh_snapshot' | 'in_flight_cap';
 }
 
 /**
