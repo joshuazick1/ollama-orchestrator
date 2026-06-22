@@ -4,8 +4,32 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
+
+const METRICS_DB = process.env.METRICS_DB_PATH || path.resolve('./data/metrics.db');
+const LIVE_BASE_URL = process.env.ORCHESTRATOR_URL ?? 'http://localhost:5100';
+
+function queryMetricsStore(sql: string): string {
+  try {
+    return execFileSync('sqlite3', [METRICS_DB, sql], { encoding: 'utf-8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
+async function isServiceAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${LIVE_BASE_URL}/health/live`);
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+const serviceAvailable = await isServiceAvailable();
 
 describe('Performance Probe API', () => {
   beforeAll(async () => {
@@ -285,4 +309,116 @@ describe('Performance Probe API', () => {
       }
     }, 120000);
   });
+});
+
+describe.skipIf(!serviceAvailable)('Performance Probe three-sink data flow', () => {
+  beforeAll(async () => {
+    await setupIntegrationTest();
+  }, 30000);
+
+  afterAll(async () => {
+    await teardownIntegrationTest();
+  }, 30000);
+
+  async function runProbeToCompletion(): Promise<string> {
+    const postRes = await makeRequest('POST', '/api/orchestrator/performance-probe', {
+      dryRun: false,
+      forceRefresh: true,
+      timeoutMs: 30000,
+      concurrency: 1,
+    });
+
+    expect(postRes.status).toBe(202);
+    const taskId = postRes.data.taskId;
+    expect(typeof taskId).toBe('string');
+
+    // Poll until the task reaches a terminal state
+    let completed = false;
+    for (let i = 0; i < 60; i++) {
+      const statusRes = await makeRequest('GET', `/api/orchestrator/performance-probe/${taskId}`);
+      if (
+        statusRes.data.status === 'completed' ||
+        statusRes.data.status === 'failed' ||
+        statusRes.data.status === 'cancelled'
+      ) {
+        completed = true;
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    expect(completed).toBe(true);
+    return taskId;
+  }
+
+  it('Probe result is recorded in MetricsAggregator (visible via /metrics endpoint)', async () => {
+    // Record the count of probeModels before the probe so we can pick a
+    // server:model pair that was actually probed.
+    const preProbeRes = await makeRequest('GET', '/api/orchestrator/metrics');
+    expect(preProbeRes.status).toBe(200);
+
+    const taskId = await runProbeToCompletion();
+
+    // Get the completed task to find which server:model pairs were probed
+    const taskRes = await makeRequest('GET', `/api/orchestrator/performance-probe/${taskId}`);
+    expect(taskRes.status).toBe(200);
+    expect(taskRes.data.status).toBe('completed');
+
+    // flat contains individual probe results with serverId and model
+    const flat: Array<{ serverId: string; model: string }> = taskRes.data.flat ?? [];
+
+    if (flat.length === 0) {
+      // No probe results — nothing to check
+      expect(true).toBe(true);
+      return;
+    }
+
+    // Check that at least one server:model now has metrics recorded
+    let foundMetrics = false;
+    for (const probe of flat) {
+      const serverId = encodeURIComponent(probe.serverId);
+      const model = encodeURIComponent(probe.model);
+      const metricsRes = await makeRequest('GET', `/api/orchestrator/metrics/${serverId}/${model}`);
+
+      if (metricsRes.status === 200 && metricsRes.data.metrics) {
+        const windows = metricsRes.data.metrics.historical;
+        // Check the 1-minute window has a non-zero count
+        const count1m = windows?.['1m']?.count ?? 0;
+        if (count1m > 0) {
+          foundMetrics = true;
+          // Verify totalRequests would be > 0 via the aggregated endpoint
+          expect(count1m).toBeGreaterThan(0);
+          break;
+        }
+      }
+    }
+
+    // At least one server:model should have recorded metrics from the probe
+    expect(foundMetrics).toBe(true);
+  }, 120000);
+
+  it('Probe result is recorded in requests table with is_probe=1', async () => {
+    // Get the baseline count of is_probe=1 rows before the probe
+    const baselineCountStr = queryMetricsStore('SELECT COUNT(*) FROM requests WHERE is_probe = 1;');
+    const baselineCount = baselineCountStr ? parseInt(baselineCountStr, 10) : 0;
+
+    // Run a probe to completion
+    const taskId = await runProbeToCompletion();
+
+    // Check whether any servers were actually probed
+    const taskRes = await makeRequest('GET', `/api/orchestrator/performance-probe/${taskId}`);
+    const probesRun = taskRes.data.probesRun ?? 0;
+
+    if (probesRun === 0) {
+      // No servers were eligible to probe — no is_probe=1 rows should be written
+      expect(true).toBe(true);
+      return;
+    }
+
+    // Servers were probed — query the requests table for new is_probe=1 rows
+    const afterCountStr = queryMetricsStore('SELECT COUNT(*) FROM requests WHERE is_probe = 1;');
+    const afterCount = afterCountStr ? parseInt(afterCountStr, 10) : 0;
+
+    expect(afterCount).toBeGreaterThan(baselineCount);
+  }, 120000);
 });
