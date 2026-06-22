@@ -218,6 +218,6 @@ monitoringRouter.get(
 );
 
 // Performance probe routes (async two-phase: POST starts task, GET status, DELETE cancel)
-monitoringRouter.post(PERFORMANCE_PROBE, requireAuth(), asyncHandler(runPerfProbe));
-monitoringRouter.get(PERFORMANCE_PROBE_STATUS, requireAuth(), asyncHandler(getPerfProbeStatus));
-monitoringRouter.delete(PERFORMANCE_PROBE_CANCEL, requireAuth(), asyncHandler(cancelPerfProbe));
+monitoringRouter.post('/performance-probe', requireAuth(), asyncHandler(runPerfProbe));
+monitoringRouter.get('/performance-probe/:taskId', requireAuth(), asyncHandler(getPerfProbeStatus));
+monitoringRouter.delete('/performance-probe/:taskId', requireAuth(), asyncHandler(cancelPerfProbe));
