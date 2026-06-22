@@ -24,6 +24,7 @@ export const AddServerModal = memo(function AddServerModal({
   const [newServerConcurrency, setNewServerConcurrency] = useState<number | ''>('');
   const [newServerApiKey, setNewServerApiKey] = useState('');
   const [apiKeyConfirmed, setApiKeyConfirmed] = useState(false);
+  const needsConfirmation = newServerApiKey && !newServerApiKey.startsWith('env:');
   const [newServerType, setNewServerType] = useState<'ollama' | 'openai' | 'auto'>('auto');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
@@ -350,7 +351,7 @@ export const AddServerModal = memo(function AddServerModal({
             type="submit"
             variant="primary"
             loading={addMutation.isPending}
-            disabled={!apiKeyConfirmed || addMutation.isPending}
+            disabled={(needsConfirmation && !apiKeyConfirmed) || addMutation.isPending}
           >
             {addMutation.isPending ? 'Adding...' : 'Add Server'}
           </Button>
