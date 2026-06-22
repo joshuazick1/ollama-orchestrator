@@ -109,7 +109,9 @@ function parseAndValidateBody(body: unknown): { opts: PerfProbeRequest; errors: 
     if (typeof b.concurrency !== 'number' || !Number.isFinite(b.concurrency)) {
       errors.push('concurrency must be a number');
     } else {
-      opts.concurrency = clamp(Math.round(b.concurrency), 1, 64);
+      // Concurrency cap raised from 64 to 200 to support 1000-server fleets
+      // (per-server serialization still enforced; this is max SERVERS in flight)
+      opts.concurrency = clamp(Math.round(b.concurrency), 1, 200);
     }
   }
 
