@@ -540,6 +540,7 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
       status: 'completed',
       completedAt: Date.now(),
       probeModels,
+      vennData,
       serverScores: rankedServers.reduce<Record<string, Record<string, number>>>((acc, s) => {
         acc[s.serverId] = {
           score: s.score,
@@ -550,10 +551,7 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
         return acc;
       }, {}),
       flat: results,
-      metadata: {
-        ...metadata,
-        vennData,
-      },
+      metadata: metadata as unknown as Record<string, unknown>,
     });
 
     logger.info(`[perf-probe] Task ${taskId} completed`, {
