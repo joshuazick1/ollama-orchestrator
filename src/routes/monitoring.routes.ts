@@ -6,7 +6,11 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
-import { PERFORMANCE_PROBE_STATUS, PERFORMANCE_PROBE_CANCEL } from '../constants/api-endpoints.js';
+import {
+  PERFORMANCE_PROBE,
+  PERFORMANCE_PROBE_STATUS,
+  PERFORMANCE_PROBE_CANCEL,
+} from '../constants/api-endpoints.js';
 import {
   getTopModels,
   getServerPerformance,
@@ -53,7 +57,11 @@ import {
   getIdleModels,
   getModelStatus,
 } from '../controllers/model-controller.js';
-import { getPerfProbeStatus, cancelPerfProbe } from '../controllers/perf-probe-controller.js';
+import {
+  getPerfProbeStatus,
+  cancelPerfProbe,
+  runPerfProbe,
+} from '../controllers/perf-probe-controller.js';
 import { getFleetModelStats } from '../controllers/server-models-controller.js';
 import {
   getServers,
@@ -209,5 +217,7 @@ monitoringRouter.get(
   })
 );
 
+// Performance probe routes (async two-phase: POST starts task, GET status, DELETE cancel)
+monitoringRouter.post(PERFORMANCE_PROBE, requireAuth(), asyncHandler(runPerfProbe));
 monitoringRouter.get(PERFORMANCE_PROBE_STATUS, requireAuth(), asyncHandler(getPerfProbeStatus));
 monitoringRouter.delete(PERFORMANCE_PROBE_CANCEL, requireAuth(), asyncHandler(cancelPerfProbe));
