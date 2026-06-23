@@ -296,14 +296,14 @@ export class ProbeOrchestrator {
 
   /**
    * Determines whether the recovery driver can probe this tuple right now.
-   * True only if state is UNHEALTHY AND nextProbeAt <= now.
+   * True if state is UNHEALTHY or RECOVERING AND nextProbeAt <= now.
    */
   canProbe(tuple: Tuple): boolean {
     const ts = this.states.get(tupleKey(tuple));
     if (!ts) {
       return false;
     }
-    if (ts.state !== 'UNHEALTHY') {
+    if (ts.state !== 'UNHEALTHY' && ts.state !== 'RECOVERING') {
       return false;
     }
     return ts.nextProbeAt <= Date.now();
@@ -325,7 +325,7 @@ export class ProbeOrchestrator {
     if (!ts) {
       return false;
     }
-    if (ts.state !== 'UNHEALTHY') {
+    if (ts.state !== 'UNHEALTHY' && ts.state !== 'RECOVERING') {
       return false;
     }
     if (ts.nextProbeAt > Date.now()) {

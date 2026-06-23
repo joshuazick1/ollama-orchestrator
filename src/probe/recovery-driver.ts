@@ -195,7 +195,7 @@ export class RecoveryDriver {
    * Manually trigger a tick (for tests — does not use real timers).
    *
    * On each tick:
-   * - Find all UNHEALTHY tuples where nextProbeAt <= now
+   * - Find all UNHEALTHY or RECOVERING tuples where nextProbeAt <= now
    * - For each, call markProbing (atomic); if false, skip (already probing)
    * - If true, fire executeProbe (fire-and-forget, don't await)
    */
@@ -204,7 +204,7 @@ export class RecoveryDriver {
     const allStates = this.orchestrator.getAllStates();
 
     for (const [tupleKey, ts] of allStates) {
-      if (ts.state !== 'UNHEALTHY') {
+      if (ts.state !== 'UNHEALTHY' && ts.state !== 'RECOVERING') {
         continue;
       }
       if (ts.nextProbeAt > now) {
