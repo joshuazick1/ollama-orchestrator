@@ -17,6 +17,7 @@ import { getTestStore } from '../orchestrator/test-store-instance.js';
 import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
 import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { parseTupleKey, probeStateToUIState, type ProbeState } from '../probe/types.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
 import { isBlockedUrl } from '../utils/url-safety.js';
@@ -370,16 +371,7 @@ export function getModels(req: Request, res: Response): void {
  */
 export function getHealth(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
-  const probeOrchestrator = orchestrator.getProbeOrchestrator();
-  const allStates = probeOrchestrator.getAllStates();
-
-  let healthy = 0;
-  for (const [, tupleState] of allStates.entries()) {
-    if (tupleState.state === 'HEALTHY') {
-      healthy++;
-    }
-  }
-
+  const servers = orchestrator.getServers();
   const globalMetrics = orchestrator.getGlobalMetrics();
 
   res.status(200).json({
@@ -387,10 +379,10 @@ export function getHealth(req: Request, res: Response): void {
     status: 'healthy',
     uptime: process.uptime(),
     version: '1.0.0',
-    servers: orchestrator.getServers().length,
+    servers: servers.length,
     requestsPerSecond: Math.round(globalMetrics.requestsPerSecond * 100) / 100,
-    healthy,
-    total: allStates.size,
+    healthy: servers.filter(s => s.healthy).length,
+    total: servers.length,
   });
 }
 
@@ -437,6 +429,50 @@ export function getStats(req: Request, res: Response): void {
 }
 
 /**
+ * Normalize a serverId from probe tuple keys to match actual server IDs.
+ * Handles legacy IDs that lack the srv- prefix or use bare base64url encoding.
+ * Returns the canonical serverId if found, otherwise returns the original.
+ */
+function normalizeServerId(serverId: string, servers: AIServer[]): string {
+  // If the serverId already exists in our servers, it's already correct
+  if (servers.some(s => s.id === serverId)) {
+    return serverId;
+  }
+
+  // Try to decode a bare base64url serverId and find matching server by URL
+  if (serverId.startsWith('srv-')) {
+    // Has prefix but doesn't match any server - return as-is (can't fix)
+    return serverId;
+  }
+
+  // Try to decode as base64url and find server by URL
+  try {
+    const decoded = Buffer.from(serverId, 'base64url').toString('utf8');
+    const decodedUrl = decodeURIComponent(decoded);
+    const normalizedDecodedUrl = normalizeServerUrl(decodedUrl);
+    const match = servers.find(s => normalizeServerUrl(s.url) === normalizedDecodedUrl);
+    if (match) {
+      return match.id;
+    }
+  } catch {
+    // Not base64url encoded or other decode error - fall through
+  }
+
+  // Try to find server by URL substring match (for partial legacy IDs)
+  const partialMatch = servers.find(s => {
+    // Try matching URL without protocol
+    const urlWithoutProtocol = s.url.replace(/^https?:\/\//, '');
+    return serverId.includes(urlWithoutProtocol) || urlWithoutProtocol.includes(serverId);
+  });
+  if (partialMatch) {
+    return partialMatch.id;
+  }
+
+  // Could not normalize - return original
+  return serverId;
+}
+
+/**
  * Get circuit breaker status
  * GET /api/orchestrator/circuit-breakers
  */
@@ -447,9 +483,12 @@ export function getCircuitBreakers(req: Request, res: Response): void {
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
     const endpointRegistry = orchestrator.getEndpointRegistry();
     const allStates = probeOrchestrator.getAllStates();
+    const servers = orchestrator.getServers();
 
     const breakerArray = Array.from(allStates.entries()).map(([tupleKey, tupleState]) => {
-      const { serverId, model, endpoint } = parseTupleKey(tupleKey);
+      const { serverId: rawServerId, model, endpoint } = parseTupleKey(tupleKey);
+      // Normalize serverId to match actual server IDs (srv- prefix + base64url format)
+      const serverId = normalizeServerId(rawServerId, servers);
       const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
       const errorRate =
         tupleState.errorWindow.length > 0
@@ -536,6 +575,7 @@ export function getServersCircuitBreakers(req: Request, res: Response): void {
   try {
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
     const allStates = probeOrchestrator.getAllStates();
+    const servers = orchestrator.getServers();
 
     // Group by serverId, aggregate worst state per server
     const serverBreakers = new Map<
@@ -569,7 +609,8 @@ export function getServersCircuitBreakers(req: Request, res: Response): void {
     >();
 
     for (const [tupleKey, tupleState] of allStates.entries()) {
-      const { serverId, model } = parseTupleKey(tupleKey);
+      const { serverId: rawServerId, model } = parseTupleKey(tupleKey);
+      const serverId = normalizeServerId(rawServerId, servers);
       const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
       const errorRate =
         tupleState.errorWindow.length > 0
@@ -656,10 +697,12 @@ export function getCircuitBreakersByModel(req: Request, res: Response): void {
   try {
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
     const allStates = probeOrchestrator.getAllStates();
+    const servers = orchestrator.getServers();
     const modelBreakers = new Map<string, any[]>();
 
     for (const [tupleKey, tupleState] of allStates.entries()) {
-      const { serverId, model, endpoint } = parseTupleKey(tupleKey);
+      const { serverId: rawServerId, model, endpoint } = parseTupleKey(tupleKey);
+      const serverId = normalizeServerId(rawServerId, servers);
       const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
       const errorRate =
         tupleState.errorWindow.length > 0
@@ -895,7 +938,9 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
   const endpointRegistry = orchestrator.getEndpointRegistry();
   const allStates = probeOrchestrator.getAllStates();
+  const servers = orchestrator.getServers();
   const decodedModel = decodeURIComponent(model);
+  const normalizedServerId = normalizeServerId(serverId, servers);
 
   const matchingTuples: Array<{
     tupleKey: string;
@@ -906,7 +951,8 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
 
   for (const [tupleKey, tupleState] of allStates.entries()) {
     const parsed = parseTupleKey(tupleKey);
-    if (parsed.serverId === serverId && parsed.model === decodedModel) {
+    const parsedServerId = normalizeServerId(parsed.serverId, servers);
+    if (parsedServerId === normalizedServerId && parsed.model === decodedModel) {
       matchingTuples.push({ tupleKey, tupleState });
     }
   }
@@ -927,12 +973,12 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
 
   res.status(200).json({
     success: true,
-    serverId,
+    serverId: normalizedServerId,
     model: decodedModel,
     circuitBreaker: {
       name: tupleKey,
-      serverId,
-      serverIdOnly: serverId,
+      serverId: normalizedServerId,
+      serverIdOnly: normalizedServerId,
       model: decodedModel,
       endpoint,
       tupleKey,
@@ -992,38 +1038,43 @@ export function forceOpenBreaker(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
   const endpointRegistry = orchestrator.getEndpointRegistry();
+  const servers = orchestrator.getServers();
+  const normalizedServerId = normalizeServerId(serverId, servers);
   const decodedModel = decodeURIComponent(model);
 
-  const activeEndpoints = endpointRegistry.getActiveEndpoints(serverId, decodedModel);
+  const activeEndpoints = endpointRegistry.getActiveEndpoints(normalizedServerId, decodedModel);
   if (activeEndpoints.length === 0) {
     res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
   for (const endpoint of activeEndpoints) {
-    probeOrchestrator.setStateForTesting({ serverId, model: decodedModel, endpoint }, 'UNHEALTHY');
+    probeOrchestrator.setStateForTesting(
+      { serverId: normalizedServerId, model: decodedModel, endpoint },
+      'UNHEALTHY'
+    );
   }
 
   logger.info('admin_force_breaker', {
     adminUserId: req.user?.id ?? 'unknown',
     action: 'force_open',
-    serverId,
+    serverId: normalizedServerId,
     model: decodedModel,
     timestamp: new Date().toISOString(),
   });
 
-  const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
+  const tupleKey = `${normalizedServerId}:${decodedModel}:${activeEndpoints[0]}`;
   const tupleState = probeOrchestrator.getTupleState({
-    serverId,
+    serverId: normalizedServerId,
     model: decodedModel,
     endpoint: activeEndpoints[0],
   });
 
   res.status(200).json({
     success: true,
-    message: `Circuit breaker force-opened for ${serverId}:${decodedModel}`,
+    message: `Circuit breaker force-opened for ${normalizedServerId}:${decodedModel}`,
     circuitBreaker: {
-      name: `${serverId}:${decodedModel}`,
+      name: `${normalizedServerId}:${decodedModel}`,
       state: 'UNHEALTHY',
       uiState: 'OPEN',
       tupleKey,
@@ -1048,38 +1099,43 @@ export function forceCloseBreaker(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
   const endpointRegistry = orchestrator.getEndpointRegistry();
+  const servers = orchestrator.getServers();
+  const normalizedServerId = normalizeServerId(serverId, servers);
   const decodedModel = decodeURIComponent(model);
 
-  const activeEndpoints = endpointRegistry.getActiveEndpoints(serverId, decodedModel);
+  const activeEndpoints = endpointRegistry.getActiveEndpoints(normalizedServerId, decodedModel);
   if (activeEndpoints.length === 0) {
     res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
   for (const endpoint of activeEndpoints) {
-    probeOrchestrator.setStateForTesting({ serverId, model: decodedModel, endpoint }, 'HEALTHY');
+    probeOrchestrator.setStateForTesting(
+      { serverId: normalizedServerId, model: decodedModel, endpoint },
+      'HEALTHY'
+    );
   }
 
   logger.info('admin_force_breaker', {
     adminUserId: req.user?.id ?? 'unknown',
     action: 'force_close',
-    serverId,
+    serverId: normalizedServerId,
     model: decodedModel,
     timestamp: new Date().toISOString(),
   });
 
-  const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
+  const tupleKey = `${normalizedServerId}:${decodedModel}:${activeEndpoints[0]}`;
   const tupleState = probeOrchestrator.getTupleState({
-    serverId,
+    serverId: normalizedServerId,
     model: decodedModel,
     endpoint: activeEndpoints[0],
   });
 
   res.status(200).json({
     success: true,
-    message: `Circuit breaker force-closed for ${serverId}:${decodedModel}`,
+    message: `Circuit breaker force-closed for ${normalizedServerId}:${decodedModel}`,
     circuitBreaker: {
-      name: `${serverId}:${decodedModel}`,
+      name: `${normalizedServerId}:${decodedModel}`,
       state: 'HEALTHY',
       uiState: 'CLOSED',
       tupleKey,
@@ -1104,38 +1160,43 @@ export function forceHalfOpenBreaker(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
   const endpointRegistry = orchestrator.getEndpointRegistry();
+  const servers = orchestrator.getServers();
+  const normalizedServerId = normalizeServerId(serverId, servers);
   const decodedModel = decodeURIComponent(model);
 
-  const activeEndpoints = endpointRegistry.getActiveEndpoints(serverId, decodedModel);
+  const activeEndpoints = endpointRegistry.getActiveEndpoints(normalizedServerId, decodedModel);
   if (activeEndpoints.length === 0) {
     res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
     return;
   }
 
   for (const endpoint of activeEndpoints) {
-    probeOrchestrator.setStateForTesting({ serverId, model: decodedModel, endpoint }, 'RECOVERING');
+    probeOrchestrator.setStateForTesting(
+      { serverId: normalizedServerId, model: decodedModel, endpoint },
+      'RECOVERING'
+    );
   }
 
   logger.info('admin_force_breaker', {
     adminUserId: req.user?.id ?? 'unknown',
     action: 'force_half_open',
-    serverId,
+    serverId: normalizedServerId,
     model: decodedModel,
     timestamp: new Date().toISOString(),
   });
 
-  const tupleKey = `${serverId}:${decodedModel}:${activeEndpoints[0]}`;
+  const tupleKey = `${normalizedServerId}:${decodedModel}:${activeEndpoints[0]}`;
   const tupleState = probeOrchestrator.getTupleState({
-    serverId,
+    serverId: normalizedServerId,
     model: decodedModel,
     endpoint: activeEndpoints[0],
   });
 
   res.status(200).json({
     success: true,
-    message: `Circuit breaker force-half-open for ${serverId}:${decodedModel}`,
+    message: `Circuit breaker force-half-open for ${normalizedServerId}:${decodedModel}`,
     circuitBreaker: {
-      name: `${serverId}:${decodedModel}`,
+      name: `${normalizedServerId}:${decodedModel}`,
       state: 'RECOVERING',
       uiState: 'HALF-OPEN',
       tupleKey,
@@ -1159,6 +1220,8 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
   const allStates = probeOrchestrator.getAllStates();
+  const servers = orchestrator.getServers();
+  const normalizedServerId = normalizeServerId(serverId, servers);
 
   const serverTuples: Array<{
     tupleKey: string;
@@ -1169,7 +1232,8 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
 
   for (const [tupleKey, tupleState] of allStates.entries()) {
     const parsed = parseTupleKey(tupleKey);
-    if (parsed.serverId === serverId) {
+    const parsedServerId = normalizeServerId(parsed.serverId, servers);
+    if (parsedServerId === normalizedServerId) {
       serverTuples.push({ tupleKey, tupleState });
     }
   }
@@ -1213,7 +1277,7 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
 
   res.status(200).json({
     success: true,
-    serverId,
+    serverId: normalizedServerId,
     state: worstState,
     uiState: probeStateToUIState(worstState as ProbeState),
     tupleCount: serverTuples.length,
@@ -1258,26 +1322,33 @@ export function resetServerCircuitBreaker(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
   const allStates = probeOrchestrator.getAllStates();
+  const servers = orchestrator.getServers();
+  const normalizedServerId = normalizeServerId(serverId, servers);
 
   let resetCount = 0;
   for (const [tupleKey] of allStates.entries()) {
     const parsed = parseTupleKey(tupleKey);
-    if (parsed.serverId === serverId) {
-      probeOrchestrator.resetTuple({ serverId, model: parsed.model, endpoint: parsed.endpoint });
+    const parsedServerId = normalizeServerId(parsed.serverId, servers);
+    if (parsedServerId === normalizedServerId) {
+      probeOrchestrator.resetTuple({
+        serverId: normalizedServerId,
+        model: parsed.model,
+        endpoint: parsed.endpoint,
+      });
       resetCount++;
     }
   }
 
   logger.info('admin_reset_server_circuit_breakers', {
     adminUserId: req.user?.id ?? 'unknown',
-    serverId,
+    serverId: normalizedServerId,
     resetCount,
     timestamp: new Date().toISOString(),
   });
 
   res.status(200).json({
     success: true,
-    message: `Reset ${resetCount} circuit breaker(s) for server ${serverId}`,
+    message: `Reset ${resetCount} circuit breaker(s) for server ${normalizedServerId}`,
     resetCount,
   });
 }

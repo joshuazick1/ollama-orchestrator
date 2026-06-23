@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { getStats, getAnalyticsSummary, getMetrics } from '../api';
+import { getStats, getHealth, getAnalyticsSummary, getMetrics } from '../api';
 import { Activity, Zap, AlertCircle, CheckCircle, XCircle, Radio } from 'lucide-react';
 import { StatCard } from '../components/StatCard';
 import { Badge } from '../components/ui/badge';
@@ -7,7 +7,14 @@ import { useLiveUpdates } from '../hooks/useLiveUpdates';
 
 export const Dashboard = () => {
   const { isLive } = useLiveUpdates({
-    invalidateQueries: [['stats'], ['analytics-summary'], ['metrics'], ['servers'], ['models']],
+    invalidateQueries: [
+      ['stats'],
+      ['health'],
+      ['analytics-summary'],
+      ['metrics'],
+      ['servers'],
+      ['models'],
+    ],
   });
 
   const {
@@ -17,6 +24,11 @@ export const Dashboard = () => {
   } = useQuery({
     queryKey: ['stats'],
     queryFn: getStats,
+    refetchInterval: 5000,
+  });
+  const { data: healthData, isLoading: healthLoading } = useQuery({
+    queryKey: ['health'],
+    queryFn: getHealth,
     refetchInterval: 5000,
   });
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
@@ -30,8 +42,8 @@ export const Dashboard = () => {
   });
 
   const stats = statsData?.stats;
-  const activeServers = stats?.healthyServers || 0;
-  const totalServers = stats?.totalServers || 0;
+  const healthyServers = healthData?.healthy || 0;
+  const totalServers = healthData?.total || 0;
   const totalModels = stats?.totalModels || 0;
   const inFlightRequests = stats?.inFlightRequests || 0;
   const circuitBreakers = stats?.circuitBreakers || {};
@@ -121,29 +133,29 @@ export const Dashboard = () => {
         <div className="animate-slide-up stagger-1">
           <StatCard
             title="Active Servers"
-            value={statsLoading ? '...' : `${activeServers}/${totalServers}`}
+            value={statsLoading || healthLoading ? '...' : `${healthyServers}/${totalServers}`}
             subtext={
-              statsLoading
+              statsLoading || healthLoading
                 ? 'Loading...'
-                : activeServers === totalServers
-                  ? 'All nodes healthy'
-                  : `${totalServers - activeServers} nodes unhealthy`
+                : healthyServers === totalServers
+                  ? `${healthyServers} healthy / ${totalServers} total`
+                  : `${totalServers - healthyServers} nodes unhealthy`
             }
             icon={
-              statsLoading
+              statsLoading || healthLoading
                 ? Activity
-                : activeServers === totalServers
+                : healthyServers === totalServers
                   ? CheckCircle
-                  : activeServers > 0
+                  : healthyServers > 0
                     ? AlertCircle
                     : XCircle
             }
             color={
-              statsLoading
+              statsLoading || healthLoading
                 ? 'text-text-muted'
-                : activeServers === totalServers
+                : healthyServers === totalServers
                   ? 'text-green-400'
-                  : activeServers > 0
+                  : healthyServers > 0
                     ? 'text-yellow-400'
                     : 'text-red-400'
             }

@@ -122,6 +122,40 @@ export class ProbeOrchestrator {
     this.states.set(tupleKey(tuple), this._createInitialState());
   }
 
+  /**
+   * Reset all circuit breakers for a given server.
+   * Iterates through all tuple states and resets any tuple whose key starts with `${serverId}:`.
+   * Does NOT write WAL events - this is a bulk admin operation.
+   */
+  resetAllForServer(serverId: string): number {
+    let resetCount = 0;
+    const prefix = `${serverId}:`;
+    for (const [key] of this.states) {
+      if (key.startsWith(prefix)) {
+        this.states.set(key, this._createInitialState());
+        resetCount++;
+      }
+    }
+    return resetCount;
+  }
+
+  /**
+   * Evict (delete) all circuit breakers for a given server.
+   * Iterates through all tuple states and deletes any tuple whose key starts with `${serverId}:`.
+   * Does NOT write WAL events - this is a bulk admin/cleanup operation.
+   */
+  evictAllForServer(serverId: string): number {
+    let evictCount = 0;
+    const prefix = `${serverId}:`;
+    for (const [key] of this.states) {
+      if (key.startsWith(prefix)) {
+        this.states.delete(key);
+        evictCount++;
+      }
+    }
+    return evictCount;
+  }
+
   async evictTuple(tuple: Tuple): Promise<void> {
     const key = tupleKey(tuple);
     const ts = this.states.get(key);

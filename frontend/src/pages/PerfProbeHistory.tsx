@@ -1,30 +1,44 @@
-import { useState, useMemo, memo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState, useMemo, memo } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import {
   LineChart,
   Line,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
+  Tooltip as ChartTooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { History, Clock, Activity, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import {
+  History,
+  Clock,
+  Activity,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Download,
+} from 'lucide-react';
 import { Card } from '../components/Card';
-import { Badge } from '../components/ui/badge';
+import { Badge as ShadcnBadge } from '../components/ui/badge';
+import { Badge } from '../components/Badge';
 import { Skeleton } from '../components/skeletons';
 import { EmptyState } from '../components/EmptyState';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/tooltip';
 import { chartColors, uiColors } from '../constants/colors';
 import { getServers } from '../api/servers';
 import { listServerModels } from '../api/servers';
 import {
   getPerfProbeHistory,
   getPerfProbeSchedulerStatus,
+  getPerfProbeCoverageGrid,
+  exportPerfProbeHistory,
   type PerfProbeHistoryParams,
   type PerfProbeDataPoint,
   type SchedulerStatusResponse,
+  type PerfProbeCoverageGridResponse,
 } from '../api/perf-probe';
 import { formatTimeUntil } from '../utils/formatting';
+import { toastSuccess, toastError } from '../utils/toast';
 
 type TimeRange = '1h' | '24h' | '7d' | '30d';
 
@@ -77,6 +91,8 @@ export const PerfProbeHistory = memo(() => {
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [metrics, setMetrics] = useState<MetricToggle[]>(DEFAULT_METRICS);
+  const [coverageDays, setCoverageDays] = useState<number>(7);
+  const [exportFormat, setExportFormat] = useState<'csv' | 'json'>('csv');
 
   const { data: serversData, isLoading: serversLoading } = useQuery({
     queryKey: ['servers'],
@@ -132,6 +148,35 @@ export const PerfProbeHistory = memo(() => {
     refetchInterval: 30000,
   });
 
+  const { data: coverageData, isLoading: coverageLoading } =
+    useQuery<PerfProbeCoverageGridResponse>({
+      queryKey: ['perf-probe-coverage-grid', coverageDays, effectiveServerId],
+      queryFn: () =>
+        getPerfProbeCoverageGrid({ days: coverageDays, serverId: effectiveServerId || undefined }),
+      refetchInterval: 120000,
+    });
+
+  const exportMutation = useMutation({
+    mutationFn: async () => {
+      const now = Date.now();
+      const { blob, filename } = await exportPerfProbeHistory({
+        serverId: effectiveServerId,
+        model: effectiveModelId || undefined,
+        startTime: now - timeConfig.durationMs,
+        endTime: now,
+        format: exportFormat,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    onSuccess: () => toastSuccess('Export downloaded successfully'),
+    onError: (err: unknown) => toastError(err instanceof Error ? err.message : 'Export failed'),
+  });
+
   const toggleMetric = (key: 'ttft' | 'latency' | 'tokens' | 'success') => {
     setMetrics(prev => prev.map(m => (m.key === key ? { ...m, checked: !m.checked } : m)));
   };
@@ -150,6 +195,28 @@ export const PerfProbeHistory = memo(() => {
             Performance Probe History
           </h2>
           <p className="text-text-muted mt-1">Historical probe results per server</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            className="h-9 rounded-md border border-surface-border bg-surface px-3 py-2 text-sm text-text-base focus:outline-none focus:ring-2 focus:ring-ring"
+            value={exportFormat}
+            onChange={e => setExportFormat(e.target.value as 'csv' | 'json')}
+          >
+            <option value="csv">CSV</option>
+            <option value="json">JSON</option>
+          </select>
+          <button
+            onClick={() => exportMutation.mutate()}
+            disabled={!effectiveServerId || exportMutation.isPending}
+            className="flex items-center gap-2 h-9 px-4 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {exportMutation.isPending ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            Export
+          </button>
         </div>
       </div>
 
@@ -266,7 +333,7 @@ export const PerfProbeHistory = memo(() => {
                   stroke={uiColors.axisLabel}
                 />
                 <YAxis stroke={uiColors.axisLabel} />
-                <Tooltip
+                <ChartTooltip
                   contentStyle={{
                     backgroundColor: uiColors.surfaceDark,
                     borderColor: uiColors.surfaceBorder,
@@ -317,6 +384,104 @@ export const PerfProbeHistory = memo(() => {
                 )}
               </LineChart>
             </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+
+      <Card padding="md">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-text-base flex items-center gap-2">
+            <History className="w-5 h-5 text-indigo-500" />
+            Probe Coverage Heatmap
+          </h3>
+          <div className="flex gap-1 bg-surface rounded-md p-1 border border-surface-border">
+            {[7, 14, 30].map(d => (
+              <button
+                key={d}
+                onClick={() => setCoverageDays(d)}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+                  coverageDays === d
+                    ? 'bg-primary text-text-base'
+                    : 'text-text-muted hover:text-text-base hover:bg-surface-raised'
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {coverageLoading ? (
+          <div className="h-48 flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : coverageData?.grid && coverageData.grid.length > 0 ? (
+          <div>
+            <div className="grid grid-cols-[auto_repeat(24,1fr)] gap-0.5">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, dayIdx) => (
+                <React.Fragment key={dayIdx}>
+                  <div className="text-xs text-text-muted pr-2 flex items-center">{day}</div>
+                  {Array.from({ length: 24 }).map((_, hour) => {
+                    const cell = coverageData.grid.find(
+                      c => c.dayOfWeek === dayIdx && c.hourOfDay === hour
+                    );
+                    const count = cell?.count ?? 0;
+                    const maxCount = Math.max(...coverageData.grid.map(c => c.count), 1);
+                    const intensity =
+                      maxCount > 0 ? Math.log(count + 1) / Math.log(maxCount + 1) : 0;
+                    const bgClass =
+                      intensity > 0
+                        ? intensity < 0.3
+                          ? 'bg-blue-400'
+                          : intensity < 0.6
+                            ? 'bg-blue-500'
+                            : intensity < 0.85
+                              ? 'bg-blue-600'
+                              : 'bg-blue-700'
+                        : 'bg-gray-800';
+                    return (
+                      <div
+                        key={hour}
+                        className={`aspect-square rounded-sm cursor-default relative group ${bgClass}`}
+                        title={`${day} ${hour.toString().padStart(2, '0')}:00 — ${count} probe${count !== 1 ? 's' : ''}`}
+                      >
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block bg-surface-dark border border-surface-border rounded px-2 py-1 text-xs text-text-light whitespace-nowrap z-10 pointer-events-none">
+                          {day} {hour.toString().padStart(2, '0')}:00 — {count} probe
+                          {count !== 1 ? 's' : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center gap-4 text-xs text-text-muted">
+              <span>Coverage intensity</span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs">Low</span>
+                {[0.1, 0.3, 0.5, 0.7, 1.0].map((_, i) => (
+                  <div
+                    key={i}
+                    className={
+                      i === 0
+                        ? 'w-3 h-3 rounded-sm bg-blue-400/40'
+                        : i === 1
+                          ? 'w-3 h-3 rounded-sm bg-blue-400/60'
+                          : i === 2
+                            ? 'w-3 h-3 rounded-sm bg-blue-400/80'
+                            : i === 3
+                              ? 'w-3 h-3 rounded-sm bg-blue-400'
+                              : 'w-3 h-3 rounded-sm bg-blue-600'
+                    }
+                  />
+                ))}
+                <span className="text-xs">High</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="h-32 flex items-center justify-center">
+            <p className="text-text-muted text-sm">No probe coverage data available.</p>
           </div>
         )}
       </Card>
@@ -416,6 +581,54 @@ export const PerfProbeHistory = memo(() => {
                   </p>
                 </div>
               </div>
+
+              <TooltipProvider>
+                <div className="mt-4">
+                  <h4 className="text-sm font-semibold mb-2">Skip Reasons</h4>
+                  {schedulerData.stats.totalSkippedCooldown === 0 &&
+                  schedulerData.stats.totalSkippedConcurrency === 0 &&
+                  schedulerData.stats.totalFailedToday === 0 ? (
+                    <p className="text-xs text-text-muted">No skips recorded</p>
+                  ) : (
+                    <div className="flex gap-2 flex-wrap">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="neutral" size="sm">
+                            Cooldown: {schedulerData.stats.totalSkippedCooldown.toLocaleString()}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Skipped because the same (server, model) was probed within the last 5
+                          minutes (likely by an on-demand probe)
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="warning" size="sm">
+                            Concurrency:{' '}
+                            {schedulerData.stats.totalSkippedConcurrency.toLocaleString()}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Skipped because the global probe concurrency cap was reached. Try
+                          increasing PERF_PROBE_MAX_CONCURRENT.
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge variant="danger" size="sm">
+                            Failed: {schedulerData.stats.totalFailedToday.toLocaleString()}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          All attempts failed including cross-model fallback. Check the server's
+                          health.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  )}
+                </div>
+              </TooltipProvider>
             </div>
           ) : (
             <p className="text-text-muted text-sm">Unable to load scheduler status.</p>
@@ -448,14 +661,17 @@ export const PerfProbeHistory = memo(() => {
                   </div>
                   <div className="flex items-center gap-3">
                     {probe.isRunning ? (
-                      <Badge variant="outline" className="text-blue-400 border-blue-400/50">
+                      <ShadcnBadge variant="outline" className="text-blue-400 border-blue-400/50">
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5 animate-pulse" />
                         running
-                      </Badge>
+                      </ShadcnBadge>
                     ) : (
-                      <Badge variant="outline" className="text-text-muted border-surface-border">
+                      <ShadcnBadge
+                        variant="outline"
+                        className="text-text-muted border-surface-border"
+                      >
                         fires in {formatTimeUntil(probe.firesAt)}
-                      </Badge>
+                      </ShadcnBadge>
                     )}
                   </div>
                 </div>

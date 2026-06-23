@@ -1284,6 +1284,13 @@ export class MetricsStore {
   }
 
   /**
+   * Returns the underlying SQLite database handle for raw queries.
+   */
+  getDb(): Database.Database {
+    return this.db;
+  }
+
+  /**
    * Returns the SQLite database file size in bytes.
    */
   getDbSizeBytes(): number {

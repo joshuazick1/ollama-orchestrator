@@ -12,6 +12,8 @@ import {
   forceOpenBreaker,
   forceCloseBreaker,
   forceHalfOpenBreaker,
+  resetAllBreakersForServer,
+  deleteAllBreakersForServer,
 } from '../controllers/circuit-breaker-controller.js';
 import {
   getConfig,
@@ -214,6 +216,16 @@ adminRouter.post(
   '/circuit-breakers/:serverId/reset',
   requireAdmin(),
   asyncHandler(resetServerCircuitBreaker)
+);
+adminRouter.post(
+  '/circuit-breakers/server/:serverId/reset-all',
+  requireAdmin(),
+  asyncHandler(resetAllBreakersForServer)
+);
+adminRouter.delete(
+  '/circuit-breakers/server/:serverId',
+  requireAdmin(),
+  asyncHandler(deleteAllBreakersForServer)
 );
 adminRouter.get(
   '/servers/circuit-breakers',

@@ -13,6 +13,8 @@ import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.j
 import type { Tuple, ProbeState, UIState, StateProjection } from '../probe/types.js';
 import { tupleKey } from '../probe/types.js';
 import { logger } from '../utils/logger.js';
+import { normalizeServerUrl } from '../utils/url-utils.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 
 /**
  * Map internal 4-state probe system to UI 3-state.
@@ -324,6 +326,93 @@ export function forceHalfOpenBreaker(req: Request, res: Response): void {
     });
   } catch (error) {
     logger.error('Error force-half-opening circuit breaker:', error);
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+  }
+}
+
+function normalizeServerId(serverId: string, servers: AIServer[]): string {
+  if (servers.some(s => s.id === serverId)) {
+    return serverId;
+  }
+  if (serverId.startsWith('srv-')) {
+    return serverId;
+  }
+  try {
+    const decoded = Buffer.from(serverId, 'base64url').toString('utf8');
+    const decodedUrl = decodeURIComponent(decoded);
+    const normalizedDecodedUrl = normalizeServerUrl(decodedUrl);
+    const match = servers.find(s => normalizeServerUrl(s.url) === normalizedDecodedUrl);
+    if (match) {
+      return match.id;
+    }
+  } catch (_) {
+    /* noop */
+  }
+  return serverId;
+}
+
+export function resetAllBreakersForServer(req: Request, res: Response): void {
+  try {
+    const serverId = req.params.serverId as string;
+
+    if (!serverId) {
+      res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_REQUIRED });
+      return;
+    }
+
+    const orchestrator = getOrchestratorInstance();
+    const servers = orchestrator.getServers();
+    const normalizedServerId = normalizeServerId(serverId, servers);
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+
+    const resetCount = probeOrchestrator.resetAllForServer(normalizedServerId);
+
+    logger.info('Bulk circuit breaker reset for server', {
+      serverId: normalizedServerId,
+      resetCount,
+      adminUserId: req.user?.id ?? 'unknown',
+    });
+
+    res.json({
+      success: true,
+      message: `Reset ${resetCount} circuit breaker(s) for server ${normalizedServerId}`,
+      resetCount,
+    });
+  } catch (error) {
+    logger.error('Error resetting all circuit breakers for server:', error);
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+  }
+}
+
+export function deleteAllBreakersForServer(req: Request, res: Response): void {
+  try {
+    const serverId = req.params.serverId as string;
+
+    if (!serverId) {
+      res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_REQUIRED });
+      return;
+    }
+
+    const orchestrator = getOrchestratorInstance();
+    const servers = orchestrator.getServers();
+    const normalizedServerId = normalizeServerId(serverId, servers);
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+
+    const deletedCount = probeOrchestrator.evictAllForServer(normalizedServerId);
+
+    logger.info('Bulk circuit breaker eviction for server', {
+      serverId: normalizedServerId,
+      deletedCount,
+      adminUserId: req.user?.id ?? 'unknown',
+    });
+
+    res.json({
+      success: true,
+      message: `Evicted ${deletedCount} circuit breaker(s) for server ${normalizedServerId}`,
+      deletedCount,
+    });
+  } catch (error) {
+    logger.error('Error evicting all circuit breakers for server:', error);
     res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }

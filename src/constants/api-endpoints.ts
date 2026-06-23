@@ -46,6 +46,9 @@ export const PERFORMANCE_PROBE = '/api/orchestrator/performance-probe';
 export const PERFORMANCE_PROBE_STATUS = '/api/orchestrator/performance-probe/:taskId';
 export const PERFORMANCE_PROBE_CANCEL = '/api/orchestrator/performance-probe/:taskId';
 export const PERFORMANCE_PROBE_HISTORY = '/api/orchestrator/performance-probe/history';
+export const PERFORMANCE_PROBE_HISTORY_EXPORT =
+  '/api/orchestrator/performance-probe/history/export';
 export const PERFORMANCE_PROBE_SCHEDULER_STATUS =
   '/api/orchestrator/performance-probe/scheduler-status';
 export const PERFORMANCE_PROBE_RECENT = '/api/orchestrator/performance-probe/recent';
+export const PERFORMANCE_PROBE_COVERAGE_GRID = '/api/orchestrator/performance-probe/coverage-grid';

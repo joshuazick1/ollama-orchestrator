@@ -276,6 +276,8 @@ async function initialize(): Promise<void> {
         status: 'ok',
         uptime: process.uptime(),
         timestamp: new Date().toISOString(),
+        healthy: stats.healthyServers,
+        total: stats.totalServers,
         orchestrator: stats,
       });
     });
