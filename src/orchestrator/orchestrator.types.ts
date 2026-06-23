@@ -336,6 +336,8 @@ export interface RequestContext {
   cacheReadTokens?: number;
   /** Whether thinking was auto-disabled due to upstream 400 rejection */
   thinkingAutoDisabled?: boolean;
+  /** Upstream's request-id (Anthropic) or x-request-id (OpenAI) from response headers */
+  upstreamRequestId?: string;
 }
 
 /**

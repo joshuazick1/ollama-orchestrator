@@ -434,7 +434,8 @@ async function passthroughSSEStream(
   stallCheckIntervalMs?: number,
   _onStreamEnd?: () => void,
   preEnd?: (clientResponse: Response) => void,
-  activityController?: { controller: { signal: AbortSignal } }
+  activityController?: { controller: { signal: AbortSignal } },
+  onUpstreamRequestId?: (upstreamRequestId: string | undefined) => void
 ): Promise<void> {
   const startTime = Date.now();
   const effectiveStallThreshold = stallThresholdMs ?? 300000;
@@ -463,7 +464,8 @@ async function passthroughSSEStream(
   }
 
   try {
-    forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
+    const upstreamRequestId = forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
+    onUpstreamRequestId?.(upstreamRequestId);
 
     const reader = upstreamResponse.body?.getReader();
     if (!reader) {
@@ -1035,7 +1037,15 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                       }
                     }
                   : undefined,
-                activityController
+                activityController,
+                (upstreamRequestId?: string) => {
+                  logger.info('request_forwarded', {
+                    orchestratorRequestId: requestId,
+                    upstreamRequestId,
+                    provider: 'openai',
+                    serverId: server.id,
+                  });
+                }
               );
             } else {
               // REC-36: Server only speaks Ollama NDJSON — translate to OpenAI SSE

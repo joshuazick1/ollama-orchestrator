@@ -547,6 +547,16 @@ export const capabilityProbeConfigSchema = z.object({
 
 export const proxyConfigSchema = z.object({
   stripHeaders: z.array(z.string()).default([]),
+  /**
+   * Controls debug header injection (X-Orchestrator-Debug-*).
+   * - 'off': Never inject debug headers (default, recommended for production)
+   * - 'admin-only': Only inject debug headers when request has admin auth
+   * - 'always': Always inject debug headers (legacy behavior, security implications)
+   *
+   * SECURITY NOTE: 'always' mode exposes internal routing decisions to all clients.
+   * Use 'admin-only' or 'off' in production environments.
+   */
+  debugHeadersMode: z.enum(['off', 'admin-only', 'always']).default('off'),
 });
 
 export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
@@ -620,6 +630,14 @@ export const anthropicConfigSchema = z.object({
    * - 'both': Detect server type per-request; return 501 for SaaS on lifecycle endpoints (default)
    */
   lifecycleMode: z.enum(['saas-only', 'self-hosted-only', 'both']).default('both'),
+  /**
+   * Default Anthropic API version (anthropic-version header) to use when client doesn't provide one.
+   * Must be in YYYY-MM-DD format.
+   */
+  defaultVersion: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'must be in YYYY-MM-DD format')
+    .default('2023-06-01'),
 });
 
 /**

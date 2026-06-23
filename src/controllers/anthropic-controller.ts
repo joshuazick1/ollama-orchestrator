@@ -171,6 +171,18 @@ function isValidAnthropicBetaHeader(value: string): boolean {
 }
 
 /**
+ * Validate anthropic-version header format.
+ * Must be in YYYY-MM-DD format (e.g., '2023-06-01').
+ * Returns true if valid, false otherwise.
+ */
+function isValidAnthropicVersion(value: string): boolean {
+  if (!value || typeof value !== 'string') {
+    return false;
+  }
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+/**
  * Map Anthropic stop_reason to OpenAI-compatible finish_reason.
  * Anthropic stop_reason values:
  *   - end_turn     → 'stop'       (normal completion)
@@ -288,7 +300,8 @@ async function passthroughAnthropicSSE(
   model: string,
   _streamingTelemetryMeta?: StreamingTelemetryMeta,
   abortSignal?: AbortSignal,
-  onToolUse?: (toolName: string) => void
+  onToolUse?: (toolName: string) => void,
+  onUpstreamRequestId?: (upstreamRequestId: string | undefined) => void
 ): Promise<void> {
   const startTime = Date.now();
 
@@ -310,7 +323,8 @@ async function passthroughAnthropicSSE(
     }
   }
 
-  forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
+  const upstreamRequestId = forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
+  onUpstreamRequestId?.(upstreamRequestId);
 
   const reader = upstreamResponse.body?.getReader();
   if (!reader) {
@@ -458,16 +472,29 @@ async function passthroughAnthropicSSE(
 }
 
 export async function handleMessages(req: Request, res: Response): Promise<void> {
-  const anthropicVersion = req.headers['anthropic-version'];
-  if (!anthropicVersion || typeof anthropicVersion !== 'string') {
-    res.status(400).json({
-      type: 'error',
-      error: {
-        type: 'invalid_request_error',
-        message: 'anthropic-version header is required',
-      },
-    });
-    return;
+  const clientVersion = req.headers['anthropic-version'];
+  const orchestratorConfig = getConfigManager().getConfig();
+  const defaultVersion = orchestratorConfig.anthropic?.defaultVersion ?? '2023-06-01';
+
+  // Validate format if provided, use default if absent
+  let anthropicVersion: string;
+  if (clientVersion !== undefined) {
+    if (typeof clientVersion !== 'string' || !isValidAnthropicVersion(clientVersion)) {
+      res.status(400).json({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message:
+            'anthropic-version header format is invalid; expected YYYY-MM-DD (e.g., 2023-06-01)',
+        },
+      });
+      return;
+    }
+    // Forward client's exact value verbatim
+    anthropicVersion = clientVersion;
+  } else {
+    // Use default version from config
+    anthropicVersion = defaultVersion;
   }
 
   const anthropicBetaHeader = req.headers['anthropic-beta'];
@@ -625,6 +652,14 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
               activityController.controller.signal,
               (toolName: string) => {
                 orchestrator.getMetricsAggregator().recordToolUse(toolName);
+              },
+              (upstreamRequestId?: string) => {
+                logger.info('request_forwarded', {
+                  orchestratorRequestId: req.requestId,
+                  upstreamRequestId,
+                  provider: 'anthropic',
+                  serverId: server.id,
+                });
               }
             );
           } finally {
@@ -786,16 +821,29 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
  * Bypasses load balancer, routes directly to specified server
  */
 export async function handleMessagesToServer(req: Request, res: Response): Promise<void> {
-  const anthropicVersion = req.headers['anthropic-version'];
-  if (!anthropicVersion || typeof anthropicVersion !== 'string') {
-    res.status(400).json({
-      type: 'error',
-      error: {
-        type: 'invalid_request_error',
-        message: 'anthropic-version header is required',
-      },
-    });
-    return;
+  const clientVersion = req.headers['anthropic-version'];
+  const orchestratorConfig = getConfigManager().getConfig();
+  const defaultVersion = orchestratorConfig.anthropic?.defaultVersion ?? '2023-06-01';
+
+  // Validate format if provided, use default if absent
+  let anthropicVersion: string;
+  if (clientVersion !== undefined) {
+    if (typeof clientVersion !== 'string' || !isValidAnthropicVersion(clientVersion)) {
+      res.status(400).json({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message:
+            'anthropic-version header format is invalid; expected YYYY-MM-DD (e.g., 2023-06-01)',
+        },
+      });
+      return;
+    }
+    // Forward client's exact value verbatim
+    anthropicVersion = clientVersion;
+  } else {
+    // Use default version from config
+    anthropicVersion = defaultVersion;
   }
 
   const anthropicBetaHeader = req.headers['anthropic-beta'];
@@ -981,6 +1029,14 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
               activityController.controller.signal,
               (toolName: string) => {
                 orchestrator.getMetricsAggregator().recordToolUse(toolName);
+              },
+              (upstreamRequestId?: string) => {
+                logger.info('request_forwarded', {
+                  orchestratorRequestId: req.requestId,
+                  upstreamRequestId,
+                  provider: 'anthropic',
+                  serverId: server.id,
+                });
               }
             );
           } finally {

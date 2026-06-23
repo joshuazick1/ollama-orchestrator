@@ -18,6 +18,7 @@ import type {
   CapabilityProbeConfig,
   DebugConfig,
   ProbeConfig,
+  ProxyConfig,
   QueueConfig,
   RecoveryBackoffConfig,
 } from './schema.js';
@@ -214,6 +215,7 @@ export interface AnthropicConfig {
   thinkingAutoDisable: boolean;
   maxImageBytes: number;
   lifecycleMode: 'saas-only' | 'self-hosted-only' | 'both';
+  defaultVersion: string;
 }
 
 export interface ErrorAggregatorConfig {
@@ -258,6 +260,7 @@ export interface OrchestratorConfig {
   probe?: ProbeConfig | undefined;
   capabilityProbe: CapabilityProbeConfig;
   debug: DebugConfig;
+  proxy: ProxyConfig;
   anthropic: AnthropicConfig;
   errorAggregator: ErrorAggregatorConfig;
   adaptiveWeightTuner: { enabled: boolean };
@@ -586,6 +589,11 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     streamProgress: false,
   },
 
+  proxy: {
+    stripHeaders: [],
+    debugHeadersMode: 'off',
+  },
+
   anthropic: {
     enabled: true,
     supportedFeatures: [],
@@ -597,6 +605,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     thinkingAutoDisable: true,
     maxImageBytes: 5 * 1024 * 1024, // 5MB
     lifecycleMode: 'both',
+    defaultVersion: '2023-06-01',
   },
 
   errorAggregator: {
@@ -1050,6 +1059,7 @@ export class ConfigManager {
       probe: partial.probe ?? DEFAULT_CONFIG.probe,
       capabilityProbe: { ...DEFAULT_CONFIG.capabilityProbe, ...partial.capabilityProbe },
       debug: { ...DEFAULT_CONFIG.debug, ...partial.debug },
+      proxy: { ...DEFAULT_CONFIG.proxy, ...partial.proxy },
       anthropic: { ...DEFAULT_CONFIG.anthropic, ...partial.anthropic },
       errorAggregator: { ...DEFAULT_CONFIG.errorAggregator, ...partial.errorAggregator },
       adaptiveWeightTuner: {

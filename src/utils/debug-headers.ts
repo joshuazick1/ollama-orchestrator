@@ -2,11 +2,18 @@
  * debug-headers.ts
  * Helper utilities for adding debug info fields to responses.
  *
- * Debug information is included when the client sends either:
- *   - Query parameter: ?debug=true
- *   - Request header:  X-Include-Debug-Info: true
+ * Debug information is controlled by proxy.debugHeadersMode:
+ *   - 'off': Never inject debug headers (default, recommended for production)
+ *   - 'admin-only': Only inject when request has admin auth
+ *   - 'always': Always inject when client requests via ?debug=true or X-Include-Debug-Info header
+ *
+ * SECURITY: 'always' mode exposes internal routing decisions to all clients.
+ * Use 'admin-only' or 'off' in production environments.
+ *
+ * Header namespace: X-Orchestrator-Debug-*
  */
 
+import { getConfigManager } from '../config/config.js';
 import type { RoutingContext } from '../orchestrator/orchestrator-instance.js';
 
 export interface ChunkDebugData {
@@ -113,8 +120,43 @@ export function isDebugRequested(req: {
 }
 
 /**
+ * Check if the request has admin authentication.
+ * Returns true when auth is disabled OR req.auth?.isAdmin === true.
+ */
+function isAdminRequest(req: { auth?: { isAdmin?: boolean } }): boolean {
+  return req.auth?.isAdmin === true;
+}
+
+/**
+ * Determine whether debug headers should be included based on proxy.debugHeadersMode config.
+ *
+ * - 'off': Never inject debug headers
+ * - 'admin-only': Only inject when request has admin auth
+ * - 'always': Always inject when client requests via ?debug=true or X-Include-Debug-Info header
+ */
+export function shouldIncludeDebugHeaders(req: {
+  query?: Record<string, unknown>;
+  headers?: Record<string, unknown>;
+  auth?: { isAdmin?: boolean };
+}): boolean {
+  const config = getConfigManager().getConfig();
+  const mode = config.proxy.debugHeadersMode;
+
+  switch (mode) {
+    case 'off':
+      return false;
+    case 'admin-only':
+      return isAdminRequest(req);
+    case 'always':
+      return isDebugRequested(req);
+    default:
+      return false;
+  }
+}
+
+/**
  * Set lightweight diagnostic response headers that load-testing tools can parse
- * without inspecting the response body. Only set when debug is requested.
+ * without inspecting the response body. Headers use X-Orchestrator-Debug-* namespace.
  */
 export function setDebugResponseHeaders(
   res: { setHeader(name: string, value: string | number): void; headersSent?: boolean },
@@ -124,55 +166,55 @@ export function setDebugResponseHeaders(
     return;
   }
   if (debugInfo.requestId) {
-    res.setHeader('X-Request-Id', debugInfo.requestId);
+    res.setHeader('X-Orchestrator-Debug-Request-Id', debugInfo.requestId);
   }
   if (debugInfo.selectedServerId) {
-    res.setHeader('X-Selected-Server', debugInfo.selectedServerId);
+    res.setHeader('X-Orchestrator-Debug-Selected-Server', debugInfo.selectedServerId);
   }
   if (debugInfo.retryCount !== undefined && debugInfo.retryCount > 0) {
-    res.setHeader('X-Retry-Count', debugInfo.retryCount);
+    res.setHeader('X-Orchestrator-Debug-Retry-Count', debugInfo.retryCount);
   }
   if (debugInfo.serverCircuitState) {
-    res.setHeader('X-Server-Circuit-State', debugInfo.serverCircuitState);
+    res.setHeader('X-Orchestrator-Debug-Server-Circuit-State', debugInfo.serverCircuitState);
   }
   if (debugInfo.modelCircuitState) {
-    res.setHeader('X-Model-Circuit-State', debugInfo.modelCircuitState);
+    res.setHeader('X-Orchestrator-Debug-Model-Circuit-State', debugInfo.modelCircuitState);
   }
   if (debugInfo.availableServerCount !== undefined) {
-    res.setHeader('X-Available-Servers', debugInfo.availableServerCount);
+    res.setHeader('X-Orchestrator-Debug-Available-Servers', debugInfo.availableServerCount);
   }
   if (debugInfo.totalCandidates !== undefined) {
-    res.setHeader('X-Total-Candidates', debugInfo.totalCandidates);
+    res.setHeader('X-Orchestrator-Debug-Total-Candidates', debugInfo.totalCandidates);
   }
   if (debugInfo.serversTried && debugInfo.serversTried.length > 0) {
-    res.setHeader('X-Servers-Tried', debugInfo.serversTried.join(','));
+    res.setHeader('X-Orchestrator-Debug-Servers-Tried', debugInfo.serversTried.join(','));
   }
   if (debugInfo.serverLoad !== undefined) {
-    res.setHeader('X-Server-Load', debugInfo.serverLoad);
+    res.setHeader('X-Orchestrator-Debug-Server-Load', debugInfo.serverLoad);
   }
   if (debugInfo.maxConcurrency !== undefined) {
-    res.setHeader('X-Max-Concurrency', debugInfo.maxConcurrency);
+    res.setHeader('X-Orchestrator-Debug-Max-Concurrency', debugInfo.maxConcurrency);
   }
   if (debugInfo.algorithm) {
-    res.setHeader('X-Algorithm', debugInfo.algorithm);
+    res.setHeader('X-Orchestrator-Debug-Algorithm', debugInfo.algorithm);
   }
   if (debugInfo.timeoutMs !== undefined) {
-    res.setHeader('X-Timeout-Ms', debugInfo.timeoutMs);
+    res.setHeader('X-Orchestrator-Debug-Timeout-Ms', debugInfo.timeoutMs);
   }
   if (debugInfo.queueWaitTime !== undefined) {
-    res.setHeader('X-Queue-Wait-Ms', debugInfo.queueWaitTime);
+    res.setHeader('X-Orchestrator-Debug-Queue-Wait-Ms', debugInfo.queueWaitTime);
   }
   if (debugInfo.stallDetected) {
-    res.setHeader('X-Stall-Detected', '1');
+    res.setHeader('X-Orchestrator-Debug-Stall-Detected', '1');
   }
   if (debugInfo.failoverPhase !== undefined) {
-    res.setHeader('X-Failover-Phase', debugInfo.failoverPhase);
+    res.setHeader('X-Orchestrator-Debug-Failover-Phase', debugInfo.failoverPhase);
   }
   if (debugInfo.failoverCount !== undefined && debugInfo.failoverCount > 0) {
-    res.setHeader('X-Failover-Count', debugInfo.failoverCount);
+    res.setHeader('X-Orchestrator-Debug-Failover-Count', debugInfo.failoverCount);
   }
   if (debugInfo.failoverOccurred) {
-    res.setHeader('X-Failover-Occurred', '1');
+    res.setHeader('X-Orchestrator-Debug-Failover-Occurred', '1');
   }
 }
 

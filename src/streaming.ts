@@ -300,7 +300,8 @@ export async function streamResponse(
     controller: AbortController;
   },
   preEnd?: (clientResponse: Response) => void | Promise<void>,
-  streamingTelemetryMeta?: StreamingTelemetryMeta
+  streamingTelemetryMeta?: StreamingTelemetryMeta,
+  onUpstreamRequestId?: (upstreamRequestId: string | undefined) => void
 ): Promise<void> {
   const ttftTracker = existingTtftTracker ?? new TTFTTracker(ttftOptions);
   const startTime = Date.now();
@@ -333,7 +334,8 @@ export async function streamResponse(
 
   try {
     clientResponse.status(upstreamResponse.status);
-    forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
+    const upstreamRequestId = forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
+    onUpstreamRequestId?.(upstreamRequestId);
 
     // Get reader from upstream response body
     reader = upstreamResponse.body?.getReader();
