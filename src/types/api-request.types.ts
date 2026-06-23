@@ -116,31 +116,125 @@ export interface OpenAIChatMessage {
   tool_call_id?: string;
 }
 
+/**
+ * Logprobs content entry for chat completion choices.
+ * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-logprobs
+ */
+export interface OpenAILogprobsContentEntry {
+  token: string;
+  bytes?: number[];
+  logprob: number;
+  top_logprobs: Array<{
+    token: string;
+    bytes?: number[];
+    logprob: number;
+  }>;
+}
+
+/**
+ * Logprobs root for chat completion.
+ * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-logprobs
+ */
+export interface OpenAILogprobs {
+  content?: OpenAILogprobsContentEntry[];
+}
+
+/**
+ * Chat completion chunk choice with optional logprobs.
+ * Used in streaming responses (/v1/chat/completions stream).
+ * @see https://platform.openai.com/docs/api-reference/chat/streaming#chat-stream-choices
+ */
+export interface OpenAIChatCompletionChunkChoice {
+  index: number;
+  delta: {
+    role?: string;
+    content?: string;
+    tool_calls?: Array<{
+      index: number;
+      id?: string;
+      type: 'function';
+      function: { name: string; arguments: string };
+    }>;
+  };
+  finish_reason?: string | null;
+  logprobs?: OpenAILogprobs;
+}
+
+/**
+ * @see https://platform.openai.com/docs/api-reference/chat/create
+ */
 export interface OpenAIChatCompletionRequest {
   model: string;
   messages: OpenAIChatMessage[];
   temperature?: number;
   top_p?: number;
   max_tokens?: number;
+  // P0: num_samples
+  /** Number of chat completion choices to generate. Defaults to 1, max 10. */
+  n?: number;
+  // P0: logprobs
+  /** Whether to return log probabilities of the output tokens. */
+  logprobs?: boolean;
+  /** Max number of top logprobs to return per token. Only meaningful when logprobs=true. */
+  top_logprobs?: number;
   stream?: boolean;
   stop?: string | string[];
   presence_penalty?: number;
   frequency_penalty?: number;
   seed?: number;
-  response_format?: { type: 'text' | 'json_object' };
+  // P1: response_format with json_schema support
+  /**
+   * Response format constraint.
+   * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-response_format
+   */
+  response_format?:
+    | { type: 'text' }
+    | { type: 'json_object' }
+    | {
+        type: 'json_schema';
+        json_schema: {
+          name: string;
+          description?: string;
+          schema?: object;
+          strict?: boolean;
+        };
+      };
   tools?: Array<{
     type: 'function';
     function: { name: string; description?: string; parameters?: object };
   }>;
+  // P1: parallel_tool_calls
+  /**
+   * Whether to allow parallel function calls.
+   * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-parallel_tool_calls
+   */
+  parallel_tool_calls?: boolean;
+  // P1: tool_choice
+  /**
+   * Controls which function is called. 'auto', 'none', 'required', or an explicit function object.
+   * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
+   */
+  tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
   stream_options?: { include_usage?: boolean };
 }
 
+/**
+ * @see https://platform.openai.com/docs/api-reference/completions/create
+ */
 export interface OpenAICompletionRequest {
   model: string;
   prompt: string | string[];
   temperature?: number;
   top_p?: number;
   max_tokens?: number;
+  // P0: logprobs (0-5 per spec)
+  /**
+   * Log probability of most likely tokens. Integer 0-5.
+   * @see https://platform.openai.com/docs/api-reference/completions/create#completions-create-logprobs
+   */
+  logprobs?: number;
+  /** Max number of top logprobs to return per token. Integer 0-20. */
+  top_logprobs?: number;
   stream?: boolean;
   stop?: string | string[];
   presence_penalty?: number;

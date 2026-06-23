@@ -39,3 +39,22 @@ export type {
   ErrorTypeMetric,
   PerSizeLatencyBucket,
 } from './load-balancer/types.js';
+
+export type {
+  AnthropicContentBlock,
+  AnthropicMessage,
+  AnthropicSystemPrompt,
+  AnthropicTool,
+  AnthropicToolChoice,
+  AnthropicThinkingConfig,
+  AnthropicCacheControl,
+  AnthropicMessagesRequest,
+  AnthropicMessagesResponse,
+  AnthropicStreamEvent,
+  AnthropicImageBlock,
+  AnthropicTextBlock,
+  AnthropicToolUseBlock,
+  AnthropicToolResultBlock,
+  AnthropicThinkingBlock,
+  AnthropicUsage,
+} from './types/anthropic.types.js';

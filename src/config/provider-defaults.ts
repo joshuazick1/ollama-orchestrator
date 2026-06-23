@@ -55,6 +55,38 @@ export const PROVIDER_DEFAULTS = {
     authPrefix: '',
     endpoints: {},
   },
+  // Detected via OpenAI-compat probing — no new AIServer.type needed
+  deepseek: {
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    defaultModel: 'deepseek-v4-pro',
+    authType: 'bearer',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer',
+    supportsV1: true,
+    capabilities: ['chat', 'completions', 'embeddings'],
+    endpoints: {
+      chat: '/v1/chat/completions',
+      completions: '/v1/completions',
+      embeddings: '/v1/embeddings',
+    },
+  },
+  // Detected via OpenAI-compat probing — no new AIServer.type needed
+  groq: {
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    defaultModel: 'llama-3.3-70b-versatile',
+    authType: 'bearer',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer',
+    supportsV1: true,
+    capabilities: ['chat', 'completions', 'embeddings'],
+    endpoints: {
+      chat: '/v1/chat/completions',
+      completions: '/v1/completions',
+      embeddings: '/v1/embeddings',
+    },
+  },
   vertex: {
     name: 'Google Vertex AI',
     baseUrl: 'https://{region}-aiplatform.googleapis.com/v1',
@@ -63,6 +95,23 @@ export const PROVIDER_DEFAULTS = {
     authPrefix: 'Bearer',
     endpoints: {
       chat: '/publishers/google/models/{model}:generateContent',
+    },
+  },
+  // Detected via OpenAI-compat probing — no new AIServer.type needed
+  vllm: {
+    name: 'vLLM',
+    baseUrl: 'http://localhost:8000/v1',
+    defaultModel: '',
+    authType: 'bearer',
+    authHeader: 'Authorization',
+    authPrefix: 'Bearer',
+    supportsV1: true,
+    selfHosted: true,
+    capabilities: ['chat', 'completions', 'embeddings'],
+    endpoints: {
+      chat: '/v1/chat/completions',
+      completions: '/v1/completions',
+      embeddings: '/v1/embeddings',
     },
   },
 } as const;
