@@ -1,7 +1,7 @@
 export const PROVIDER_DEFAULTS = {
   openai: {
     name: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
+    baseUrl: 'https://api.openai.com',
     authType: 'bearer',
     authHeader: 'Authorization',
     authPrefix: 'Bearer',
@@ -58,7 +58,7 @@ export const PROVIDER_DEFAULTS = {
   // Detected via OpenAI-compat probing — no new AIServer.type needed
   deepseek: {
     name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
+    baseUrl: 'https://api.deepseek.com',
     defaultModel: 'deepseek-v4-pro',
     authType: 'bearer',
     authHeader: 'Authorization',
@@ -74,7 +74,7 @@ export const PROVIDER_DEFAULTS = {
   // Detected via OpenAI-compat probing — no new AIServer.type needed
   groq: {
     name: 'Groq',
-    baseUrl: 'https://api.groq.com/openai/v1',
+    baseUrl: 'https://api.groq.com/openai',
     defaultModel: 'llama-3.3-70b-versatile',
     authType: 'bearer',
     authHeader: 'Authorization',
@@ -100,7 +100,7 @@ export const PROVIDER_DEFAULTS = {
   // Detected via OpenAI-compat probing — no new AIServer.type needed
   vllm: {
     name: 'vLLM',
-    baseUrl: 'http://localhost:8000/v1',
+    baseUrl: 'http://localhost:8000',
     defaultModel: '',
     authType: 'bearer',
     authHeader: 'Authorization',

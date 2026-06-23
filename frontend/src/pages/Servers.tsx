@@ -26,7 +26,7 @@ export const PROVIDER_CONFIG = {
   },
   openai: {
     name: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
+    baseUrl: 'https://api.openai.com',
     hint: 'OpenAI API endpoint',
   },
   anthropic: {
@@ -51,17 +51,17 @@ export const PROVIDER_CONFIG = {
   },
   deepseek: {
     name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
+    baseUrl: 'https://api.deepseek.com',
     hint: 'DeepSeek API endpoint',
   },
   groq: {
     name: 'Groq',
-    baseUrl: 'https://api.groq.com/openai/v1',
+    baseUrl: 'https://api.groq.com/openai',
     hint: 'Groq LPU inference endpoint',
   },
   vllm: {
     name: 'vLLM',
-    baseUrl: 'http://localhost:8000/v1',
+    baseUrl: 'http://localhost:8000',
     hint: 'Self-hosted vLLM server',
   },
   custom: {
