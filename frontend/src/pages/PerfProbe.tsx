@@ -70,15 +70,17 @@ function TaskStatusBadge({ status }: { status: string }) {
 }
 
 function RecentTaskRow({ task }: { task: RecentPerfProbeTask }) {
-  const durationMs = task.durationMs ?? (task.completedAt ? task.completedAt - task.startedAt : 0);
+  const taskIdStr = task.taskId ?? 'unknown';
+  const durationMs =
+    task.durationMs ?? (task.completedAt && task.startedAt ? task.completedAt - task.startedAt : 0);
   return (
     <div className="flex items-center justify-between py-3 px-4 border-b border-surface-border last:border-b-0">
       <div className="flex items-center gap-3">
-        <span className="font-mono text-xs text-text-muted">{task.taskId.slice(0, 12)}</span>
-        <TaskStatusBadge status={task.status} />
+        <span className="font-mono text-xs text-text-muted">{taskIdStr.slice(0, 12)}</span>
+        <TaskStatusBadge status={task.status ?? 'unknown'} />
       </div>
       <div className="flex items-center gap-4 text-sm text-text-muted">
-        <span>{task.totalProbes} probes</span>
+        <span>{task.totalProbes ?? 0} probes</span>
         <span>{formatDuration(durationMs)}</span>
       </div>
     </div>

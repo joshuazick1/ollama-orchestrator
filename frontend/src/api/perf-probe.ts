@@ -18,6 +18,19 @@ async function apiCall<T>(call: () => Promise<T>): Promise<T> {
 // Types
 // ==========================================
 
+interface PerfProbeTaskBackend {
+  id: string;
+  status: string;
+  createdAt: number;
+  completedAt?: number;
+  metadata?: {
+    totalProbes?: number;
+    probeDurationMs?: number;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 export interface PerfProbeHistoryParams {
   serverId: string;
   model?: string;
@@ -214,7 +227,16 @@ export const cancelPerfProbe = async (taskId: string): Promise<CancelPerfProbeRe
 export const getRecentPerfProbeTasks = async (limit = 5): Promise<RecentPerfProbeTask[]> => {
   return apiCall(async () => {
     const response = await apiClient.get(`/performance-probe/recent?limit=${limit}`);
-    return response.data;
+    return (response.data as PerfProbeTaskBackend[]).map(task => ({
+      taskId: task.id,
+      status: task.status,
+      startedAt: task.createdAt,
+      completedAt: task.completedAt,
+      totalProbes: task.metadata?.totalProbes ?? 0,
+      durationMs:
+        task.metadata?.probeDurationMs ??
+        (task.completedAt && task.createdAt ? task.completedAt - task.createdAt : undefined),
+    }));
   });
 };
 
