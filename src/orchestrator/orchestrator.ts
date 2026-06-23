@@ -676,7 +676,7 @@ export class AIOrchestrator {
       const probeOllama = server.type !== 'openai';
       const probeV1 = server.type !== 'ollama';
 
-      const [response, versionResponse, v1Response] = await Promise.all([
+      const [response, versionResponse, v1Response, anthropicResponse] = await Promise.all([
         probeOllama
           ? fetch(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, {
               signal: controller.signal,
@@ -711,6 +711,28 @@ export class AIOrchestrator {
               return null;
             })
           : Promise.resolve(null),
+        probeV1
+          ? fetch(`${server.url}/v1/messages`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': server.apiKey || '',
+                'anthropic-version': '2023-06-01',
+              },
+              body: JSON.stringify({
+                model: '__probe__',
+                max_tokens: 1,
+                messages: [{ role: 'user', content: 'hi' }],
+              }),
+              signal: AbortSignal.timeout(2000),
+            }).catch((err: unknown) => {
+              logger.debug('Probe fetch failed for /v1/messages', {
+                serverId: server.id,
+                error: String(err),
+              });
+              return null;
+            })
+          : Promise.resolve(null),
       ]);
 
       clearTimeout(timeout);
@@ -728,6 +750,12 @@ export class AIOrchestrator {
       if (supportsV1 !== server.supportsV1) {
         logger.info(`Server ${server.id} /v1/* support: ${supportsV1}`);
         server.supportsV1 = supportsV1;
+      }
+
+      const newSupportsAnthropic = anthropicResponse !== null && anthropicResponse.status !== 401;
+      if (newSupportsAnthropic !== server.supportsAnthropic) {
+        logger.info(`Server ${server.id} Anthropic support: ${newSupportsAnthropic}`);
+        server.supportsAnthropic = newSupportsAnthropic;
       }
 
       // Server is healthy if at least one endpoint works
