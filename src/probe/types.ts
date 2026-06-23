@@ -48,6 +48,24 @@ export const EMBEDDING_MODEL_PATTERNS: readonly string[] = [
 ];
 
 /**
+ * Image generation model patterns (case-insensitive substring match).
+ * These models produce images, not text — probing via /api/generate or /v1/chat/completions
+ * will return 400 "does not support generate". Excluded from perf-probe selection.
+ * Ordered most-specific first to avoid false positives (e.g. 'stable-diffusion' before 'diffusion').
+ */
+export const IMAGE_MODEL_PATTERNS: readonly string[] = [
+  'stable-diffusion',
+  'flux',
+  'sdxl',
+  'midjourney',
+  'dall-e',
+  'imagen',
+  'comfyui',
+  'comfy-ui',
+  'kandinsky',
+];
+
+/**
  * Known probe endpoint values for parsing tuple keys.
  * Used by parseTupleKey to handle colons in model names.
  */

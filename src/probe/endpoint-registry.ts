@@ -5,6 +5,7 @@ import {
   EMBEDDING_ENDPOINTS,
   GENERATION_ENDPOINTS,
   EMBEDDING_MODEL_PATTERNS,
+  IMAGE_MODEL_PATTERNS,
 } from './types.js';
 
 /**
@@ -230,6 +231,20 @@ export class EndpointRegistry {
     return !this.isEmbeddingModel(model);
   }
 
+  /**
+   * Infer whether a model is an image generation model based on its name.
+   * Uses case-insensitive substring matching against known patterns.
+   */
+  isImageModel(model: string): boolean {
+    const lower = model.toLowerCase();
+    for (const pattern of IMAGE_MODEL_PATTERNS) {
+      if (lower.includes(pattern.toLowerCase())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private getCapability(serverId: string, endpoint: ProbeEndpoint): EndpointCapability | undefined {
     return this.capabilities.get(serverId)?.get(endpoint);
   }
@@ -243,6 +258,21 @@ export class EndpointRegistry {
 export function isEmbeddingModel(model: string): boolean {
   const lower = model.toLowerCase();
   for (const pattern of EMBEDDING_MODEL_PATTERNS) {
+    if (lower.includes(pattern.toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Standalone predicate: true if the model name matches an image generation model pattern.
+ * Exported so perf-probe-controller can filter image models from the probe venn
+ * without instantiating EndpointRegistry.
+ */
+export function isImageModel(model: string): boolean {
+  const lower = model.toLowerCase();
+  for (const pattern of IMAGE_MODEL_PATTERNS) {
     if (lower.includes(pattern.toLowerCase())) {
       return true;
     }

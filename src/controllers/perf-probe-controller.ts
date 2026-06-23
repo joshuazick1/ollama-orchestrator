@@ -25,7 +25,7 @@
 import type { Request, Response, NextFunction } from 'express';
 
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-import { isEmbeddingModel } from '../probe/endpoint-registry.js';
+import { isEmbeddingModel, isImageModel } from '../probe/endpoint-registry.js';
 import { getPerfProbeSchedulerInstance } from '../probe/perf-probe-scheduler-instance.js';
 import { feedThreeSinks } from '../probe/three-sink-feeder.js';
 import type {
@@ -198,7 +198,7 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
         continue;
       }
       const nonCloudModels = filterNonCloudModels(server.models ?? []).filter(
-        m => !isEmbeddingModel(m)
+        m => !isEmbeddingModel(m) && !isImageModel(m)
       );
       if (nonCloudModels.length === 0) {
         continue;
@@ -564,7 +564,7 @@ export function runPerfProbe(req: Request, res: Response): void {
 
   for (const server of servers) {
     const nonCloudModels = filterNonCloudModels(server.models ?? []).filter(
-      m => !isEmbeddingModel(m)
+      m => !isEmbeddingModel(m) && !isImageModel(m)
     );
     if (nonCloudModels.length === 0) {
       continue;
@@ -658,7 +658,7 @@ export function runPerfProbeForServer(req: Request, res: Response): void {
   };
 
   const nonCloudModels = filterNonCloudModels(server.models ?? []).filter(
-    m => !isEmbeddingModel(m)
+    m => !isEmbeddingModel(m) && !isImageModel(m)
   );
   const probeModels = nonCloudModels;
   const totalProbes = nonCloudModels.length;
