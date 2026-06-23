@@ -3174,6 +3174,20 @@ export class AIOrchestrator {
       // Use BanManager for failure tracking
       this.banManager.recordFailure(serverId, model);
 
+      // Feed client-side failures into the per-tuple breaker state machine.
+      // This ensures 404 model_not_found and other client errors trip the breaker
+      // for the specific (server, model) tuple, not just the aggregate server state.
+      const errorType = classifyError(errorMsg);
+      const isPermanent = errorType.type === 'non-retryable' || errorType.type === 'permanent';
+      void this.probeOrchestrator.recordProbeResult(
+        { serverId, model, endpoint: 'ollama_generate' },
+        false,
+        {
+          kind: isPermanent ? 'non_retryable' : 'transient',
+          retryable: !isPermanent,
+        }
+      );
+
       // Record model-level failure for aggregator tracking
       this.modelAggregator.recordFailure(model);
 
