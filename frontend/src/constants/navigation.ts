@@ -12,6 +12,7 @@ import {
   Network,
   Sparkles,
   History,
+  Gauge,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -31,6 +32,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/logs', icon: FileText, label: 'Logs' },
   { to: '/errors', icon: AlertTriangle, label: 'Error Events' },
   { to: '/probe', icon: Activity, label: 'Probe' },
+  { to: '/perf-probe', icon: Gauge, label: 'Performance Probe' },
   { to: '/perf-probe/history', icon: History, label: 'Probe History' },
   { to: '/cluster', icon: Network, label: 'Cluster' },
   { to: '/playground', icon: Sparkles, label: 'Playground' },
