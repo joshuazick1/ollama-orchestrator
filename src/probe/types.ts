@@ -42,6 +42,7 @@ export const EMBEDDING_MODEL_PATTERNS: readonly string[] = [
   'nomic-embed',
   'all-minilm',
   'mxbai-embed',
+  'bge',
   'embed',
   'embedding',
 ];
