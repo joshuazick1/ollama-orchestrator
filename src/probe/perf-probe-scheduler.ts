@@ -41,6 +41,8 @@ export interface PerformanceProbeSchedulerConfig {
   probeModelCount: number;
   /** Per-probe timeout in ms (default: 30000) */
   probeTimeoutMs: number;
+  /** Delay before probing newly-added servers in ms (default: 7200000 = 2h) */
+  newServerProbeDelayMs: number;
 }
 
 const DEFAULT_CONFIG: PerformanceProbeSchedulerConfig = {
@@ -51,6 +53,7 @@ const DEFAULT_CONFIG: PerformanceProbeSchedulerConfig = {
   cooldownMs: 5 * 60 * 1000,
   probeModelCount: 50,
   probeTimeoutMs: 30_000,
+  newServerProbeDelayMs: 7200000,
 };
 
 // ============================================================
@@ -65,6 +68,12 @@ export interface ScheduleEntry {
   isRunning: boolean;
 }
 
+export interface NewServerProbeEntry {
+  serverId: string;
+  scheduledAt: number;
+  firesAt: number;
+}
+
 export interface SchedulerStatus {
   running: boolean;
   enabled: boolean;
@@ -72,6 +81,7 @@ export interface SchedulerStatus {
   cycleEndsAt: number | null;
   config: PerformanceProbeSchedulerConfig;
   currentProbes: ScheduleEntry[];
+  newServerProbes: NewServerProbeEntry[];
   stats: {
     totalScheduledToday: number;
     totalCompletedToday: number;
@@ -152,6 +162,15 @@ export class PerformanceProbeScheduler {
   /** Tracks scheduled (serverId, model) entries for getSchedule() and isRunning state */
   private scheduleEntries: Map<string, ScheduleEntry> = new Map();
 
+  /** Pending new-server probe timeouts keyed by serverId */
+  private newServerProbes: Map<string, NodeJS.Timeout> = new Map();
+
+  /** Timestamp when each new-server probe was scheduled */
+  private newServerProbeScheduledAt: Map<string, number> = new Map();
+
+  /** Actual delay used for each new-server probe (ms) */
+  private newServerProbeDelay: Map<string, number> = new Map();
+
   constructor(private readonly opts: PerformanceProbeSchedulerOptions) {
     this.schedulerId = opts.schedulerId;
     this.config = { ...DEFAULT_CONFIG, ...opts.config };
@@ -202,6 +221,14 @@ export class PerformanceProbeScheduler {
       this.cycleEndTimeout = null;
     }
 
+    // Clear all new-server probe timeouts
+    for (const timeout of this.newServerProbes.values()) {
+      clearTimeout(timeout);
+    }
+    this.newServerProbes.clear();
+    this.newServerProbeScheduledAt.clear();
+    this.newServerProbeDelay.clear();
+
     // Reset cycle timestamps so getStatus() reflects stopped state
     this.cycleStartedAt = null;
     this.cycleEndsAt = null;
@@ -229,6 +256,7 @@ export class PerformanceProbeScheduler {
    * Full status snapshot (used by T9 status API).
    */
   getStatus(): SchedulerStatus {
+    const now = Date.now();
     return {
       running: this.running,
       enabled: this.config.enabled,
@@ -236,9 +264,64 @@ export class PerformanceProbeScheduler {
       cycleEndsAt: this.cycleEndsAt,
       config: { ...this.config },
       currentProbes: this.getSchedule(),
+      newServerProbes: Array.from(this.newServerProbes.keys()).map(serverId => {
+        const scheduledAt = this.newServerProbeScheduledAt.get(serverId) ?? now;
+        const delay = this.newServerProbeDelay.get(serverId) ?? this.config.newServerProbeDelayMs;
+        const firesAt = scheduledAt + delay;
+        return { serverId, scheduledAt, firesAt };
+      }),
       stats: { ...this.stats },
       lastError: this.lastError,
     };
+  }
+
+  // ---- New-server probe API ----
+
+  /**
+   * Schedule a one-off probe of all models on a newly-added server.
+   * Fires after delayMs (default: config.newServerProbeDelayMs = 2h).
+   * When fires: runs probe for each model on the server, feeds three sinks.
+   * On failure: logs and skips (no retry; daily cycle will pick it up).
+   */
+  scheduleNewServerProbe(serverId: string, delayMs?: number): void {
+    // Cancel any existing probe for this server first (idempotent)
+    this.cancelNewServerProbe(serverId);
+
+    const delay = delayMs ?? this.config.newServerProbeDelayMs;
+    const scheduledAt = Date.now();
+
+    const timeout = setTimeout(() => {
+      void this.runNewServerProbe(serverId);
+    }, delay);
+
+    this.newServerProbes.set(serverId, timeout);
+    this.newServerProbeScheduledAt.set(serverId, scheduledAt);
+    this.newServerProbeDelay.set(serverId, delay);
+
+    this.opts.logger.debug('scheduled new-server probe', {
+      schedulerId: this.schedulerId,
+      serverId,
+      delayMs: delay,
+      firesAt: scheduledAt + delay,
+    });
+  }
+
+  /**
+   * Cancel a pending new-server probe for the given server.
+   * Idempotent — no-op if no probe is scheduled.
+   */
+  cancelNewServerProbe(serverId: string): void {
+    const existing = this.newServerProbes.get(serverId);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      this.newServerProbes.delete(serverId);
+      this.newServerProbeScheduledAt.delete(serverId);
+      this.newServerProbeDelay.delete(serverId);
+      this.opts.logger.debug('cancelled new-server probe', {
+        schedulerId: this.schedulerId,
+        serverId,
+      });
+    }
   }
 
   // ---- Internal methods ----
@@ -472,7 +555,7 @@ export class PerformanceProbeScheduler {
     // Find all models that this server has
     const allModelsOnServer: string[] = [];
     for (const [model, serverIds] of Object.entries(fullVenn)) {
-      if ((serverIds as string[]).includes(serverId)) {
+      if (serverIds.includes(serverId)) {
         allModelsOnServer.push(model);
       }
     }
@@ -480,5 +563,105 @@ export class PerformanceProbeScheduler {
     // Filter out cloud models and the primary
     const nonCloud = filterNonCloudModels(allModelsOnServer);
     return nonCloud.filter(m => m !== primaryModel).slice(0, 2);
+  }
+
+  /**
+   * Execute probes for all models on a newly-added server.
+   * Called when a new-server probe timer fires.
+   * On failure: logs and skips (no retry; daily cycle will pick it up).
+   */
+  private async runNewServerProbe(serverId: string): Promise<void> {
+    if (!this.running) {
+      return;
+    }
+
+    // Clean up tracking state
+    this.newServerProbes.delete(serverId);
+    this.newServerProbeScheduledAt.delete(serverId);
+
+    const server = this.opts.orchestrator.getServer(serverId);
+    if (!server) {
+      this.opts.logger.debug('new-server probe skipped: server not found', { serverId });
+      return;
+    }
+
+    const fullVenn = this.opts.orchestrator.getModelMap();
+    const modelsOnServer: string[] = [];
+    for (const [model, serverIds] of Object.entries(fullVenn)) {
+      if (serverIds.includes(serverId)) {
+        modelsOnServer.push(model);
+      }
+    }
+
+    if (modelsOnServer.length === 0) {
+      this.opts.logger.debug('new-server probe skipped: no models on server', { serverId });
+      return;
+    }
+
+    this.opts.logger.debug('running new-server probe', {
+      schedulerId: this.schedulerId,
+      serverId,
+      modelCount: modelsOnServer.length,
+    });
+
+    for (const model of modelsOnServer) {
+      if (!this.running) {
+        return;
+      }
+
+      // Use a short cooldown check — if recently probed, skip
+      const cooldownStart = Date.now() - this.config.cooldownMs;
+      const recent = this.opts.metricsStore.getRequests({
+        serverId,
+        model,
+        startTime: cooldownStart,
+        isProbe: true,
+        limit: 1,
+      });
+      if (recent.length > 0) {
+        continue;
+      }
+
+      // Try to acquire in-flight slot
+      const acquired = this.opts.inFlightManager.tryIncrementInFlight(
+        serverId,
+        model,
+        server.maxConcurrency ?? 4
+      );
+      if (!acquired) {
+        continue;
+      }
+
+      this.activeProbes++;
+
+      try {
+        const result = await this.opts.runProbe(serverId, model, server.url, {
+          timeoutMs: this.config.probeTimeoutMs,
+        });
+
+        feedThreeSinks(result, this.schedulerId, false);
+
+        if (result.success) {
+          this.stats.totalCompletedToday++;
+        } else {
+          this.stats.totalFailedToday++;
+          this.opts.logger.warn('new-server probe model failed', {
+            serverId,
+            model,
+            error: result.error,
+          });
+        }
+      } catch (err) {
+        this.stats.totalFailedToday++;
+        this.opts.logger.error('new-server probe threw exception', {
+          serverId,
+          model,
+          error: String(err),
+        });
+      } finally {
+        this.opts.inFlightManager.decrementInFlight(serverId, model);
+        this.activeProbes--;
+      }
+    }
   }
 }

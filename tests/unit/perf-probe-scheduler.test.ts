@@ -27,6 +27,7 @@ describe('PerformanceProbeScheduler', () => {
     enabled: true,
     probeModelCount: 50,
     probeTimeoutMs: 30_000,
+    newServerProbeDelayMs: 7200000,
   };
 
   beforeEach(() => {
@@ -347,5 +348,146 @@ describe('PerformanceProbeScheduler', () => {
       status.stats.totalSkippedConcurrency;
     expect(totalProcessed).toBeGreaterThan(0);
     vi.spyOn(Math, 'random').mockRestore();
+  });
+
+  // ---- new-server probe tests ----
+
+  it('scheduleNewServerProbe: fires after delay and probes all models on server', async () => {
+    mockOrchestrator.getModelMap.mockReturnValue({
+      'llama3:8b': ['server-new'],
+      'mistral:7b': ['server-new'],
+    });
+    mockOrchestrator.getServer.mockReturnValue({
+      id: 'server-new',
+      url: 'http://server-new:11434',
+      maxConcurrency: 4,
+    });
+
+    await scheduler.start();
+    scheduler.scheduleNewServerProbe('server-new', 100);
+
+    // Not fired yet
+    await vi.advanceTimersByTimeAsync(50);
+    expect(mockRunProbe).not.toHaveBeenCalled();
+
+    // Advance past delay — setTimeout fires synchronously, runNewServerProbe starts async chain
+    // Two awaits needed: first pumps the timeout callback, second pumps the resulting promise chain
+    await vi.advanceTimersByTimeAsync(60);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockRunProbe).toHaveBeenCalledTimes(2);
+    expect(mockRunProbe).toHaveBeenCalledWith(
+      'server-new',
+      'llama3:8b',
+      'http://server-new:11434',
+      expect.any(Object)
+    );
+    expect(mockRunProbe).toHaveBeenCalledWith(
+      'server-new',
+      'mistral:7b',
+      'http://server-new:11434',
+      expect.any(Object)
+    );
+  });
+
+  it('scheduleNewServerProbe: is idempotent (reschedules if called again)', async () => {
+    mockOrchestrator.getModelMap.mockReturnValue({
+      'llama3:8b': ['server-new'],
+    });
+    mockOrchestrator.getServer.mockReturnValue({
+      id: 'server-new',
+      url: 'http://server-new:11434',
+      maxConcurrency: 4,
+    });
+
+    scheduler.scheduleNewServerProbe('server-new', 100);
+    scheduler.scheduleNewServerProbe('server-new', 200);
+
+    // Should only fire once with the second delay (200ms)
+    await vi.advanceTimersByTimeAsync(150);
+    expect(mockRunProbe).not.toHaveBeenCalled();
+
+    // Advance past 200ms, then flush promise chain
+    await vi.advanceTimersByTimeAsync(60);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockRunProbe).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancelNewServerProbe: prevents the probe from firing', async () => {
+    mockOrchestrator.getModelMap.mockReturnValue({
+      'llama3:8b': ['server-new'],
+    });
+    mockOrchestrator.getServer.mockReturnValue({
+      id: 'server-new',
+      url: 'http://server-new:11434',
+      maxConcurrency: 4,
+    });
+
+    scheduler.scheduleNewServerProbe('server-new', 100);
+    scheduler.cancelNewServerProbe('server-new');
+
+    vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockRunProbe).not.toHaveBeenCalled();
+  });
+
+  it('cancelNewServerProbe: is idempotent (no-op if nothing scheduled)', () => {
+    expect(() => scheduler.cancelNewServerProbe('nonexistent')).not.toThrow();
+  });
+
+  it('getStatus() exposes pending new-server probes', () => {
+    vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+    mockOrchestrator.getModelMap.mockReturnValue({
+      'llama3:8b': ['server-new'],
+    });
+
+    scheduler.scheduleNewServerProbe('server-new', 5000);
+
+    const status = scheduler.getStatus();
+    expect(status.newServerProbes).toHaveLength(1);
+    expect(status.newServerProbes[0].serverId).toBe('server-new');
+    expect(status.newServerProbes[0].scheduledAt).toBeGreaterThan(0);
+    expect(status.newServerProbes[0].firesAt - status.newServerProbes[0].scheduledAt).toBe(5000);
+  });
+
+  it('getStatus() newServerProbes is empty when no probes scheduled', () => {
+    const status = scheduler.getStatus();
+    expect(status.newServerProbes).toHaveLength(0);
+  });
+
+  it('stop() clears all new-server probe timeouts', async () => {
+    mockOrchestrator.getModelMap.mockReturnValue({
+      'llama3:8b': ['server-new'],
+    });
+    mockOrchestrator.getServer.mockReturnValue({
+      id: 'server-new',
+      url: 'http://server-new:11434',
+      maxConcurrency: 4,
+    });
+
+    scheduler.scheduleNewServerProbe('server-new', 10000);
+    await scheduler.stop();
+
+    vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockRunProbe).not.toHaveBeenCalled();
+    const status = scheduler.getStatus();
+    expect(status.newServerProbes).toHaveLength(0);
+  });
+
+  it('scheduleNewServerProbe: skips server if not found when firing', async () => {
+    mockOrchestrator.getModelMap.mockReturnValue({});
+    mockOrchestrator.getServer.mockReturnValue(undefined);
+
+    scheduler.scheduleNewServerProbe('server-gone', 100);
+    vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockRunProbe).not.toHaveBeenCalled();
   });
 });
