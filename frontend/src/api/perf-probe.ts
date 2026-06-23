@@ -207,7 +207,15 @@ export const runPerfProbe = async (
 export const getPerfProbeStatus = async (taskId: string): Promise<PerfProbeTaskStatus> => {
   return apiCall(async () => {
     const response = await apiClient.get(`/performance-probe/${encodeURIComponent(taskId)}`);
-    return response.data;
+    const task = response.data as PerfProbeTaskBackend;
+    return {
+      taskId: task.id,
+      status: task.status,
+      startedAt: task.createdAt,
+      completedAt: task.completedAt,
+      totalProbes: (task.metadata?.totalProbes as number | undefined) ?? 0,
+      completedProbes: (task.metadata?.completedProbes as number | undefined) ?? 0,
+    };
   });
 };
 
