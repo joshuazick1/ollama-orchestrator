@@ -19,6 +19,7 @@ const mockServer: AIServer = {
   supportsOllama: true,
   supportsV1: true,
   maxConcurrency: 4,
+  serverAddedAt: Date.now(),
 };
 
 const mockUnhealthyServer: AIServer = {
@@ -32,6 +33,7 @@ const mockUnhealthyServer: AIServer = {
   supportsOllama: true,
   supportsV1: false,
   maxConcurrency: 4,
+  serverAddedAt: Date.now(),
 };
 
 const defaultProps = {

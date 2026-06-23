@@ -3,15 +3,7 @@ import { memo, useState, useEffect } from 'react';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { ServerActionsMenu } from './ServerActionsMenu';
-import {
-  Server as ServerIcon,
-  Trash2,
-  Download,
-  CheckCircle,
-  XCircle,
-  Activity,
-  Clock,
-} from 'lucide-react';
+import { Server as ServerIcon, Trash2, Download, Activity, Clock } from 'lucide-react';
 import type { AIServer, MetricsExport } from '../../types';
 import type { ScheduledProbe } from '../../api/perf-probe';
 
@@ -283,38 +275,6 @@ export const ServerCard = memo(function ServerCard({
                     </div>
                   );
                 })()}
-
-              {/* Endpoint Probes */}
-              {server.probedEndpoints && (
-                <div>
-                  <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-2">
-                    Endpoint Probes
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { key: 'ollama_chat', label: '/api/chat' },
-                      { key: 'ollama_generate', label: '/api/generate' },
-                      { key: 'ollama_embeddings', label: '/api/embeddings' },
-                      { key: 'openai_chat', label: '/v1/chat/completions' },
-                      { key: 'openai_completions', label: '/v1/completions' },
-                      { key: 'openai_embeddings', label: '/v1/embeddings' },
-                      { key: 'anthropic_messages', label: '/v1/messages' },
-                    ].map(({ key, label }) => (
-                      <div
-                        key={key}
-                        className="flex items-center space-x-2 p-2 bg-surface-raised/50 rounded-lg"
-                      >
-                        {server.probedEndpoints?.[key as keyof typeof server.probedEndpoints] ? (
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-red-500" />
-                        )}
-                        <span className="text-xs text-text-base font-mono">{label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div className="pt-4">
                 <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-3">

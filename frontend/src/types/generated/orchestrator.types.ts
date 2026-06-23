@@ -92,8 +92,7 @@ export interface AIServer {
   modelContextLimits?: Record<string, number>;
   // Timestamp when context limits were last fetched (for cache invalidation)
   contextLimitsFetchedAt?: number;
-  // Endpoint probe results - capability detection probes for various HTTP endpoints
-  probedEndpoints?: Record<string, boolean>;
+  serverAddedAt: number;
 }
 
 export interface ServerModelBenchmark {
