@@ -123,7 +123,7 @@ export function getAllModelsStatus(req: Request, res: Response): void {
     const modelStatuses: Array<{
       serverId: string;
       model: string;
-      status: 'confirmed' | 'revoked' | 'rate_limited';
+      status: 'confirmed' | 'revoked' | 'pending' | 'rate_limited';
       lastProbeAt: number;
       confidence: number;
       endpoints: string[];
@@ -134,7 +134,6 @@ export function getAllModelsStatus(req: Request, res: Response): void {
       const endpointNames: string[] = [];
       let confirmedCount = 0;
       let revokedCount = 0;
-      let _rateLimitedCount = 0;
       let lastProbeAt = 0;
 
       for (const [_endpoint, cap] of caps.entries()) {
@@ -143,8 +142,6 @@ export function getAllModelsStatus(req: Request, res: Response): void {
           confirmedCount++;
         } else if (cap.failureCount > 0) {
           revokedCount++;
-        } else {
-          _rateLimitedCount++;
         }
         if (cap.lastSeen > lastProbeAt) {
           lastProbeAt = cap.lastSeen;
@@ -152,13 +149,13 @@ export function getAllModelsStatus(req: Request, res: Response): void {
       }
 
       // Determine the overall status for this server
-      let status: 'confirmed' | 'revoked' | 'rate_limited';
+      let status: 'confirmed' | 'revoked' | 'pending' | 'rate_limited';
       if (confirmedCount > 0) {
         status = 'confirmed';
       } else if (revokedCount > 0) {
         status = 'revoked';
       } else {
-        status = 'rate_limited';
+        status = 'pending';
       }
 
       modelStatuses.push({
@@ -173,7 +170,7 @@ export function getAllModelsStatus(req: Request, res: Response): void {
 
     const confirmed = modelStatuses.filter(m => m.status === 'confirmed').length;
     const revoked = modelStatuses.filter(m => m.status === 'revoked').length;
-    const rateLimited = modelStatuses.filter(m => m.status === 'rate_limited').length;
+    const pending = modelStatuses.filter(m => m.status === 'pending').length;
 
     res.status(200).json({
       success: true,
@@ -182,7 +179,7 @@ export function getAllModelsStatus(req: Request, res: Response): void {
         totalCapabilities: modelStatuses.length,
         confirmed,
         revoked,
-        rateLimited,
+        pending,
       },
       models: modelStatuses,
     });
