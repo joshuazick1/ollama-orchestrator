@@ -464,7 +464,41 @@ export class AIOrchestrator {
     this.errorAggregator.setClusterSize(this.servers.length);
     logger.info(`Added server ${server.id} at ${normalizedUrl}`);
 
-    for (const endpoint of [...GENERATION_ENDPOINTS, ...EMBEDDING_ENDPOINTS]) {
+    // Declare endpoints based on server type to avoid polluting the registry
+    // with irrelevant capabilities:
+    // - 'ollama': only Ollama endpoints
+    // - 'openai': only OpenAI endpoints + anthropic_messages
+    // - 'auto': all (preserves current behavior for auto-detected servers)
+    const endpointsToDeclare: ProbeEndpoint[] = [];
+    const isAuto = !server.type || server.type === 'auto';
+
+    if (server.type === 'ollama' || isAuto) {
+      for (const ep of GENERATION_ENDPOINTS) {
+        if (ep.startsWith('ollama_')) {
+          endpointsToDeclare.push(ep);
+        }
+      }
+      for (const ep of EMBEDDING_ENDPOINTS) {
+        if (ep.startsWith('ollama_')) {
+          endpointsToDeclare.push(ep);
+        }
+      }
+    }
+    if (server.type === 'openai' || isAuto) {
+      for (const ep of GENERATION_ENDPOINTS) {
+        if (ep.startsWith('openai_')) {
+          endpointsToDeclare.push(ep);
+        }
+      }
+      for (const ep of EMBEDDING_ENDPOINTS) {
+        if (ep.startsWith('openai_')) {
+          endpointsToDeclare.push(ep);
+        }
+      }
+      endpointsToDeclare.push('anthropic_messages');
+    }
+
+    for (const endpoint of endpointsToDeclare) {
       this.endpointRegistry.declare(newServer.id, endpoint);
     }
 
