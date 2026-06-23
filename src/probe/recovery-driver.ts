@@ -211,8 +211,16 @@ export class RecoveryDriver {
         continue;
       }
 
-      // Parse tuple key back to Tuple for markProbing
-      const tuple = this.#parseTupleKey(tupleKey);
+      if (!tupleKey || typeof tupleKey !== 'string' || !tupleKey.includes(':')) {
+        continue;
+      }
+
+      let tuple: Tuple;
+      try {
+        tuple = this.#parseTupleKey(tupleKey);
+      } catch {
+        continue;
+      }
 
       // Atomic check-and-set — returns false if already being probed by someone else
       if (!this.orchestrator.markProbing(tuple)) {

@@ -51,6 +51,7 @@ import { TimeoutManager } from '../utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
 
 import { OrchestratorModels } from './models.js';
+import { AnthropicModels, type AnthropicModel } from './anthropic-models.js';
 import type {
   AIServer,
   RequestContext,
@@ -125,6 +126,7 @@ export class AIOrchestrator {
   private draining = false;
   private config: OrchestratorConfig;
   private readonly tagsCacheStore: TagsCacheStore;
+  private anthropicModels: AnthropicModels;
 
   // Track per server:model timeouts via TimeoutManager
   private timeoutManager: TimeoutManager;
@@ -187,6 +189,10 @@ export class AIOrchestrator {
   public getModels(): OrchestratorModels {
     return this.models;
   }
+
+  public async getAggregatedAnthropicModels(): Promise<{ object: string; data: AnthropicModel[] }> {
+    return this.anthropicModels.getAggregatedAnthropicModels();
+  }
   public getDecisionHistory() {
     return getDecisionHistory();
   }
@@ -199,6 +205,10 @@ export class AIOrchestrator {
 
   public getTagsCache() {
     return this.tagsCacheStore.get();
+  }
+
+  public getAnthropicModels(): AnthropicModels {
+    return this.anthropicModels;
   }
 
   public getInferenceTimeoutMs(): number {
@@ -361,6 +371,7 @@ export class AIOrchestrator {
 
     this.walStore = new WALStore(getOperationalStore());
     this.endpointRegistry = new EndpointRegistry();
+    this.anthropicModels = new AnthropicModels(this);
     const probeConfig =
       (this.config as { probe?: typeof DEFAULT_PROBE_CONFIG }).probe ?? DEFAULT_PROBE_CONFIG;
     this.probeOrchestrator = new ProbeOrchestrator(probeConfig, this.walStore);

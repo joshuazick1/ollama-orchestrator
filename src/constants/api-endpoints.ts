@@ -24,6 +24,7 @@ export const API_ENDPOINTS = {
   },
   ANTHROPIC: {
     MESSAGES: '/v1/messages',
+    MODELS: '/v1/models',
   },
 } as const;
 

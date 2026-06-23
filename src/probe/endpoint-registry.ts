@@ -245,7 +245,11 @@ export class EndpointRegistry {
     return false;
   }
 
-  private getCapability(serverId: string, endpoint: ProbeEndpoint): EndpointCapability | undefined {
+  /**
+   * Get the capability record for a specific server and endpoint.
+   * Returns undefined if no capability has been registered for this server:endpoint pair.
+   */
+  getCapability(serverId: string, endpoint: ProbeEndpoint): EndpointCapability | undefined {
     return this.capabilities.get(serverId)?.get(endpoint);
   }
 }

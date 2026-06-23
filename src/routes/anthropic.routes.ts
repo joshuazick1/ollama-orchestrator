@@ -1,6 +1,11 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
-import { handleMessages } from '../controllers/anthropic-controller.js';
+import {
+  handleMessages,
+  handleMessagesToServer,
+  handleListModels,
+  handleGetModel,
+} from '../controllers/anthropic-controller.js';
 import { requireAuth } from '../middleware/auth.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,3 +20,6 @@ const asyncHandler =
 export const anthropicRouter = Router();
 
 anthropicRouter.post('/messages', requireAuth(), asyncHandler(handleMessages));
+anthropicRouter.get('/models', asyncHandler(handleListModels));
+anthropicRouter.get('/models/:model', asyncHandler(handleGetModel));
+anthropicRouter.post('/messages--:serverId', requireAuth(), asyncHandler(handleMessagesToServer));

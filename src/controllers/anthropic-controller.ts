@@ -1,9 +1,9 @@
 import type { Request, Response } from 'express';
-import { z } from 'zod';
 
 import { API_ENDPOINTS } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
+import { AnthropicMessagesRequestSchema } from '../types/anthropic.types.js';
 import type { StreamingTelemetryMeta } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import {
@@ -16,14 +16,55 @@ import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-cl
 import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
-const anthropicMessagesRequestSchema = z
-  .object({
-    model: z.string().min(1),
-    messages: z.array(z.record(z.string(), z.unknown())).min(1),
-    max_tokens: z.number().int().positive(),
-    stream: z.boolean().optional(),
-  })
-  .passthrough();
+const UPSTREAM_REQUEST_TIMEOUT_MS = 5000;
+
+/**
+ * Build auth headers for upstream Anthropic API requests.
+ * For self-hosted servers (LiteLLM, vLLM), uses the server's configured auth.
+ * For Anthropic SaaS, prefers x-api-key header.
+ */
+function buildModelsUpstreamHeaders(server: AIServer): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  // Check for custom anthropic auth config first
+  const customAuth = server.endpointOverrides?.anthropic_auth;
+  if (customAuth) {
+    const resolvedKey = resolveApiKey(server.apiKey);
+    if (resolvedKey) {
+      const headerName = customAuth.headerName ?? 'Authorization';
+      const prefix = customAuth.headerPrefix ?? 'Bearer';
+      headers[headerName] = prefix ? `${prefix} ${resolvedKey}` : resolvedKey;
+    }
+    return headers;
+  }
+
+  // Default: use x-api-key for Anthropic SaaS convention
+  const resolvedKey = resolveApiKey(server.apiKey);
+  if (resolvedKey) {
+    // Prefer x-api-key for Anthropic-compatible servers
+    headers['x-api-key'] = resolvedKey;
+  }
+
+  return headers;
+}
+
+/**
+ * Anthropic models list response shape
+ */
+interface AnthropicModel {
+  id: string;
+  type: 'model';
+  display_name?: string;
+  created_at?: number;
+}
+
+interface AnthropicModelsResponse {
+  object: 'list';
+  data: AnthropicModel[];
+}
+import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 
 function buildUpstreamHeaders(server: AIServer, anthropicVersion: string): Record<string, string> {
   const headers: Record<string, string> = {
@@ -192,31 +233,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
 
   const rawBody = req.body as Record<string, unknown>;
 
-  if ('thinking' in rawBody) {
-    res.status(400).json({
-      type: 'error',
-      error: {
-        type: 'invalid_request_error',
-        message: 'thinking is not supported',
-        param: 'thinking',
-      },
-    });
-    return;
-  }
-
-  if ('cache_control' in rawBody) {
-    res.status(400).json({
-      type: 'error',
-      error: {
-        type: 'invalid_request_error',
-        message: 'cache_control is not supported',
-        param: 'cache_control',
-      },
-    });
-    return;
-  }
-
-  const parseResult = anthropicMessagesRequestSchema.safeParse(rawBody);
+  const parseResult = AnthropicMessagesRequestSchema.safeParse(rawBody);
   if (!parseResult.success) {
     const firstIssue = parseResult.error.issues[0];
     res.status(400).json({
@@ -371,4 +388,423 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
       });
     }
   }
+}
+
+/**
+ * Handle /v1/messages--:serverId - Route to specific server
+ * Bypasses load balancer, routes directly to specified server
+ */
+export async function handleMessagesToServer(req: Request, res: Response): Promise<void> {
+  const anthropicVersion = req.headers['anthropic-version'];
+  if (!anthropicVersion || typeof anthropicVersion !== 'string') {
+    res.status(400).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'anthropic-version header is required',
+      },
+    });
+    return;
+  }
+
+  const rawBody = req.body as Record<string, unknown>;
+
+  const parseResult = AnthropicMessagesRequestSchema.safeParse(rawBody);
+  if (!parseResult.success) {
+    const firstIssue = parseResult.error.issues[0];
+    res.status(400).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: firstIssue?.message ?? 'Invalid request body',
+        param: firstIssue?.path?.join('.'),
+      },
+    });
+    return;
+  }
+
+  const body = parseResult.data;
+  const { model, stream = false } = body;
+
+  const serverId = Array.isArray(req.params.serverId)
+    ? req.params.serverId[0]
+    : req.params.serverId;
+
+  const orchestrator = getOrchestratorInstance();
+
+  // Validate server exists
+  const server = orchestrator.getServers().find(s => s.id === serverId);
+  if (!server) {
+    res.status(404).json({
+      type: 'error',
+      error: {
+        type: 'not_found_error',
+        message: `Server '${serverId}' not found`,
+      },
+    });
+    return;
+  }
+
+  // Validate server supports Anthropic
+  if (server.supportsAnthropic === false) {
+    res.status(400).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: `Server '${serverId}' does not support Anthropic API`,
+      },
+    });
+    return;
+  }
+
+  // Check for bypass circuit breaker flag
+  const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
+
+  logger.info('Received Anthropic messages request to specific server', {
+    serverId,
+    model,
+    stream,
+    bypassCircuitBreaker,
+  });
+
+  const activeStreamState: {
+    serverId?: string;
+    model?: string;
+    streamingRequestId?: string;
+    activityController?: { controller: AbortController };
+  } = {};
+  if (stream) {
+    setupStreamingClientDisconnectCleanup(req, res, () => activeStreamState);
+  }
+
+  try {
+    const result = await orchestrator.requestToServer<Record<string, unknown>>(
+      serverId,
+      model,
+      async (server, context) => {
+        const headers = buildUpstreamHeaders(server, anthropicVersion);
+        const anthropicPath =
+          server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
+        const upstreamUrl = `${server.url}${anthropicPath}`;
+
+        if (stream) {
+          const timeoutMs = resolveRequestTimeout(
+            req.headers,
+            orchestrator.getTimeout(server.id, model)
+          );
+
+          activeStreamState.serverId = server.id;
+          activeStreamState.model = model;
+
+          const { response, activityController } = await fetchWithActivityTimeout(upstreamUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ ...rawBody, stream: true }),
+            connectionTimeout: timeoutMs,
+            activityTimeout: timeoutMs,
+            telemetryMeta: {
+              serverId: server.id,
+              model,
+              protocol: 'anthropic',
+              endpoint: 'messages',
+              isStreaming: true,
+            },
+          });
+
+          if (!response.ok) {
+            activityController.clearTimeout();
+            const errorText = await response.text();
+            throw new Error(errorText || `Upstream returned ${String(response.status)}`);
+          }
+
+          activeStreamState.activityController = activityController;
+
+          try {
+            await passthroughAnthropicSSE(
+              response,
+              res,
+              server.id,
+              model,
+              {
+                serverId: server.id,
+                model,
+                protocol: 'anthropic',
+                endpoint: 'messages',
+              },
+              activityController.controller.signal
+            );
+          } finally {
+            activityController.clearTimeout();
+          }
+
+          return { _streamed: true } as Record<string, unknown>;
+        }
+
+        const timeoutMs = resolveRequestTimeout(
+          req.headers,
+          orchestrator.getTimeout(server.id, model)
+        );
+
+        const response = await fetchWithTimeout(upstreamUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(rawBody),
+          timeout: timeoutMs,
+          telemetryMeta: {
+            serverId: server.id,
+            model,
+            protocol: 'anthropic',
+            endpoint: 'messages',
+            isStreaming: false,
+          },
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || `Upstream returned ${String(response.status)}`);
+        }
+
+        return (await parseResponse<Record<string, unknown>>(response))!;
+      },
+      {
+        isStreaming: stream,
+        bypassCircuitBreaker,
+        routingContext: { algorithm: 'direct', protocol: 'anthropic' },
+      }
+    );
+
+    if (!stream && result && !result._streamed) {
+      res.json(result);
+    }
+  } catch (error) {
+    if (res.writableEnded) {
+      return;
+    }
+
+    logger.error('Anthropic messages to server request failed', { error, serverId, model });
+
+    if (!res.headersSent) {
+      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      res.status(500).json({
+        type: 'error',
+        error: {
+          type: 'api_error',
+          message: errorMessage,
+        },
+      });
+    }
+  }
+}
+
+export async function handleListModels(_req: Request, res: Response): Promise<void> {
+  const orchestrator = getOrchestratorInstance();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const servers = orchestrator.getServers({ healthyOnly: false });
+
+  const serversWithAnthropicCapability: AIServer[] = [];
+  for (const server of servers) {
+    const cap = endpointRegistry.getCapability(server.id, 'anthropic_messages');
+    if (cap?.confirmed === true) {
+      serversWithAnthropicCapability.push(server);
+    }
+  }
+
+  if (serversWithAnthropicCapability.length === 0) {
+    res.json({ object: 'list', data: [] });
+    return;
+  }
+
+  const upstreamCalls = serversWithAnthropicCapability.map(async server => {
+    try {
+      const headers = buildModelsUpstreamHeaders(server);
+      const modelsPath =
+        server.endpointOverrides?.anthropic_messages?.replace('/messages', '/models') ??
+        API_ENDPOINTS.ANTHROPIC.MODELS;
+      const upstreamUrl = `${server.url}${modelsPath}`;
+
+      const response = await fetchWithTimeout(upstreamUrl, {
+        method: 'GET',
+        headers,
+        timeout: UPSTREAM_REQUEST_TIMEOUT_MS,
+        telemetryMeta: {
+          serverId: server.id,
+          model: '',
+          protocol: 'anthropic',
+          endpoint: 'models',
+          isStreaming: false,
+        },
+      });
+
+      if (!response.ok) {
+        logger.warn('Upstream /v1/models request failed', {
+          serverId: server.id,
+          status: response.status,
+        });
+        return [];
+      }
+
+      const data = (await parseResponse<{ data?: unknown[] }>(response))?.data ?? [];
+      const models: AnthropicModel[] = [];
+
+      for (const item of data) {
+        if (
+          item &&
+          typeof item === 'object' &&
+          'id' in item &&
+          typeof (item as Record<string, unknown>).id === 'string'
+        ) {
+          const modelItem = item as Record<string, unknown>;
+          models.push({
+            id: modelItem.id as string,
+            type: 'model',
+            display_name:
+              typeof modelItem.display_name === 'string' ? modelItem.display_name : undefined,
+            created_at: typeof modelItem.created_at === 'number' ? modelItem.created_at : undefined,
+          });
+        }
+      }
+
+      return models;
+    } catch (error) {
+      logger.warn('Failed to fetch models from server', {
+        serverId: server.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  });
+
+  const results = await Promise.all(upstreamCalls);
+  const seenModelIds = new Set<string>();
+  const aggregatedModels: AnthropicModel[] = [];
+
+  for (const models of results) {
+    for (const model of models) {
+      if (!seenModelIds.has(model.id)) {
+        seenModelIds.add(model.id);
+        aggregatedModels.push(model);
+      }
+    }
+  }
+
+  res.json({ object: 'list', data: aggregatedModels });
+}
+
+export async function handleGetModel(req: Request, res: Response): Promise<void> {
+  const { model } = req.params;
+
+  const orchestrator = getOrchestratorInstance();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const servers = orchestrator.getServers({ healthyOnly: false });
+
+  const serversWithAnthropicCapability: AIServer[] = [];
+  for (const server of servers) {
+    const cap = endpointRegistry.getCapability(server.id, 'anthropic_messages');
+    if (cap?.confirmed === true) {
+      serversWithAnthropicCapability.push(server);
+    }
+  }
+
+  if (serversWithAnthropicCapability.length === 0) {
+    res.status(404).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: `Model '${String(model)}' not found`,
+      },
+    });
+    return;
+  }
+
+  const upstreamCalls = serversWithAnthropicCapability.map(async server => {
+    try {
+      const headers = buildModelsUpstreamHeaders(server);
+      const modelsPath =
+        server.endpointOverrides?.anthropic_messages?.replace('/messages', '/models') ??
+        API_ENDPOINTS.ANTHROPIC.MODELS;
+      const upstreamUrl = `${server.url}${modelsPath}`;
+
+      const response = await fetchWithTimeout(upstreamUrl, {
+        method: 'GET',
+        headers,
+        timeout: UPSTREAM_REQUEST_TIMEOUT_MS,
+        telemetryMeta: {
+          serverId: server.id,
+          model: '',
+          protocol: 'anthropic',
+          endpoint: 'models',
+          isStreaming: false,
+        },
+      });
+
+      if (!response.ok) {
+        logger.warn('Upstream /v1/models request failed', {
+          serverId: server.id,
+          status: response.status,
+        });
+        return [];
+      }
+
+      const data = (await parseResponse<{ data?: unknown[] }>(response))?.data ?? [];
+      const models: AnthropicModel[] = [];
+
+      for (const item of data) {
+        if (
+          item &&
+          typeof item === 'object' &&
+          'id' in item &&
+          typeof (item as Record<string, unknown>).id === 'string'
+        ) {
+          const modelItem = item as Record<string, unknown>;
+          models.push({
+            id: modelItem.id as string,
+            type: 'model',
+            display_name:
+              typeof modelItem.display_name === 'string' ? modelItem.display_name : undefined,
+            created_at: typeof modelItem.created_at === 'number' ? modelItem.created_at : undefined,
+          });
+        }
+      }
+
+      return models;
+    } catch (error) {
+      logger.warn('Failed to fetch models from server', {
+        serverId: server.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  });
+
+  const results = await Promise.all(upstreamCalls);
+  const seenModelIds = new Set<string>();
+  let foundModel: AnthropicModel | null = null;
+
+  for (const models of results) {
+    for (const m of models) {
+      if (!seenModelIds.has(m.id)) {
+        seenModelIds.add(m.id);
+        if (m.id === model) {
+          foundModel = m;
+          break;
+        }
+      }
+    }
+    if (foundModel) {
+      break;
+    }
+  }
+
+  if (!foundModel) {
+    res.status(404).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: `Model '${String(model)}' not found`,
+      },
+    });
+    return;
+  }
+
+  res.json(foundModel);
 }
