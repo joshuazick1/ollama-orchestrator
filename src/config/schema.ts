@@ -596,6 +596,7 @@ export const anthropicConfigSchema = z.object({
   enabled: z.boolean().default(true),
   apiKey: z.string().optional(),
   supportedFeatures: z.array(z.string()).default([]),
+  modelsCacheTtlMs: z.number().int().min(1000).default(30000), // 30s default
   cacheMetrics: anthropicCacheMetricsConfigSchema.default({
     enabled: true,
     savingsRatePerToken: 0.0001,
@@ -606,6 +607,13 @@ export const anthropicConfigSchema = z.object({
     .int()
     .min(1)
     .default(5 * 1024 * 1024), // 5MB default
+  /**
+   * Lifecycle mode controls which server types can use Anthropic lifecycle endpoints.
+   * - 'saas-only': Only /v1/models listing; lifecycle endpoints (like /messages) return 404 for SaaS
+   * - 'self-hosted-only': Full lifecycle support; /v1/models only includes self-hosted servers
+   * - 'both': Detect server type per-request; return 501 for SaaS on lifecycle endpoints (default)
+   */
+  lifecycleMode: z.enum(['saas-only', 'self-hosted-only', 'both']).default('both'),
 });
 
 /**

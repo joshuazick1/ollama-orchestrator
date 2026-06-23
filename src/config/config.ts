@@ -209,9 +209,11 @@ export interface AnthropicConfig {
   enabled: boolean;
   apiKey?: string;
   supportedFeatures: string[];
+  modelsCacheTtlMs: number;
   cacheMetrics: AnthropicCacheMetricsConfig;
   thinkingAutoDisable: boolean;
   maxImageBytes: number;
+  lifecycleMode: 'saas-only' | 'self-hosted-only' | 'both';
 }
 
 export interface ErrorAggregatorConfig {
@@ -587,12 +589,14 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   anthropic: {
     enabled: true,
     supportedFeatures: [],
+    modelsCacheTtlMs: 30000, // 30s default
     cacheMetrics: {
       enabled: true,
       savingsRatePerToken: 0.0001,
     },
     thinkingAutoDisable: true,
     maxImageBytes: 5 * 1024 * 1024, // 5MB
+    lifecycleMode: 'both',
   },
 
   errorAggregator: {

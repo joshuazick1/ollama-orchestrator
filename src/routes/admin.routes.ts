@@ -69,6 +69,7 @@ import {
   getTestResult,
   testExistingServer,
 } from '../controllers/servers-controller.js';
+import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
 import {
@@ -119,6 +120,14 @@ adminRouter.post(
   asyncHandler(refreshServerV1Models)
 );
 adminRouter.post('/servers/:id/capability-probe', requireAdmin(), asyncHandler(capabilityProbe));
+
+// Anthropic server capabilities
+adminRouter.get(
+  '/anthropic/servers/:serverId/capabilities',
+  requireAuth(),
+  asyncHandler(handleAnthropicServerCapabilities)
+);
+
 adminRouter.post(
   '/servers/test-connection',
   requireAdmin(),

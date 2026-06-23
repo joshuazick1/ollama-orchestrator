@@ -25,7 +25,6 @@ export interface FetchAnthropicModelsResult {
   error?: { serverId: string; error: string; type: 'network' | 'server' | 'timeout' | 'unknown' };
 }
 
-const ANTHROPIC_MODELS_CACHE_TTL_MS = 30000;
 const ANTHROPIC_MODELS_MAX_CONCURRENT = 10;
 const ANTHROPIC_MODELS_BATCH_DELAY_MS = 50;
 const ANTHROPIC_MODELS_REQUEST_TIMEOUT_MS = 5000;
@@ -33,12 +32,15 @@ const ANTHROPIC_MODELS_REQUEST_TIMEOUT_MS = 5000;
 export class AnthropicModels {
   private cache: AnthropicModelsCache | undefined;
 
-  constructor(private readonly orchestrator: AIOrchestrator) {}
+  constructor(
+    private readonly orchestrator: AIOrchestrator,
+    private readonly cacheTtlMs: number = 30000
+  ) {}
 
   async getAggregatedAnthropicModels(): Promise<{ object: string; data: AnthropicModel[] }> {
     const now = Date.now();
 
-    if (this.cache && now - this.cache.timestamp < ANTHROPIC_MODELS_CACHE_TTL_MS) {
+    if (this.cache && now - this.cache.timestamp < this.cacheTtlMs) {
       return { object: 'list', data: this.cache.data };
     }
 

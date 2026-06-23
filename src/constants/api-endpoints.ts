@@ -28,6 +28,9 @@ export const API_ENDPOINTS = {
   },
 } as const;
 
+export const ANTHROPIC_SERVER_CAPABILITIES =
+  '/api/orchestrator/anthropic/servers/:serverId/capabilities';
+
 export type OllamaEndpoint = (typeof API_ENDPOINTS.OLLAMA)[keyof typeof API_ENDPOINTS.OLLAMA];
 export type OpenAIEndpoint = (typeof API_ENDPOINTS.OPENAI)[keyof typeof API_ENDPOINTS.OPENAI];
 export type AnthropicEndpoint =

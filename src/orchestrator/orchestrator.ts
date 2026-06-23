@@ -371,7 +371,10 @@ export class AIOrchestrator {
 
     this.walStore = new WALStore(getOperationalStore());
     this.endpointRegistry = new EndpointRegistry();
-    this.anthropicModels = new AnthropicModels(this);
+    this.anthropicModels = new AnthropicModels(
+      this,
+      this.config.anthropic?.modelsCacheTtlMs ?? 30000
+    );
     const probeConfig =
       (this.config as { probe?: typeof DEFAULT_PROBE_CONFIG }).probe ?? DEFAULT_PROBE_CONFIG;
     this.probeOrchestrator = new ProbeOrchestrator(probeConfig, this.walStore);

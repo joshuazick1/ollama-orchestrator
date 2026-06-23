@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 
-import { API_ENDPOINTS } from '../constants/index.js';
+import { API_ENDPOINTS, ANTHROPIC_SERVER_CAPABILITIES } from '../constants/index.js';
 import { getConfigManager } from '../config/config.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
@@ -523,6 +523,17 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
     return;
   }
 
+  if (config.anthropic.lifecycleMode === 'saas-only') {
+    res.status(404).json({
+      type: 'error',
+      error: {
+        type: 'not_found_error',
+        message: 'Lifecycle endpoints are not available in saas-only mode',
+      },
+    });
+    return;
+  }
+
   const { imageCount, imageBytes } = imageValidation;
 
   const activeStreamState: {
@@ -541,6 +552,14 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
       async (server: AIServer, _context?: { requestId?: string }) => {
         if (!server.supportsAnthropic) {
           throw new Error(`Server ${server.id} does not support Anthropic API`);
+        }
+
+        const config = getConfigManager().getConfig();
+        const lifecycleCheck = checkLifecycleModeAllowed(server, config.anthropic.lifecycleMode);
+        if (!lifecycleCheck.allowed) {
+          throw new Error(
+            `Server ${server.id} cannot handle lifecycle request: ${lifecycleCheck.message}`
+          );
         }
 
         const headers = buildUpstreamHeaders(server, anthropicVersion, anthropicBeta);
@@ -609,7 +628,6 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           orchestrator.getTimeout(server.id, model)
         );
 
-        const config = getConfigManager().getConfig();
         const thinkingEnabled = 'thinking' in rawBody && rawBody.thinking !== undefined;
         const requestBody = { ...rawBody };
 
@@ -862,6 +880,19 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
     return;
   }
 
+  // Check lifecycleMode restrictions
+  const lifecycleCheck = checkLifecycleModeAllowed(server, config.anthropic.lifecycleMode);
+  if (!lifecycleCheck.allowed) {
+    res.status(lifecycleCheck.status).json({
+      type: 'error',
+      error: {
+        type: lifecycleCheck.errorType,
+        message: lifecycleCheck.message,
+      },
+    });
+    return;
+  }
+
   // Check for bypass circuit breaker flag
   const bypassCircuitBreaker = shouldBypassCircuitBreaker(req);
 
@@ -1031,97 +1062,22 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
 }
 
 export async function handleListModels(_req: Request, res: Response): Promise<void> {
-  const orchestrator = getOrchestratorInstance();
-  const endpointRegistry = orchestrator.getEndpointRegistry();
-  const servers = orchestrator.getServers({ healthyOnly: false });
-
-  const serversWithAnthropicCapability: AIServer[] = [];
-  for (const server of servers) {
-    const cap = endpointRegistry.getCapability(server.id, 'anthropic_messages');
-    if (cap?.confirmed === true) {
-      serversWithAnthropicCapability.push(server);
-    }
+  try {
+    const orchestrator = getOrchestratorInstance();
+    const result = await orchestrator.getAggregatedAnthropicModels();
+    res.json(result);
+  } catch (error) {
+    logger.error('Failed to get aggregated Anthropic models', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      type: 'error',
+      error: {
+        type: 'api_error',
+        message: 'Failed to retrieve models list',
+      },
+    });
   }
-
-  if (serversWithAnthropicCapability.length === 0) {
-    res.json({ object: 'list', data: [] });
-    return;
-  }
-
-  const upstreamCalls = serversWithAnthropicCapability.map(async server => {
-    try {
-      const headers = buildModelsUpstreamHeaders(server);
-      const modelsPath =
-        server.endpointOverrides?.anthropic_messages?.replace('/messages', '/models') ??
-        API_ENDPOINTS.ANTHROPIC.MODELS;
-      const upstreamUrl = `${server.url}${modelsPath}`;
-
-      const response = await fetchWithTimeout(upstreamUrl, {
-        method: 'GET',
-        headers,
-        timeout: UPSTREAM_REQUEST_TIMEOUT_MS,
-        telemetryMeta: {
-          serverId: server.id,
-          model: '',
-          protocol: 'anthropic',
-          endpoint: 'models',
-          isStreaming: false,
-        },
-      });
-
-      if (!response.ok) {
-        logger.warn('Upstream /v1/models request failed', {
-          serverId: server.id,
-          status: response.status,
-        });
-        return [];
-      }
-
-      const data = (await parseResponse<{ data?: unknown[] }>(response))?.data ?? [];
-      const models: AnthropicModel[] = [];
-
-      for (const item of data) {
-        if (
-          item &&
-          typeof item === 'object' &&
-          'id' in item &&
-          typeof (item as Record<string, unknown>).id === 'string'
-        ) {
-          const modelItem = item as Record<string, unknown>;
-          models.push({
-            id: modelItem.id as string,
-            type: 'model',
-            display_name:
-              typeof modelItem.display_name === 'string' ? modelItem.display_name : undefined,
-            created_at: typeof modelItem.created_at === 'number' ? modelItem.created_at : undefined,
-          });
-        }
-      }
-
-      return models;
-    } catch (error) {
-      logger.warn('Failed to fetch models from server', {
-        serverId: server.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return [];
-    }
-  });
-
-  const results = await Promise.all(upstreamCalls);
-  const seenModelIds = new Set<string>();
-  const aggregatedModels: AnthropicModel[] = [];
-
-  for (const models of results) {
-    for (const model of models) {
-      if (!seenModelIds.has(model.id)) {
-        seenModelIds.add(model.id);
-        aggregatedModels.push(model);
-      }
-    }
-  }
-
-  res.json({ object: 'list', data: aggregatedModels });
 }
 
 export async function handleGetModel(req: Request, res: Response): Promise<void> {
@@ -1241,4 +1197,121 @@ export async function handleGetModel(req: Request, res: Response): Promise<void>
   }
 
   res.json(foundModel);
+}
+
+/**
+ * Determine if a server is SaaS (Anthropic hosted) based on its URL.
+ * SaaS servers use api.anthropic.com or similar hosted endpoints.
+ */
+function isServerSaas(server: AIServer): boolean {
+  const url = server.url.toLowerCase();
+  return url.includes('api.anthropic.com') || url.includes('anthropic.com/api');
+}
+
+/**
+ * Get the capability status from an EndpointCapability record.
+ */
+function getCapabilityStatus(
+  cap: { declared: boolean; confirmed: boolean; lastSeen: number; failureCount: number } | undefined
+): 'confirmed' | 'pending' | 'softRevoked' | 'unknown' {
+  if (!cap) {
+    return 'unknown';
+  }
+  if (cap.confirmed) {
+    return 'confirmed';
+  }
+  if (cap.declared && cap.lastSeen === 0 && cap.failureCount > 0) {
+    return 'softRevoked';
+  }
+  if (cap.declared) {
+    return 'pending';
+  }
+  return 'unknown';
+}
+
+/**
+ * Check if lifecycle operations are allowed based on lifecycleMode config.
+ * Returns { allowed: false, status: number, message: string } if not allowed,
+ * or { allowed: true } if allowed.
+ */
+function checkLifecycleModeAllowed(
+  server: AIServer,
+  lifecycleMode: 'saas-only' | 'self-hosted-only' | 'both'
+): { allowed: true } | { allowed: false; status: number; errorType: string; message: string } {
+  const isSaas = isServerSaas(server);
+
+  switch (lifecycleMode) {
+    case 'saas-only':
+      return {
+        allowed: false,
+        status: 404,
+        errorType: 'not_found_error',
+        message: 'Lifecycle endpoints are not available in saas-only mode',
+      };
+    case 'self-hosted-only':
+      if (isSaas) {
+        return {
+          allowed: false,
+          status: 501,
+          errorType: 'invalid_request_error',
+          message:
+            'Lifecycle endpoints are not available for SaaS servers in self-hosted-only mode',
+        };
+      }
+      return { allowed: true };
+    case 'both':
+      if (isSaas) {
+        return {
+          allowed: false,
+          status: 501,
+          errorType: 'invalid_request_error',
+          message: 'Lifecycle endpoints are not available for SaaS servers',
+        };
+      }
+      return { allowed: true };
+  }
+}
+
+/**
+ * Handle GET /api/orchestrator/anthropic/servers/:serverId/capabilities
+ * Returns rich server capability state for Anthropic integration.
+ */
+export async function handleAnthropicServerCapabilities(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const serverId = Array.isArray(req.params.serverId)
+    ? req.params.serverId[0]
+    : req.params.serverId;
+
+  const orchestrator = getOrchestratorInstance();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+
+  const server = orchestrator.getServers().find(s => s.id === serverId);
+  if (!server) {
+    res.status(404).json({
+      type: 'error',
+      error: {
+        type: 'not_found_error',
+        message: `Server '${serverId}' not found`,
+      },
+    });
+    return;
+  }
+
+  const messagesCap = endpointRegistry.getCapability(serverId, 'anthropic_messages');
+  const capabilityStatus = getCapabilityStatus(messagesCap);
+  const isSaas = isServerSaas(server);
+
+  const response = {
+    serverId,
+    type: isSaas ? 'saas' : 'self-hosted',
+    supportsLifecycle: isSaas ? false : capabilityStatus === 'confirmed',
+    supportsModels: capabilityStatus !== 'unknown',
+    supportsThinking: server.supportsAnthropic === true,
+    supportsCaching: server.supportsAnthropic === true,
+    capabilityStatus,
+  };
+
+  res.json(response);
 }

@@ -5,6 +5,7 @@
 
 export {
   API_ENDPOINTS,
+  ANTHROPIC_SERVER_CAPABILITIES,
   type OllamaEndpoint,
   type OpenAIEndpoint,
   type AnthropicEndpoint,
