@@ -180,7 +180,10 @@ export const ServerCard = memo(function ServerCard({
               </h4>
               <div className="space-y-2">
                 <div className="flex justify-between p-3 bg-surface-raised/50 rounded-lg">
-                  <span className="text-text-muted">Ollama Version</span>
+                  <span className="text-text-muted">
+                    {/* Provider-conditional label: Ollama servers show "Ollama Version", others show "Server Version" */}
+                    {server.supportsOllama !== false ? 'Ollama Version' : 'Server Version'}
+                  </span>
                   <span className="text-text-base font-mono">{server.version || 'Unknown'}</span>
                 </div>
                 <div className="flex justify-between p-3 bg-surface-raised/50 rounded-lg">

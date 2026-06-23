@@ -174,6 +174,13 @@ export const AddServerModal = memo(function AddServerModal({
               setSelectedProvider(provider);
               if (provider !== 'custom') {
                 setNewServerUrl(PROVIDER_CONFIG[provider].baseUrl);
+                if (provider === 'ollama') {
+                  setNewServerType('ollama');
+                } else if (provider === 'anthropic') {
+                  setNewServerType('auto');
+                } else {
+                  setNewServerType('openai');
+                }
               }
             }}
             className="w-full bg-surface-raised border border-surface-border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:border-blue-500"
@@ -194,7 +201,7 @@ export const AddServerModal = memo(function AddServerModal({
             type="text"
             value={newServerUrl}
             onChange={e => setNewServerUrl(e.target.value)}
-            placeholder="http://localhost:11434"
+            placeholder={PROVIDER_CONFIG[selectedProvider].baseUrl || 'Enter server URL'}
             className={`w-full bg-surface-raised border rounded-lg px-4 py-2 text-text-base focus:outline-none focus:border-blue-500 ${
               validationErrors.url ? 'border-red-500' : 'border-surface-border'
             }`}

@@ -60,6 +60,7 @@ export const ServerFilters = memo(function ServerFilters({
           options: [
             { label: 'Ollama', value: 'ollama' },
             { label: 'OpenAI', value: 'openai' },
+            { label: 'Anthropic', value: 'anthropic' },
           ],
         },
       ]}

@@ -112,6 +112,7 @@ export const Servers = () => {
       status: server.healthy ? 'healthy' : 'unhealthy',
       supportsOllama: server.supportsOllama !== false && server.type !== 'openai',
       supportsOpenAI: server.supportsV1 || server.type === 'openai' || server.type === 'auto',
+      supportsAnthropic: server.supportsAnthropic !== false,
     }));
   }, [servers]);
 
@@ -132,6 +133,7 @@ export const Servers = () => {
       if (key === 'support') {
         if (value === 'ollama') return item.supportsOllama;
         if (value === 'openai') return !!item.supportsOpenAI;
+        if (value === 'anthropic') return item.supportsAnthropic;
         return true;
       }
       return true;

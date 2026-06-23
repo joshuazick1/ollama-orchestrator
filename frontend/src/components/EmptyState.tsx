@@ -34,7 +34,7 @@ const defaultConfigs: Record<EmptyStateType, { icon: LucideIcon; title: string; 
     'no-servers': {
       icon: Server,
       title: 'No servers configured',
-      message: 'Add your first Ollama server to get started.',
+      message: 'Add your first AI server to get started.',
     },
     'no-models': {
       icon: Database,
