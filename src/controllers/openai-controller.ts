@@ -77,6 +77,11 @@ function generateId(prefix: string = 'chatcmpl'): string {
   return `${prefix}-${Date.now().toString(36)}-${crypto.randomUUID().replace(/-/g, '').slice(0, 13)}`;
 }
 
+function isOllamaServer(server: AIServer): boolean {
+  const url = server.url.toLowerCase();
+  return url.includes('localhost') || url.includes('127.0.0.1') || url.includes('.ollama.');
+}
+
 function waitForDrain(clientResponse: Response, abortSignal?: AbortSignal): Promise<void> {
   return new Promise<void>(resolve => {
     let settled = false;
@@ -588,6 +593,19 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     return;
   }
 
+  const n = body.n ?? 1;
+  if (!Number.isInteger(n) || n < 1 || n > 10) {
+    res.status(400).json({
+      error: {
+        message: 'n must be an integer between 1 and 10',
+        type: 'invalid_request_error',
+        param: 'n',
+        code: 'invalid_value',
+      },
+    });
+    return;
+  }
+
   const orchestrator = getOrchestratorInstance();
   const _config = getConfigManager().getConfig();
   const routingContext: RoutingContext = {};
@@ -604,6 +622,11 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
   }
 
   // Build Ollama options from OpenAI parameters
+  // Provider compatibility:
+  // - Ollama (localhost/.ollama.): uses 'options' object with 'format' for JSON schema,
+  //   'parallel_tool_calls', 'tool_choice' inside options
+  // - OpenAI-compatible (DeepSeek, Groq, vLLM): uses top-level 'response_format',
+  //   'parallel_tool_calls', 'tool_choice' fields natively
   const ollamaOptions: Record<string, unknown> = {};
   if (body.temperature !== undefined) {
     ollamaOptions.temperature = body.temperature;
@@ -627,7 +650,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     ollamaOptions.stop = Array.isArray(body.stop) ? body.stop : [body.stop];
   }
 
-  // Handle response format for JSON mode
+  // Handle response format for JSON mode (Ollama uses 'format' param)
+  // json_object -> format: 'json' (legacy)
+  // json_schema -> format: {json_schema} (Ollama 0.5+) - handled at request time per server
   if (body.response_format?.type === 'json_object') {
     ollamaOptions.format = 'json';
   }
@@ -636,6 +661,126 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     // Extract user info for access control scoping
     const userId = req.user?.id;
     const isAdmin = isInternalAdmin(req);
+
+    if (stream && n > 1) {
+      const baseResponseId = generateId('chatcmpl');
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+
+      async function streamCompletion(idx: number): Promise<Record<string, unknown>> {
+        return orchestrator.tryRequestWithFailover<Record<string, unknown>>(
+          model,
+          async (server: AIServer, context?: { requestId?: string }) => {
+            const headers = getBackendHeaders(server);
+            const timeoutMs = resolveRequestTimeout(
+              req.headers,
+              orchestrator.getTimeout(server.id, model)
+            );
+            const requestId = context?.requestId;
+
+            const { response, activityController } = await fetchWithActivityTimeout(
+              `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
+              {
+                method: 'POST',
+                headers,
+                body: safeJsonStringify({
+                  model,
+                  messages,
+                  stream: true,
+                  options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
+                  ...(body.tools && { tools: body.tools }),
+                }),
+                connectionTimeout: timeoutMs,
+                activityTimeout: timeoutMs,
+                telemetryMeta: {
+                  serverId: server.id,
+                  model,
+                  protocol: 'openai',
+                  endpoint: 'chat',
+                  isStreaming: true,
+                },
+              }
+            );
+
+            if (!response.ok) {
+              activityController.clearTimeout();
+              const errorMessage = await parseOllamaError(response);
+              throw new Error(errorMessage);
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) {
+              throw new Error('No response body to stream');
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                activityController.resetTimeout();
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+
+                for (const line of lines) {
+                  if (!line.trim() || line === 'data: [DONE]') continue;
+
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    if (data.choices && data.choices[0]) {
+                      data.choices[0].index = idx;
+                      data.id = `${baseResponseId}-${idx}`;
+                    }
+                    const writeResult = res.write(`data: ${JSON.stringify(data)}\n\n`);
+                    if (!writeResult) {
+                      await new Promise<void>(resolve => res.once('drain', resolve));
+                    }
+                  } catch {
+                    // Skip malformed JSON
+                  }
+                }
+
+                if (res.writableEnded) {
+                  void reader.cancel();
+                  break;
+                }
+              }
+
+              const doneWrite = res.write('data: [DONE]\n\n');
+              if (!doneWrite) {
+                await new Promise<void>(resolve => res.once('drain', resolve));
+              }
+            } finally {
+              activityController.clearTimeout();
+            }
+
+            return { _streamed: true } as Record<string, unknown>;
+          },
+          true,
+          'generate',
+          'openai',
+          routingContext,
+          undefined,
+          estimateChatTokens(messages as unknown as Array<{ role?: string; content?: string }>),
+          userId,
+          isAdmin
+        );
+      }
+
+      await Promise.all(Array.from({ length: n }, (_, idx) => streamCompletion(idx)));
+
+      orchestrator.getMetricsAggregator().recordParallelCompletions(n);
+
+      res.end();
+      return;
+    }
 
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
@@ -671,18 +816,57 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           logger.debug(
             `Using dynamic timeout for streaming: ${timeoutMs}ms for ${server.id}:${model}, stallThreshold: ${stallThreshold}ms`
           );
+
+          // Determine server type and build appropriate request body
+          // Ollama uses 'options' object; OpenAI-compatible uses top-level fields
+          const isOllama = isOllamaServer(server);
+          const requestOptions = { ...ollamaOptions };
+          const requestBody: Record<string, unknown> = {
+            model,
+            messages,
+            stream: true,
+          };
+
+          if (isOllama) {
+            // Ollama: add format for json_schema, parallel_tool_calls, tool_choice to options
+            if (body.response_format?.type === 'json_schema' && body.response_format?.json_schema) {
+              requestOptions.format = body.response_format.json_schema;
+            }
+            if (body.parallel_tool_calls !== undefined) {
+              requestOptions.parallel_tool_calls = body.parallel_tool_calls;
+            }
+            if (body.tool_choice !== undefined) {
+              requestOptions.tool_choice = body.tool_choice;
+            }
+            if (Object.keys(requestOptions).length > 0) {
+              requestBody.options = requestOptions;
+            }
+          } else {
+            // OpenAI-compatible (DeepSeek, Groq, vLLM): forward at top level
+            if (Object.keys(requestOptions).length > 0) {
+              requestBody.options = requestOptions;
+            }
+            if (body.response_format !== undefined) {
+              requestBody.response_format = body.response_format;
+            }
+            if (body.parallel_tool_calls !== undefined) {
+              requestBody.parallel_tool_calls = body.parallel_tool_calls;
+            }
+            if (body.tool_choice !== undefined) {
+              requestBody.tool_choice = body.tool_choice;
+            }
+          }
+
+          if (body.tools) {
+            requestBody.tools = body.tools;
+          }
+
           const { response, activityController } = await fetchWithActivityTimeout(
             `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
             {
               method: 'POST',
               headers,
-              body: safeJsonStringify({
-                model,
-                messages,
-                stream: true,
-                options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-                ...(body.tools && { tools: body.tools }),
-              }),
+              body: safeJsonStringify(requestBody),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               telemetryMeta: {
@@ -923,18 +1107,57 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           req.headers,
           orchestrator.getTimeout(server.id, model)
         );
+
+        // Determine server type and build appropriate request body
+        // Ollama uses 'options' object; OpenAI-compatible uses top-level fields
+        const isOllama = isOllamaServer(server);
+        const requestOptions = { ...ollamaOptions };
+        const requestBody: Record<string, unknown> = {
+          model,
+          messages,
+          stream: false,
+        };
+
+        if (isOllama) {
+          // Ollama: add format for json_schema, parallel_tool_calls, tool_choice to options
+          if (body.response_format?.type === 'json_schema' && body.response_format?.json_schema) {
+            requestOptions.format = body.response_format.json_schema;
+          }
+          if (body.parallel_tool_calls !== undefined) {
+            requestOptions.parallel_tool_calls = body.parallel_tool_calls;
+          }
+          if (body.tool_choice !== undefined) {
+            requestOptions.tool_choice = body.tool_choice;
+          }
+          if (Object.keys(requestOptions).length > 0) {
+            requestBody.options = requestOptions;
+          }
+        } else {
+          // OpenAI-compatible (DeepSeek, Groq, vLLM): forward at top level
+          if (Object.keys(requestOptions).length > 0) {
+            requestBody.options = requestOptions;
+          }
+          if (body.response_format !== undefined) {
+            requestBody.response_format = body.response_format;
+          }
+          if (body.parallel_tool_calls !== undefined) {
+            requestBody.parallel_tool_calls = body.parallel_tool_calls;
+          }
+          if (body.tool_choice !== undefined) {
+            requestBody.tool_choice = body.tool_choice;
+          }
+        }
+
+        if (body.tools) {
+          requestBody.tools = body.tools;
+        }
+
         const response = await fetchWithTimeout(
           `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
           {
             method: 'POST',
             headers,
-            body: safeJsonStringify({
-              model,
-              messages,
-              stream: false,
-              options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-              ...(body.tools && { tools: body.tools }),
-            }),
+            body: safeJsonStringify(requestBody),
             timeout: timeoutMs,
             telemetryMeta: {
               serverId: server.id,
@@ -963,7 +1186,113 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       isAdmin
     );
 
-    // Send non-streaming response
+    if (!stream && n > 1) {
+      const createdTimestamp = Math.floor(Date.now() / 1000);
+      const baseResponseId = generateId('chatcmpl');
+
+      const parallelResults = await Promise.all(
+        Array.from({ length: n }, async () => {
+          return orchestrator.tryRequestWithFailover<Record<string, unknown>>(
+            model,
+            async (server: AIServer) => {
+              const headers = getBackendHeaders(server);
+              const timeoutMs = resolveRequestTimeout(
+                req.headers,
+                orchestrator.getTimeout(server.id, model)
+              );
+              const response = await fetchWithTimeout(
+                `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
+                {
+                  method: 'POST',
+                  headers,
+                  body: safeJsonStringify({
+                    model,
+                    messages,
+                    stream: false,
+                    options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
+                    ...(body.tools && { tools: body.tools }),
+                  }),
+                  timeout: timeoutMs,
+                  telemetryMeta: {
+                    serverId: server.id,
+                    model,
+                    protocol: 'openai',
+                    endpoint: 'chat',
+                    isStreaming: false,
+                  },
+                }
+              );
+
+              if (!response.ok) {
+                const errorMessage = await parseOllamaError(response);
+                throw new Error(errorMessage);
+              }
+
+              return (await parseResponse<Record<string, unknown>>(response))!;
+            },
+            false,
+            'generate',
+            'openai',
+            routingContext,
+            undefined,
+            estimateChatTokens(messages as unknown as Array<{ role?: string; content?: string }>),
+            userId,
+            isAdmin
+          );
+        })
+      );
+
+      orchestrator.getMetricsAggregator().recordParallelCompletions(n);
+
+      const choices = parallelResults.map((r, idx) => {
+        const result = r as Record<string, unknown>;
+        const choice = (result.choices as Array<Record<string, unknown>>)?.[0];
+        return {
+          index: idx,
+          message: (choice?.message as Record<string, unknown>) || {
+            role: 'assistant',
+            content: '',
+          },
+          finish_reason: (choice?.finish_reason as string) || 'stop',
+        };
+      });
+
+      const totalUsage = parallelResults.reduce(
+        (acc: { prompt_tokens: number; completion_tokens: number; total_tokens: number }, r) => {
+          const result = r as Record<string, unknown>;
+          const u = (result.usage as Record<string, number>) || {};
+          return {
+            prompt_tokens: acc.prompt_tokens + (u.prompt_tokens || 0),
+            completion_tokens: acc.completion_tokens + (u.completion_tokens || 0),
+            total_tokens: acc.total_tokens + (u.total_tokens || 0),
+          };
+        },
+        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+      );
+
+      const mergedResponse: Record<string, unknown> = {
+        id: baseResponseId,
+        object: 'chat.completion',
+        created: createdTimestamp,
+        model,
+        choices,
+        usage: totalUsage,
+      };
+
+      const includeDebug = isDebugRequested(req);
+      if (includeDebug) {
+        const debugInfo = getDebugInfo(routingContext);
+        if (debugInfo) {
+          mergedResponse.debug = debugInfo;
+          setDebugResponseHeaders(res, debugInfo);
+        }
+      }
+
+      res.json(mergedResponse);
+      return;
+    }
+
+    // Send non-streaming response (n === 1)
     if (!stream && result && !result._streamed) {
       const includeDebug = isDebugRequested(req);
       if (includeDebug) {

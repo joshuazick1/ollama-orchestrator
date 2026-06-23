@@ -351,6 +351,8 @@ export interface GlobalMetrics {
   images?: ImageMetrics;
   /** Anthropic tool use metrics */
   tool?: ToolUseMetrics;
+  /** OpenAI n parameter parallel completions count */
+  parallelCompletionsCount?: number;
 }
 
 /**

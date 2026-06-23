@@ -91,6 +91,7 @@ export class MetricsAggregator {
   private toolUseCount = 0;
   private toolResultCount = 0;
   private toolNames = new Set<string>();
+  private parallelCompletionsCount = 0;
 
   constructor(decayConfig: Partial<MetricsDecayConfig> = {}) {
     this.persistence = new MetricsPersistence();
@@ -1030,6 +1031,14 @@ export class MetricsAggregator {
     };
   }
 
+  recordParallelCompletions(count: number): void {
+    this.parallelCompletionsCount += count;
+  }
+
+  getParallelCompletionsCount(): number {
+    return this.parallelCompletionsCount;
+  }
+
   /**
    * Update decay configuration
    */
@@ -1087,6 +1096,7 @@ export class MetricsAggregator {
       thinking: this.getThinkingMetrics(),
       images: this.getImageMetrics(),
       tool: this.getToolUseMetrics(),
+      parallelCompletionsCount: this.getParallelCompletionsCount(),
     };
   }
 
