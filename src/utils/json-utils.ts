@@ -51,3 +51,14 @@ export const safeJsonStringify = (
     );
   }
 };
+
+/**
+ * Converts raw body (Buffer or string) to a fetch BodyInit.
+ * Buffer is not directly typed as BodyInit in TypeScript's strict mode,
+ * so we convert it to Uint8Array which is a valid BodyInit.
+ */
+export function toBodyInit(body: Buffer | string | undefined): BodyInit | undefined {
+  if (body === undefined) return undefined;
+  if (typeof body === 'string') return body;
+  return new Uint8Array(body);
+}

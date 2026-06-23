@@ -24,6 +24,7 @@ import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-cl
 import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 import { forwardStreamingResponseHeaders } from '../utils/response-header-forwarder.js';
+import { toBodyInit } from '../utils/json-utils.js';
 
 const UPSTREAM_REQUEST_TIMEOUT_MS = 5000;
 
@@ -291,6 +292,24 @@ async function passthroughAnthropicSSE(
 ): Promise<void> {
   const startTime = Date.now();
 
+  clientResponse.status(upstreamResponse.status);
+
+  const upstreamContentType = upstreamResponse.headers.get('content-type');
+  if (upstreamContentType) {
+    clientResponse.setHeader('Content-Type', upstreamContentType);
+  }
+
+  if (!upstreamResponse.ok) {
+    try {
+      const errorBody = await upstreamResponse.text();
+      clientResponse.setHeader('Content-Type', 'application/json');
+      clientResponse.send(errorBody);
+      return;
+    } catch {
+      // Fall through to send generic error
+    }
+  }
+
   forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
 
   const reader = upstreamResponse.body?.getReader();
@@ -314,10 +333,8 @@ async function passthroughAnthropicSSE(
       buffer = lines.pop() ?? '';
 
       for (const line of lines) {
-        // Detect tool_use blocks in content_block_start events
         if (onToolUse && line.startsWith('event: content_block_start')) {
-          // Next line should have the data
-          continue; // Skip this event line, tool detection happens on data line
+          continue;
         }
         if (onToolUse && line.startsWith('data: ')) {
           try {
@@ -573,7 +590,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           const { response, activityController } = await fetchWithActivityTimeout(upstreamUrl, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ ...rawBody, stream: true }),
+            body: toBodyInit(req.rawBody) ?? JSON.stringify({ ...rawBody, stream: true }),
             connectionTimeout: timeoutMs,
             activityTimeout: timeoutMs,
             telemetryMeta: {
@@ -929,7 +946,7 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
           const { response, activityController } = await fetchWithActivityTimeout(upstreamUrl, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ ...rawBody, stream: true }),
+            body: toBodyInit(req.rawBody) ?? JSON.stringify({ ...rawBody, stream: true }),
             connectionTimeout: timeoutMs,
             activityTimeout: timeoutMs,
             telemetryMeta: {
@@ -981,7 +998,7 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
         const response = await fetchWithTimeout(upstreamUrl, {
           method: 'POST',
           headers,
-          body: JSON.stringify(rawBody),
+          body: toBodyInit(req.rawBody) ?? JSON.stringify(rawBody),
           timeout: timeoutMs,
           telemetryMeta: {
             serverId: server.id,

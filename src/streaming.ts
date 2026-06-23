@@ -332,6 +332,7 @@ export async function streamResponse(
   let stallHandoffResult: { success: boolean; error?: string; targetServer?: string } | undefined;
 
   try {
+    clientResponse.status(upstreamResponse.status);
     forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
 
     // Get reader from upstream response body

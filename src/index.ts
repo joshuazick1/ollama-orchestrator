@@ -132,7 +132,16 @@ app.use(
 );
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
+// Capture raw body for byte-perfect forwarding to upstream servers
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      // Store raw body as Buffer on the request object for byte-perfect forwarding
+      (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 

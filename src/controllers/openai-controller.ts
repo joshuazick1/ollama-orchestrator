@@ -30,7 +30,7 @@ import {
   parseResponse,
 } from '../utils/fetch-with-timeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
-import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
+import { safeJsonParse, safeJsonStringify, toBodyInit } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
@@ -441,6 +441,27 @@ async function passthroughSSEStream(
   const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000;
   let stallDetector: ReturnType<typeof createStallDetector> | undefined;
 
+  // Forward upstream status code
+  clientResponse.status(upstreamResponse.status);
+
+  // Forward upstream's Content-Type instead of hardcoding
+  const upstreamContentType = upstreamResponse.headers.get('content-type');
+  if (upstreamContentType) {
+    clientResponse.setHeader('Content-Type', upstreamContentType);
+  }
+
+  // If upstream returned non-OK, forward error body byte-perfect
+  if (!upstreamResponse.ok) {
+    try {
+      const errorBody = await upstreamResponse.text();
+      clientResponse.setHeader('Content-Type', 'application/json');
+      clientResponse.send(errorBody);
+      return;
+    } catch {
+      // Fall through to send generic error
+    }
+  }
+
   try {
     forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
 
@@ -451,6 +472,7 @@ async function passthroughSSEStream(
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let upstreamSentDone = false;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -504,8 +526,9 @@ async function passthroughSSEStream(
           await waitForDrain(clientResponse, activityController?.controller.signal);
         }
 
-        // Detect [DONE] sentinel for logging
+        // Track if upstream already sent [DONE]
         if (line === 'data: [DONE]') {
+          upstreamSentDone = true;
           logger.debug('SSE passthrough received [DONE]', { responseId, model });
         }
       }
@@ -527,6 +550,14 @@ async function passthroughSSEStream(
     // Flush any remaining buffer content
     if (buffer.trim()) {
       const writeResult = clientResponse.write(`${buffer}\n`);
+      if (!writeResult) {
+        await waitForDrain(clientResponse, activityController?.controller.signal);
+      }
+    }
+
+    // Only send [DONE] if upstream didn't already send it
+    if (!upstreamSentDone) {
+      const writeResult = clientResponse.write('data: [DONE]\n\n');
       if (!writeResult) {
         await waitForDrain(clientResponse, activityController?.controller.signal);
       }
@@ -678,13 +709,15 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               {
                 method: 'POST',
                 headers,
-                body: safeJsonStringify({
-                  model,
-                  messages,
-                  stream: true,
-                  options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-                  ...(body.tools && { tools: body.tools }),
-                }),
+                body:
+                  toBodyInit(req.rawBody) ??
+                  safeJsonStringify({
+                    model,
+                    messages,
+                    stream: true,
+                    options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
+                    ...(body.tools && { tools: body.tools }),
+                  }),
                 connectionTimeout: timeoutMs,
                 activityTimeout: timeoutMs,
                 telemetryMeta: {
@@ -858,7 +891,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             {
               method: 'POST',
               headers,
-              body: safeJsonStringify(requestBody),
+              body: toBodyInit(req.rawBody) ?? safeJsonStringify(requestBody),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               telemetryMeta: {
@@ -1017,7 +1050,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 responseId,
                 model,
                 true,
-                body.stream_options?.include_usage,
+                false, // Do not synthesize usage - forward only what upstream provides
                 () => {
                   if (!firstChunkTime) {
                     firstChunkTime = Date.now();
@@ -1149,7 +1182,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           {
             method: 'POST',
             headers,
-            body: safeJsonStringify(requestBody),
+            body: toBodyInit(req.rawBody) ?? safeJsonStringify(requestBody),
             timeout: timeoutMs,
             telemetryMeta: {
               serverId: server.id,
@@ -1197,13 +1230,15 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 {
                   method: 'POST',
                   headers,
-                  body: safeJsonStringify({
-                    model,
-                    messages,
-                    stream: false,
-                    options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
-                    ...(body.tools && { tools: body.tools }),
-                  }),
+                  body:
+                    toBodyInit(req.rawBody) ??
+                    safeJsonStringify({
+                      model,
+                      messages,
+                      stream: false,
+                      options: Object.keys(ollamaOptions).length > 0 ? ollamaOptions : undefined,
+                      ...(body.tools && { tools: body.tools }),
+                    }),
                   timeout: timeoutMs,
                   telemetryMeta: {
                     serverId: server.id,
@@ -1386,7 +1421,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             {
               method: 'POST',
               headers,
-              body: safeJsonStringify({ ...body, stream: true }),
+              body: toBodyInit(req.rawBody) ?? safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               telemetryMeta: {
@@ -1416,7 +1451,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
               responseId,
               model,
               false, // isChat = false for /v1/completions
-              body.stream_options?.include_usage,
+              false, // Do not synthesize usage - forward only what upstream provides
               () => {
                 activityController.resetTimeout();
               },
@@ -1782,7 +1817,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: safeJsonStringify({ ...requestBody, stream: true }),
+              body: toBodyInit(req.rawBody) ?? safeJsonStringify({ ...requestBody, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               telemetryMeta: {
@@ -1843,7 +1878,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
               `chatcmpl-${crypto.randomUUID()}`,
               model,
               true,
-              body.stream_options?.include_usage,
+              false, // Do not synthesize usage - forward only what upstream provides
               () => {
                 if (!firstChunkTime) {
                   firstChunkTime = Date.now();
@@ -2043,7 +2078,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: safeJsonStringify({ ...requestBody, stream: true }),
+              body: toBodyInit(req.rawBody) ?? safeJsonStringify({ ...requestBody, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               telemetryMeta: {

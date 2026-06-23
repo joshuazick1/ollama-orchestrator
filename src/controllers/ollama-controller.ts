@@ -38,7 +38,7 @@ import {
   parseResponse,
 } from '../utils/fetch-with-timeout.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
-import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
+import { safeJsonParse, safeJsonStringify, toBodyInit } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-error.js';
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
@@ -172,10 +172,12 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             {
               method: 'POST',
               headers: getOllamaHeaders(req.headers, server),
-              body: safeJsonStringify({
-                ...body,
-                stream: true,
-              }),
+              body:
+                toBodyInit(req.rawBody) ??
+                safeJsonStringify({
+                  ...body,
+                  stream: true,
+                }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               requestId: requestId,
@@ -424,10 +426,12 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
           method: 'POST',
           headers: getOllamaHeaders(req.headers, server),
-          body: safeJsonStringify({
-            ...body,
-            stream: false,
-          }),
+          body:
+            toBodyInit(req.rawBody) ??
+            safeJsonStringify({
+              ...body,
+              stream: false,
+            }),
           timeout: timeoutMs,
           telemetryMeta: {
             serverId: server.id,
@@ -624,10 +628,12 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             {
               method: 'POST',
               headers: getOllamaHeaders(req.headers, server),
-              body: safeJsonStringify({
-                ...body,
-                stream: true,
-              }),
+              body:
+                toBodyInit(req.rawBody) ??
+                safeJsonStringify({
+                  ...body,
+                  stream: true,
+                }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               requestId,
@@ -924,10 +930,12 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
           method: 'POST',
           headers: getOllamaHeaders(req.headers, server),
-          body: safeJsonStringify({
-            ...body,
-            stream: false,
-          }),
+          body:
+            toBodyInit(req.rawBody) ??
+            safeJsonStringify({
+              ...body,
+              stream: false,
+            }),
           timeout: timeoutMs,
           telemetryMeta: {
             serverId: server.id,
@@ -1602,7 +1610,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             {
               method: 'POST',
               headers: getOllamaHeaders(req.headers, server),
-              body: safeJsonStringify({ ...body, stream: true }),
+              body: toBodyInit(req.rawBody) ?? safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               telemetryMeta: {
@@ -1810,7 +1818,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             {
               method: 'POST',
               headers: getOllamaHeaders(req.headers, server),
-              body: safeJsonStringify({ ...body, stream: true }),
+              body: toBodyInit(req.rawBody) ?? safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
               telemetryMeta: {
