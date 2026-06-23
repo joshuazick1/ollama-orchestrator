@@ -34,6 +34,7 @@ interface GroupedBreakers {
   modelBreakers: CircuitBreakerInfo[];
   hasOpenCircuit: boolean;
   totalFailures: number;
+  provider?: string;
 }
 
 const groupBreakersByServer = (breakers: CircuitBreakerInfo[]): GroupedBreakers[] => {
@@ -53,6 +54,7 @@ const groupBreakersByServer = (breakers: CircuitBreakerInfo[]): GroupedBreakers[
         modelBreakers: [],
         hasOpenCircuit: false,
         totalFailures: 0,
+        provider: 'ollama',
       });
     }
 

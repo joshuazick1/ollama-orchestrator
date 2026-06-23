@@ -33,6 +33,13 @@ export interface LoadedModel {
   digest: string;
 }
 
+export interface VLLMModelMeta {
+  max_model_len?: number;
+  quantization?: string;
+  supports_tool_calling?: boolean;
+  supports_vision?: boolean;
+}
+
 export interface AIServer {
   id: string;
   url: string;
@@ -48,6 +55,8 @@ export interface AIServer {
   // NEW: OpenAI-compatible models (from /v1/models)
   v1Models?: string[];
   discoveredV1Models?: string[];
+  // vLLM-specific metadata per model (max_model_len, quantization, etc.)
+  vllmMetadata?: Record<string, VLLMModelMeta>;
   // NEW: Anthropic capability
   supportsAnthropic?: boolean; // Whether server supports /v1/messages Anthropic endpoints
 

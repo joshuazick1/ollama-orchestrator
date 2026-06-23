@@ -14,14 +14,69 @@ import { ErrorState } from '../components/EmptyState';
 import { DataToolbar } from '../components/DataToolbar';
 import { useDataTable } from '../hooks/useDataTable';
 import { useLiveUpdates } from '../hooks/useLiveUpdates';
-import { Server, Box, Layers, Zap, Lock, RefreshCw, Activity, Loader2, Flame } from 'lucide-react';
+import {
+  Server,
+  Box,
+  Layers,
+  Zap,
+  Lock,
+  RefreshCw,
+  Activity,
+  Loader2,
+  Flame,
+  HelpCircle,
+} from 'lucide-react';
 import type { AIServer } from '../types';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import type { CircuitBreakerInfo } from '../api';
 import { toastSuccess, toastError } from '../utils/toast';
 import { safeArray } from '../utils/safeArray';
 import { CircuitDetailModal } from '../components/CircuitDetailModal';
-import { Badge } from '../components/ui/badge';
+import { Badge } from '../components/Badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
+
+type ProviderType =
+  | 'ollama'
+  | 'openai'
+  | 'anthropic'
+  | 'deepseek'
+  | 'groq'
+  | 'vllm'
+  | 'minimax'
+  | 'bedrock'
+  | 'azure'
+  | 'custom';
+
+const providerColors: Record<ProviderType, { bg: string; text: string }> = {
+  ollama: { bg: 'bg-orange-500/20', text: 'text-orange-400' },
+  openai: { bg: 'bg-green-500/20', text: 'text-green-400' },
+  anthropic: { bg: 'bg-blue-500/20', text: 'text-blue-400' },
+  deepseek: { bg: 'bg-purple-500/20', text: 'text-purple-400' },
+  groq: { bg: 'bg-pink-500/20', text: 'text-pink-400' },
+  vllm: { bg: 'bg-cyan-500/20', text: 'text-cyan-400' },
+  minimax: { bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
+  bedrock: { bg: 'bg-amber-500/20', text: 'text-amber-400' },
+  azure: { bg: 'bg-blue-500/20', text: 'text-blue-400' },
+  custom: { bg: 'bg-gray-500/20', text: 'text-gray-400' },
+};
+
+function ModelProviderBadge({
+  provider,
+  size = 'sm',
+}: {
+  provider: ProviderType;
+  size?: 'sm' | 'md';
+}) {
+  const colors = providerColors[provider] || providerColors.ollama;
+  const sizeClasses = size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs';
+  return (
+    <span
+      className={`inline-flex items-center rounded border font-medium ${colors.bg} ${colors.text} border-transparent ${sizeClasses}`}
+    >
+      {provider.charAt(0).toUpperCase() + provider.slice(1)}
+    </span>
+  );
+}
 
 interface InFlightServer {
   serverId: string;
@@ -270,22 +325,62 @@ export const Models = () => {
 
   // Enrich data for sorting/filtering
   const enrichedModels = useMemo(() => {
-    return Object.keys(modelMap || {}).map(model => ({
-      name: model,
-      replicas: (modelMap[model] || []).length,
-    }));
-  }, [modelMap]);
+    return Object.keys(modelMap || {}).map(model => {
+      const serverIds = modelMap[model] || [];
+      const modelServers = servers?.filter((s: AIServer) => serverIds.includes(s.id)) || [];
+
+      // Determine which providers serve this model on each server
+      const serverProviderMap: Record<string, Set<string>> = {};
+      modelServers.forEach(server => {
+        const providers = new Set<string>();
+        // Check if model is available via Ollama native API
+        if (server.models?.includes(model)) {
+          providers.add('ollama');
+        }
+        // Check if model is available via OpenAI-compatible API
+        if (server.v1Models?.includes(model) || server.discoveredV1Models?.includes(model)) {
+          providers.add('openai');
+        }
+        // Check if model is available via Anthropic API
+        if (server.supportsAnthropic && providers.size === 0) {
+          // Anthropic uses OpenAI-compatible endpoint, so if no other provider
+          // but supportsAnthropic is true, assume anthropic
+          providers.add('anthropic');
+        }
+        serverProviderMap[server.id] = providers;
+      });
+
+      return {
+        name: model,
+        replicas: serverIds.length,
+        modelServers,
+        serverProviderMap,
+      };
+    });
+  }, [modelMap, servers]);
 
   const {
     searchQuery,
     setSearchQuery,
     sortConfig,
     handleSort,
+    filters,
+    handleFilter,
     processedData: filteredModels,
   } = useDataTable({
     data: enrichedModels,
     initialSort: { key: 'name', direction: 'asc' },
     searchKeys: ['name'],
+    filterFn: (item, key, value) => {
+      if (key === 'provider' && value) {
+        // Filter: only show models available via the selected provider
+        return item.modelServers.some(server => {
+          const providers = item.serverProviderMap[server.id];
+          return providers?.has(value);
+        });
+      }
+      return true;
+    },
   });
 
   const warmupMutation = useMutation({
@@ -347,6 +442,29 @@ export const Models = () => {
     return map;
   }, [modelsStatusData]);
 
+  const providerStats = useMemo(() => {
+    const counts: Record<ProviderType, number> = {
+      ollama: 0,
+      openai: 0,
+      anthropic: 0,
+      deepseek: 0,
+      groq: 0,
+      vllm: 0,
+      minimax: 0,
+      bedrock: 0,
+      azure: 0,
+      custom: 0,
+    };
+    Object.values(enrichedModels).forEach(model => {
+      Object.values(model.serverProviderMap).forEach(providers => {
+        providers.forEach(p => {
+          if (p in counts) counts[p as ProviderType]++;
+        });
+      });
+    });
+    return counts;
+  }, [enrichedModels]);
+
   const scoreCache = useRef(new Map<string, number>());
 
   useEffect(() => {
@@ -403,7 +521,7 @@ export const Models = () => {
           <p className="text-text-muted">Available models and their distribution</p>
         </div>
         <Badge
-          variant={isLive ? 'default' : 'secondary'}
+          variant={isLive ? 'success' : 'neutral'}
           className={
             isLive
               ? 'bg-green-500/20 text-green-400 border-green-500/50 animate-pulse'
@@ -417,6 +535,20 @@ export const Models = () => {
         </Badge>
       </div>
 
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        {Object.entries(providerStats)
+          .filter(([_, count]) => count > 0)
+          .map(([provider, count]) => (
+            <div
+              key={provider}
+              className="bg-surface-raised/50 rounded-lg p-3 border border-surface-border flex items-center justify-between"
+            >
+              <ModelProviderBadge provider={provider as ProviderType} size="md" />
+              <span className="text-lg font-semibold text-text-base">{count}</span>
+            </div>
+          ))}
+      </div>
+
       <DataToolbar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -426,6 +558,22 @@ export const Models = () => {
           { key: 'name', label: 'Model Name' },
           { key: 'replicas', label: 'Replicas' },
         ]}
+        filterOptions={[
+          {
+            key: 'provider',
+            label: 'Provider',
+            options: [
+              { label: 'Ollama', value: 'ollama' },
+              { label: 'OpenAI', value: 'openai' },
+              { label: 'Anthropic', value: 'anthropic' },
+              { label: 'DeepSeek', value: 'deepseek' },
+              { label: 'Groq', value: 'groq' },
+              { label: 'vLLM', value: 'vllm' },
+            ],
+          },
+        ]}
+        filters={filters}
+        onFilterChange={handleFilter}
       >
         <button
           onClick={() => {
@@ -471,15 +619,37 @@ export const Models = () => {
                     <span>Replicas</span>
                   </div>
                 </th>
+                <th className="px-6 py-4">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="flex items-center space-x-1 cursor-help">
+                          <span>Source</span>
+                          <HelpCircle className="w-3 h-3" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-xs">
+                        <p className="font-medium mb-1">Provider Source</p>
+                        <p className="text-xs text-text-muted">
+                          <span className="text-orange-400">Ollama</span>: native /api/* endpoints
+                        </p>
+                        <p className="text-xs text-text-muted">
+                          <span className="text-green-400">OpenAI</span>: /v1/chat/completions
+                        </p>
+                        <p className="text-xs text-text-muted">
+                          <span className="text-blue-400">Anthropic</span>: /v1/messages
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </th>
                 <th className="px-6 py-4">Servers</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">
               {filteredModels.map(item => {
                 const model = item.name;
-                const serverIds = modelMap[model] || [];
-                const modelServers =
-                  servers?.filter((s: AIServer) => serverIds.includes(s.id)) || [];
+                const { modelServers, serverProviderMap } = item;
 
                 return (
                   <tr key={model} className="hover:bg-surface transition-colors">
@@ -488,7 +658,26 @@ export const Models = () => {
                         <div className="p-2 bg-blue-500/10 rounded-lg text-blue-400">
                           <Box className="w-5 h-5" />
                         </div>
-                        <span className="font-medium text-text-base">{model}</span>
+                        <div className="flex flex-col space-y-1">
+                          <span className="font-medium text-text-base">{model}</span>
+                          <div className="flex flex-wrap gap-1">
+                            {(() => {
+                              const allProviders = new Set<ProviderType>();
+                              Object.values(item.serverProviderMap).forEach(ps => {
+                                ps.forEach(p => allProviders.add(p as ProviderType));
+                              });
+                              return Array.from(allProviders)
+                                .slice(0, 3)
+                                .map(provider => (
+                                  <ModelProviderBadge
+                                    key={provider}
+                                    provider={provider}
+                                    size="sm"
+                                  />
+                                ));
+                            })()}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -501,20 +690,78 @@ export const Models = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-2">
-                        {modelServers.map((server: AIServer) => (
-                          <ServerBadge
-                            key={server.id}
-                            server={server}
-                            model={model}
-                            circuitBreaker={circuitBreakerMap.get(server.id + ':' + model)}
-                            inFlightData={inFlightMap.get(server.id)}
-                            modelStatus={modelStatusMap.get(model)?.[server.id]}
-                            onReset={() => resetCbMutation.mutate({ serverId: server.id, model })}
-                            onClick={() => setSelectedCircuit({ serverId: server.id, model })}
-                            scoreCache={scoreCache}
-                          />
-                        ))}
+                      <div className="flex flex-wrap gap-1">
+                        {modelServers.map((server: AIServer) => {
+                          const providers = serverProviderMap[server.id];
+                          return (
+                            <div key={server.id} className="flex items-center gap-1">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="flex items-center gap-1">
+                                      {providers?.has('ollama') && (
+                                        <Badge
+                                          variant="warning"
+                                          size="sm"
+                                          className="text-[10px] py-0 px-1.5"
+                                        >
+                                          O
+                                        </Badge>
+                                      )}
+                                      {providers?.has('openai') && (
+                                        <Badge
+                                          variant="success"
+                                          size="sm"
+                                          className="text-[10px] py-0 px-1.5"
+                                        >
+                                          AI
+                                        </Badge>
+                                      )}
+                                      {providers?.has('anthropic') && (
+                                        <Badge
+                                          variant="info"
+                                          size="sm"
+                                          className="text-[10px] py-0 px-1.5"
+                                        >
+                                          AN
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs">
+                                    <p className="text-xs">
+                                      <span className="text-orange-400">O</span> Ollama:{' '}
+                                      {server.models?.includes(model) ? 'native model' : 'N/A'}
+                                    </p>
+                                    <p className="text-xs">
+                                      <span className="text-green-400">AI</span> OpenAI:{' '}
+                                      {server.v1Models?.includes(model) ||
+                                      server.discoveredV1Models?.includes(model)
+                                        ? 'available'
+                                        : 'N/A'}
+                                    </p>
+                                    <p className="text-xs">
+                                      <span className="text-blue-400">AN</span> Anthropic:{' '}
+                                      {server.supportsAnthropic ? 'supported' : 'N/A'}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              <ServerBadge
+                                server={server}
+                                model={model}
+                                circuitBreaker={circuitBreakerMap.get(server.id + ':' + model)}
+                                inFlightData={inFlightMap.get(server.id)}
+                                modelStatus={modelStatusMap.get(model)?.[server.id]}
+                                onReset={() =>
+                                  resetCbMutation.mutate({ serverId: server.id, model })
+                                }
+                                onClick={() => setSelectedCircuit({ serverId: server.id, model })}
+                                scoreCache={scoreCache}
+                              />
+                            </div>
+                          );
+                        })}
                       </div>
                     </td>
                   </tr>
@@ -522,7 +769,7 @@ export const Models = () => {
               })}
               {filteredModels.length === 0 && (
                 <tr>
-                  <td colSpan={3} className="px-6 py-12 text-center text-text-subtle">
+                  <td colSpan={4} className="px-6 py-12 text-center text-text-subtle">
                     <Layers className="w-12 h-12 mx-auto mb-3 opacity-20" />
                     <p>No models found matching your search.</p>
                   </td>

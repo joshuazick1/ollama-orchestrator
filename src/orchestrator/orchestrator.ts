@@ -52,6 +52,7 @@ import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
 
 import { OrchestratorModels } from './models.js';
 import { AnthropicModels, type AnthropicModel } from './anthropic-models.js';
+import { isVLLMResponse, VLLMModelsResponseSchema, type VLLMModelMeta } from './vllm-models.js';
 import type {
   AIServer,
   RequestContext,
@@ -928,6 +929,26 @@ export class AIOrchestrator {
                 models: server.v1Models.length,
               });
             }
+
+            if (isVLLMResponse(data)) {
+              const vllmParsed = VLLMModelsResponseSchema.safeParse(data);
+              if (vllmParsed.success && vllmParsed.data) {
+                const vllmMeta: Record<string, VLLMModelMeta> = {};
+                for (const model of vllmParsed.data.data) {
+                  if (model.id && model.metadata) {
+                    vllmMeta[model.id] = model.metadata;
+                  }
+                }
+                if (Object.keys(vllmMeta).length > 0) {
+                  server.vllmMetadata = vllmMeta;
+                  logger.debug('Extracted vLLM metadata from discovery', {
+                    serverId: server.id,
+                    modelCount: Object.keys(vllmMeta).length,
+                  });
+                }
+              }
+            }
+
             if (this.config.enablePersistence && !this._suppressPersistence) {
               this.persistence.saveServersToDisk(this.servers);
             }
@@ -1013,11 +1034,18 @@ export class AIOrchestrator {
    */
   getAggregatedOpenAIModels(): {
     object: string;
-    data: Array<{ id: string; object: string; created: number; owned_by: string }>;
+    data: Array<{
+      id: string;
+      object: string;
+      created: number;
+      owned_by: string;
+      metadata?: VLLMModelMeta;
+    }>;
   } {
     const seenModels = new Set<string>();
 
     const modelToServers = new Map<string, string[]>();
+    const modelToVLLMMeta = new Map<string, VLLMModelMeta>();
 
     for (const server of this.servers) {
       if (!server.healthy || !server.supportsV1) {
@@ -1034,6 +1062,9 @@ export class AIOrchestrator {
           if (servers && !servers.includes(server.id)) {
             servers.push(server.id);
           }
+          if (!modelToVLLMMeta.has(modelId) && server.vllmMetadata?.[modelId]) {
+            modelToVLLMMeta.set(modelId, server.vllmMetadata[modelId]);
+          }
         }
       }
 
@@ -1047,21 +1078,41 @@ export class AIOrchestrator {
           if (servers && !servers.includes(server.id)) {
             servers.push(server.id);
           }
+          if (!modelToVLLMMeta.has(modelId) && server.vllmMetadata?.[modelId]) {
+            modelToVLLMMeta.set(modelId, server.vllmMetadata[modelId]);
+          }
         }
       }
     }
 
     // Second pass: filter to only include models with closed circuit breaker
-    const models: Array<{ id: string; object: string; created: number; owned_by: string }> = [];
+    const models: Array<{
+      id: string;
+      object: string;
+      created: number;
+      owned_by: string;
+      metadata?: VLLMModelMeta;
+    }> = [];
 
     for (const [modelId, servers] of modelToServers) {
       if (this.hasAvailableServer(modelId, servers)) {
-        models.push({
+        const model: {
+          id: string;
+          object: string;
+          created: number;
+          owned_by: string;
+          metadata?: VLLMModelMeta;
+        } = {
           id: modelId,
           object: 'model',
-          created: Math.floor(Date.now() / 1000), // Unix seconds (REC-39)
-          owned_by: servers[0], // Use first server as owner
-        });
+          created: Math.floor(Date.now() / 1000),
+          owned_by: servers[0],
+        };
+        const vllmMeta = modelToVLLMMeta.get(modelId);
+        if (vllmMeta) {
+          model.metadata = vllmMeta;
+        }
+        models.push(model);
       }
     }
 

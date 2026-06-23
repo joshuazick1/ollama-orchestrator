@@ -1,5 +1,6 @@
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
 import { logger } from '../utils/logger.js';
+import { probeVLLMModels, isVLLMServer, type VLLMModelMeta } from './vllm-models.js';
 
 export type DiscoverModelsOptions = {
   apiKey?: string;
@@ -17,6 +18,8 @@ export type DiscoverModelsResult = {
     status?: number;
     reason: string;
   }>;
+  vllmMetadata?: Record<string, VLLMModelMeta>;
+  isVLLM?: boolean;
 };
 
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -190,9 +193,12 @@ export async function discoverModels(
 ): Promise<DiscoverModelsResult> {
   const { apiKey, timeoutMs = DEFAULT_TIMEOUT_MS } = options ?? {};
 
-  const [ollamaResult, openaiResult] = await Promise.all([
+  const [ollamaResult, openaiResult, vllmResult] = await Promise.all([
     probeOllamaTags(serverUrl, timeoutMs),
     probeOpenAIModels(serverUrl, apiKey, timeoutMs),
+    isVLLMServer(serverUrl)
+      ? probeVLLMModels(serverUrl, apiKey, timeoutMs)
+      : Promise.resolve({ models: [], metadata: {}, isVLLM: false }),
   ]);
 
   const ollama = ollamaResult.models;
@@ -213,5 +219,13 @@ export async function discoverModels(
 
   const needsCustomModelList = ollama.length === 0 && openai.length === 0;
 
-  return { ollama, openai, merged, needsCustomModelList, errors };
+  return {
+    ollama,
+    openai,
+    merged,
+    needsCustomModelList,
+    errors,
+    vllmMetadata: vllmResult.isVLLM ? vllmResult.metadata : undefined,
+    isVLLM: vllmResult.isVLLM,
+  };
 }

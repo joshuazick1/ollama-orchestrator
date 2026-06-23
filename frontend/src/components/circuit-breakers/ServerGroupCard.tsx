@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { ChevronDown, ChevronRight, Server, Shield } from 'lucide-react';
 import type { CircuitBreakerInfo } from '../../api';
 import { CircuitBreakerCard } from './CircuitBreakerCard';
+import { PROVIDER_COLORS, type ProviderName } from '../../constants/colors';
 
 interface GroupedBreakers {
   serverId: string;
@@ -9,6 +10,7 @@ interface GroupedBreakers {
   modelBreakers: CircuitBreakerInfo[];
   hasOpenCircuit: boolean;
   totalFailures: number;
+  provider?: string;
 }
 
 interface ServerGroupCardProps {
@@ -58,7 +60,22 @@ export const ServerGroupCard = memo<ServerGroupCardProps>(
             )}
             <Server className="w-6 h-6 text-blue-400" />
             <div>
-              <h3 className="text-lg font-semibold text-text-base font-mono">{server.serverId}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-text-base font-mono">
+                  {server.serverId}
+                </h3>
+                {server.provider && (
+                  <span
+                    className="px-2 py-0.5 rounded text-xs font-medium text-white"
+                    style={{
+                      backgroundColor:
+                        PROVIDER_COLORS[server.provider as ProviderName] || '#6B7280',
+                    }}
+                  >
+                    {server.provider}
+                  </span>
+                )}
+              </div>
               <p className="text-text-muted text-sm">
                 {server.modelBreakers.length + (server.serverBreaker ? 1 : 0)} circuit breaker(s)
               </p>
@@ -97,6 +114,7 @@ export const ServerGroupCard = memo<ServerGroupCardProps>(
                   onOpen={() => onOpen(server.serverId)}
                   onClose={() => onClose(server.serverId)}
                   isPending={isPending}
+                  provider={server.provider}
                 />
               </div>
             )}
@@ -130,6 +148,7 @@ export const ServerGroupCard = memo<ServerGroupCardProps>(
                           onClose={() => onClose(server.serverId, modelName)}
                           onRecoveryTest={() => onRecoveryTest(server.serverId, modelName!)}
                           isPending={isPending}
+                          provider={server.provider}
                         />
                       );
                     })}

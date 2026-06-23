@@ -7,6 +7,7 @@ import {
   getCircuitBreakerStateIcon,
 } from '../../utils/circuitBreaker';
 import type { CircuitBreakerInfo } from '../../api';
+import { PROVIDER_COLORS, type ProviderName } from '../../constants/colors';
 
 interface CircuitBreakerCardProps {
   breaker: CircuitBreakerInfo;
@@ -16,6 +17,7 @@ interface CircuitBreakerCardProps {
   onClose?: () => void;
   onRecoveryTest?: () => void;
   isPending?: boolean;
+  provider?: string;
 }
 
 const parseBreakerKey = (breakerKey: string): { serverId: string; model: string | undefined } => {
@@ -30,7 +32,7 @@ const parseBreakerKey = (breakerKey: string): { serverId: string; model: string 
 };
 
 export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
-  ({ breaker, isModel = false, onReset, onOpen, onClose, onRecoveryTest, isPending }) => {
+  ({ breaker, isModel = false, onReset, onOpen, onClose, onRecoveryTest, isPending, provider }) => {
     const modelName = isModel ? parseBreakerKey(breaker.serverId).model : undefined;
 
     return (
@@ -51,6 +53,16 @@ export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
                 <span className="text-text-base font-medium">
                   {isModel ? modelName : 'Server Level'}
                 </span>
+                {provider && (
+                  <span
+                    className="px-2 py-0.5 rounded text-xs font-medium text-white"
+                    style={{
+                      backgroundColor: PROVIDER_COLORS[provider as ProviderName] || '#6B7280',
+                    }}
+                  >
+                    {provider}
+                  </span>
+                )}
                 <span
                   className={`px-2 py-0.5 rounded text-xs font-medium border ${getCircuitBreakerStateColor(breaker.state)}`}
                 >

@@ -7,6 +7,7 @@ import { SkeletonStatCard } from '../components/skeletons';
 import { useDataTable } from '../hooks/useDataTable';
 import { DataToolbar } from '../components/DataToolbar';
 import { useMemo } from 'react';
+import { PROVIDER_COLORS, type ProviderName } from '../constants/colors';
 
 interface InFlightServer {
   serverId: string;
@@ -15,6 +16,7 @@ interface InFlightServer {
   total: number;
   byModel: Record<string, { regular: number; bypass: number }>;
   streamingRequests?: StreamingRequestProgress[];
+  provider?: ProviderName;
 }
 
 export const InFlight = () => {
@@ -160,6 +162,14 @@ export const InFlight = () => {
                       className={`w-3 h-3 rounded-full ${server.healthy ? 'bg-green-400' : 'bg-red-400'}`}
                     />
                     <h3 className="text-lg font-semibold text-text-base">{server.serverId}</h3>
+                    {server.provider && (
+                      <span
+                        className="px-2 py-0.5 rounded text-xs font-medium text-white"
+                        style={{ backgroundColor: PROVIDER_COLORS[server.provider] }}
+                      >
+                        {server.provider}
+                      </span>
+                    )}
                     <span className="text-sm text-text-muted">{server.serverUrl}</span>
                   </div>
                   <div className="flex items-center gap-4">

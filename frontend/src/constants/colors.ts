@@ -11,31 +11,25 @@
  */
 
 export const colors = {
-  // Surface colors
   surface: 'bg-surface',
   surfaceRaised: 'bg-surface-raised',
   surfaceBorder: 'border-surface-border',
 
-  // Text colors
   textBase: 'text-text-base',
   textMuted: 'text-text-muted',
   textSubtle: 'text-text-subtle',
 
-  // Semantic colors
   primary: 'bg-primary hover:bg-primary-hover text-text-base',
   success: 'bg-success',
   warning: 'bg-warning',
   danger: 'bg-danger',
 
-  // Status badges (use semantic tokens where available)
-  // Note: Badge component variants use these hardcoded values until semantic tokens exist
   badgeSuccess: 'bg-green-500/20 text-green-400',
   badgeDanger: 'bg-red-500/20 text-red-400',
   badgeWarning: 'bg-yellow-500/20 text-yellow-400',
   badgeInfo: 'bg-blue-500/20 text-blue-400',
   badgeNeutral: 'bg-gray-500/20 text-gray-400',
 
-  // Interaction states
   hoverSurface: 'hover:bg-surface',
   hoverSurfaceRaised: 'hover:bg-surface-raised',
   hoverSurfaceBorder: 'hover:border-surface-border',
@@ -97,3 +91,50 @@ export const colorValues = {
   textMuted: 'var(--color-text-muted)',
   textSubtle: 'var(--color-text-subtle)',
 } as const;
+
+export const PROVIDER_COLORS = {
+  ollama: '#F97316',
+  openai: '#34D399',
+  anthropic: '#A78BFA',
+  deepseek: '#3B82F6',
+  groq: '#EF4444',
+  vllm: '#2DD4BF',
+} as const;
+
+export type ProviderName = keyof typeof PROVIDER_COLORS;
+export type ProviderColor = (typeof PROVIDER_COLORS)[ProviderName];
+
+export const PROVIDER_BADGE_COLORS = {
+  ollama: {
+    bg: 'bg-orange-500/20',
+    text: 'text-orange-400',
+    border: 'border-orange-500/50',
+  },
+  openai: {
+    bg: 'bg-green-500/20',
+    text: 'text-green-400',
+    border: 'border-green-500/50',
+  },
+  anthropic: {
+    bg: 'bg-purple-500/20',
+    text: 'text-purple-400',
+    border: 'border-purple-500/50',
+  },
+  deepseek: {
+    bg: 'bg-blue-500/20',
+    text: 'text-blue-400',
+    border: 'border-blue-500/50',
+  },
+  groq: {
+    bg: 'bg-red-500/20',
+    text: 'text-red-400',
+    border: 'border-red-500/50',
+  },
+  vllm: {
+    bg: 'bg-cyan-500/20',
+    text: 'text-cyan-400',
+    border: 'border-cyan-500/50',
+  },
+} as const;
+
+export type ProviderBadgeColorKey = keyof typeof PROVIDER_BADGE_COLORS;
