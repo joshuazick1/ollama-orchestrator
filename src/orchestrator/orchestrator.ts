@@ -680,36 +680,60 @@ export class AIOrchestrator {
         probeOllama
           ? fetch(`${server.url}${API_ENDPOINTS.OLLAMA.TAGS}`, {
               signal: controller.signal,
-            }).catch((err: unknown) => {
-              logger.debug('Probe fetch failed for /api/tags', {
-                serverId: server.id,
-                error: String(err),
-              });
-              return null;
             })
+              .then(res => {
+                if (res?.ok) {
+                  this.endpointRegistry.confirm(server.id, 'ollama_tags' as ProbeEndpoint);
+                }
+                return res;
+              })
+              .catch((err: unknown) => {
+                logger.debug('Probe fetch failed for /api/tags', {
+                  serverId: server.id,
+                  error: String(err),
+                });
+                this.endpointRegistry.recordFailure(server.id, 'ollama_tags' as ProbeEndpoint);
+                return null;
+              })
           : Promise.resolve(null),
         probeOllama
           ? fetch(`${server.url}${API_ENDPOINTS.OLLAMA.VERSION}`, {
               signal: controller.signal,
-            }).catch((err: unknown) => {
-              logger.debug('Probe fetch failed for /api/version', {
-                serverId: server.id,
-                error: String(err),
-              });
-              return null;
             })
+              .then(res => {
+                if (res?.ok) {
+                  this.endpointRegistry.confirm(server.id, 'ollama_version' as ProbeEndpoint);
+                }
+                return res;
+              })
+              .catch((err: unknown) => {
+                logger.debug('Probe fetch failed for /api/version', {
+                  serverId: server.id,
+                  error: String(err),
+                });
+                this.endpointRegistry.recordFailure(server.id, 'ollama_version' as ProbeEndpoint);
+                return null;
+              })
           : Promise.resolve(null),
         probeV1
           ? fetch(`${server.url}${API_ENDPOINTS.OPENAI.MODELS}`, {
               signal: controller.signal,
               headers: server.apiKey ? { Authorization: `Bearer ${server.apiKey}` } : undefined,
-            }).catch((err: unknown) => {
-              logger.debug('Probe fetch failed for /v1/models', {
-                serverId: server.id,
-                error: String(err),
-              });
-              return null;
             })
+              .then(res => {
+                if (res?.ok) {
+                  this.endpointRegistry.confirm(server.id, 'openai_models' as ProbeEndpoint);
+                }
+                return res;
+              })
+              .catch((err: unknown) => {
+                logger.debug('Probe fetch failed for /v1/models', {
+                  serverId: server.id,
+                  error: String(err),
+                });
+                this.endpointRegistry.recordFailure(server.id, 'openai_models' as ProbeEndpoint);
+                return null;
+              })
           : Promise.resolve(null),
         probeV1
           ? fetch(`${server.url}/v1/messages`, {
@@ -725,13 +749,24 @@ export class AIOrchestrator {
                 messages: [{ role: 'user', content: 'hi' }],
               }),
               signal: AbortSignal.timeout(2000),
-            }).catch((err: unknown) => {
-              logger.debug('Probe fetch failed for /v1/messages', {
-                serverId: server.id,
-                error: String(err),
-              });
-              return null;
             })
+              .then(res => {
+                if (res !== null && res.status !== 401) {
+                  this.endpointRegistry.confirm(server.id, 'anthropic_messages' as ProbeEndpoint);
+                }
+                return res;
+              })
+              .catch((err: unknown) => {
+                logger.debug('Probe fetch failed for /v1/messages', {
+                  serverId: server.id,
+                  error: String(err),
+                });
+                this.endpointRegistry.recordFailure(
+                  server.id,
+                  'anthropic_messages' as ProbeEndpoint
+                );
+                return null;
+              })
           : Promise.resolve(null),
       ]);
 
