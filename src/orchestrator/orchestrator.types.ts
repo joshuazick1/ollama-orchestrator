@@ -347,6 +347,10 @@ export interface GlobalMetrics {
   cache?: CacheMetrics;
   /** Anthropic thinking metrics (auto-disabled count, total tokens) */
   thinking?: ThinkingMetrics;
+  /** Anthropic image/vision metrics (image count, total bytes) */
+  images?: ImageMetrics;
+  /** Anthropic tool use metrics */
+  tool?: ToolUseMetrics;
 }
 
 /**
@@ -369,6 +373,28 @@ export interface ThinkingMetrics {
   thinkingAutoDisabledCount: number;
   /** Total thinking tokens recorded from responses */
   totalThinkingTokens: number;
+}
+
+/**
+ * Anthropic image/vision metrics
+ */
+export interface ImageMetrics {
+  /** Total number of images processed */
+  imageCount: number;
+  /** Total bytes of images processed */
+  imageBytes: number;
+}
+
+/**
+ * Anthropic tool use metrics
+ */
+export interface ToolUseMetrics {
+  /** Total number of tool_use blocks encountered in streaming responses */
+  toolUseCount: number;
+  /** Total number of tool_result blocks encountered in request messages */
+  toolResultCount: number;
+  /** Unique tool names that were called */
+  toolNames: string[];
 }
 
 /**

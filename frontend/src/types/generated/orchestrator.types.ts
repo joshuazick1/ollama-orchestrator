@@ -311,12 +311,24 @@ export interface RequestContext {
   // Derived from Ollama fields
   tokensPerSecond?: number; // eval_count / (eval_duration / 1e9)
   isColdStart?: boolean; // true when load_duration > cold-start threshold
+  /** Anthropic-specific: stop_reason from message_delta */
+  lastStopReason?: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
   /** Queue/routing wait time in ms (time from request receipt to server selection) */
   queueWaitTime?: number;
   /** All inter-chunk gaps (ms) for ITL tracking */
   chunkGaps?: number[];
   /** Error type from classification (for error type histogram) */
   errorType?: string;
+  /** Whether thinking was enabled for this request */
+  thinkingEnabled?: boolean;
+  /** Number of thinking tokens in the response (from thinking content blocks) */
+  thinkingTokens?: number;
+  /** Cache creation tokens from Anthropic extended thinking (cache_creation_input_tokens) */
+  cacheCreationTokens?: number;
+  /** Cache read tokens from Anthropic prompt caching (cache_read_input_tokens) */
+  cacheReadTokens?: number;
+  /** Whether thinking was auto-disabled due to upstream 400 rejection */
+  thinkingAutoDisabled?: boolean;
 }
 
 /**
@@ -333,6 +345,58 @@ export interface GlobalMetrics {
   avgLatency: number;
   errorRate: number;
   streaming?: StreamingMetricsSummary;
+  /** Anthropic cache metrics (cache hits, misses, savings) */
+  cache?: CacheMetrics;
+  /** Anthropic thinking metrics (auto-disabled count, total tokens) */
+  thinking?: ThinkingMetrics;
+  /** Anthropic image/vision metrics (image count, total bytes) */
+  images?: ImageMetrics;
+  /** Anthropic tool use metrics */
+  tool?: ToolUseMetrics;
+}
+
+/**
+ * Anthropic cache performance metrics
+ */
+export interface CacheMetrics {
+  /** Number of requests that used cached tokens */
+  cacheHits: number;
+  /** Number of requests that created new cache but had no cache read */
+  cacheMisses: number;
+  /** Estimated cost savings from cache reads (in currency units) */
+  cacheSavings: number;
+}
+
+/**
+ * Anthropic thinking metrics
+ */
+export interface ThinkingMetrics {
+  /** Number of requests where thinking was auto-disabled due to upstream rejection */
+  thinkingAutoDisabledCount: number;
+  /** Total thinking tokens recorded from responses */
+  totalThinkingTokens: number;
+}
+
+/**
+ * Anthropic image/vision metrics
+ */
+export interface ImageMetrics {
+  /** Total number of images processed */
+  imageCount: number;
+  /** Total bytes of images processed */
+  imageBytes: number;
+}
+
+/**
+ * Anthropic tool use metrics
+ */
+export interface ToolUseMetrics {
+  /** Total number of tool_use blocks encountered in streaming responses */
+  toolUseCount: number;
+  /** Total number of tool_result blocks encountered in request messages */
+  toolResultCount: number;
+  /** Unique tool names that were called */
+  toolNames: string[];
 }
 
 /**
@@ -388,453 +452,3 @@ export interface PrometheusMetric {
   value: number;
   buckets?: Record<string, number>;
 }
-
-// =============================================================================
-// Anthropic Types
-// =============================================================================
-
-/**
- * Base64-encoded image source
- */
-export interface AnthropicImageSourceBase64 {
-  type: 'base64';
-  media_type: string;
-  data: string;
-  [key: string]: unknown;
-}
-
-/**
- * URL image source
- */
-export interface AnthropicImageSourceUrl {
-  type: 'url';
-  url: string;
-  media_type?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Image source (base64 or url)
- */
-export type AnthropicImageSource = AnthropicImageSourceBase64 | AnthropicImageSourceUrl;
-
-/**
- * Text content block
- */
-export interface AnthropicTextBlock {
-  type: 'text';
-  text: string;
-  [key: string]: unknown;
-}
-
-/**
- * Image content block
- */
-export interface AnthropicImageBlock {
-  type: 'image';
-  source: AnthropicImageSource;
-  [key: string]: unknown;
-}
-
-/**
- * Tool use content block
- */
-export interface AnthropicToolUseBlock {
-  type: 'tool_use';
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-/**
- * Tool result content block
- */
-export interface AnthropicToolResultBlock {
-  type: 'tool_result';
-  tool_use_id: string;
-  content: string;
-  is_error?: boolean;
-  [key: string]: unknown;
-}
-
-/**
- * Thinking content block (for extended thinking mode)
- */
-export interface AnthropicThinkingBlock {
-  type: 'thinking';
-  thinking: string;
-  signature?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Discriminated union of all Anthropic content block types
- */
-export type AnthropicContentBlock =
-  | AnthropicTextBlock
-  | AnthropicImageBlock
-  | AnthropicToolUseBlock
-  | AnthropicToolResultBlock
-  | AnthropicThinkingBlock;
-
-/**
- * Anthropic message with role and content
- */
-export interface AnthropicMessage {
-  role: 'user' | 'assistant';
-  content: string | AnthropicContentBlock[];
-  [key: string]: unknown;
-}
-
-/**
- * Text block for system prompt (used in array form)
- */
-export interface AnthropicSystemTextBlock {
-  type: 'text';
-  text: string;
-  [key: string]: unknown;
-}
-
-/**
- * System prompt can be a plain string or an array of text blocks
- */
-export type AnthropicSystemPrompt = string | AnthropicSystemTextBlock[];
-
-/**
- * Anthropic tool definition
- */
-export interface AnthropicTool {
-  name: string;
-  description?: string;
-  input_schema: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-/**
- * Tool choice configuration
- */
-export interface AnthropicToolChoice {
-  type: 'auto' | 'any' | 'tool';
-  name?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Extended thinking configuration
- */
-export interface AnthropicThinkingConfig {
-  type: 'enabled' | 'disabled';
-  budget_tokens?: number;
-  [key: string]: unknown;
-}
-
-/**
- * Cache control for ephemeral caching
- */
-export interface AnthropicCacheControl {
-  type: 'ephemeral';
-  [key: string]: unknown;
-}
-
-/**
- * Main Messages API request body
- */
-export interface AnthropicMessagesRequest {
-  model: string;
-  messages: AnthropicMessage[];
-  system?: AnthropicSystemPrompt;
-  max_tokens: number;
-  tools?: AnthropicTool[];
-  tool_choice?: AnthropicToolChoice;
-  thinking?: AnthropicThinkingConfig;
-  cache_control?: AnthropicCacheControl;
-  temperature?: number;
-  top_p?: number;
-  top_k?: number;
-  stop_sequences?: string[];
-  stream?: boolean;
-  metadata?: Record<string, unknown>;
-  stream_options?: { include_usage?: boolean; [key: string]: unknown };
-  [key: string]: unknown;
-}
-
-/**
- * Usage statistics in the response
- */
-export interface AnthropicUsage {
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_input_tokens?: number;
-  cache_read_input_tokens?: number;
-  [key: string]: unknown;
-}
-
-/**
- * Main Messages API response body
- */
-export interface AnthropicMessagesResponse {
-  id: string;
-  type: 'message';
-  role: 'assistant';
-  content: AnthropicContentBlock[];
-  model: string;
-  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
-  stop_sequence?: string;
-  usage: AnthropicUsage;
-  [key: string]: unknown;
-}
-
-/**
- * message_start event - first event when a message begins
- */
-export interface AnthropicMessageStartEvent {
-  type: 'message_start';
-  message: {
-    id: string;
-    type: 'message';
-    role: 'assistant';
-    model: string;
-    content?: AnthropicContentBlock[];
-    stop_reason?: string | null;
-    stop_sequence?: string | null;
-    usage?: AnthropicUsage;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-/**
- * content_block_start event - when a content block begins
- */
-export interface AnthropicContentBlockStartEvent {
-  type: 'content_block_start';
-  index: number;
-  content_block:
-    | AnthropicTextBlock
-    | AnthropicImageBlock
-    | AnthropicToolUseBlock
-    | AnthropicThinkingBlock;
-  [key: string]: unknown;
-}
-
-/**
- * content_block_delta event - incremental updates to content blocks
- */
-export interface AnthropicContentBlockDeltaEvent {
-  type: 'content_block_delta';
-  index: number;
-  delta:
-    | { type: 'text_delta'; text: string }
-    | { type: 'thinking_delta'; thinking: string }
-    | { type: 'input_json_delta'; partial_json: string };
-  [key: string]: unknown;
-}
-
-/**
- * content_block_stop event - when a content block ends
- */
-export interface AnthropicContentBlockStopEvent {
-  type: 'content_block_stop';
-  index: number;
-  [key: string]: unknown;
-}
-
-/**
- * message_delta event - final updates to message delta
- */
-export interface AnthropicMessageDeltaEvent {
-  type: 'message_delta';
-  delta: {
-    stop_reason?: string | null;
-    stop_sequence?: string | null;
-    [key: string]: unknown;
-  };
-  usage?: AnthropicUsage;
-  [key: string]: unknown;
-}
-
-/**
- * message_stop event - final event when message is complete
- */
-export interface AnthropicMessageStopEvent {
-  type: 'message_stop';
-  [key: string]: unknown;
-}
-
-/**
- * ping event - heartbeat for keep-alive
- */
-export interface AnthropicPingEvent {
-  type: 'ping';
-  [key: string]: unknown;
-}
-
-/**
- * error event - indicates an error occurred
- */
-export interface AnthropicErrorEvent {
-  type: 'error';
-  error: {
-    type: string;
-    message: string;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-/**
- * Union of all Anthropic stream event types
- */
-export type AnthropicStreamEvent =
-  | AnthropicMessageStartEvent
-  | AnthropicContentBlockStartEvent
-  | AnthropicContentBlockDeltaEvent
-  | AnthropicContentBlockStopEvent
-  | AnthropicMessageDeltaEvent
-  | AnthropicMessageStopEvent
-  | AnthropicPingEvent
-  | AnthropicErrorEvent;
-
-// =============================================================================
-// OpenAI Extended Types
-// =============================================================================
-
-/**
- * Logprobs content entry for chat completion choices.
- * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-logprobs
- */
-export interface OpenAILogprobsContentEntry {
-  token: string;
-  bytes?: number[];
-  logprob: number;
-  top_logprobs: Array<{
-    token: string;
-    bytes?: number[];
-    logprob: number;
-  }>;
-}
-
-/**
- * Logprobs root for chat completion.
- * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-logprobs
- */
-export interface OpenAILogprobs {
-  content?: OpenAILogprobsContentEntry[];
-}
-
-/**
- * Chat completion chunk choice with optional logprobs.
- * Used in streaming responses (/v1/chat/completions stream).
- * @see https://platform.openai.com/docs/api-reference/chat/streaming#chat-stream-choices
- */
-export interface OpenAIChatCompletionChunkChoice {
-  index: number;
-  delta: {
-    role?: string;
-    content?: string;
-    tool_calls?: Array<{
-      index: number;
-      id?: string;
-      type: 'function';
-      function: { name: string; arguments: string };
-    }>;
-  };
-  finish_reason?: string | null;
-  logprobs?: OpenAILogprobs;
-}
-
-/**
- * OpenAI Chat Completion Request with extended fields
- * @see https://platform.openai.com/docs/api-reference/chat/create
- */
-export interface OpenAIChatCompletionRequest {
-  model: string;
-  messages: Array<{
-    role: 'system' | 'user' | 'assistant' | 'tool';
-    content?: string;
-    name?: string;
-    tool_calls?: Array<{
-      id: string;
-      type: 'function';
-      function: { name: string; arguments: string };
-    }>;
-    tool_call_id?: string;
-  }>;
-  temperature?: number;
-  top_p?: number;
-  max_tokens?: number;
-  /** Number of chat completion choices to generate. Defaults to 1, max 10. */
-  n?: number;
-  /** Whether to return log probabilities of the output tokens. */
-  logprobs?: boolean;
-  /** Max number of top logprobs to return per token. Only meaningful when logprobs=true. */
-  top_logprobs?: number;
-  stream?: boolean;
-  stop?: string | string[];
-  presence_penalty?: number;
-  frequency_penalty?: number;
-  seed?: number;
-  /**
-   * Response format constraint.
-   * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-response_format
-   */
-  response_format?:
-    | { type: 'text' }
-    | { type: 'json_object' }
-    | {
-        type: 'json_schema';
-        json_schema: {
-          name: string;
-          description?: string;
-          schema?: object;
-          strict?: boolean;
-        };
-      };
-  tools?: Array<{
-    type: 'function';
-    function: { name: string; description?: string; parameters?: object };
-  }>;
-  /**
-   * Whether to allow parallel function calls.
-   * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-parallel_tool_calls
-   */
-  parallel_tool_calls?: boolean;
-  /**
-   * Controls which function is called. 'auto', 'none', 'required', or an explicit function object.
-   * @see https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
-   */
-  tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
-  stream_options?: { include_usage?: boolean };
-}
-
-/**
- * OpenAI Completion Request with extended fields
- * @see https://platform.openai.com/docs/api-reference/completions/create
- */
-export interface OpenAICompletionRequest {
-  model: string;
-  prompt: string | string[];
-  temperature?: number;
-  top_p?: number;
-  max_tokens?: number;
-  logprobs?: number;
-  top_logprobs?: number;
-  stream?: boolean;
-  stop?: string | string[];
-  presence_penalty?: number;
-  frequency_penalty?: number;
-  seed?: number;
-  suffix?: string;
-  stream_options?: { include_usage?: boolean };
-}
-
-// =============================================================================
-// Provider Defaults
-// Provider string values: 'deepseek', 'groq', 'vllm' flow through string types
-// =============================================================================
-
-/**
- * Known AI provider identifiers
- */
-export type AIProvider = 'ollama' | 'openai' | 'deepseek' | 'groq' | 'vllm';

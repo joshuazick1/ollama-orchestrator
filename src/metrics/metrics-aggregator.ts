@@ -16,6 +16,8 @@ import type {
   StreamingMetricsSummary,
   CacheMetrics,
   ThinkingMetrics,
+  ToolUseMetrics,
+  ImageMetrics,
 } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
@@ -80,6 +82,15 @@ export class MetricsAggregator {
   // Anthropic thinking metrics (global, not per-server-model)
   private thinkingAutoDisabledCount = 0;
   private totalThinkingTokens = 0;
+  // Anthropic image metrics (global, not per-server-model)
+  private imageCount = 0;
+  private imageBytes = 0;
+  // Anthropic system prompt metrics (global, not per-server-model)
+  private totalSystemPromptTokens = 0;
+  // Anthropic tool use metrics (global, not per-server-model)
+  private toolUseCount = 0;
+  private toolResultCount = 0;
+  private toolNames = new Set<string>();
 
   constructor(decayConfig: Partial<MetricsDecayConfig> = {}) {
     this.persistence = new MetricsPersistence();
@@ -959,12 +970,63 @@ export class MetricsAggregator {
   }
 
   /**
+   * Record system prompt tokens from a request
+   */
+  recordSystemPromptTokens(tokens: number): void {
+    this.totalSystemPromptTokens += tokens;
+  }
+
+  /**
+   * Record a tool_use block from streaming response
+   */
+  recordToolUse(toolName: string): void {
+    this.toolUseCount++;
+    this.toolNames.add(toolName);
+  }
+
+  /**
+   * Record a tool_result block from request message
+   */
+  recordToolResult(): void {
+    this.toolResultCount++;
+  }
+
+  /**
+   * Get tool use metrics summary
+   */
+  getToolUseMetrics(): ToolUseMetrics {
+    return {
+      toolUseCount: this.toolUseCount,
+      toolResultCount: this.toolResultCount,
+      toolNames: Array.from(this.toolNames),
+    };
+  }
+
+  /**
    * Get thinking metrics summary
    */
   getThinkingMetrics(): ThinkingMetrics {
     return {
       thinkingAutoDisabledCount: this.thinkingAutoDisabledCount,
       totalThinkingTokens: this.totalThinkingTokens,
+    };
+  }
+
+  /**
+   * Record image metrics from a request
+   */
+  recordImageMetrics(imageCount: number, imageBytes: number): void {
+    this.imageCount += imageCount;
+    this.imageBytes += imageBytes;
+  }
+
+  /**
+   * Get image metrics summary
+   */
+  getImageMetrics(): ImageMetrics {
+    return {
+      imageCount: this.imageCount,
+      imageBytes: this.imageBytes,
     };
   }
 
@@ -1023,6 +1085,8 @@ export class MetricsAggregator {
       streaming: this.getStreamingMetricsSummary(totalRequests),
       cache: this.getCacheMetrics(),
       thinking: this.getThinkingMetrics(),
+      images: this.getImageMetrics(),
+      tool: this.getToolUseMetrics(),
     };
   }
 

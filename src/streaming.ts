@@ -994,7 +994,12 @@ export interface AnthropicStreamChunk {
       cache_creation_input_tokens?: number;
     };
   };
-  content_block?: { type?: string; text?: string };
+  content_block?: {
+    type?: string;
+    text?: string;
+    name?: string;
+    input?: Record<string, unknown>;
+  };
   usage?: { output_tokens?: number };
   error?: {
     type?: string;
@@ -1017,7 +1022,8 @@ export async function streamAnthropicResponse(
   stallCheckIntervalMs?: number,
   onStreamEnd?: () => void,
   preEnd?: (clientResponse: Response) => void | Promise<void>,
-  streamingTelemetryMeta?: StreamingTelemetryMeta
+  streamingTelemetryMeta?: StreamingTelemetryMeta,
+  onToolUse?: (toolName: string) => void
 ): Promise<void> {
   const startTime = Date.now();
   let chunkCount = 0;
@@ -1210,6 +1216,15 @@ export async function streamAnthropicResponse(
                 | 'stop_sequence'
                 | 'tool_use';
             }
+          }
+
+          // Detect tool_use blocks in content_block_start events
+          if (
+            currentEventType === 'content_block_start' &&
+            parsed.content_block?.type === 'tool_use' &&
+            parsed.content_block?.name
+          ) {
+            onToolUse?.(parsed.content_block.name);
           }
 
           // Handle ping events - no-op, skip writing to client

@@ -146,16 +146,33 @@ export const AnthropicMessageSchema = z
 export type AnthropicMessage = z.infer<typeof AnthropicMessageSchema>;
 
 // =============================================================================
+// Cache Control
+// =============================================================================
+
+/**
+ * Cache control for ephemeral caching
+ */
+export const AnthropicCacheControlSchema = z
+  .object({
+    type: z.literal('ephemeral'),
+  })
+  .passthrough();
+
+export type AnthropicCacheControl = z.infer<typeof AnthropicCacheControlSchema>;
+
+// =============================================================================
 // System Prompt Types
 // =============================================================================
 
 /**
- * Text block for system prompt (used in array form)
+ * Text block for system prompt (used in array form).
+ * Supports optional cache_control for ephemeral caching.
  */
 export const AnthropicSystemTextBlockSchema = z
   .object({
     type: z.literal('text'),
     text: z.string(),
+    cache_control: AnthropicCacheControlSchema.optional(),
   })
   .passthrough();
 
@@ -224,21 +241,6 @@ export const AnthropicThinkingConfigSchema = z
   .passthrough();
 
 export type AnthropicThinkingConfig = z.infer<typeof AnthropicThinkingConfigSchema>;
-
-// =============================================================================
-// Cache Control
-// =============================================================================
-
-/**
- * Cache control for ephemeral caching
- */
-export const AnthropicCacheControlSchema = z
-  .object({
-    type: z.literal('ephemeral'),
-  })
-  .passthrough();
-
-export type AnthropicCacheControl = z.infer<typeof AnthropicCacheControlSchema>;
 
 // =============================================================================
 // Request Types

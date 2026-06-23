@@ -577,6 +577,19 @@ export const anthropicCacheMetricsConfigSchema = z.object({
 export type AnthropicCacheMetricsConfig = z.infer<typeof anthropicCacheMetricsConfigSchema>;
 
 /**
+ * Anthropic image configuration schema
+ */
+export const anthropicImageConfigSchema = z.object({
+  maxImageBytes: z
+    .number()
+    .int()
+    .min(1)
+    .default(5 * 1024 * 1024), // 5MB default
+});
+
+export type AnthropicImageConfig = z.infer<typeof anthropicImageConfigSchema>;
+
+/**
  * Anthropic configuration schema
  */
 export const anthropicConfigSchema = z.object({
@@ -588,6 +601,11 @@ export const anthropicConfigSchema = z.object({
     savingsRatePerToken: 0.0001,
   }),
   thinkingAutoDisable: z.boolean().default(true),
+  maxImageBytes: z
+    .number()
+    .int()
+    .min(1)
+    .default(5 * 1024 * 1024), // 5MB default
 });
 
 /**

@@ -201,12 +201,17 @@ export interface AnthropicCacheMetricsConfig {
   savingsRatePerToken: number;
 }
 
+export interface AnthropicImageConfig {
+  maxImageBytes: number;
+}
+
 export interface AnthropicConfig {
   enabled: boolean;
   apiKey?: string;
   supportedFeatures: string[];
   cacheMetrics: AnthropicCacheMetricsConfig;
   thinkingAutoDisable: boolean;
+  maxImageBytes: number;
 }
 
 export interface ErrorAggregatorConfig {
@@ -587,6 +592,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       savingsRatePerToken: 0.0001,
     },
     thinkingAutoDisable: true,
+    maxImageBytes: 5 * 1024 * 1024, // 5MB
   },
 
   errorAggregator: {

@@ -4,9 +4,15 @@ import { API_ENDPOINTS } from '../constants/index.js';
 import { getConfigManager } from '../config/config.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
-import { AnthropicMessagesRequestSchema } from '../types/anthropic.types.js';
+import {
+  AnthropicMessagesRequestSchema,
+  AnthropicToolSchema,
+  AnthropicToolChoiceSchema,
+  AnthropicSystemPrompt,
+} from '../types/anthropic.types.js';
 import type { StreamingTelemetryMeta } from '../streaming.js';
 import { resolveApiKey } from '../utils/api-keys.js';
+import { estimatePromptTokens } from '../utils/prompt-estimator.js';
 import {
   fetchWithTimeout,
   fetchWithActivityTimeout,
@@ -18,6 +24,135 @@ import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanu
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 const UPSTREAM_REQUEST_TIMEOUT_MS = 5000;
+
+const VALID_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+/**
+ * Validate a single image content block.
+ * Returns an error message if invalid, undefined if valid.
+ */
+function validateImageBlock(
+  block: {
+    type?: string;
+    source?: { type?: string; media_type?: string; data?: string; url?: string };
+  },
+  maxImageBytes: number
+): { valid: false; error: string; param?: string } | { valid: true } {
+  if (block.type !== 'image') {
+    return { valid: true };
+  }
+
+  const source = block.source;
+  if (!source) {
+    return { valid: false, error: 'image block missing source', param: 'source' };
+  }
+
+  if (source.type !== 'base64' && source.type !== 'url') {
+    return {
+      valid: false,
+      error: `image source type must be 'base64' or 'url', got '${source.type}'`,
+      param: 'source.type',
+    };
+  }
+
+  const mediaType = source.media_type;
+  if (!mediaType || !VALID_MEDIA_TYPES.has(mediaType)) {
+    return {
+      valid: false,
+      error: `image media_type must be one of: ${[...VALID_MEDIA_TYPES].join(', ')}, got '${mediaType ?? 'undefined'}'`,
+      param: 'source.media_type',
+    };
+  }
+
+  if (source.type === 'base64') {
+    if (!source.data || source.data.trim() === '') {
+      return { valid: false, error: 'base64 image data is empty', param: 'source.data' };
+    }
+    // Estimate base64 decoded size (base64 is ~4/3 of original)
+    const estimatedBytes = (source.data.length * 3) / 4;
+    if (estimatedBytes > maxImageBytes) {
+      return {
+        valid: false,
+        error: `image size ${Math.round(estimatedBytes)} bytes exceeds maximum ${maxImageBytes} bytes`,
+        param: 'source.data',
+      };
+    }
+  }
+
+  if (source.type === 'url') {
+    if (!source.url || source.url.trim() === '') {
+      return { valid: false, error: 'url image source URL is empty', param: 'source.url' };
+    }
+    try {
+      new URL(source.url);
+    } catch {
+      return { valid: false, error: `invalid URL: ${source.url}`, param: 'source.url' };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validate all image content blocks in a request body.
+ * Returns validation error with Anthropic error format if invalid.
+ */
+function validateImageBlocks(
+  body: Record<string, unknown>,
+  maxImageBytes: number
+):
+  | {
+      valid: false;
+      error: { type: string; error: { type: string; message: string; param?: string } };
+    }
+  | { valid: true; imageCount: number; imageBytes: number } {
+  const messages = body.messages;
+  if (!Array.isArray(messages)) {
+    return { valid: true, imageCount: 0, imageBytes: 0 };
+  }
+
+  let imageCount = 0;
+  let totalImageBytes = 0;
+
+  for (const message of messages) {
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+
+    for (const block of content) {
+      if ((block as { type?: string }).type !== 'image') {
+        continue;
+      }
+
+      const imageBlock = block as {
+        type: string;
+        source: { type?: string; media_type?: string; data?: string; url?: string };
+      };
+      const validation = validateImageBlock(imageBlock, maxImageBytes);
+      if (!validation.valid) {
+        return {
+          valid: false,
+          error: {
+            type: 'error',
+            error: {
+              type: 'invalid_request_error',
+              message: validation.error,
+              param: validation.param,
+            },
+          },
+        };
+      }
+
+      imageCount++;
+      if (imageBlock.source.type === 'base64' && imageBlock.source.data) {
+        totalImageBytes += (imageBlock.source.data.length * 3) / 4;
+      }
+    }
+  }
+
+  return { valid: true, imageCount, imageBytes: Math.round(totalImageBytes) };
+}
 
 /**
  * Validate anthropic-beta header format.
@@ -92,6 +227,28 @@ function buildModelsUpstreamHeaders(server: AIServer): Record<string, string> {
 }
 
 /**
+ * Estimate tokens in a system prompt.
+ * Anthropic uses a top-level `system` field (not a message with role=system).
+ * System can be a plain string or an array of text blocks.
+ */
+function estimateSystemPromptTokens(system: AnthropicSystemPrompt | undefined): number {
+  if (!system) {
+    return 0;
+  }
+  if (typeof system === 'string') {
+    return estimatePromptTokens(system);
+  }
+  // Array of text blocks - sum tokens from each block's text
+  let total = 0;
+  for (const block of system) {
+    if (block.type === 'text' && block.text) {
+      total += estimatePromptTokens(block.text);
+    }
+  }
+  return total;
+}
+
+/**
  * Anthropic models list response shape
  */
 interface AnthropicModel {
@@ -132,7 +289,8 @@ async function passthroughAnthropicSSE(
   serverId: string,
   model: string,
   _streamingTelemetryMeta?: StreamingTelemetryMeta,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  onToolUse?: (toolName: string) => void
 ): Promise<void> {
   const startTime = Date.now();
 
@@ -162,6 +320,28 @@ async function passthroughAnthropicSSE(
       buffer = lines.pop() ?? '';
 
       for (const line of lines) {
+        // Detect tool_use blocks in content_block_start events
+        if (onToolUse && line.startsWith('event: content_block_start')) {
+          // Next line should have the data
+          continue; // Skip this event line, tool detection happens on data line
+        }
+        if (onToolUse && line.startsWith('data: ')) {
+          try {
+            const dataStr = line.slice(6).trim();
+            if (dataStr) {
+              const parsed = JSON.parse(dataStr);
+              if (
+                parsed.type === 'content_block_start' &&
+                parsed.content_block?.type === 'tool_use' &&
+                parsed.content_block?.name
+              ) {
+                onToolUse(parsed.content_block.name);
+              }
+            }
+          } catch {
+            // Not JSON, ignore parse errors
+          }
+        }
         const writeResult = clientResponse.write(`${line}\n`);
         if (!writeResult) {
           await new Promise<void>(resolve => {
@@ -322,6 +502,29 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
 
   const orchestrator = getOrchestratorInstance();
 
+  // Detect tool_result blocks in request messages and record metrics
+  if (body.messages) {
+    for (const message of body.messages) {
+      const content = message.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'tool_result') {
+            orchestrator.getMetricsAggregator().recordToolResult();
+          }
+        }
+      }
+    }
+  }
+
+  const config = getConfigManager().getConfig();
+  const imageValidation = validateImageBlocks(rawBody, config.anthropic.maxImageBytes);
+  if (!imageValidation.valid) {
+    res.status(400).json(imageValidation.error);
+    return;
+  }
+
+  const { imageCount, imageBytes } = imageValidation;
+
   const activeStreamState: {
     serverId?: string;
     model?: string;
@@ -389,7 +592,10 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
                 protocol: 'anthropic',
                 endpoint: 'messages',
               },
-              activityController.controller.signal
+              activityController.controller.signal,
+              (toolName: string) => {
+                orchestrator.getMetricsAggregator().recordToolUse(toolName);
+              }
             );
           } finally {
             activityController.clearTimeout();
@@ -477,8 +683,12 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
     );
 
     if (!stream && result && !result._streamed) {
+      // Record system prompt tokens (Anthropic uses top-level system field, not role=system message)
+      const systemPromptTokens = estimateSystemPromptTokens(body.system);
+      if (systemPromptTokens > 0) {
+        orchestrator.getMetricsAggregator().recordSystemPromptTokens(systemPromptTokens);
+      }
       // Record Anthropic cache metrics if enabled
-      const config = getConfigManager().getConfig();
       if (config.anthropic.cacheMetrics.enabled) {
         const usage = result.usage as
           | { cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
@@ -512,6 +722,10 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
         if (thinkingTokens > 0) {
           orchestrator.getMetricsAggregator().recordThinkingTokens(thinkingTokens);
         }
+      }
+      // Record image metrics
+      if (imageCount > 0) {
+        orchestrator.getMetricsAggregator().recordImageMetrics(imageCount, imageBytes);
       }
       res.json(result);
     }
@@ -599,6 +813,29 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
     : req.params.serverId;
 
   const orchestrator = getOrchestratorInstance();
+
+  // Detect tool_result blocks in request messages and record metrics
+  if (body.messages) {
+    for (const message of body.messages) {
+      const content = message.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'tool_result') {
+            orchestrator.getMetricsAggregator().recordToolResult();
+          }
+        }
+      }
+    }
+  }
+
+  const config = getConfigManager().getConfig();
+  const imageValidation = validateImageBlocks(rawBody, config.anthropic.maxImageBytes);
+  if (!imageValidation.valid) {
+    res.status(400).json(imageValidation.error);
+    return;
+  }
+
+  const { imageCount, imageBytes } = imageValidation;
 
   // Validate server exists
   const server = orchestrator.getServers().find(s => s.id === serverId);
@@ -699,7 +936,10 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
                 protocol: 'anthropic',
                 endpoint: 'messages',
               },
-              activityController.controller.signal
+              activityController.controller.signal,
+              (toolName: string) => {
+                orchestrator.getMetricsAggregator().recordToolUse(toolName);
+              }
             );
           } finally {
             activityController.clearTimeout();
@@ -742,8 +982,12 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
     );
 
     if (!stream && result && !result._streamed) {
+      // Record system prompt tokens (Anthropic uses top-level system field, not role=system message)
+      const systemPromptTokens = estimateSystemPromptTokens(body.system);
+      if (systemPromptTokens > 0) {
+        orchestrator.getMetricsAggregator().recordSystemPromptTokens(systemPromptTokens);
+      }
       // Record Anthropic cache metrics if enabled
-      const config = getConfigManager().getConfig();
       if (config.anthropic.cacheMetrics.enabled) {
         const usage = result.usage as
           | { cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
@@ -759,6 +1003,10 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
               config.anthropic.cacheMetrics.savingsRatePerToken
             );
         }
+      }
+      // Record image metrics
+      if (imageCount > 0) {
+        orchestrator.getMetricsAggregator().recordImageMetrics(imageCount, imageBytes);
       }
       res.json(result);
     }
