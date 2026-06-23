@@ -10,13 +10,16 @@
  *
  * Adaptive probing: after the initial pass, servers with all-failed probes
  * are retried using alternative non-cloud models that overlap with working servers.
- * The canServe(tuple, 'probe') filter is applied throughout — only tuples
- * with CB state === RECOVERING are ever probed.
  *
  * CRITICAL canServe semantic:
- *   probeOrchestrator.canServe(tuple, 'probe') returns true ONLY when state === 'RECOVERING'.
- *   HEALTHY → false, SUSPECT → false, UNHEALTHY (OPEN) → false, Unknown → false.
- *   This means in practice we only re-probe tuples already in active recovery.
+ *   By default (forceRefresh=true, the on-demand seed path), the canServe CB filter is
+ *   BYPASSED — all non-cloud model tuples are probed to build initial metrics across the
+ *   full fleet. This is the operator's "refresh metrics now" intent.
+ *
+ *   When forceRefresh=false (explicit opt-in), the strict filter applies:
+ *     probeOrchestrator.canServe(tuple, 'probe') returns true ONLY when state === 'RECOVERING'.
+ *     HEALTHY → false, SUSPECT → false, UNHEALTHY (OPEN) → false, Unknown → false.
+ *     This means we only re-probe tuples already in active recovery.
  */
 
 import type { Request, Response, NextFunction } from 'express';
@@ -167,11 +170,11 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
   const orchestrator = getOrchestratorInstance();
   const probeOrchestrator = orchestrator.getProbeOrchestrator();
 
-  const concurrency = opts.concurrency ?? 16;
+  const concurrency = opts.concurrency ?? 100; // Default bumped from 16 to 100 to support 1000+ server fleets (validator cap = 200)
   const timeoutMs = opts.timeoutMs ?? 300000;
   const maxAdaptiveRounds = opts.maxAdaptiveRounds ?? 3;
   const dryRun = opts.dryRun ?? false;
-  const forceRefresh = opts.forceRefresh ?? false;
+  const forceRefresh = opts.forceRefresh ?? true; // On-demand seed probe defaults to bypass CB filter — operator's "refresh metrics now" intent
 
   let usedExistingSnapshot = false;
 
