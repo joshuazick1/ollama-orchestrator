@@ -61,6 +61,7 @@ import {
   getRecentPerfProbeTasks,
   exportPerfProbeHistory,
   getPerfProbeCoverageGrid,
+  getPerfProbeScheduledProbes,
 } from '../controllers/perf-probe-controller.js';
 import { getFleetModelStats } from '../controllers/server-models-controller.js';
 import {
@@ -248,6 +249,11 @@ monitoringRouter.get(
   '/performance-probe/coverage-grid',
   requireAuth(),
   asyncHandler(getPerfProbeCoverageGrid)
+);
+monitoringRouter.get(
+  '/performance-probe/scheduled-probes',
+  requireAuth(),
+  asyncHandler(getPerfProbeScheduledProbes)
 );
 monitoringRouter.get('/performance-probe/:taskId', requireAuth(), asyncHandler(getPerfProbeStatus));
 monitoringRouter.delete('/performance-probe/:taskId', requireAuth(), asyncHandler(cancelPerfProbe));

@@ -126,6 +126,19 @@ export interface PerfProbeCoverageGridResponse {
   grid: PerfProbeCoverageCell[];
 }
 
+export interface ScheduledProbe {
+  serverId: string;
+  serverUrl: string;
+  scheduledAt: number;
+  firesAt: number;
+  models: string[];
+}
+
+export interface ScheduledProbesResponse {
+  success: boolean;
+  newServerProbes: ScheduledProbe[];
+}
+
 // ==========================================
 // API Functions
 // ==========================================
@@ -270,6 +283,16 @@ export const getPerfProbeCoverageGrid = async (
     if (params.days !== undefined) search.set('days', String(params.days));
     if (params.serverId) search.set('serverId', params.serverId);
     const response = await apiClient.get(`/performance-probe/coverage-grid?${search.toString()}`);
+    return response.data;
+  });
+};
+
+/**
+ * Get upcoming auto-probes with server URL and model list.
+ */
+export const getPerfProbeScheduledProbes = async (): Promise<ScheduledProbesResponse> => {
+  return apiCall(async () => {
+    const response = await apiClient.get('/performance-probe/scheduled-probes');
     return response.data;
   });
 };

@@ -1083,6 +1083,37 @@ export function exportPerfProbeHistory(req: Request, res: Response): void {
   res.end();
 }
 
+/**
+ * GET /api/orchestrator/performance-probe/scheduled-probes
+ * Returns upcoming auto-probes (newServerProbes) with server URL and model list.
+ *
+ * Response: { success: true, newServerProbes: [{ serverId, serverUrl, scheduledAt, firesAt, models }] }
+ * Empty probes returns { success: true, newServerProbes: [] }
+ */
+export function getPerfProbeScheduledProbes(req: Request, res: Response): void {
+  try {
+    const scheduler = getPerfProbeSchedulerInstance();
+    const orchestrator = getOrchestratorInstance();
+    const status = scheduler.getStatus();
+
+    const newServerProbes = status.currentProbes.map(probe => {
+      const server = orchestrator.getServer(probe.serverId);
+      return {
+        serverId: probe.serverId,
+        serverUrl: server?.url ?? '',
+        scheduledAt: probe.scheduledAt,
+        firesAt: probe.firesAt,
+        models: server?.models ?? [],
+      };
+    });
+
+    res.status(200).json({ success: true, newServerProbes });
+  } catch (err) {
+    logger.warn('[perf-probe] Failed to get scheduled probes', { error: String(err) });
+    res.status(503).json({ error: 'scheduler not initialized' });
+  }
+}
+
 // Route wiring (used by routes/perf-probe.routes.ts — T8)
 export const perfProbeHandlers = {
   runPerfProbe: asyncHandler(runPerfProbe),
@@ -1092,4 +1123,5 @@ export const perfProbeHandlers = {
   getPerfProbeSchedulerStatus: asyncHandler(getPerfProbeSchedulerStatus),
   getRecentPerfProbeTasks: asyncHandler(getRecentPerfProbeTasks),
   exportPerfProbeHistory: asyncHandler(exportPerfProbeHistory),
+  getPerfProbeScheduledProbes: asyncHandler(getPerfProbeScheduledProbes),
 };

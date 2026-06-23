@@ -52,3 +52,5 @@ export const PERFORMANCE_PROBE_SCHEDULER_STATUS =
   '/api/orchestrator/performance-probe/scheduler-status';
 export const PERFORMANCE_PROBE_RECENT = '/api/orchestrator/performance-probe/recent';
 export const PERFORMANCE_PROBE_COVERAGE_GRID = '/api/orchestrator/performance-probe/coverage-grid';
+export const PERFORMANCE_PROBE_SCHEDULED_PROBES =
+  '/api/orchestrator/performance-probe/scheduled-probes';

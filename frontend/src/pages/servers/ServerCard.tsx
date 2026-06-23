@@ -1,5 +1,5 @@
 // Extracted from Servers.tsx - ServerCard component
-import { memo } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { ServerActionsMenu } from './ServerActionsMenu';
@@ -10,8 +10,10 @@ import {
   CheckCircle,
   XCircle,
   Activity,
+  Clock,
 } from 'lucide-react';
 import type { AIServer, MetricsExport } from '../../types';
+import type { ScheduledProbe } from '../../api/perf-probe';
 
 interface ServerCardProps {
   server: AIServer;
@@ -23,6 +25,7 @@ interface ServerCardProps {
   setModelManagerServer: (server: AIServer | null) => void;
   setServerToDelete: (server: AIServer | null) => void;
   setProbeConfirmation: (server: AIServer | null) => void;
+  scheduledProbes?: ScheduledProbe[];
 }
 
 export const ServerCard = memo(function ServerCard({
@@ -35,7 +38,30 @@ export const ServerCard = memo(function ServerCard({
   setModelManagerServer,
   setServerToDelete,
   setProbeConfirmation,
+  scheduledProbes,
 }: ServerCardProps) {
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const probeCountdown =
+    now !== null
+      ? (() => {
+          const probe = scheduledProbes?.find(p => p.serverId === server.id);
+          if (!probe) return null;
+          const ms = probe.firesAt - now;
+          if (ms <= 0) return null;
+          const hours = Math.floor(ms / 3_600_000);
+          const minutes = Math.floor((ms % 3_600_000) / 60_000);
+          return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+        })()
+      : null;
+
   return (
     <div
       className={`bg-surface rounded-xl border border-surface-border transition-all duration-200 overflow-hidden ${
@@ -116,6 +142,15 @@ export const ServerCard = memo(function ServerCard({
             <Badge variant={server.healthy ? 'success' : 'danger'} size="sm">
               {server.healthy ? 'Healthy' : 'Unhealthy'}
             </Badge>
+
+            {probeCountdown && (
+              <span title="Auto-probe scheduled by the perf-probe scheduler (2h after server was added)">
+                <Badge variant="info" size="sm">
+                  <Clock className="w-3 h-3 mr-1" />
+                  {probeCountdown}
+                </Badge>
+              </span>
+            )}
 
             {isServerPulling(server.id) && (
               <Badge variant="info" size="sm">

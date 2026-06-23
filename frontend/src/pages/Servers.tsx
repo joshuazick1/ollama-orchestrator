@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getServers, removeServer, getMetrics } from '../api';
-import { probeServer } from '../api/perf-probe';
+import { probeServer, getPerfProbeScheduledProbes } from '../api/perf-probe';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ModelManagerModal } from '../components/ModelManagerModal';
 import { useDataTable } from '../hooks/useDataTable';
@@ -81,6 +81,12 @@ export const Servers = () => {
     queryKey: ['metrics'],
     queryFn: getMetrics,
     refetchInterval: 10000,
+  });
+
+  const { data: scheduledProbesData } = useQuery({
+    queryKey: ['perf-probe-scheduled'],
+    queryFn: () => getPerfProbeScheduledProbes(),
+    refetchInterval: 30000,
   });
 
   // Enrich data for sorting/filtering
@@ -236,6 +242,7 @@ export const Servers = () => {
                   setModelManagerServer={setModelManagerServer}
                   setServerToDelete={setServerToDelete}
                   setProbeConfirmation={setProbeConfirmation}
+                  scheduledProbes={scheduledProbesData?.newServerProbes}
                 />
               ))}
             </div>
