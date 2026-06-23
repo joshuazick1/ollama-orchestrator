@@ -25,6 +25,7 @@ import { EndpointRegistry } from '../probe/endpoint-registry.js';
 import { classify } from '../probe/failure-classifier.js';
 import { getPerfProbeSchedulerInstance } from '../probe/perf-probe-scheduler-instance.js';
 import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
 import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { BackoffSchedule } from '../probe/recovery-driver.js';
 import { RecoveryDriver } from '../probe/recovery-driver.js';
@@ -3267,6 +3268,10 @@ export class AIOrchestrator {
       // Initialize the daily perf-probe scheduler
       const perfProbeScheduler = getPerfProbeSchedulerInstance();
       await perfProbeScheduler.start();
+
+      // Start the negative-probe capability detection scheduler
+      // (auto-confirm/soft-revoke endpoints every 5 minutes)
+      getCapabilityProbeScheduler().start();
 
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {
