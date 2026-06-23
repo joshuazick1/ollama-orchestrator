@@ -21,6 +21,7 @@ import type {
   OpenAIEmbeddingRequest,
 } from '../types/api-request.types.js';
 import { resolveApiKey } from '../utils/api-keys.js';
+import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
 import {
@@ -41,19 +42,16 @@ import {
   createStreamingStallHandler,
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
+import { forwardStreamingResponseHeaders } from '../utils/response-header-forwarder.js';
 
 /**
  * Get headers for backend requests including optional auth
  */
-function getBackendHeaders(server: AIServer): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  const resolvedKey = resolveApiKey(server.apiKey);
-  if (resolvedKey) {
-    headers['Authorization'] = `Bearer ${resolvedKey}`;
-  }
-  return headers;
+function getBackendHeaders(
+  clientHeaders: Record<string, string | string[] | undefined>,
+  server: AIServer
+): Record<string, string> {
+  return forwardRequestHeaders(clientHeaders, 'openai' as ProviderType, server);
 }
 
 interface _OpenAIModelObject {
@@ -148,10 +146,7 @@ async function streamOpenAIResponse(
   const effectiveStallCheckInterval = stallCheckIntervalMs ?? 10000;
 
   try {
-    clientResponse.setHeader('Content-Type', 'text/event-stream');
-    clientResponse.setHeader('Cache-Control', 'no-cache');
-    clientResponse.setHeader('Connection', 'keep-alive');
-    clientResponse.setHeader('X-Accel-Buffering', 'no');
+    forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
 
     const reader = upstreamResponse.body?.getReader();
     if (!reader) {
@@ -447,10 +442,7 @@ async function passthroughSSEStream(
   let stallDetector: ReturnType<typeof createStallDetector> | undefined;
 
   try {
-    clientResponse.setHeader('Content-Type', 'text/event-stream');
-    clientResponse.setHeader('Cache-Control', 'no-cache');
-    clientResponse.setHeader('Connection', 'keep-alive');
-    clientResponse.setHeader('X-Accel-Buffering', 'no');
+    forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
 
     const reader = upstreamResponse.body?.getReader();
     if (!reader) {
@@ -674,7 +666,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         return orchestrator.tryRequestWithFailover<Record<string, unknown>>(
           model,
           async (server: AIServer, context?: { requestId?: string }) => {
-            const headers = getBackendHeaders(server);
+            const headers = getBackendHeaders(req.headers, server);
             const timeoutMs = resolveRequestTimeout(
               req.headers,
               orchestrator.getTimeout(server.id, model)
@@ -785,7 +777,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer, context?: { requestId?: string }) => {
-        const headers = getBackendHeaders(server);
+        const headers = getBackendHeaders(req.headers, server);
 
         if (stream) {
           const timeoutMs = resolveRequestTimeout(
@@ -1195,7 +1187,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           return orchestrator.tryRequestWithFailover<Record<string, unknown>>(
             model,
             async (server: AIServer) => {
-              const headers = getBackendHeaders(server);
+              const headers = getBackendHeaders(req.headers, server);
               const timeoutMs = resolveRequestTimeout(
                 req.headers,
                 orchestrator.getTimeout(server.id, model)
@@ -1380,7 +1372,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer) => {
-        const headers = getBackendHeaders(server);
+        const headers = getBackendHeaders(req.headers, server);
 
         if (stream) {
           const timeoutMs = resolveRequestTimeout(
@@ -1565,7 +1557,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
     const result = await orchestrator.tryRequestWithFailover<Record<string, unknown>>(
       model,
       async (server: AIServer) => {
-        const headers = getBackendHeaders(server);
+        const headers = getBackendHeaders(req.headers, server);
         const timeoutMs = resolveRequestTimeout(
           req.headers,
           orchestrator.getTimeout(server.id, model)

@@ -11,6 +11,7 @@ import {
   AnthropicSystemPrompt,
 } from '../types/anthropic.types.js';
 import type { StreamingTelemetryMeta } from '../streaming.js';
+import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { estimatePromptTokens } from '../utils/prompt-estimator.js';
 import {
@@ -22,6 +23,7 @@ import { logger } from '../utils/logger.js';
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
 import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
+import { forwardStreamingResponseHeaders } from '../utils/response-header-forwarder.js';
 
 const UPSTREAM_REQUEST_TIMEOUT_MS = 5000;
 
@@ -265,20 +267,15 @@ interface AnthropicModelsResponse {
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 
 function buildUpstreamHeaders(
+  clientHeaders: Record<string, string | string[] | undefined>,
   server: AIServer,
   anthropicVersion: string,
   anthropicBeta?: string
 ): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'anthropic-version': anthropicVersion,
-  };
+  const headers = forwardRequestHeaders(clientHeaders, 'anthropic' as ProviderType, server);
+  headers['anthropic-version'] = anthropicVersion;
   if (anthropicBeta) {
     headers['anthropic-beta'] = anthropicBeta;
-  }
-  const resolvedKey = resolveApiKey(server.apiKey);
-  if (resolvedKey) {
-    headers['Authorization'] = `Bearer ${resolvedKey}`;
   }
   return headers;
 }
@@ -294,10 +291,7 @@ async function passthroughAnthropicSSE(
 ): Promise<void> {
   const startTime = Date.now();
 
-  clientResponse.setHeader('Content-Type', 'text/event-stream');
-  clientResponse.setHeader('Cache-Control', 'no-cache');
-  clientResponse.setHeader('Connection', 'keep-alive');
-  clientResponse.setHeader('X-Accel-Buffering', 'no');
+  forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
 
   const reader = upstreamResponse.body?.getReader();
   if (!reader) {
@@ -562,7 +556,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           );
         }
 
-        const headers = buildUpstreamHeaders(server, anthropicVersion, anthropicBeta);
+        const headers = buildUpstreamHeaders(req.headers, server, anthropicVersion, anthropicBeta);
         const anthropicPath =
           server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
         const upstreamUrl = `${server.url}${anthropicPath}`;
@@ -918,7 +912,7 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
       serverId,
       model,
       async (server, context) => {
-        const headers = buildUpstreamHeaders(server, anthropicVersion, anthropicBeta);
+        const headers = buildUpstreamHeaders(req.headers, server, anthropicVersion, anthropicBeta);
         const anthropicPath =
           server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
         const upstreamUrl = `${server.url}${anthropicPath}`;

@@ -545,6 +545,12 @@ export const capabilityProbeConfigSchema = z.object({
   allowPrivateNetwork: z.boolean().default(false),
 });
 
+export const proxyConfigSchema = z.object({
+  stripHeaders: z.array(z.string()).default([]),
+});
+
+export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
+
 export const errorAggregatorConfigSchema = z.object({
   enabled: z.boolean().default(true),
   rateLimitThreshold: z.number().int().min(2).default(5),
@@ -655,6 +661,7 @@ export const orchestratorConfigSchema = z.object({
   capabilityProbe: capabilityProbeConfigSchema,
   debug: debugConfigSchema,
   anthropic: anthropicConfigSchema,
+  proxy: proxyConfigSchema,
   errorAggregator: errorAggregatorConfigSchema,
   adaptiveWeightTuner: z.object({
     enabled: z.boolean().default(true),

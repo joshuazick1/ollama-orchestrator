@@ -50,7 +50,18 @@ import {
   createStreamingStallHandler,
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
+import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
 import { APP_VERSION } from '../utils/version.js';
+
+/**
+ * Get headers for Ollama backend requests including optional auth
+ */
+function getOllamaHeaders(
+  clientHeaders: Record<string, string | string[] | undefined>,
+  server: AIServer
+): Record<string, string> {
+  return forwardRequestHeaders(clientHeaders, 'ollama' as ProviderType, server);
+}
 
 /**
  * Handle /api/tags - Get aggregated tags from all servers
@@ -160,7 +171,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: getOllamaHeaders(req.headers, server),
               body: safeJsonStringify({
                 ...body,
                 stream: true,
@@ -412,7 +423,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getOllamaHeaders(req.headers, server),
           body: safeJsonStringify({
             ...body,
             stream: false,
@@ -612,7 +623,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: getOllamaHeaders(req.headers, server),
               body: safeJsonStringify({
                 ...body,
                 stream: true,
@@ -912,7 +923,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getOllamaHeaders(req.headers, server),
           body: safeJsonStringify({
             ...body,
             stream: false,
@@ -1046,7 +1057,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
         );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getOllamaHeaders(req.headers, server),
           body: safeJsonStringify({ ...body, model, prompt }),
           timeout,
         });
@@ -1132,7 +1143,7 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
       try {
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.PS}`, {
           method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getOllamaHeaders(req.headers, server),
           timeout: 10000, // 10 second timeout for PS
         });
 
@@ -1198,7 +1209,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
         );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.SHOW}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getOllamaHeaders(req.headers, server),
           body: safeJsonStringify(body),
           timeout,
         });
@@ -1330,7 +1341,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     const timeoutMs = resolveRequestTimeout(req.headers, orchestrator.getTimeout(server.id, model));
     const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBED}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getOllamaHeaders(req.headers, server),
       body: safeJsonStringify(embedBody),
       timeout: timeoutMs,
       telemetryMeta: {
@@ -1404,8 +1415,8 @@ export function handleUnsupported(req: Request, res: Response): void {
  * This is an enhanced version for internal use
  */
 export async function handleStreamingGenerate(
+  req: Request,
   model: string,
-  prompt: string,
   server: AIServer,
   res: Response,
   context?: number[],
@@ -1422,7 +1433,7 @@ export async function handleStreamingGenerate(
         `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getOllamaHeaders({}, server),
           body: safeJsonStringify({
             model,
             prompt,
@@ -1590,7 +1601,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
             `${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: getOllamaHeaders(req.headers, server),
               body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
@@ -1692,7 +1703,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
           // No timeout for per-server requests - let active tests determine appropriate timeouts
           const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.GENERATE}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getOllamaHeaders(req.headers, server),
             body: safeJsonStringify(body),
           });
 
@@ -1798,7 +1809,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
             `${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: getOllamaHeaders(req.headers, server),
               body: safeJsonStringify({ ...body, stream: true }),
               connectionTimeout: timeoutMs,
               activityTimeout: timeoutMs,
@@ -1902,7 +1913,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
           // No timeout for per-server requests - let active tests determine appropriate timeouts
           const response = await fetch(`${server.url}${API_ENDPOINTS.OLLAMA.CHAT}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getOllamaHeaders(req.headers, server),
             body: safeJsonStringify(body),
           });
 
@@ -1996,7 +2007,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
         );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getOllamaHeaders(req.headers, server),
           body: safeJsonStringify(body),
           timeout: timeoutMs, // Use dynamic timeout
         });

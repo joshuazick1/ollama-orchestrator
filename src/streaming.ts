@@ -14,6 +14,7 @@ import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { recordStallDetected, recordStreamingChunkGap } from './utils/timeout-telemetry.js';
+import { forwardStreamingResponseHeaders } from './utils/response-header-forwarder.js';
 
 export interface StreamingTelemetryMeta {
   serverId: string;
@@ -331,11 +332,7 @@ export async function streamResponse(
   let stallHandoffResult: { success: boolean; error?: string; targetServer?: string } | undefined;
 
   try {
-    // Set SSE headers
-    clientResponse.setHeader('Content-Type', 'text/event-stream');
-    clientResponse.setHeader('Cache-Control', 'no-cache');
-    clientResponse.setHeader('Connection', 'keep-alive');
-    clientResponse.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    forwardStreamingResponseHeaders(upstreamResponse, clientResponse);
 
     // Get reader from upstream response body
     reader = upstreamResponse.body?.getReader();
