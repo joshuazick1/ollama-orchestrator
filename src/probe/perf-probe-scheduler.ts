@@ -15,7 +15,7 @@
 import type { AIOrchestrator } from '../orchestrator/orchestrator.js';
 import type { MetricsStore } from '../storage/metrics-store.js';
 import type { ProbeRunResult } from '../types/perf-probe.types.js';
-import { filterNonCloudModels } from '../utils/cloud-model-filter.js';
+import { filterNonCloudModels, isCloudModel } from '../utils/cloud-model-filter.js';
 import { type InFlightManager } from '../utils/in-flight-manager.js';
 import { logger as loggerInstance } from '../utils/logger.js';
 import type { RunProbeOptions } from '../utils/perf-probe-runner.js';
@@ -367,13 +367,21 @@ export class PerformanceProbeScheduler {
       // Step 1: compute the full venn diagram from the orchestrator
       const fullVenn = this.opts.orchestrator.getModelMap();
 
+      // Step 1b: filter to non-cloud models only (cloud models require external auth)
+      const nonCloudVenn: Record<string, string[]> = {};
+      for (const [model, serverIds] of Object.entries(fullVenn)) {
+        if (!isCloudModel(model)) {
+          nonCloudVenn[model] = serverIds;
+        }
+      }
+
       // Step 2: select probe models via the same greedy set cover used by the seed probe
-      const probeModels = selectProbeModels(fullVenn, this.config.probeModelCount);
+      const probeModels = selectProbeModels(nonCloudVenn, this.config.probeModelCount);
 
       // Step 3: build (server, model) pairs from selected models × venn
       const pairs: Array<{ serverId: string; model: string }> = [];
       for (const model of probeModels) {
-        const serverIds = fullVenn[model] ?? [];
+        const serverIds = nonCloudVenn[model] ?? [];
         for (const serverId of serverIds) {
           pairs.push({ serverId, model });
         }
@@ -599,12 +607,14 @@ export class PerformanceProbeScheduler {
     }
 
     const fullVenn = this.opts.orchestrator.getModelMap();
-    const modelsOnServer: string[] = [];
+    const allModelsOnServer: string[] = [];
     for (const [model, serverIds] of Object.entries(fullVenn)) {
       if (serverIds.includes(serverId)) {
-        modelsOnServer.push(model);
+        allModelsOnServer.push(model);
       }
     }
+
+    const modelsOnServer = filterNonCloudModels(allModelsOnServer);
 
     if (modelsOnServer.length === 0) {
       this.opts.logger.debug('new-server probe skipped: no models on server', { serverId });
