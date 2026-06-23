@@ -26,6 +26,8 @@ export interface PerfProbeRequest {
   forceRefresh?: boolean;
   /** Cap adaptive retry iterations; 0 disables adaptive probing (default: 3) */
   maxAdaptiveRounds?: number;
+  /** Scope probe to specific server IDs (undefined = all servers, used by per-server probe) */
+  serverIds?: string[];
 }
 
 /**

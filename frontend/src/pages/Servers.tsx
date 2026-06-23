@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { getServers, removeServer, getMetrics } from '../api';
+import { probeServer } from '../api/perf-probe';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { ModelManagerModal } from '../components/ModelManagerModal';
 import { useDataTable } from '../hooks/useDataTable';
@@ -58,6 +60,7 @@ export type ProviderType = keyof typeof PROVIDER_CONFIG;
 
 export const Servers = () => {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { isLive } = useLiveUpdates({
     invalidateQueries: [['servers'], ['metrics']],
   });
@@ -72,6 +75,7 @@ export const Servers = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [modelManagerServer, setModelManagerServer] = useState<AIServer | null>(null);
   const [serverToDelete, setServerToDelete] = useState<AIServer | null>(null);
+  const [probeConfirmation, setProbeConfirmation] = useState<AIServer | null>(null);
 
   const { data: metricsData } = useQuery({
     queryKey: ['metrics'],
@@ -124,6 +128,17 @@ export const Servers = () => {
     },
     onError: error => {
       toastError(error instanceof Error ? error.message : 'Failed to remove server');
+    },
+  });
+
+  const probeMutation = useMutation({
+    mutationFn: ({ serverId }: { serverId: string }) => probeServer(serverId),
+    onSuccess: data => {
+      toastSuccess('Performance probe started');
+      navigate(`/perf-probe?taskId=${encodeURIComponent(data.taskId)}`);
+    },
+    onError: error => {
+      toastError(error instanceof Error ? error.message : 'Failed to start probe');
     },
   });
 
@@ -220,6 +235,7 @@ export const Servers = () => {
                   getServerPulls={getServerPulls}
                   setModelManagerServer={setModelManagerServer}
                   setServerToDelete={setServerToDelete}
+                  setProbeConfirmation={setProbeConfirmation}
                 />
               ))}
             </div>
@@ -242,6 +258,26 @@ export const Servers = () => {
         isOpen={!!modelManagerServer}
         onClose={() => setModelManagerServer(null)}
         server={modelManagerServer}
+      />
+
+      <ConfirmationModal
+        isOpen={!!probeConfirmation}
+        onClose={() => setProbeConfirmation(null)}
+        onConfirm={() => {
+          if (probeConfirmation) {
+            probeMutation.mutate({ serverId: probeConfirmation.id });
+          }
+          setProbeConfirmation(null);
+        }}
+        title="Probe Server"
+        message={`This will run a performance probe against ${probeConfirmation?.url}. It will probe every model on this server and take approximately 30 seconds.`}
+        confirmLabel="Start Probe"
+        consequences={[
+          'All models on this server will be probed',
+          'Real network bandwidth will be used',
+          'Estimated duration: ~30 seconds',
+        ]}
+        isPending={probeMutation.isPending}
       />
     </div>
   );

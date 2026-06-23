@@ -114,6 +114,18 @@ export interface RecentPerfProbeTask {
   durationMs?: number;
 }
 
+export interface PerfProbeCoverageCell {
+  hourOfDay: number;
+  dayOfWeek: number;
+  count: number;
+}
+
+export interface PerfProbeCoverageGridResponse {
+  success: boolean;
+  days: number;
+  grid: PerfProbeCoverageCell[];
+}
+
 // ==========================================
 // API Functions
 // ==========================================
@@ -189,6 +201,75 @@ export const cancelPerfProbe = async (taskId: string): Promise<CancelPerfProbeRe
 export const getRecentPerfProbeTasks = async (limit = 5): Promise<RecentPerfProbeTask[]> => {
   return apiCall(async () => {
     const response = await apiClient.get(`/performance-probe/recent?limit=${limit}`);
+    return response.data;
+  });
+};
+
+export interface ExportPerfProbeHistoryParams {
+  serverId: string;
+  model?: string;
+  startTime: number;
+  endTime: number;
+  format?: 'csv' | 'json';
+}
+
+/**
+ * Export historical probe data as CSV or JSON file download.
+ * Returns a Blob containing the file contents.
+ */
+export const exportPerfProbeHistory = async (
+  params: ExportPerfProbeHistoryParams
+): Promise<{ blob: Blob; filename: string }> => {
+  const search = new URLSearchParams();
+  search.set('serverId', params.serverId);
+  if (params.model) search.set('model', params.model);
+  search.set('startTime', String(params.startTime));
+  search.set('endTime', String(params.endTime));
+  if (params.format) search.set('format', params.format);
+
+  const response = await apiClient.get(`/performance-probe/history/export?${search.toString()}`, {
+    responseType: 'blob',
+  });
+
+  const contentDisposition = response.headers['content-disposition'] as string | undefined;
+  const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+  const filename = filenameMatch?.[1] ?? 'perf-probe-history.csv';
+
+  return { blob: response.data, filename };
+};
+
+/**
+ * Trigger a performance probe for a specific server.
+ */
+export const probeServer = async (
+  serverId: string,
+  options: RunPerfProbeOptions = {}
+): Promise<RunPerfProbeResponse> => {
+  return apiCall(async () => {
+    const response = await apiClient.post(
+      `/performance-probe/server/${encodeURIComponent(serverId)}`,
+      options
+    );
+    return response.data;
+  });
+};
+
+export interface PerfProbeCoverageGridParams {
+  days?: number;
+  serverId?: string;
+}
+
+/**
+ * Get the 7×24 probe coverage grid (hour-of-day × day-of-week).
+ */
+export const getPerfProbeCoverageGrid = async (
+  params: PerfProbeCoverageGridParams = {}
+): Promise<PerfProbeCoverageGridResponse> => {
+  return apiCall(async () => {
+    const search = new URLSearchParams();
+    if (params.days !== undefined) search.set('days', String(params.days));
+    if (params.serverId) search.set('serverId', params.serverId);
+    const response = await apiClient.get(`/performance-probe/coverage-grid?${search.toString()}`);
     return response.data;
   });
 };

@@ -43,6 +43,7 @@ const defaultProps = {
   getServerPulls: vi.fn(() => []),
   setModelManagerServer: vi.fn(),
   setServerToDelete: vi.fn(),
+  setProbeConfirmation: vi.fn(),
 };
 
 describe('ServerCard', () => {

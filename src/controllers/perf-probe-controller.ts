@@ -185,10 +185,14 @@ async function executeProbeTask(taskId: string, opts: PerfProbeRequest): Promise
 
     // Collect servers and build model→servers mapping (vennData)
     const servers = orchestrator.getServers();
+    const serverIdFilter = opts.serverIds ? new Set(opts.serverIds) : null;
     const vennData: Record<string, string[]> = {};
     const serverUrlMap: Record<string, string> = {};
 
     for (const server of servers) {
+      if (serverIdFilter && !serverIdFilter.has(server.id)) {
+        continue;
+      }
       const nonCloudModels = filterNonCloudModels(server.models ?? []);
       if (nonCloudModels.length === 0) {
         continue;
@@ -618,6 +622,79 @@ export function runPerfProbe(req: Request, res: Response): void {
 }
 
 /**
+ * POST /api/orchestrator/performance-probe/server/:serverId
+ * Start a per-server performance probe task scoped to one server. Returns 202 immediately.
+ */
+export function runPerfProbeForServer(req: Request, res: Response): void {
+  const { serverId } = req.params as { serverId: string };
+  const { probeModelCount, timeoutMs } = req.body ?? {};
+
+  const orchestrator = getOrchestratorInstance();
+
+  const server = orchestrator.getServer(serverId);
+  if (!server) {
+    res.status(404).json({ error: `Server '${serverId}' not found` });
+    return;
+  }
+
+  const store = getPerfProbeTaskStore();
+
+  const opts: PerfProbeRequest = {
+    concurrency: 16,
+    timeoutMs: timeoutMs ?? 300000,
+    maxAdaptiveRounds: 3,
+    dryRun: false,
+    forceRefresh: false,
+    probeModelCount: probeModelCount ?? 50,
+    serverIds: [serverId],
+  };
+
+  const nonCloudModels = filterNonCloudModels(server.models ?? []);
+  const probeModels = nonCloudModels;
+  const totalProbes = nonCloudModels.length;
+
+  let task: PerfProbeTask;
+  try {
+    task = store.createTask({
+      status: 'pending',
+      probeModels,
+      metadata: {
+        concurrency: opts.concurrency ?? 16,
+        timeoutMs: opts.timeoutMs ?? 300000,
+        maxAdaptiveRounds: opts.maxAdaptiveRounds ?? 3,
+        dryRun: opts.dryRun ?? false,
+        forceRefresh: opts.forceRefresh ?? false,
+        totalProbes,
+        startedAt: new Date().toISOString(),
+        serverIds: opts.serverIds,
+      },
+    });
+  } catch (err) {
+    if (err instanceof TaskConflictError) {
+      res.status(409).json({
+        error: 'Conflict',
+        message:
+          'An active performance probe task already exists. Please wait for it to complete or cancel it first.',
+      });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to create task' });
+    return;
+  }
+
+  setImmediate(() => {
+    executeProbeTask(task.id, opts).catch(err => {
+      logger.error('[perf-probe] Background task threw', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  });
+
+  res.status(202).json({ success: true, taskId: task.id });
+}
+
+/**
  * GET /api/orchestrator/perf-probe/:taskId
  * Get the current state of a probe task.
  */
@@ -837,6 +914,175 @@ export function getRecentPerfProbeTasks(req: Request, res: Response): void {
   }
 }
 
+/**
+ * GET /api/orchestrator/performance-probe/coverage-grid
+ * Returns a 7×24 grid (day-of-week × hour-of-day) of probe counts.
+ *
+ * Query params:
+ *   days    (optional, default: 7, max: 30) — lookback window
+ *   serverId (optional) — filter to a specific server
+ *
+ * Response: { success: true, days: 7, grid: [{ hourOfDay, dayOfWeek, count }, ...] }
+ * Always returns all 168 cells (7 days × 24 hours), with count=0 for missing data.
+ */
+export function getPerfProbeCoverageGrid(req: Request, res: Response): void {
+  const days = Math.min(Math.max(parseInt((req.query.days as string) ?? '7', 10) || 7, 1), 30);
+  const serverId = req.query.serverId as string | undefined;
+  const startTime = Date.now() - days * 86_400_000;
+
+  const orchestrator = getOrchestratorInstance();
+  const db = orchestrator.getMetricsStore().getDb();
+
+  const params: (string | number | null)[] = [startTime];
+  const conditions = ['is_probe = 1', 'timestamp >= ?'];
+  if (serverId) {
+    conditions.push('server_id = ?');
+    params.push(serverId);
+  }
+  const where = `WHERE ${conditions.join(' AND ')}`;
+
+  const rows = db
+    .prepare(
+      `SELECT
+        CAST(strftime('%H', timestamp/1000, 'unixepoch') AS INTEGER) AS hour_of_day,
+        CAST(strftime('%w', timestamp/1000, 'unixepoch') AS INTEGER) AS day_of_week,
+        COUNT(*) AS count
+      FROM requests
+      ${where}
+      GROUP BY hour_of_day, day_of_week`
+    )
+    .all(...params) as Array<{ hour_of_day: number; day_of_week: number; count: number }>;
+
+  const grid: { hourOfDay: number; dayOfWeek: number; count: number }[] = [];
+  for (let d = 0; d < 7; d++) {
+    for (let h = 0; h < 24; h++) {
+      const found = rows.find(r => r.hour_of_day === h && r.day_of_week === d);
+      grid.push({ hourOfDay: h, dayOfWeek: d, count: found?.count ?? 0 });
+    }
+  }
+
+  res.status(200).json({ success: true, days, grid });
+}
+
+/**
+ * CSV injection protection: prefix values starting with dangerous
+ * spreadsheet meta-characters (=, +, -, @) with a single quote.
+ */
+function csvSafe(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const str = String(value);
+  if (/^[=+\-@]/.test(str)) {
+    return `'${str}`;
+  }
+  return str;
+}
+
+/**
+ * GET /api/orchestrator/performance-probe/history/export
+ * Streams historical probe data as CSV or JSON download.
+ *
+ * Query params:
+ *   serverId      (required) — single server filter
+ *   model         (optional) — filter to specific model
+ *   startTime     (required, epoch ms) — window start
+ *   endTime       (required, epoch ms) — window end
+ *   format        (optional, default: csv) — 'csv' or 'json'
+ *
+ * CSV injection protection: leading =, +, -, @ are escaped with a single quote prefix.
+ * Safety cap: LIMIT 100 000 rows to prevent OOM.
+ * Streams rows via res.write() in a loop — no full-buffered response.
+ */
+export function exportPerfProbeHistory(req: Request, res: Response): void {
+  const serverId = req.query.serverId as string | undefined;
+  const model = req.query.model as string | undefined;
+  const startTime = parseInt(req.query.startTime as string, 10);
+  const endTime = parseInt(req.query.endTime as string, 10);
+  const format = (req.query.format as string) ?? 'csv';
+
+  // Validate required params
+  if (!serverId) {
+    res.status(400).json({ error: 'serverId is required' });
+    return;
+  }
+  if (isNaN(startTime) || isNaN(endTime)) {
+    res
+      .status(400)
+      .json({ error: 'startTime and endTime are required and must be valid epoch ms numbers' });
+    return;
+  }
+  if (startTime >= endTime) {
+    res.status(400).json({ error: 'startTime must be less than endTime' });
+    return;
+  }
+
+  if (format !== 'csv' && format !== 'json') {
+    res.status(400).json({ error: 'format must be csv or json' });
+    return;
+  }
+
+  // Check server exists
+  const orchestrator = getOrchestratorInstance();
+  if (!orchestrator.getServer(serverId)) {
+    res.status(404).json({ error: `server ${serverId} not found` });
+    return;
+  }
+
+  // Query raw probe rows — safety cap at 100 000
+  const rows = orchestrator.getMetricsStore().getRequests({
+    serverId,
+    model,
+    startTime,
+    endTime,
+    isProbe: true,
+    limit: 100_000,
+  });
+
+  const startIso = new Date(startTime).toISOString().split('T')[0];
+  const endIso = new Date(endTime).toISOString().split('T')[0];
+  const filename = `perf-probe-history-${serverId}-${startIso}-${endIso}.${format}`;
+
+  if (format === 'json') {
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    // JSON: full buffer is acceptable for 100k-row cap
+    const jsonRows = rows.map(row => ({
+      timestamp: row.timestamp,
+      server_id: row.server_id,
+      model: row.model,
+      ttft_ms: row.ttft_ms,
+      tokens_per_second: row.tokens_per_second,
+      duration_ms: row.duration_ms,
+      success: row.success,
+      is_probe: row.is_probe,
+    }));
+    res.write(JSON.stringify(jsonRows, null, 2));
+    res.end();
+    return;
+  }
+
+  // CSV — stream row by row via res.write()
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.write('timestamp,server_id,model,ttft_ms,tokens_per_second,duration_ms,success,is_probe\n');
+  for (const row of rows) {
+    res.write(
+      [
+        row.timestamp,
+        csvSafe(row.server_id),
+        csvSafe(row.model),
+        csvSafe(row.ttft_ms),
+        csvSafe(row.tokens_per_second),
+        csvSafe(row.duration_ms),
+        row.success,
+        row.is_probe,
+      ].join(',') + '\n'
+    );
+  }
+  res.end();
+}
+
 // Route wiring (used by routes/perf-probe.routes.ts — T8)
 export const perfProbeHandlers = {
   runPerfProbe: asyncHandler(runPerfProbe),
@@ -845,4 +1091,5 @@ export const perfProbeHandlers = {
   getPerfProbeHistory: asyncHandler(getPerfProbeHistory),
   getPerfProbeSchedulerStatus: asyncHandler(getPerfProbeSchedulerStatus),
   getRecentPerfProbeTasks: asyncHandler(getRecentPerfProbeTasks),
+  exportPerfProbeHistory: asyncHandler(exportPerfProbeHistory),
 };

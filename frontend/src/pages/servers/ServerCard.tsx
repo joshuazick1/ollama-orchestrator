@@ -3,7 +3,14 @@ import { memo } from 'react';
 import { Badge } from '../../components/Badge';
 import { Button } from '../../components/Button';
 import { ServerActionsMenu } from './ServerActionsMenu';
-import { Server as ServerIcon, Trash2, Download, CheckCircle, XCircle } from 'lucide-react';
+import {
+  Server as ServerIcon,
+  Trash2,
+  Download,
+  CheckCircle,
+  XCircle,
+  Activity,
+} from 'lucide-react';
 import type { AIServer, MetricsExport } from '../../types';
 
 interface ServerCardProps {
@@ -15,6 +22,7 @@ interface ServerCardProps {
   getServerPulls: (serverId: string) => { status: string }[];
   setModelManagerServer: (server: AIServer | null) => void;
   setServerToDelete: (server: AIServer | null) => void;
+  setProbeConfirmation: (server: AIServer | null) => void;
 }
 
 export const ServerCard = memo(function ServerCard({
@@ -26,6 +34,7 @@ export const ServerCard = memo(function ServerCard({
   getServerPulls,
   setModelManagerServer,
   setServerToDelete,
+  setProbeConfirmation,
 }: ServerCardProps) {
   return (
     <div
@@ -276,6 +285,19 @@ export const ServerCard = memo(function ServerCard({
                 <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider mb-3">
                   Actions
                 </h4>
+                <div className="flex items-center gap-3 mb-3">
+                  <Button
+                    variant="secondary"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setProbeConfirmation(server);
+                    }}
+                    title="Trigger performance probe for this server"
+                  >
+                    <Activity className="w-4 h-4 mr-2" />
+                    <span>Probe</span>
+                  </Button>
+                </div>
                 <ServerActionsMenu
                   server={server}
                   onManageModels={setModelManagerServer}
