@@ -6,6 +6,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
+import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
 import {
   resetBreaker,
   getBreakerDetails,
@@ -69,7 +70,6 @@ import {
   getTestResult,
   testExistingServer,
 } from '../controllers/servers-controller.js';
-import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
 import {

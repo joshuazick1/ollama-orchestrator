@@ -289,6 +289,8 @@ export class RecoveryDriver {
    * Always returns success: true (healthy endpoint).
    */
   #defaultProbeExecutor: ProbeExecutor = async () => {
+    // Needed to satisfy @typescript-eslint/require-await - type requires async
+    await Promise.resolve();
     return { success: true };
   };
 

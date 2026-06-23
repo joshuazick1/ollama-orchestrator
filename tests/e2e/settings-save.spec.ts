@@ -1,5 +1,6 @@
-import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 import { readFileSync, mkdirSync, existsSync, appendFileSync } from 'fs';
+
+import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 
 const BACKEND = 'http://localhost:5100';
 const FRONTEND = 'http://localhost:5173';
@@ -57,7 +58,7 @@ async function navigateToSettings(page: Page): Promise<void> {
 
 async function getCurrentMetricValue(page: Page, fieldPath: string): Promise<unknown> {
   const resp = await fetch(`${BACKEND}/api/orchestrator/config`);
-  if (!resp.ok) throw new Error('Failed to fetch config');
+  if (!resp.ok) {throw new Error('Failed to fetch config');}
   const config = await resp.json();
 
   const parts = fieldPath.split('.');

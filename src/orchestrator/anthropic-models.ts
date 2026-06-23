@@ -1,10 +1,10 @@
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
+import type { Tuple } from '../probe/types.js';
 import { sleep } from '../utils/async-helpers.js';
 import { fetchWithTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
 
 import type { AIOrchestrator } from './orchestrator.js';
-import type { Tuple } from '../probe/types.js';
 
 export interface AnthropicModelsCache {
   data: AnthropicModel[];

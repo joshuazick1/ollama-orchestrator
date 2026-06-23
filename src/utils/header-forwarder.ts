@@ -6,6 +6,7 @@
  */
 
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
+
 import { resolveApiKey } from './api-keys.js';
 
 /**
@@ -151,7 +152,7 @@ function injectAuthHeaders(
   server: AIServer
 ): void {
   switch (provider) {
-    case 'anthropic':
+    case 'anthropic': {
       // Prefer client's x-api-key, else use server's apiKey
       if (headers['x-api-key']) {
         // Client provided x-api-key, keep as-is
@@ -163,8 +164,9 @@ function injectAuthHeaders(
         headers['x-api-key'] = anthropicKey;
       }
       break;
+    }
 
-    case 'openai':
+    case 'openai': {
       // Prefer client's Authorization: Bearer, else build from server's apiKey
       const authHeader = headers['authorization'] ?? headers['Authorization'];
       if (
@@ -181,8 +183,9 @@ function injectAuthHeaders(
         headers['Authorization'] = `Bearer ${openaiKey}`;
       }
       break;
+    }
 
-    case 'ollama':
+    case 'ollama': {
       // Only add Authorization: Bearer if server has apiKey configured
       // Do NOT override if client already provided one
       if (headers['authorization'] ?? headers['Authorization']) {
@@ -193,5 +196,6 @@ function injectAuthHeaders(
         headers['Authorization'] = `Bearer ${ollamaKey}`;
       }
       break;
+    }
   }
 }

@@ -10,11 +10,11 @@ import type { Request, Response } from 'express';
 
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import type { Tuple, ProbeState, UIState, StateProjection } from '../probe/types.js';
 import { tupleKey } from '../probe/types.js';
 import { logger } from '../utils/logger.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
-import type { AIServer } from '../orchestrator/orchestrator.types.js';
 
 /**
  * Map internal 4-state probe system to UI 3-state.

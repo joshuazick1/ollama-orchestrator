@@ -1,30 +1,26 @@
 import type { Request, Response } from 'express';
 
-import { API_ENDPOINTS, ANTHROPIC_SERVER_CAPABILITIES } from '../constants/index.js';
 import { getConfigManager } from '../config/config.js';
+import { API_ENDPOINTS } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
-import {
-  AnthropicMessagesRequestSchema,
-  AnthropicToolSchema,
-  AnthropicToolChoiceSchema,
-  AnthropicSystemPrompt,
-} from '../types/anthropic.types.js';
 import type { StreamingTelemetryMeta } from '../streaming.js';
-import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
+import { AnthropicMessagesRequestSchema, AnthropicSystemPrompt } from '../types/anthropic.types.js';
 import { resolveApiKey } from '../utils/api-keys.js';
-import { estimatePromptTokens } from '../utils/prompt-estimator.js';
+import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import {
   fetchWithTimeout,
   fetchWithActivityTimeout,
   parseResponse,
 } from '../utils/fetch-with-timeout.js';
+import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
+import { toBodyInit } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
+import { estimatePromptTokens } from '../utils/prompt-estimator.js';
+import { forwardStreamingResponseHeaders } from '../utils/response-header-forwarder.js';
 import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
-import { forwardStreamingResponseHeaders } from '../utils/response-header-forwarder.js';
-import { toBodyInit } from '../utils/json-utils.js';
 
 const UPSTREAM_REQUEST_TIMEOUT_MS = 5000;
 
@@ -190,7 +186,9 @@ function isValidAnthropicVersion(value: string): boolean {
  *   - stop_sequence → 'stop'      (stop sequence generated)
  *   - tool_use     → 'tool_calls' (model invoked a tool)
  */
-function mapAnthropicStopReasonToOpenAI(stopReason: string | undefined | null): string | undefined {
+function _mapAnthropicStopReasonToOpenAI(
+  stopReason: string | undefined | null
+): string | undefined {
   if (!stopReason) {
     return undefined;
   }
@@ -273,11 +271,10 @@ interface AnthropicModel {
   created_at?: number;
 }
 
-interface AnthropicModelsResponse {
+interface _AnthropicModelsResponse {
   object: 'list';
   data: AnthropicModel[];
 }
-import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 
 function buildUpstreamHeaders(
   clientHeaders: Record<string, string | string[] | undefined>,
@@ -770,7 +767,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
         }
       }
       // Record thinking auto-disable metric
-      if ((result as Record<string, unknown>)._thinkingAutoDisabled === true) {
+      if (result._thinkingAutoDisabled === true) {
         orchestrator.getMetricsAggregator().recordThinkingAutoDisabled();
       }
       // Extract thinking tokens from response content blocks
@@ -976,7 +973,7 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
     const result = await orchestrator.requestToServer<Record<string, unknown>>(
       serverId,
       model,
-      async (server, context) => {
+      async (server, _context) => {
         const headers = buildUpstreamHeaders(req.headers, server, anthropicVersion, anthropicBeta);
         const anthropicPath =
           server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
@@ -1343,10 +1340,7 @@ function checkLifecycleModeAllowed(
  * Handle GET /api/orchestrator/anthropic/servers/:serverId/capabilities
  * Returns rich server capability state for Anthropic integration.
  */
-export async function handleAnthropicServerCapabilities(
-  req: Request,
-  res: Response
-): Promise<void> {
+export function handleAnthropicServerCapabilities(req: Request, res: Response): void {
   const serverId = Array.isArray(req.params.serverId)
     ? req.params.serverId[0]
     : req.params.serverId;

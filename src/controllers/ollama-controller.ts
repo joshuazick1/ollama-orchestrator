@@ -37,6 +37,7 @@ import {
   fetchWithActivityTimeout,
   parseResponse,
 } from '../utils/fetch-with-timeout.js';
+import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify, toBodyInit } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -50,7 +51,6 @@ import {
   createStreamingStallHandler,
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
-import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
 import { APP_VERSION } from '../utils/version.js';
 
 /**

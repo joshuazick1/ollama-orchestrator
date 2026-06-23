@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+
 import { selectProbeModels, getUncoveredServers } from '../../src/utils/probe-model-selector.js';
 
 describe('probe-model-selector', () => {

@@ -50,9 +50,8 @@ import { RetryBudget } from '../utils/retry-budget.js';
 import { TimeoutManager } from '../utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
 
-import { OrchestratorModels } from './models.js';
 import { AnthropicModels, type AnthropicModel } from './anthropic-models.js';
-import { isVLLMResponse, VLLMModelsResponseSchema, type VLLMModelMeta } from './vllm-models.js';
+import { OrchestratorModels } from './models.js';
 import type {
   AIServer,
   RequestContext,
@@ -62,6 +61,7 @@ import type {
 } from './orchestrator.types.js';
 import { OrchestratorPersistence } from './persistence.js';
 import { TagsCacheStore } from './tags-cache.js';
+import { isVLLMResponse, VLLMModelsResponseSchema, type VLLMModelMeta } from './vllm-models.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
@@ -3835,7 +3835,7 @@ export class AIOrchestrator {
     await this.metricsAggregator.shutdown();
 
     // Save probe state snapshot
-    await this.probeOrchestrator.createSnapshot();
+    this.probeOrchestrator.createSnapshot();
 
     // Persist timeouts on shutdown to ensure they're saved
     if (this.config.enablePersistence) {

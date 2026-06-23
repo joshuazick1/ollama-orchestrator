@@ -25,6 +25,7 @@ import { getConfigManager } from './config/config.js';
 import { ERROR_MESSAGES } from './constants/index.js';
 import { getPrometheusMetrics } from './controllers/metrics-controller.js';
 import { requireAuth, requireAdmin, isAuthEnabled, refreshAuthConfig } from './middleware/auth.js';
+import { initAuthConfigSubscription } from './middleware/auth.js';
 import {
   createMonitoringRateLimiter,
   createAdminRateLimiter,
@@ -46,7 +47,6 @@ import { getMetricsStore } from './storage/metrics-store.js';
 import { getUserStore } from './storage/user-store.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { initLoggerConfigSubscription, logger } from './utils/logger.js';
-import { initAuthConfigSubscription } from './middleware/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

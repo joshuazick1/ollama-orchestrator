@@ -5,13 +5,13 @@
 
 import { describe, it, expect } from 'vitest';
 
+import type { ServerScore } from '../../src/types/perf-probe.types.js';
+import type { ProbeRunResult } from '../../src/types/perf-probe.types.js';
 import {
   computeCompositeScore,
   rankServers,
   selectBestResultPerServer,
 } from '../../src/utils/perf-probe-scorer.js';
-import type { ServerScore } from '../../src/types/perf-probe.types.js';
-import type { ProbeRunResult } from '../../src/types/perf-probe.types.js';
 
 describe('computeCompositeScore', () => {
   it('returns ~0.745 for (100ms, 50 tps)', () => {

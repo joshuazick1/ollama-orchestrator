@@ -3,9 +3,10 @@
  * Integration tests for the async performance probe endpoint.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 

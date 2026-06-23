@@ -343,7 +343,7 @@ export async function handleAnthropicUnload(req: Request, res: Response): Promis
  * Responses:
  *   200 — list of idle models with serverId and idle time
  */
-export async function handleAnthropicIdle(req: Request, res: Response): Promise<void> {
+export function handleAnthropicIdle(req: Request, res: Response): void {
   const { threshold = '1800000' } = req.query;
   const parsed = parseInt(threshold as string, 10);
   const idleThreshold = !isNaN(parsed) && parsed >= 0 ? parsed : 1800000;
@@ -404,7 +404,7 @@ export async function handleAnthropicIdle(req: Request, res: Response): Promise<
  * Responses:
  *   200 — list of recommended models to warmup with reason
  */
-export async function handleAnthropicRecommendations(_req: Request, res: Response): Promise<void> {
+export function handleAnthropicRecommendations(_req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const endpointRegistry = orchestrator.getEndpointRegistry();
   const servers = orchestrator.getServers();

@@ -13,8 +13,8 @@ import { calculateBackoff } from './utils/backoff/index.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
-import { recordStallDetected, recordStreamingChunkGap } from './utils/timeout-telemetry.js';
 import { forwardStreamingResponseHeaders } from './utils/response-header-forwarder.js';
+import { recordStallDetected, recordStreamingChunkGap } from './utils/timeout-telemetry.js';
 
 export interface StreamingTelemetryMeta {
   serverId: string;
@@ -1035,9 +1035,9 @@ export async function streamAnthropicResponse(
   let accumulatedText = '';
   let inputTokens = 0;
   let outputTokens = 0;
-  let cacheReadTokens = 0;
-  let cacheCreationTokens = 0;
-  let lastStopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | undefined;
+  let _cacheReadTokens = 0;
+  let _cacheCreationTokens = 0;
+  let _lastStopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let stallTime: number | undefined;
   const effectiveStallThreshold = stallThresholdMs ?? 300000;
@@ -1201,8 +1201,8 @@ export async function streamAnthropicResponse(
 
           if (currentEventType === 'message_start' && parsed.message?.usage) {
             inputTokens = parsed.message.usage.input_tokens ?? 0;
-            cacheReadTokens = parsed.message.usage.cache_read_input_tokens ?? 0;
-            cacheCreationTokens = parsed.message.usage.cache_creation_input_tokens ?? 0;
+            _cacheReadTokens = parsed.message.usage.cache_read_input_tokens ?? 0;
+            _cacheCreationTokens = parsed.message.usage.cache_creation_input_tokens ?? 0;
           }
 
           if (currentEventType === 'message_delta') {
@@ -1210,7 +1210,7 @@ export async function streamAnthropicResponse(
               outputTokens = parsed.usage.output_tokens;
             }
             if (parsed.delta?.stop_reason) {
-              lastStopReason = parsed.delta.stop_reason as
+              _lastStopReason = parsed.delta.stop_reason as
                 | 'end_turn'
                 | 'max_tokens'
                 | 'stop_sequence'

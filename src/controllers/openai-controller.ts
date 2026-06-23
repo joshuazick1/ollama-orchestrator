@@ -20,8 +20,6 @@ import type {
   OpenAICompletionRequest,
   OpenAIEmbeddingRequest,
 } from '../types/api-request.types.js';
-import { resolveApiKey } from '../utils/api-keys.js';
-import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
 import {
@@ -29,6 +27,7 @@ import {
   fetchWithActivityTimeout,
   parseResponse,
 } from '../utils/fetch-with-timeout.js';
+import { forwardRequestHeaders, type ProviderType } from '../utils/header-forwarder.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
 import { safeJsonParse, safeJsonStringify, toBodyInit } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -36,13 +35,13 @@ import { parseOllamaErrorGlobal as parseOllamaError } from '../utils/ollama-erro
 import { classifyOrchestratorRoutingError } from '../utils/orchestrator-error-classifier.js';
 import { estimateChatTokens, estimatePromptTokens } from '../utils/prompt-estimator.js';
 // import { performStreamHandoff } from '../utils/stream-handoff.js';
+import { forwardStreamingResponseHeaders } from '../utils/response-header-forwarder.js';
 import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanup.js';
 import {
   computeStallThresholds,
   createStreamingStallHandler,
 } from '../utils/streaming-response-handler.js';
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
-import { forwardStreamingResponseHeaders } from '../utils/response-header-forwarder.js';
 
 /**
  * Get headers for backend requests including optional auth
@@ -695,7 +694,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
 
-      async function streamCompletion(idx: number): Promise<Record<string, unknown>> {
+      const streamCompletion = async (idx: number): Promise<Record<string, unknown>> => {
         return orchestrator.tryRequestWithFailover<Record<string, unknown>>(
           model,
           async (server: AIServer, context?: { requestId?: string }) => {
@@ -704,7 +703,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               req.headers,
               orchestrator.getTimeout(server.id, model)
             );
-            const requestId = context?.requestId;
+            const _requestId = context?.requestId;
 
             const { response, activityController } = await fetchWithActivityTimeout(
               `${server.url}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`,
@@ -747,9 +746,11 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             let buffer = '';
 
             try {
-              while (true) {
+              for (;;) {
                 const { done, value } = await reader.read();
-                if (done) break;
+                if (done) {
+                  break;
+                }
 
                 activityController.resetTimeout();
                 buffer += decoder.decode(value, { stream: true });
@@ -757,7 +758,9 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
                 buffer = lines.pop() ?? '';
 
                 for (const line of lines) {
-                  if (!line.trim() || line === 'data: [DONE]') continue;
+                  if (!line.trim() || line === 'data: [DONE]') {
+                    continue;
+                  }
 
                   try {
                     const data = JSON.parse(line.slice(6));
@@ -799,7 +802,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
           userId,
           isAdmin
         );
-      }
+      };
 
       await Promise.all(Array.from({ length: n }, (_, idx) => streamCompletion(idx)));
 
@@ -1282,7 +1285,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       orchestrator.getMetricsAggregator().recordParallelCompletions(n);
 
       const choices = parallelResults.map((r, idx) => {
-        const result = r as Record<string, unknown>;
+        const result = r;
         const choice = (result.choices as Array<Record<string, unknown>>)?.[0];
         return {
           index: idx,
@@ -1296,7 +1299,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
       const totalUsage = parallelResults.reduce(
         (acc: { prompt_tokens: number; completion_tokens: number; total_tokens: number }, r) => {
-          const result = r as Record<string, unknown>;
+          const result = r;
           const u = (result.usage as Record<string, number>) || {};
           return {
             prompt_tokens: acc.prompt_tokens + (u.prompt_tokens || 0),

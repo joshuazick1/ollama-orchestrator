@@ -118,7 +118,7 @@ export function forwardResponseHeaders(
   clientResponse: Response,
   options: ForwardResponseHeadersOptions = {}
 ): string | undefined {
-  const { contentTypeOverride, additionalHeaders, provider } = options;
+  const { contentTypeOverride, additionalHeaders, provider: _provider } = options;
   let upstreamRequestId: string | undefined;
 
   // Iterate through all upstream headers
@@ -281,6 +281,7 @@ export function forwardCorsHeaders(
         if (orchestratorLower === '*' && upstreamLower !== '*') {
           clientResponse.setHeader(headerName, upstreamValue);
         } else if (orchestratorLower !== '*' && upstreamLower === '*') {
+          // CORS: upstream allows all origins, orchestrator restricts - keep upstream's more-open policy
         } else if (orchestratorLower !== upstreamLower) {
           const upstreamOrigins = upstreamValue.split(',').map((o: string) => o.trim());
           const allowedOrigins = Array.isArray(orchestratorOrigin)

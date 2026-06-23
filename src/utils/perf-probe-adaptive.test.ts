@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+import type { ProbeRunResult } from '../types/perf-probe.types.js';
+
 import {
   selectAdaptiveProbes,
   runAdaptiveRound,
@@ -6,7 +9,6 @@ import {
   type CanServeFn,
   type PerfProbeTaskState,
 } from './perf-probe-adaptive.js';
-import type { ProbeRunResult } from '../types/perf-probe.types.js';
 
 describe('perf-probe-adaptive', () => {
   describe('selectAdaptiveProbes', () => {

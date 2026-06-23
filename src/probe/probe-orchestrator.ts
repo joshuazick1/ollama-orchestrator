@@ -77,7 +77,7 @@ export class ProbeOrchestrator {
       this._emitStateChange(tuple, fromState, toState, reason);
 
       if (this.wal) {
-        await this.wal.append({
+        this.wal.append({
           tupleKey: key,
           eventType: 'STATE_CHANGE',
           fromState,
@@ -92,6 +92,8 @@ export class ProbeOrchestrator {
       }
     }
 
+    // Needed to satisfy @typescript-eslint/require-await since WAL operations are sync
+    await Promise.resolve();
     return toState;
   }
 
@@ -156,12 +158,12 @@ export class ProbeOrchestrator {
     return evictCount;
   }
 
-  async evictTuple(tuple: Tuple): Promise<void> {
+  evictTuple(tuple: Tuple): void {
     const key = tupleKey(tuple);
     const ts = this.states.get(key);
 
     if (this.wal && ts) {
-      await this.wal.append({
+      this.wal.append({
         tupleKey: key,
         eventType: 'EVICTED',
         fromState: ts.state,
@@ -183,7 +185,7 @@ export class ProbeOrchestrator {
       return;
     }
 
-    const snapshot = await this.wal.loadLatestSnapshot();
+    const snapshot = this.wal.loadLatestSnapshot();
     if (snapshot) {
       for (const [key, snapState] of snapshot.data) {
         const ts: TupleState = {
@@ -237,7 +239,7 @@ export class ProbeOrchestrator {
     }
   }
 
-  async createSnapshot(): Promise<void> {
+  createSnapshot(): void {
     if (!this.wal) {
       return;
     }
@@ -253,7 +255,7 @@ export class ProbeOrchestrator {
       });
     }
 
-    await this.wal.saveSnapshot(data);
+    this.wal.saveSnapshot(data);
   }
 
   onStateChange(callback: StateChangeCallback): () => void {

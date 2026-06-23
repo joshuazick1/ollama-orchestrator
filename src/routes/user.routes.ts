@@ -1,8 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 
-import { validateCsrfToken } from '../middleware/csrf.js';
 import { DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
+import { validateCsrfToken } from '../middleware/csrf.js';
 import { getUserStore, type User } from '../storage/user-store.js';
 import { verifyAccessToken, getTokenFromCookie } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';

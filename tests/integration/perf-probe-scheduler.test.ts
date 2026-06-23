@@ -3,15 +3,17 @@
  * Integration tests for the daily perf-probe scheduler.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
-import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+
 import {
   getPerfProbeSchedulerInstance,
   resetPerfProbeSchedulerInstance,
 } from '../../src/probe/perf-probe-scheduler-instance.js';
+
+import { setupIntegrationTest, teardownIntegrationTest, makeRequest } from './setup.js';
 
 const METRICS_DB = process.env.METRICS_DB_PATH || path.resolve('./data/metrics.db');
 const LIVE_BASE_URL = process.env.ORCHESTRATOR_URL ?? 'http://localhost:5100';

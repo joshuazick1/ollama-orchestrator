@@ -6,8 +6,8 @@
 import type { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 
-import { logger } from '../utils/logger.js';
 import { getConfigManager } from '../config/config.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * IMPORTANT: This middleware uses the default in-memory store for express-rate-limit.
