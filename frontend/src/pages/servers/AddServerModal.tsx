@@ -1,6 +1,7 @@
 // Extracted from Servers.tsx - AddServerModal component
 import React, { memo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Modal } from '../../components/Modal';
 import { Button } from '../../components/Button';
 import { validateForm, addServerSchema } from '../../validations';
@@ -8,6 +9,7 @@ import { encodeUrlParam } from '../../utils/security';
 import type { ProviderType } from '../Servers';
 import { PROVIDER_CONFIG } from '../Servers';
 import { addServer } from '../../api';
+import { probeServer } from '../../api/perf-probe';
 import { Wifi, CheckCircle, XCircle } from 'lucide-react';
 import { toastSuccess, toastError } from '../../utils/toast';
 
@@ -38,6 +40,9 @@ export const AddServerModal = memo(function AddServerModal({
     'idle' | 'testing' | 'success' | 'error'
   >('idle');
   const [testConnectionMessage, setTestConnectionMessage] = useState('');
+  const [addAndProbePending, setAddAndProbePending] = useState(false);
+
+  const navigate = useNavigate();
 
   const addMutation = useMutation({
     mutationFn: addServer,
@@ -102,6 +107,59 @@ export const AddServerModal = memo(function AddServerModal({
       forceAnthropic: newServerForceAnthropic || undefined,
       anthropicPathOverride: newServerAnthropicPathOverride || undefined,
     });
+  };
+
+  const handleAddAndProbe = async () => {
+    const formData = {
+      url: newServerUrl,
+      maxConcurrency: newServerConcurrency === '' ? undefined : newServerConcurrency,
+      apiKey: newServerApiKey || undefined,
+      v1Models: newServerV1Models || undefined,
+      forceOllama: newServerForceOllama || undefined,
+      forceV1: newServerForceV1 || undefined,
+      forceAnthropic: newServerForceAnthropic || undefined,
+      anthropicPathOverride: newServerAnthropicPathOverride || undefined,
+    };
+
+    const validation = validateForm(addServerSchema, formData);
+
+    if (!validation.success) {
+      setValidationErrors(validation.errors || {});
+      return;
+    }
+
+    setValidationErrors({});
+    setAddAndProbePending(true);
+
+    try {
+      const id = btoa(encodeUrlParam(newServerUrl)).replace(/[^a-zA-Z0-9]/g, '');
+      await addMutation.mutateAsync({
+        id,
+        url: newServerUrl,
+        type: newServerType,
+        maxConcurrency: newServerConcurrency === '' ? undefined : newServerConcurrency,
+        apiKey: newServerApiKey || undefined,
+        v1Models: newServerV1Models || undefined,
+        forceOllama: newServerForceOllama || undefined,
+        forceV1: newServerForceV1 || undefined,
+        forceAnthropic: newServerForceAnthropic || undefined,
+        anthropicPathOverride: newServerAnthropicPathOverride || undefined,
+      });
+
+      try {
+        const { taskId } = await probeServer(id);
+        toastSuccess('Server added; probe started');
+        navigate(`/perf-probe?taskId=${taskId}`);
+        handleClose();
+      } catch {
+        toastError('Server added but probe failed to start — try Probe Now from Servers page');
+        handleClose();
+      }
+    } catch (addErr) {
+      toastError(addErr instanceof Error ? addErr.message : 'Failed to add server');
+    } finally {
+      setAddAndProbePending(false);
+    }
   };
 
   return (
@@ -351,9 +409,21 @@ export const AddServerModal = memo(function AddServerModal({
             type="submit"
             variant="primary"
             loading={addMutation.isPending}
-            disabled={(needsConfirmation && !apiKeyConfirmed) || addMutation.isPending}
+            disabled={
+              (needsConfirmation && !apiKeyConfirmed) || addMutation.isPending || addAndProbePending
+            }
           >
             {addMutation.isPending ? 'Adding...' : 'Add Server'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleAddAndProbe}
+            disabled={
+              (needsConfirmation && !apiKeyConfirmed) || addMutation.isPending || addAndProbePending
+            }
+          >
+            {addAndProbePending ? 'Adding & Probing...' : 'Add Server & Probe Now'}
           </Button>
         </div>
         {testConnectionStatus !== 'idle' && testConnectionMessage && (
