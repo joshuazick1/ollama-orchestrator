@@ -49,6 +49,21 @@ export const PROVIDER_CONFIG = {
     baseUrl: 'https://api.minimax.io',
     hint: 'MiniMax API endpoint',
   },
+  deepseek: {
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    hint: 'DeepSeek API endpoint',
+  },
+  groq: {
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    hint: 'Groq LPU inference endpoint',
+  },
+  vllm: {
+    name: 'vLLM',
+    baseUrl: 'http://localhost:8000/v1',
+    hint: 'Self-hosted vLLM server',
+  },
   custom: {
     name: 'Custom',
     baseUrl: '',
