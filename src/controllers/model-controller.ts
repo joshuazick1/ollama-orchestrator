@@ -111,32 +111,85 @@ export function getModelStatus(req: Request, res: Response): void {
 }
 
 /**
- * Get model loading summary across all servers
+ * Get capability probe status across all servers from EndpointRegistry
  * GET /api/orchestrator/models/status
  */
 export function getAllModelsStatus(req: Request, res: Response): void {
-  const modelManager = getModelManager();
-  const orchestrator = getOrchestratorInstance();
+  try {
+    const orchestrator = getOrchestratorInstance();
+    const endpointRegistry = orchestrator.getEndpointRegistry();
+    const servers = orchestrator.getServers();
 
-  // Register all servers
-  for (const server of orchestrator.getServers()) {
-    modelManager.registerServer(server);
+    const modelStatuses: Array<{
+      serverId: string;
+      model: string;
+      status: 'confirmed' | 'revoked' | 'rate_limited';
+      lastProbeAt: number;
+      confidence: number;
+      endpoints: string[];
+    }> = [];
+
+    for (const server of servers) {
+      const caps = endpointRegistry.getCapabilities(server.id);
+      const endpointNames: string[] = [];
+      let confirmedCount = 0;
+      let revokedCount = 0;
+      let _rateLimitedCount = 0;
+      let lastProbeAt = 0;
+
+      for (const [_endpoint, cap] of caps.entries()) {
+        endpointNames.push(cap.endpoint);
+        if (cap.confirmed) {
+          confirmedCount++;
+        } else if (cap.failureCount > 0) {
+          revokedCount++;
+        } else {
+          _rateLimitedCount++;
+        }
+        if (cap.lastSeen > lastProbeAt) {
+          lastProbeAt = cap.lastSeen;
+        }
+      }
+
+      // Determine the overall status for this server
+      let status: 'confirmed' | 'revoked' | 'rate_limited';
+      if (confirmedCount > 0) {
+        status = 'confirmed';
+      } else if (revokedCount > 0) {
+        status = 'revoked';
+      } else {
+        status = 'rate_limited';
+      }
+
+      modelStatuses.push({
+        serverId: server.id,
+        model: 'capability',
+        status,
+        lastProbeAt,
+        confidence: confirmedCount / Math.max(endpointNames.length, 1),
+        endpoints: endpointNames,
+      });
+    }
+
+    const confirmed = modelStatuses.filter(m => m.status === 'confirmed').length;
+    const revoked = modelStatuses.filter(m => m.status === 'revoked').length;
+    const rateLimited = modelStatuses.filter(m => m.status === 'rate_limited').length;
+
+    res.status(200).json({
+      success: true,
+      summary: {
+        totalServers: servers.length,
+        totalCapabilities: modelStatuses.length,
+        confirmed,
+        revoked,
+        rateLimited,
+      },
+      models: modelStatuses,
+    });
+  } catch (err) {
+    logger.warn('[model-controller] Failed to get models status', { error: String(err) });
+    res.status(500).json({ error: 'Failed to get models status' });
   }
-
-  const summary = modelManager.getSummary();
-  const models = orchestrator.getAllModels();
-
-  // Get status for each model
-  const modelStatuses: Record<string, ReturnType<typeof modelManager.getModelWarmupStatus>> = {};
-  for (const model of models) {
-    modelStatuses[model] = modelManager.getModelWarmupStatus(model);
-  }
-
-  res.status(200).json({
-    success: true,
-    summary,
-    models: modelStatuses,
-  });
 }
 
 /**
