@@ -196,10 +196,17 @@ export interface ProbeSchedulerConfig {
   lowTrafficThreshold: number;
 }
 
+export interface AnthropicCacheMetricsConfig {
+  enabled: boolean;
+  savingsRatePerToken: number;
+}
+
 export interface AnthropicConfig {
   enabled: boolean;
   apiKey?: string;
   supportedFeatures: string[];
+  cacheMetrics: AnthropicCacheMetricsConfig;
+  thinkingAutoDisable: boolean;
 }
 
 export interface ErrorAggregatorConfig {
@@ -575,6 +582,11 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
   anthropic: {
     enabled: true,
     supportedFeatures: [],
+    cacheMetrics: {
+      enabled: true,
+      savingsRatePerToken: 0.0001,
+    },
+    thinkingAutoDisable: true,
   },
 
   errorAggregator: {

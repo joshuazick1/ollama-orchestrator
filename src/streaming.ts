@@ -987,10 +987,19 @@ export interface AnthropicStreamChunk {
     type?: string;
     role?: string;
     model?: string;
-    usage?: { input_tokens?: number; output_tokens?: number };
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
   };
   content_block?: { type?: string; text?: string };
   usage?: { output_tokens?: number };
+  error?: {
+    type?: string;
+    message?: string;
+  };
 }
 
 export async function streamAnthropicResponse(
@@ -1020,6 +1029,9 @@ export async function streamAnthropicResponse(
   let accumulatedText = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  let lastStopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | undefined;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let stallTime: number | undefined;
   const effectiveStallThreshold = stallThresholdMs ?? 300000;
@@ -1183,10 +1195,41 @@ export async function streamAnthropicResponse(
 
           if (currentEventType === 'message_start' && parsed.message?.usage) {
             inputTokens = parsed.message.usage.input_tokens ?? 0;
+            cacheReadTokens = parsed.message.usage.cache_read_input_tokens ?? 0;
+            cacheCreationTokens = parsed.message.usage.cache_creation_input_tokens ?? 0;
           }
 
-          if (currentEventType === 'message_delta' && parsed.usage?.output_tokens !== undefined) {
-            outputTokens = parsed.usage.output_tokens;
+          if (currentEventType === 'message_delta') {
+            if (parsed.usage?.output_tokens !== undefined) {
+              outputTokens = parsed.usage.output_tokens;
+            }
+            if (parsed.delta?.stop_reason) {
+              lastStopReason = parsed.delta.stop_reason as
+                | 'end_turn'
+                | 'max_tokens'
+                | 'stop_sequence'
+                | 'tool_use';
+            }
+          }
+
+          // Handle ping events - no-op, skip writing to client
+          if (currentEventType === 'ping') {
+            currentEventType = '';
+            continue;
+          }
+
+          // Handle error events - emit error chunk and terminate stream
+          if (currentEventType === 'error' && parsed.error) {
+            const errorMessage = parsed.error.message ?? 'Unknown streaming error';
+            logger.error('Anthropic stream error event', {
+              error: errorMessage,
+              streamingRequestId,
+            });
+            clientResponse.write(
+              `event: error\ndata: ${JSON.stringify({ type: 'error', error: errorMessage })}\n\n`
+            );
+            clientResponse.end();
+            return;
           }
         } catch (_parseErr) {
           void _parseErr;

@@ -14,6 +14,8 @@ import type {
   GlobalMetrics,
   MetricsExport,
   StreamingMetricsSummary,
+  CacheMetrics,
+  ThinkingMetrics,
 } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 import { Statistics } from '../utils/statistics.js';
@@ -71,6 +73,13 @@ export class MetricsAggregator {
   private persistence: MetricsPersistence;
   private decayConfig: MetricsDecayConfig;
   private pruneIntervalId?: NodeJS.Timeout;
+  // Anthropic cache metrics (global, not per-server-model)
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  private cacheSavings = 0;
+  // Anthropic thinking metrics (global, not per-server-model)
+  private thinkingAutoDisabledCount = 0;
+  private totalThinkingTokens = 0;
 
   constructor(decayConfig: Partial<MetricsDecayConfig> = {}) {
     this.persistence = new MetricsPersistence();
@@ -909,6 +918,57 @@ export class MetricsAggregator {
   }
 
   /**
+   * Record Anthropic cache metrics from a response
+   */
+  recordCacheMetrics(
+    cacheReadInputTokens: number,
+    cacheCreationInputTokens: number,
+    savingsRatePerToken: number
+  ): void {
+    if (cacheReadInputTokens > 0) {
+      this.cacheHits++;
+      this.cacheSavings += cacheReadInputTokens * savingsRatePerToken;
+    } else if (cacheCreationInputTokens > 0) {
+      this.cacheMisses++;
+    }
+  }
+
+  /**
+   * Get cache metrics summary
+   */
+  getCacheMetrics(): CacheMetrics {
+    return {
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      cacheSavings: this.cacheSavings,
+    };
+  }
+
+  /**
+   * Record that thinking was auto-disabled due to upstream rejection
+   */
+  recordThinkingAutoDisabled(): void {
+    this.thinkingAutoDisabledCount++;
+  }
+
+  /**
+   * Record thinking tokens from a response
+   */
+  recordThinkingTokens(tokens: number): void {
+    this.totalThinkingTokens += tokens;
+  }
+
+  /**
+   * Get thinking metrics summary
+   */
+  getThinkingMetrics(): ThinkingMetrics {
+    return {
+      thinkingAutoDisabledCount: this.thinkingAutoDisabledCount,
+      totalThinkingTokens: this.totalThinkingTokens,
+    };
+  }
+
+  /**
    * Update decay configuration
    */
   setDecayConfig(config: Partial<MetricsDecayConfig>): void {
@@ -961,6 +1021,8 @@ export class MetricsAggregator {
       avgLatency,
       errorRate,
       streaming: this.getStreamingMetricsSummary(totalRequests),
+      cache: this.getCacheMetrics(),
+      thinking: this.getThinkingMetrics(),
     };
   }
 

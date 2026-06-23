@@ -309,12 +309,24 @@ export interface RequestContext {
   // Derived from Ollama fields
   tokensPerSecond?: number; // eval_count / (eval_duration / 1e9)
   isColdStart?: boolean; // true when load_duration > cold-start threshold
+  /** Anthropic-specific: stop_reason from message_delta */
+  lastStopReason?: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
   /** Queue/routing wait time in ms (time from request receipt to server selection) */
   queueWaitTime?: number;
   /** All inter-chunk gaps (ms) for ITL tracking */
   chunkGaps?: number[];
   /** Error type from classification (for error type histogram) */
   errorType?: string;
+  /** Whether thinking was enabled for this request */
+  thinkingEnabled?: boolean;
+  /** Number of thinking tokens in the response (from thinking content blocks) */
+  thinkingTokens?: number;
+  /** Cache creation tokens from Anthropic extended thinking (cache_creation_input_tokens) */
+  cacheCreationTokens?: number;
+  /** Cache read tokens from Anthropic prompt caching (cache_read_input_tokens) */
+  cacheReadTokens?: number;
+  /** Whether thinking was auto-disabled due to upstream 400 rejection */
+  thinkingAutoDisabled?: boolean;
 }
 
 /**
@@ -331,6 +343,32 @@ export interface GlobalMetrics {
   avgLatency: number;
   errorRate: number;
   streaming?: StreamingMetricsSummary;
+  /** Anthropic cache metrics (cache hits, misses, savings) */
+  cache?: CacheMetrics;
+  /** Anthropic thinking metrics (auto-disabled count, total tokens) */
+  thinking?: ThinkingMetrics;
+}
+
+/**
+ * Anthropic cache performance metrics
+ */
+export interface CacheMetrics {
+  /** Number of requests that used cached tokens */
+  cacheHits: number;
+  /** Number of requests that created new cache but had no cache read */
+  cacheMisses: number;
+  /** Estimated cost savings from cache reads (in currency units) */
+  cacheSavings: number;
+}
+
+/**
+ * Anthropic thinking metrics
+ */
+export interface ThinkingMetrics {
+  /** Number of requests where thinking was auto-disabled due to upstream rejection */
+  thinkingAutoDisabledCount: number;
+  /** Total thinking tokens recorded from responses */
+  totalThinkingTokens: number;
 }
 
 /**

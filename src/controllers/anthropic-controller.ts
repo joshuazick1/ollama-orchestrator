@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 
 import { API_ENDPOINTS } from '../constants/index.js';
+import { getConfigManager } from '../config/config.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import { AnthropicMessagesRequestSchema } from '../types/anthropic.types.js';
@@ -17,6 +18,46 @@ import { setupStreamingClientDisconnectCleanup } from '../utils/streaming-cleanu
 import { resolveRequestTimeout } from '../utils/timeout-manager.js';
 
 const UPSTREAM_REQUEST_TIMEOUT_MS = 5000;
+
+/**
+ * Validate anthropic-beta header format.
+ * Each token must be [a-zA-Z0-9-]+ separated by commas.
+ * Returns true if valid, false otherwise.
+ */
+function isValidAnthropicBetaHeader(value: string): boolean {
+  if (!value || typeof value !== 'string') {
+    return false;
+  }
+  const tokens = value.split(',');
+  return tokens.every(token => /^[a-zA-Z0-9-]+$/.test(token.trim()));
+}
+
+/**
+ * Map Anthropic stop_reason to OpenAI-compatible finish_reason.
+ * Anthropic stop_reason values:
+ *   - end_turn     → 'stop'       (normal completion)
+ *   - max_tokens   → 'length'     (hit token limit)
+ *   - stop_sequence → 'stop'      (stop sequence generated)
+ *   - tool_use     → 'tool_calls' (model invoked a tool)
+ */
+function mapAnthropicStopReasonToOpenAI(stopReason: string | undefined | null): string | undefined {
+  if (!stopReason) {
+    return undefined;
+  }
+  switch (stopReason) {
+    case 'end_turn':
+      return 'stop';
+    case 'max_tokens':
+      return 'length';
+    case 'stop_sequence':
+      return 'stop';
+    case 'tool_use':
+      return 'tool_calls';
+    default:
+      // Unknown stop_reason - return as-is for forward compatibility
+      return stopReason;
+  }
+}
 
 /**
  * Build auth headers for upstream Anthropic API requests.
@@ -66,11 +107,18 @@ interface AnthropicModelsResponse {
 }
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 
-function buildUpstreamHeaders(server: AIServer, anthropicVersion: string): Record<string, string> {
+function buildUpstreamHeaders(
+  server: AIServer,
+  anthropicVersion: string,
+  anthropicBeta?: string
+): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'anthropic-version': anthropicVersion,
   };
+  if (anthropicBeta) {
+    headers['anthropic-beta'] = anthropicBeta;
+  }
   const resolvedKey = resolveApiKey(server.apiKey);
   if (resolvedKey) {
     headers['Authorization'] = `Bearer ${resolvedKey}`;
@@ -231,6 +279,26 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
     return;
   }
 
+  const anthropicBetaHeader = req.headers['anthropic-beta'];
+  let anthropicBeta: string | undefined;
+  if (anthropicBetaHeader) {
+    if (
+      typeof anthropicBetaHeader !== 'string' ||
+      !isValidAnthropicBetaHeader(anthropicBetaHeader)
+    ) {
+      res.status(400).json({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message:
+            'anthropic-beta header format is invalid; expected comma-separated alphanumeric+hyphen tokens',
+        },
+      });
+      return;
+    }
+    anthropicBeta = anthropicBetaHeader;
+  }
+
   const rawBody = req.body as Record<string, unknown>;
 
   const parseResult = AnthropicMessagesRequestSchema.safeParse(rawBody);
@@ -272,7 +340,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           throw new Error(`Server ${server.id} does not support Anthropic API`);
         }
 
-        const headers = buildUpstreamHeaders(server, anthropicVersion);
+        const headers = buildUpstreamHeaders(server, anthropicVersion, anthropicBeta);
         const anthropicPath =
           server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
         const upstreamUrl = `${server.url}${anthropicPath}`;
@@ -335,10 +403,14 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           orchestrator.getTimeout(server.id, model)
         );
 
-        const response = await fetchWithTimeout(upstreamUrl, {
+        const config = getConfigManager().getConfig();
+        const thinkingEnabled = 'thinking' in rawBody && rawBody.thinking !== undefined;
+        const requestBody = { ...rawBody };
+
+        let response = await fetchWithTimeout(upstreamUrl, {
           method: 'POST',
           headers,
-          body: JSON.stringify(rawBody),
+          body: JSON.stringify(requestBody),
           timeout: timeoutMs,
           telemetryMeta: {
             serverId: server.id,
@@ -351,6 +423,46 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
 
         if (!response.ok) {
           const errorText = await response.text();
+          let errorObj: { error?: { param?: string; message?: string } } = {};
+          try {
+            errorObj = JSON.parse(errorText);
+          } catch {
+            // Not JSON, use as-is
+          }
+          const isThinkingError =
+            response.status === 400 &&
+            errorObj.error?.param === 'thinking' &&
+            config.anthropic.thinkingAutoDisable;
+
+          if (isThinkingError && thinkingEnabled) {
+            logger.warn('auto-disabled thinking due to upstream rejection', {
+              action: 'auto_disable_thinking',
+              serverId: server.id,
+              model,
+              upstreamStatus: 400,
+            });
+            delete requestBody.thinking;
+            response = await fetchWithTimeout(upstreamUrl, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(requestBody),
+              timeout: timeoutMs,
+              telemetryMeta: {
+                serverId: server.id,
+                model,
+                protocol: 'anthropic',
+                endpoint: 'messages',
+                isStreaming: false,
+              },
+            });
+            if (response.ok) {
+              const result = (await parseResponse<Record<string, unknown>>(response))!;
+              result._thinkingAutoDisabled = true;
+              return result;
+            }
+            const retryErrorText = await response.text();
+            throw new Error(retryErrorText || `Upstream returned ${String(response.status)}`);
+          }
           throw new Error(errorText || `Upstream returned ${String(response.status)}`);
         }
 
@@ -365,6 +477,42 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
     );
 
     if (!stream && result && !result._streamed) {
+      // Record Anthropic cache metrics if enabled
+      const config = getConfigManager().getConfig();
+      if (config.anthropic.cacheMetrics.enabled) {
+        const usage = result.usage as
+          | { cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+          | undefined;
+        if (usage) {
+          const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+          const cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
+          orchestrator
+            .getMetricsAggregator()
+            .recordCacheMetrics(
+              cacheReadTokens,
+              cacheCreationTokens,
+              config.anthropic.cacheMetrics.savingsRatePerToken
+            );
+        }
+      }
+      // Record thinking auto-disable metric
+      if ((result as Record<string, unknown>)._thinkingAutoDisabled === true) {
+        orchestrator.getMetricsAggregator().recordThinkingAutoDisabled();
+      }
+      // Extract thinking tokens from response content blocks
+      const content = result.content as Array<{ type?: string; thinking?: string }> | undefined;
+      if (content) {
+        let thinkingTokens = 0;
+        for (const block of content) {
+          if (block.type === 'thinking' && block.thinking) {
+            // Rough estimation: ~4 chars per token for thinking content
+            thinkingTokens += block.thinking.length / 4;
+          }
+        }
+        if (thinkingTokens > 0) {
+          orchestrator.getMetricsAggregator().recordThinkingTokens(thinkingTokens);
+        }
+      }
       res.json(result);
     }
   } catch (error) {
@@ -405,6 +553,26 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
       },
     });
     return;
+  }
+
+  const anthropicBetaHeader = req.headers['anthropic-beta'];
+  let anthropicBeta: string | undefined;
+  if (anthropicBetaHeader) {
+    if (
+      typeof anthropicBetaHeader !== 'string' ||
+      !isValidAnthropicBetaHeader(anthropicBetaHeader)
+    ) {
+      res.status(400).json({
+        type: 'error',
+        error: {
+          type: 'invalid_request_error',
+          message:
+            'anthropic-beta header format is invalid; expected comma-separated alphanumeric+hyphen tokens',
+        },
+      });
+      return;
+    }
+    anthropicBeta = anthropicBetaHeader;
   }
 
   const rawBody = req.body as Record<string, unknown>;
@@ -482,7 +650,7 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
       serverId,
       model,
       async (server, context) => {
-        const headers = buildUpstreamHeaders(server, anthropicVersion);
+        const headers = buildUpstreamHeaders(server, anthropicVersion, anthropicBeta);
         const anthropicPath =
           server.endpointOverrides?.anthropic_messages ?? API_ENDPOINTS.ANTHROPIC.MESSAGES;
         const upstreamUrl = `${server.url}${anthropicPath}`;
@@ -574,6 +742,24 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
     );
 
     if (!stream && result && !result._streamed) {
+      // Record Anthropic cache metrics if enabled
+      const config = getConfigManager().getConfig();
+      if (config.anthropic.cacheMetrics.enabled) {
+        const usage = result.usage as
+          | { cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+          | undefined;
+        if (usage) {
+          const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+          const cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
+          orchestrator
+            .getMetricsAggregator()
+            .recordCacheMetrics(
+              cacheReadTokens,
+              cacheCreationTokens,
+              config.anthropic.cacheMetrics.savingsRatePerToken
+            );
+        }
+      }
       res.json(result);
     }
   } catch (error) {

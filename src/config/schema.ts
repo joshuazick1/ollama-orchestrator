@@ -567,12 +567,27 @@ export const recoveryBackoffConfigSchema = z.object({
 });
 
 /**
+ * Anthropic cache metrics configuration schema
+ */
+export const anthropicCacheMetricsConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  savingsRatePerToken: z.number().min(0).default(0.0001),
+});
+
+export type AnthropicCacheMetricsConfig = z.infer<typeof anthropicCacheMetricsConfigSchema>;
+
+/**
  * Anthropic configuration schema
  */
 export const anthropicConfigSchema = z.object({
   enabled: z.boolean().default(true),
   apiKey: z.string().optional(),
   supportedFeatures: z.array(z.string()).default([]),
+  cacheMetrics: anthropicCacheMetricsConfigSchema.default({
+    enabled: true,
+    savingsRatePerToken: 0.0001,
+  }),
+  thinkingAutoDisable: z.boolean().default(true),
 });
 
 /**
