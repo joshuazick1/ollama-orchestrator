@@ -3799,8 +3799,7 @@ export class AIOrchestrator {
     // Stop PS poll coordinator
     getPsPollCoordinator().stop();
 
-    // Stop the daily perf-probe scheduler (await for graceful in-flight probe completion)
-    await getPerfProbeSchedulerInstance().stop();
+    void getPerfProbeSchedulerInstance().stop();
 
     getOperationalStore().close();
 
