@@ -62,6 +62,8 @@ import { TagsCacheStore } from './tags-cache.js';
 
 export type { AIServer } from './orchestrator.types.js';
 
+export type ServerLifecycleCallback = (event: 'added' | 'removed', server: AIServer) => void;
+
 /** Routing context for debug output - tracks which server was selected and routing reasoning */
 export interface RoutingContext {
   selectedServerId?: string;
@@ -138,6 +140,9 @@ export class AIOrchestrator {
   private errorAggregator: ErrorAggregator;
 
   private unsubscribeFromConfig?: () => void;
+
+  private serverAddedCallbacks: ServerLifecycleCallback[] = [];
+  private serverRemovedCallbacks: ServerLifecycleCallback[] = [];
 
   public getConfig(): OrchestratorConfig {
     return this.config;
@@ -426,7 +431,9 @@ export class AIOrchestrator {
    * The controller trusts this method to handle duplicates after removing
    * its own pre-check (task 2.1).
    */
-  addServer(server: Omit<AIServer, 'healthy' | 'lastResponseTime' | 'models'>): void {
+  addServer(
+    server: Omit<AIServer, 'healthy' | 'lastResponseTime' | 'models' | 'serverAddedAt'>
+  ): void {
     // Normalize URL first - BEFORE checking for duplicates and BEFORE storing
     const normalizedUrl = normalizeServerUrl(server.url);
 
@@ -446,6 +453,7 @@ export class AIOrchestrator {
       lastResponseTime: Infinity,
       models: [],
       maxConcurrency: server.maxConcurrency ?? this.config.cooldown.defaultMaxConcurrency,
+      serverAddedAt: Date.now(),
     };
 
     this.servers.push(newServer);
@@ -466,17 +474,26 @@ export class AIOrchestrator {
     if (this.config.enablePersistence && !this._suppressPersistence) {
       this.persistence.saveServersToDisk(this.servers);
     }
+
+    for (const cb of this.serverAddedCallbacks) {
+      cb('added', newServer);
+    }
   }
   removeServer(serverId: string): void {
     const initialCount = this.servers.length;
     const removedServer = this.servers.find(s => s.id === serverId);
     this.servers = this.servers.filter(s => s.id !== serverId);
-    this.modelAggregator.removeServer(serverId);
 
     if (this.servers.length < initialCount) {
+      if (removedServer) {
+        for (const cb of this.serverRemovedCallbacks) {
+          cb('removed', removedServer);
+        }
+      }
+
+      this.modelAggregator.removeServer(serverId);
       this.errorAggregator.setClusterSize(this.servers.length);
       logger.info(`Removed server ${serverId}. Remaining servers: ${this.servers.length}`);
-      // Invalidate cache since we removed a server
       this.invalidateTagsCache();
 
       this.banManager.removeServerBans(serverId);
@@ -3678,5 +3695,25 @@ export class AIOrchestrator {
   public stop(): void {
     this.metricsAggregator.stopPruneScheduler();
     this.recoveryDriver.stop();
+  }
+
+  public onServerAdded(callback: ServerLifecycleCallback): () => void {
+    this.serverAddedCallbacks.push(callback);
+    return () => {
+      const idx = this.serverAddedCallbacks.indexOf(callback);
+      if (idx >= 0) {
+        this.serverAddedCallbacks.splice(idx, 1);
+      }
+    };
+  }
+
+  public onServerRemoved(callback: ServerLifecycleCallback): () => void {
+    this.serverRemovedCallbacks.push(callback);
+    return () => {
+      const idx = this.serverRemovedCallbacks.indexOf(callback);
+      if (idx >= 0) {
+        this.serverRemovedCallbacks.splice(idx, 1);
+      }
+    };
   }
 }

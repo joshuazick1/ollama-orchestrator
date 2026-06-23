@@ -92,6 +92,7 @@ export interface AIServer {
   contextLimitsFetchedAt?: number;
   // Endpoint probe results - capability detection probes for various HTTP endpoints
   probedEndpoints?: Record<string, boolean>;
+  serverAddedAt: number;
 }
 
 export interface ServerModelBenchmark {
