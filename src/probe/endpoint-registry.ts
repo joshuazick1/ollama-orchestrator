@@ -234,3 +234,18 @@ export class EndpointRegistry {
     return this.capabilities.get(serverId)?.get(endpoint);
   }
 }
+
+/**
+ * Standalone predicate: true if the model name matches an embedding model pattern.
+ * Exported so perf-probe-scheduler can filter embedding models from the probe set
+ * without instantiating EndpointRegistry.
+ */
+export function isEmbeddingModel(model: string): boolean {
+  const lower = model.toLowerCase();
+  for (const pattern of EMBEDDING_MODEL_PATTERNS) {
+    if (lower.includes(pattern.toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+}

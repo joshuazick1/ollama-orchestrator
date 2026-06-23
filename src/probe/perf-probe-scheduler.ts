@@ -21,6 +21,7 @@ import { logger as loggerInstance } from '../utils/logger.js';
 import type { RunProbeOptions } from '../utils/perf-probe-runner.js';
 import { selectProbeModels } from '../utils/probe-model-selector.js';
 
+import { isEmbeddingModel } from './endpoint-registry.js';
 import { feedThreeSinks } from './three-sink-feeder.js';
 
 // ============================================================
@@ -367,10 +368,11 @@ export class PerformanceProbeScheduler {
       // Step 1: compute the full venn diagram from the orchestrator
       const fullVenn = this.opts.orchestrator.getModelMap();
 
-      // Step 1b: filter to non-cloud models only (cloud models require external auth)
+      // Step 1b: filter to non-cloud, non-embedding models only
+      // (cloud models require external auth; embedding models use /api/embeddings not /api/generate)
       const nonCloudVenn: Record<string, string[]> = {};
       for (const [model, serverIds] of Object.entries(fullVenn)) {
-        if (!isCloudModel(model)) {
+        if (!isCloudModel(model) && !isEmbeddingModel(model)) {
           nonCloudVenn[model] = serverIds;
         }
       }
@@ -614,7 +616,9 @@ export class PerformanceProbeScheduler {
       }
     }
 
-    const modelsOnServer = filterNonCloudModels(allModelsOnServer);
+    const modelsOnServer = filterNonCloudModels(allModelsOnServer).filter(
+      m => !isEmbeddingModel(m)
+    );
 
     if (modelsOnServer.length === 0) {
       this.opts.logger.debug('new-server probe skipped: no models on server', { serverId });
