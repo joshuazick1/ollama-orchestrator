@@ -12,15 +12,16 @@
  * On failure, falls back to alternative non-cloud models on the same server.
  */
 
+import type { AIOrchestrator } from '../orchestrator/orchestrator.js';
+import type { MetricsStore } from '../storage/metrics-store.js';
+import type { ProbeRunResult } from '../types/perf-probe.types.js';
+import { filterNonCloudModels } from '../utils/cloud-model-filter.js';
 import { type InFlightManager } from '../utils/in-flight-manager.js';
 import { logger as loggerInstance } from '../utils/logger.js';
-import type { MetricsStore } from '../storage/metrics-store.js';
-import type { AIOrchestrator } from '../orchestrator/orchestrator.js';
-import { feedThreeSinks } from './three-sink-feeder.js';
-import { filterNonCloudModels } from '../utils/cloud-model-filter.js';
-import { selectProbeModels } from '../utils/probe-model-selector.js';
 import type { RunProbeOptions } from '../utils/perf-probe-runner.js';
-import type { ProbeRunResult } from '../types/perf-probe.types.js';
+import { selectProbeModels } from '../utils/probe-model-selector.js';
+
+import { feedThreeSinks } from './three-sink-feeder.js';
 
 // ============================================================
 // Config
@@ -181,12 +182,12 @@ export class PerformanceProbeScheduler {
   /**
    * Start the scheduler. Computes the initial 24h schedule and sets all timeouts.
    */
-  async start(): Promise<void> {
+  start(): Promise<void> {
     if (this.running) {
-      return;
+      return Promise.resolve();
     }
     this.running = true;
-    await this.scheduleNext24hCycle();
+    this.scheduleNext24hCycle();
     this.cycleEndTimeout = setTimeout(() => {
       void this.scheduleNext24hCycle();
     }, this.config.intervalMs);
@@ -199,13 +200,14 @@ export class PerformanceProbeScheduler {
       probeModelCount: this.config.probeModelCount,
       probeTimeoutMs: this.config.probeTimeoutMs,
     });
+    return Promise.resolve();
   }
 
   /**
    * Stop the scheduler. Clears all pending timeouts. Idempotent.
    * Sets running=false FIRST (before clearing) to race-safety any in-flight callbacks.
    */
-  async stop(): Promise<void> {
+  stop(): void {
     // RACE-SAFETY: set running=false FIRST so any in-flight timeouts bail out
     this.running = false;
 
@@ -284,6 +286,12 @@ export class PerformanceProbeScheduler {
    * On failure: logs and skips (no retry; daily cycle will pick it up).
    */
   scheduleNewServerProbe(serverId: string, delayMs?: number): void {
+    // Ensure the scheduler is running so the probe actually fires when timeout fires.
+    // This allows new-server probes to run independently of the daily cycle start/stop.
+    if (!this.running) {
+      this.running = true;
+    }
+
     // Cancel any existing probe for this server first (idempotent)
     this.cancelNewServerProbe(serverId);
 
@@ -291,7 +299,12 @@ export class PerformanceProbeScheduler {
     const scheduledAt = Date.now();
 
     const timeout = setTimeout(() => {
-      void this.runNewServerProbe(serverId);
+      void this.runNewServerProbe(serverId).catch((err: unknown) => {
+        this.opts.logger.error('new-server probe failed', {
+          serverId,
+          error: String(err),
+        });
+      });
     }, delay);
 
     this.newServerProbes.set(serverId, timeout);
@@ -330,7 +343,7 @@ export class PerformanceProbeScheduler {
    * Compute a new 24h cycle: select probe models via greedy set cover,
    * build (server, model) pairs, and schedule each at a random time within the window.
    */
-  private async scheduleNext24hCycle(): Promise<void> {
+  private scheduleNext24hCycle(): void {
     if (!this.running) {
       return;
     }
@@ -424,7 +437,7 @@ export class PerformanceProbeScheduler {
   private async runScheduledProbe(
     serverId: string,
     primaryModel: string,
-    attempt = 0
+    _attempt = 0
   ): Promise<void> {
     // RACE-SAFETY: if stop() was called, bail out immediately
     if (!this.running) {

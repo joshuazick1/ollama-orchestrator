@@ -56,6 +56,7 @@ import {
   getPerfProbeStatus,
   cancelPerfProbe,
   runPerfProbe,
+  runPerfProbeForServer,
   getPerfProbeHistory,
   getPerfProbeSchedulerStatus,
   getRecentPerfProbeTasks,
@@ -231,11 +232,6 @@ monitoringRouter.get(
   asyncHandler(getPerfProbeHistory)
 );
 monitoringRouter.get(
-  '/performance-probe/history',
-  requireAuth(),
-  asyncHandler(getPerfProbeHistory)
-);
-monitoringRouter.get(
   '/performance-probe/scheduler-status',
   requireAuth(),
   asyncHandler(getPerfProbeSchedulerStatus)
@@ -254,6 +250,11 @@ monitoringRouter.get(
   '/performance-probe/scheduled-probes',
   requireAuth(),
   asyncHandler(getPerfProbeScheduledProbes)
+);
+monitoringRouter.post(
+  '/performance-probe/server/:serverId',
+  requireAuth(),
+  asyncHandler(runPerfProbeForServer)
 );
 monitoringRouter.get('/performance-probe/:taskId', requireAuth(), asyncHandler(getPerfProbeStatus));
 monitoringRouter.delete('/performance-probe/:taskId', requireAuth(), asyncHandler(cancelPerfProbe));
