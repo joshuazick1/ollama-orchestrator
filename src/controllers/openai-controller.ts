@@ -1359,6 +1359,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
+      const requestId = (req as { requestId?: string }).requestId;
       if (isAccessDenied) {
         res.status(403).json({
           error: {
@@ -1366,6 +1367,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             type: 'access_denied',
             code: 'forbidden',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isTimeout) {
@@ -1375,6 +1377,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             type: 'timeout',
             code: 'gateway_timeout',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else {
@@ -1384,6 +1387,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             type: isCapacityError ? 'capacity_error' : 'server_error',
             code: isCapacityError ? 'service_unavailable' : 'internal_error',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       }
@@ -1564,6 +1568,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
+      const requestId = (req as { requestId?: string }).requestId;
       if (isAccessDenied) {
         res.status(403).json({
           error: {
@@ -1571,6 +1576,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             type: 'access_denied',
             code: 'forbidden',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isTimeout) {
@@ -1580,6 +1586,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             type: 'timeout',
             code: 'gateway_timeout',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else {
@@ -1589,6 +1596,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             type: isCapacityError ? 'capacity_error' : 'server_error',
             code: isCapacityError ? 'service_unavailable' : 'internal_error',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       }
@@ -1681,6 +1689,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
       const debugPayload = isDebugRequested(req)
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
+      const requestId = (req as { requestId?: string }).requestId;
       if (isAccessDenied) {
         res.status(403).json({
           error: {
@@ -1688,6 +1697,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
             type: 'access_denied',
             code: 'forbidden',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isTimeout) {
@@ -1697,6 +1707,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
             type: 'timeout',
             code: 'gateway_timeout',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else {
@@ -1706,6 +1717,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
             type: isCapacityError ? 'capacity_error' : 'server_error',
             code: isCapacityError ? 'service_unavailable' : 'internal_error',
           },
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       }
@@ -1731,6 +1743,7 @@ export function handleListModels(req: Request, res: Response): Promise<void> {
         type: 'server_error',
         code: 'internal_error',
       },
+      requestId: (req as { requestId?: string }).requestId,
     });
     return Promise.resolve();
   }
@@ -1770,6 +1783,7 @@ export function handleGetModel(req: Request, res: Response): Promise<void> {
         type: 'server_error',
         code: 'internal_error',
       },
+      requestId: (req as { requestId?: string }).requestId,
     });
     return Promise.resolve();
   }
@@ -2049,6 +2063,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
       : undefined;
     res.status(500).json({
       error: { message: errorMessage, type: 'server_error' },
+      requestId: (req as { requestId?: string }).requestId,
       ...(debugPayload && { debug: debugPayload }),
     });
   }
@@ -2230,6 +2245,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
       : undefined;
     res.status(500).json({
       error: { message: errorMessage, type: 'server_error' },
+      requestId: (req as { requestId?: string }).requestId,
       ...(debugPayload && { debug: debugPayload }),
     });
   }
@@ -2327,6 +2343,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
       : undefined;
     res.status(500).json({
       error: { message: errorMessage, type: 'server_error' },
+      requestId: (req as { requestId?: string }).requestId,
       ...(debugPayload && { debug: debugPayload }),
     });
   }

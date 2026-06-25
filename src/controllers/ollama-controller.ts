@@ -77,6 +77,7 @@ export async function handleTags(req: Request, res: Response): Promise<void> {
     res.status(500).json({
       error: 'Failed to get tags',
       details: error instanceof Error ? error.message : String(error),
+      requestId: (req as { requestId?: string }).requestId,
     });
   }
 }
@@ -501,16 +502,19 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
+      const requestId = (req as { requestId?: string }).requestId;
       if (isModelNotFound) {
         res.status(404).json({
           error: errorMessage,
           model,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isAccessDenied) {
         res.status(403).json({
           error: errorMessage,
           model,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isNoServersError || isConcurrencySaturated) {
@@ -520,6 +524,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
             : 'No available servers for model',
           model,
           message: errorMessage,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isTimeout) {
@@ -527,12 +532,14 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           error: 'Gateway timeout',
           model,
           message: errorMessage,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else {
         res.status(500).json({
           error: 'Generate request failed',
           details: errorMessage,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       }
@@ -1011,16 +1018,20 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
+      const requestId = (req as { requestId?: string }).requestId;
+
       if (isModelNotFound) {
         res.status(404).json({
           error: errorMessage,
           model,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isAccessDenied) {
         res.status(403).json({
           error: errorMessage,
           model,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (isNoServersError || isConcurrencySaturated) {
@@ -1030,12 +1041,14 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
             : 'No available servers for model',
           model,
           message: errorMessage,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else {
         res.status(500).json({
           error: 'Chat request failed',
           details: errorMessage,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       }
@@ -1120,16 +1133,20 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
       ? getDebugInfo(routingContext, { lastError: errorMessage })
       : undefined;
 
+    const requestId = (req as { requestId?: string }).requestId;
+
     if (isModelNotFound) {
       res.status(404).json({
         error: errorMessage,
         model,
+        requestId,
         ...(debugPayload && { debug: debugPayload }),
       });
     } else if (isAccessDenied) {
       res.status(403).json({
         error: errorMessage,
         model,
+        requestId,
         ...(debugPayload && { debug: debugPayload }),
       });
     } else if (isNoServersError || isConcurrencySaturated) {
@@ -1139,12 +1156,14 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
           : 'No available servers for model',
         model,
         message: errorMessage,
+        requestId,
         ...(debugPayload && { debug: debugPayload }),
       });
     } else {
       res.status(500).json({
         error: 'Embeddings request failed',
         details: errorMessage,
+        requestId,
         ...(debugPayload && { debug: debugPayload }),
       });
     }
@@ -1194,7 +1213,10 @@ export async function handlePs(req: Request, res: Response): Promise<void> {
     res.json({ models: allModels });
   } catch (error) {
     logger.error('Error in handlePs:', error);
-    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+    res.status(500).json({
+      error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+      requestId: (req as { requestId?: string }).requestId,
+    });
   }
 }
 
@@ -1282,6 +1304,8 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
         ? getDebugInfo(routingContext, { lastError: errorMessage })
         : undefined;
 
+      const requestId = (req as { requestId?: string }).requestId;
+
       if (isNoServersError || isConcurrencySaturated) {
         res.status(503).json({
           error: isConcurrencySaturated
@@ -1289,15 +1313,19 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
             : 'No available servers for model',
           model,
           message: errorMessage,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       } else if (errorMessage.includes('not found')) {
         // Treat model-not-found as 404
-        res.status(404).json({ error: errorMessage, ...(debugPayload && { debug: debugPayload }) });
+        res
+          .status(404)
+          .json({ error: errorMessage, requestId, ...(debugPayload && { debug: debugPayload }) });
       } else {
         res.status(500).json({
           error: 'Show request failed',
           details: errorMessage,
+          requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
       }
@@ -1389,10 +1417,11 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     logger.error('Error in handleEmbed:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     const { isAccessDenied } = classifyOrchestratorRoutingError(errorMessage);
+    const requestId = (req as { requestId?: string }).requestId;
     if (isAccessDenied) {
-      res.status(403).json({ error: errorMessage });
+      res.status(403).json({ error: errorMessage, requestId });
     } else {
-      res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+      res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR, requestId });
     }
   }
 }
@@ -1770,6 +1799,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
       : undefined;
     res.status(500).json({
       error: errorMessage,
+      requestId: (req as { requestId?: string }).requestId,
       ...(debugPayload && { debug: debugPayload }),
     });
   }
@@ -1980,6 +2010,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
       : undefined;
     res.status(500).json({
       error: errorMessage,
+      requestId: (req as { requestId?: string }).requestId,
       ...(debugPayload && { debug: debugPayload }),
     });
   }
@@ -2074,6 +2105,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
       : undefined;
     res.status(500).json({
       error: errorMessage,
+      requestId: (req as { requestId?: string }).requestId,
       ...(debugPayload && { debug: debugPayload }),
     });
   }

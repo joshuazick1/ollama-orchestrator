@@ -808,6 +808,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
           type: isNoServers ? 'overloaded_error' : 'api_error',
           message: errorMessage,
         },
+        requestId: (req as { requestId?: string }).requestId,
       });
     }
   }
@@ -1120,6 +1121,7 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
           type: 'api_error',
           message: errorMessage,
         },
+        requestId: (req as { requestId?: string }).requestId,
       });
     }
   }
@@ -1140,6 +1142,7 @@ export async function handleListModels(_req: Request, res: Response): Promise<vo
         type: 'api_error',
         message: 'Failed to retrieve models list',
       },
+      requestId: (_req as { requestId?: string }).requestId,
     });
   }
 }

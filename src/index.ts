@@ -324,6 +324,7 @@ async function initialize(): Promise<void> {
         const status = isOrchestratorError(err) ? err.status : 500;
         const code = isOrchestratorError(err) ? err.code : 'internal_server_error';
 
+        const requestId = (req as { requestId?: string }).requestId;
         if (req.path.startsWith('/v1')) {
           res.status(status).json({
             error: {
@@ -331,6 +332,7 @@ async function initialize(): Promise<void> {
               type: 'server_error',
               code,
             },
+            requestId,
           });
         } else {
           res.status(status).json({
@@ -338,6 +340,7 @@ async function initialize(): Promise<void> {
             status,
             title: err?.message ?? ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
             detail: err?.message ?? 'Unknown error',
+            requestId,
           });
         }
       }
