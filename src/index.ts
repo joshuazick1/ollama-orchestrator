@@ -42,6 +42,8 @@ import {
   batchesRouter,
   authRouter,
   userRouter,
+  cohereRouter,
+  bedrockRouter,
 } from './routes/orchestrator.js';
 import { setupRouter } from './routes/setup.routes.js';
 import { getMetricsStore } from './storage/metrics-store.js';
@@ -260,6 +262,12 @@ async function initialize(): Promise<void> {
     app.use('/v1', inferenceRateLimiter, v1Router);
     app.use('/v1', inferenceRateLimiter, anthropicRouter);
     app.use('/v1', inferenceRateLimiter, batchesRouter);
+
+    // Cohere provider routes
+    app.use('/chat', inferenceRateLimiter, cohereRouter);
+
+    // Bedrock provider routes
+    app.use('/model', inferenceRateLimiter, bedrockRouter);
 
     // User management routes (require auth + admin for most operations)
     app.use('/api/orchestrator', adminRateLimiter, requireAuthentication, userRouter);
