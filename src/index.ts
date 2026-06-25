@@ -267,7 +267,7 @@ async function initialize(): Promise<void> {
     app.use('/chat', inferenceRateLimiter, cohereRouter);
 
     // Bedrock provider routes
-    app.use('/model', inferenceRateLimiter, bedrockRouter);
+    app.use('/', inferenceRateLimiter, bedrockRouter);
 
     // User management routes (require auth + admin for most operations)
     app.use('/api/orchestrator', adminRateLimiter, requireAuthentication, userRouter);
