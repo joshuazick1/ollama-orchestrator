@@ -152,6 +152,7 @@ export function updateConfigSection(req: Request, res: Response): void {
     const validSections: Array<keyof OrchestratorConfig> = [
       'adaptiveWeightTuner',
       'anthropic',
+      'autoWarmup',
       'capabilityProbe',
       'circuitBreaker',
       'configReloadIntervalMs',

@@ -126,6 +126,23 @@ export const cooldownConfigSchema = z.object({
   defaultMaxConcurrency: z.number().int().min(1).max(100).default(4),
 });
 
+/**
+ * Auto warmup configuration schema
+ */
+export const autoWarmupConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    intervalMs: z.number().int().min(60000).default(900000), // 15 minutes minimum
+    topN: z.number().int().min(1).max(50).default(5),
+    serversPerModel: z.number().int().min(1).max(50).default(10),
+  })
+  .default({
+    enabled: true,
+    intervalMs: 900000,
+    topN: 5,
+    serversPerModel: 10,
+  });
+
 export const debugConfigSchema = z.object({
   streamProgress: z.boolean().default(false),
 });
@@ -640,6 +657,10 @@ export const anthropicConfigSchema = z.object({
     .default('2023-06-01'),
 });
 
+export const azureConfigSchema = z.object({
+  apiVersion: z.string().default('2024-10-21'),
+});
+
 /**
  * Main orchestrator configuration schema
  */
@@ -669,6 +690,7 @@ export const orchestratorConfigSchema = z.object({
   tags: tagsConfigSchema,
   retry: retryConfigSchema,
   cooldown: cooldownConfigSchema,
+  autoWarmup: autoWarmupConfigSchema,
   rateLimit: rateLimitConfigSchema,
   modelManager: modelManagerConfigSchema,
   recoveryTest: recoveryTestConfigSchema,
@@ -679,6 +701,7 @@ export const orchestratorConfigSchema = z.object({
   capabilityProbe: capabilityProbeConfigSchema,
   debug: debugConfigSchema,
   anthropic: anthropicConfigSchema,
+  azure: azureConfigSchema,
   proxy: proxyConfigSchema,
   errorAggregator: errorAggregatorConfigSchema,
   adaptiveWeightTuner: z.object({
@@ -704,6 +727,7 @@ export type HealthCheckConfig = z.infer<typeof healthCheckConfigSchema>;
 export type TagsConfig = z.infer<typeof tagsConfigSchema>;
 export type RetryConfig = z.infer<typeof retryConfigSchema>;
 export type CooldownConfig = z.infer<typeof cooldownConfigSchema>;
+export type AutoWarmupConfig = z.infer<typeof autoWarmupConfigSchema>;
 export type RateLimitConfig = z.infer<typeof rateLimitConfigSchema>;
 export type LoadBalancerConfig = z.infer<typeof loadBalancerConfigSchema>;
 export type CircuitBreakerConfig = z.infer<typeof circuitBreakerConfigSchema>;
@@ -720,6 +744,7 @@ export type ProbeConfig = z.infer<typeof probeConfigSchema>;
 export type CapabilityProbeConfig = z.infer<typeof capabilityProbeConfigSchema>;
 export type DebugConfig = z.infer<typeof debugConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
+export type AzureConfig = z.infer<typeof azureConfigSchema>;
 export type ErrorAggregatorConfig = z.infer<typeof errorAggregatorConfigSchema>;
 export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;
 export type RecoveryBackoffConfig = z.infer<typeof recoveryBackoffConfigSchema>;

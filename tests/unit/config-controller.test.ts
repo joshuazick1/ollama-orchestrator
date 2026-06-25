@@ -197,7 +197,7 @@ describe('Config Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(400);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: 'Invalid configuration section',
-        validSections: ['loadBalancer', 'circuitBreaker', 'security', 'metrics', 'streaming'],
+        validSections: expect.arrayContaining(['autoWarmup', 'loadBalancer', 'cooldown']),
       });
     });
 

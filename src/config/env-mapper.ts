@@ -123,6 +123,12 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
 
   ORCHESTRATOR_ADAPTIVE_WEIGHT_TUNER_ENABLED: 'adaptiveWeightTuner.enabled',
   ORCHESTRATOR_PERSISTENCE_PATH: 'persistencePath',
+
+  // Auto warmup settings
+  AUTO_WARMUP_ENABLED: 'autoWarmup.enabled',
+  AUTO_WARMUP_INTERVAL_MS: 'autoWarmup.intervalMs',
+  AUTO_WARMUP_TOP_N: 'autoWarmup.topN',
+  AUTO_WARMUP_SERVERS_PER_MODEL: 'autoWarmup.serversPerModel',
   ORCHESTRATOR_CONFIG_RELOAD_INTERVAL: 'configReloadIntervalMs',
 };
 

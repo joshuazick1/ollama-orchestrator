@@ -104,6 +104,13 @@ export interface CooldownConfig {
   defaultMaxConcurrency: number; // Default max concurrency for servers
 }
 
+export interface AutoWarmupConfig {
+  enabled: boolean;
+  intervalMs: number;
+  topN: number;
+  serversPerModel: number;
+}
+
 export interface RateLimitConfig {
   defaultRetryAfterMs: number; // Default retry delay when no Retry-After header
   maxRetryAfterMs: number; // Maximum retry delay cap
@@ -218,6 +225,10 @@ export interface AnthropicConfig {
   defaultVersion: string;
 }
 
+export interface AzureConfig {
+  apiVersion: string;
+}
+
 export interface ErrorAggregatorConfig {
   enabled: boolean;
   rateLimitThreshold: number;
@@ -251,6 +262,7 @@ export interface OrchestratorConfig {
   tags: TagsConfig;
   retry: RetryConfig;
   cooldown: CooldownConfig;
+  autoWarmup: AutoWarmupConfig;
   rateLimit: RateLimitConfig;
   modelManager: ModelManagerConfig;
   recoveryTest: RecoveryTestConfig;
@@ -262,6 +274,22 @@ export interface OrchestratorConfig {
   debug: DebugConfig;
   proxy: ProxyConfig;
   anthropic: AnthropicConfig;
+  openai: { allowVisionFallback: boolean };
+  azure: AzureConfig;
+  bedrock: {
+    region: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    sessionToken?: string;
+    useInstanceProfile: boolean;
+  };
+  cohere: {
+    apiKey?: string;
+  };
+  batches: {
+    enabled: boolean;
+    maxConcurrentBatches: number;
+  };
   errorAggregator: ErrorAggregatorConfig;
   adaptiveWeightTuner: { enabled: boolean };
   recoveryBackoff: RecoveryBackoffConfig;
@@ -494,6 +522,13 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     defaultMaxConcurrency: 4,
   },
 
+  autoWarmup: {
+    enabled: true,
+    intervalMs: 900000,
+    topN: 5,
+    serversPerModel: 10,
+  },
+
   rateLimit: {
     defaultRetryAfterMs: 60000,
     maxRetryAfterMs: 300000,
@@ -606,6 +641,31 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     maxImageBytes: 5 * 1024 * 1024, // 5MB
     lifecycleMode: 'both',
     defaultVersion: '2023-06-01',
+  },
+
+  openai: {
+    allowVisionFallback: false,
+  },
+
+  azure: {
+    apiVersion: '2024-10-21',
+  },
+
+  bedrock: {
+    region: 'us-east-1',
+    accessKeyId: undefined,
+    secretAccessKey: undefined,
+    sessionToken: undefined,
+    useInstanceProfile: false,
+  },
+
+  cohere: {
+    apiKey: undefined,
+  },
+
+  batches: {
+    enabled: true,
+    maxConcurrentBatches: 10,
   },
 
   errorAggregator: {
@@ -1040,6 +1100,7 @@ export class ConfigManager {
       tags: { ...DEFAULT_CONFIG.tags, ...partial.tags },
       retry: { ...DEFAULT_CONFIG.retry, ...partial.retry },
       cooldown: { ...DEFAULT_CONFIG.cooldown, ...partial.cooldown },
+      autoWarmup: { ...DEFAULT_CONFIG.autoWarmup, ...partial.autoWarmup },
       rateLimit: { ...DEFAULT_CONFIG.rateLimit, ...partial.rateLimit },
       recoveryTest: { ...DEFAULT_CONFIG.recoveryTest, ...partial.recoveryTest },
       timeout: { ...DEFAULT_CONFIG.timeout, ...partial.timeout },
@@ -1061,6 +1122,11 @@ export class ConfigManager {
       debug: { ...DEFAULT_CONFIG.debug, ...partial.debug },
       proxy: { ...DEFAULT_CONFIG.proxy, ...partial.proxy },
       anthropic: { ...DEFAULT_CONFIG.anthropic, ...partial.anthropic },
+      openai: { ...DEFAULT_CONFIG.openai, ...partial.openai },
+      azure: { ...DEFAULT_CONFIG.azure, ...partial.azure },
+      bedrock: { ...DEFAULT_CONFIG.bedrock, ...partial.bedrock },
+      cohere: { ...DEFAULT_CONFIG.cohere, ...partial.cohere },
+      batches: { ...DEFAULT_CONFIG.batches, ...partial.batches },
       errorAggregator: { ...DEFAULT_CONFIG.errorAggregator, ...partial.errorAggregator },
       adaptiveWeightTuner: {
         ...DEFAULT_CONFIG.adaptiveWeightTuner,
