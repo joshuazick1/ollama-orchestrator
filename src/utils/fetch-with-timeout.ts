@@ -5,6 +5,7 @@
 
 import { logger } from './logger.js';
 import { recordTimeoutFired } from './timeout-telemetry.js';
+import { TimeoutError } from './domain-errors.js';
 
 export interface FetchWithTimeoutOptions extends RequestInit {
   timeout?: number;
@@ -80,7 +81,7 @@ export async function fetchWithTimeout(
         retryAttempt: telemetryMeta?.retryAttempt ?? 0,
         circuitBreakerState: telemetryMeta?.circuitBreakerState,
       });
-      throw new Error(`Request timeout after ${timeout}ms: ${url}`);
+      throw new TimeoutError(`Request timeout after ${timeout}ms`);
     }
     if (error instanceof Error) {
       throw new Error(`Fetch failed: ${error.message}`);
@@ -224,7 +225,7 @@ export async function fetchWithActivityTimeout(
         retryAttempt: telemetryMeta?.retryAttempt ?? 0,
         circuitBreakerState: telemetryMeta?.circuitBreakerState,
       });
-      throw new Error(`Connection timeout after ${connectionTimeout}ms: ${url}`);
+      throw new TimeoutError(`Connection timeout after ${connectionTimeout}ms`);
     }
     if (error instanceof Error) {
       throw new Error(`Fetch failed: ${error.message}`);
