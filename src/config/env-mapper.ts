@@ -33,6 +33,8 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
 
   // Load balancer settings
   ORCHESTRATOR_LB_WEIGHT_LATENCY: 'loadBalancer.weights.latency',
+  ORCHESTRATOR_GHOST_STALE_THRESHOLD_MS: 'loadBalancer.ghostServers.staleThresholdMs',
+  ORCHESTRATOR_GHOST_REMOVE_ON_CLEANUP: 'loadBalancer.ghostServers.removeOnCleanup',
   ORCHESTRATOR_LB_WEIGHT_SUCCESS_RATE: 'loadBalancer.weights.successRate',
   ORCHESTRATOR_LB_WEIGHT_LOAD: 'loadBalancer.weights.load',
   ORCHESTRATOR_LB_WEIGHT_CAPACITY: 'loadBalancer.weights.capacity',
