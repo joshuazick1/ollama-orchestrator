@@ -118,6 +118,7 @@ userRouter.get(
     const users = userStore.listUsers();
 
     res.status(200).json({
+      success: true,
       users: users.map(u => safeUserResponseNoApiKey(u)),
     });
   })

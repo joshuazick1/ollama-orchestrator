@@ -196,6 +196,7 @@ monitoringRouter.get(
       (circuitBreakerStates.SUSPECT || 0);
     const errorRate = totalCb > 0 ? (circuitBreakerStates.UNHEALTHY || 0) / totalCb : 0;
     res.json({
+      success: true,
       status: 'ok',
       data: {
         totalServers: stats.totalServers,

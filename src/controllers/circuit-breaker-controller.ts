@@ -175,6 +175,7 @@ export function resetBreaker(req: Request, res: Response): void {
     });
 
     res.json({
+      success: true,
       message: `Circuit breaker reset for ${serverId}:${model}`,
       previousState,
       currentState: 'HEALTHY',

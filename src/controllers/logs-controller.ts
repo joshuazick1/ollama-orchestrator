@@ -27,6 +27,7 @@ export const getLogs = (req: Request, res: Response): void => {
     }
 
     res.json({
+      success: true,
       logs,
       count: logs.length,
       total: logger.getLogs().length,
@@ -39,7 +40,7 @@ export const getLogs = (req: Request, res: Response): void => {
 export const clearLogs = (req: Request, res: Response): void => {
   try {
     logger.clearLogs();
-    res.json({ message: 'Logs cleared' });
+    res.json({ success: true, message: 'Logs cleared' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to clear logs' });
   }
