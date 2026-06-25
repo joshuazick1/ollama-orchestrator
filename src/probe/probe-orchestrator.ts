@@ -14,8 +14,28 @@ import type {
   Classification,
   FailureKind,
 } from './types.js';
-import { tupleKey, DEFAULT_PROBE_CONFIG } from './types.js';
+import { tupleKey, parseTupleKey, DEFAULT_PROBE_CONFIG } from './types.js';
 import type { WALStore, TupleSnapshotState } from './wal-store.js';
+import { logger } from '../utils/logger.js';
+
+/**
+ * Pattern for test fixture server IDs that should be cleaned up on startup.
+ * These are created by test suites and leaked into the production CB registry.
+ */
+const TEST_FIXTURE_PATTERN =
+  /^(force-(recovering|halfopen-manual|reopen)|cycle-reopen|recovering-reopen)/;
+
+/**
+ * Counter for test fixtures cleaned up (exported for Prometheus).
+ */
+let testFixturesCleanedTotal = 0;
+
+/**
+ * Returns the total number of test fixtures cleaned up since process start.
+ */
+export function getTestFixturesCleanedTotal(): number {
+  return testFixturesCleanedTotal;
+}
 
 export interface TupleState {
   state: ProbeState;
@@ -39,6 +59,7 @@ export type StateChangeCallback = (
 export class ProbeOrchestrator {
   private states = new Map<TupleKey, TupleState>();
   private stateChangeCallbacks: StateChangeCallback[] = [];
+  private cbPrematureOpenTotal = 0;
 
   constructor(
     private config: ProbeConfig = DEFAULT_PROBE_CONFIG,
@@ -65,7 +86,7 @@ export class ProbeOrchestrator {
     if (success) {
       this._handleSuccess(ts, now);
     } else {
-      this._handleFailure(ts, classification, now);
+      this._handleFailure(ts, key, classification, now);
     }
 
     this._pruneErrorWindow(ts, now);
@@ -180,8 +201,43 @@ export class ProbeOrchestrator {
     this.states.delete(key);
   }
 
+  /**
+   * Remove all circuit breakers whose serverId matches the TEST_FIXTURE_PATTERN.
+   * These are test fixtures leaked from previous test sessions.
+   * Logs a warning before removing each one.
+   * @returns The number of test fixture CBs removed
+   */
+  cleanupTestFixtures(): number {
+    let cleaned = 0;
+    for (const key of this.states.keys()) {
+      let serverId: string;
+      try {
+        serverId = parseTupleKey(key).serverId;
+      } catch {
+        continue;
+      }
+      if (TEST_FIXTURE_PATTERN.test(serverId)) {
+        const tuple = parseTupleKey(key);
+        logger.warn(`[TestFixtureCleanup] Removing leaked test fixture: ${serverId}`);
+        this.evictTuple(tuple);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      logger.info(`[TestFixtureCleanup] Cleaned ${cleaned} test fixture CBs`);
+      testFixturesCleanedTotal += cleaned;
+    }
+    return cleaned;
+  }
+
   async restoreFromWAL(): Promise<void> {
     if (!this.wal) {
+      return;
+    }
+
+    this.restoreProbeStates();
+
+    if (this.states.size > 0) {
       return;
     }
 
@@ -256,6 +312,60 @@ export class ProbeOrchestrator {
     }
 
     this.wal.saveSnapshot(data);
+  }
+
+  saveAllProbeStates(): void {
+    if (!this.wal) {
+      return;
+    }
+
+    for (const [key, ts] of this.states) {
+      const parts = key.split(':');
+      if (parts.length < 3) {
+        continue;
+      }
+      const serverId = parts[0];
+      const model = parts[1];
+      const endpoint = parts.slice(2).join(':');
+
+      this.wal.saveProbeTupleState({
+        tupleKey: key,
+        serverId,
+        model,
+        endpoint,
+        state: ts.state,
+        consecutiveSuccesses: ts.consecutiveSuccesses,
+        consecutiveFailures: ts.consecutiveFailures,
+        errorWindow: ts.errorWindow,
+        lastTransition: ts.lastTransition,
+        lastProbeAt: ts.lastProbeAt,
+        nextProbeAt: ts.nextProbeAt,
+        recoveryAttempts: ts.recoveryAttempts,
+        lastErrorKind: ts.lastErrorKind,
+      });
+    }
+  }
+
+  restoreProbeStates(): void {
+    if (!this.wal) {
+      return;
+    }
+
+    const savedStates = this.wal.getAllProbeStates();
+    for (const saved of savedStates) {
+      const ts: TupleState = {
+        state: saved.state as ProbeState,
+        consecutiveSuccesses: saved.consecutiveSuccesses,
+        consecutiveFailures: saved.consecutiveFailures,
+        errorWindow: saved.errorWindow,
+        lastTransition: saved.lastTransition,
+        lastProbeAt: saved.lastProbeAt,
+        nextProbeAt: saved.nextProbeAt,
+        recoveryAttempts: saved.recoveryAttempts,
+        lastErrorKind: saved.lastErrorKind as FailureKind | undefined,
+      };
+      this.states.set(saved.tupleKey, ts);
+    }
   }
 
   onStateChange(callback: StateChangeCallback): () => void {
@@ -382,6 +492,7 @@ export class ProbeOrchestrator {
 
   private _handleFailure(
     ts: TupleState,
+    tupleKey: TupleKey,
     classification: Classification | undefined,
     now: number
   ): void {
@@ -405,6 +516,14 @@ export class ProbeOrchestrator {
           ts.consecutiveFailures >= this.config.unhealthyAfterFailures ||
           this._computeErrorRate(ts) >= this.config.errorRateUnhealthyThreshold
         ) {
+          // Warn if CB opened with failure count below the threshold (indicates
+          // premature open, e.g. from a threshold change or historical state)
+          if (ts.consecutiveFailures < this.config.unhealthyAfterFailures) {
+            logger.warn(
+              `[CircuitBreaker] Premature OPEN: ${tupleKey} has failureCount=${ts.consecutiveFailures} < threshold=${this.config.unhealthyAfterFailures}`
+            );
+            this.cbPrematureOpenTotal++;
+          }
           ts.state = 'UNHEALTHY';
           ts.nextProbeAt = now + this._getRecoveryBackoff(ts.recoveryAttempts);
         }

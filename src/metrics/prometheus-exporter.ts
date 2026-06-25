@@ -5,6 +5,7 @@
 
 import type { TimeWindow } from '../orchestrator/orchestrator.types.js';
 import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import { getTestFixturesCleanedTotal } from '../probe/probe-orchestrator.js';
 import type { TupleKey, ProbeState } from '../probe/types.js';
 import { tupleKey } from '../probe/types.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
@@ -332,6 +333,11 @@ export class PrometheusExporter {
         `probe_recovery_attempts_total{tuple_key="${tupleKey}",result="${result}"} ${count}`
       );
     }
+
+    const cleanedTotal = getTestFixturesCleanedTotal();
+    lines.push('# HELP probe_test_fixtures_cleaned_total Test fixture CBs cleaned on startup');
+    lines.push('# TYPE probe_test_fixtures_cleaned_total counter');
+    lines.push(`probe_test_fixtures_cleaned_total ${cleanedTotal}`);
 
     return lines.join('\n');
   }

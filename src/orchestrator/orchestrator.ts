@@ -3445,6 +3445,9 @@ export class AIOrchestrator {
       const perfProbeScheduler = getPerfProbeSchedulerInstance();
       await perfProbeScheduler.start();
 
+      // Clean up any leaked test fixture CBs from previous test sessions
+      this.probeOrchestrator.cleanupTestFixtures();
+
       // Start the negative-probe capability detection scheduler
       // (auto-confirm/soft-revoke endpoints every 5 minutes)
       getCapabilityProbeScheduler().start();
@@ -3836,6 +3839,9 @@ export class AIOrchestrator {
 
     // Save probe state snapshot
     this.probeOrchestrator.createSnapshot();
+
+    // Also save full probe states to direct-access table for faster recovery
+    this.probeOrchestrator.saveAllProbeStates();
 
     // Persist timeouts on shutdown to ensure they're saved
     if (this.config.enablePersistence) {
