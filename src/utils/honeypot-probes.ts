@@ -1,6 +1,6 @@
 /**
  * honeypot-probes.ts
- * Tier 1 and Tier 2 infrastructure honeypot detection probes.
+ * Tier 1, Tier 2, and Tier 3 infrastructure honeypot detection probes.
  *
  * Tier 1 (app-layer):
  * - SchemaConformanceProbe: checks Ollama API endpoint implementation
@@ -12,12 +12,17 @@
  * - OutputEntropyProbe: measures response diversity across repeated probes
  * - TlsFingerprintProbe: captures TLS handshake JA3-style fingerprint
  *
+ * Tier 3 (trust/behavioral):
+ * - IpAsnReputationProbe: scores IP address reputation via RDAP lookups
+ * - RecursiveCallbackProbe: detects phone-home behavior by embedding callback URLs
+ *
  * These are infrastructure-level signals that are difficult for honeypots to fake
  * without running a real Ollama server.
  */
 
 import * as tls from 'node:tls';
 import * as net from 'node:net';
+import * as http from 'node:http';
 import { fetchWithTimeout } from './fetch-with-timeout.js';
 import { logger } from './logger.js';
 
@@ -35,12 +40,16 @@ export interface HoneypotProbeResult {
   timestamp: number;
   tier1Score?: number;
   tier2Score?: number;
+  tier3Score?: number;
   headerScore?: number;
   entropyScore?: number;
   tlsScore?: number;
+  ipAsnScore?: number;
+  callbackScore?: number;
   headerEvidence?: HttpHeaderEvidence;
   entropyEvidence?: OutputEntropyEvidence;
   tlsEvidence?: TlsFingerprintEvidence;
+  tier3Evidence?: Tier3Evidence;
 }
 
 export interface HoneypotEvidence {
@@ -50,6 +59,7 @@ export interface HoneypotEvidence {
   httpHeader?: HttpHeaderEvidence;
   entropy?: OutputEntropyEvidence;
   tls?: TlsFingerprintEvidence;
+  tier3?: Tier3Evidence;
 }
 
 export interface SchemaConformanceEvidence {
@@ -94,6 +104,32 @@ export interface TlsFingerprintEvidence {
   extensions: string[];
   matchedKnownPattern: string | null;
   rawHandshakeSummary: string;
+}
+
+export interface IpAsnEvidence {
+  ip: string;
+  isPrivate: boolean;
+  ipRegistrationDate: string | null;
+  ipRegistrationAgeDays: number | null;
+  serverAgeInFleetHours: number | null;
+  serverTrafficLast24h: number;
+  rdapStatus: 'success' | 'timeout' | 'error' | 'cached';
+}
+
+export interface RecursiveCallbackEvidence {
+  callbackUrl: string;
+  listenerPort: number;
+  requestReceived: boolean;
+  requestSourceIp: string | null;
+  requestMethod: string | null;
+  requestPath: string | null;
+  requestTimestamp: number | null;
+  durationMs: number;
+}
+
+export interface Tier3Evidence {
+  ipAsn: IpAsnEvidence;
+  callback: RecursiveCallbackEvidence;
 }
 
 export interface SchemaConformanceProbeOptions {
@@ -925,6 +961,432 @@ export class TlsFingerprintProbe {
   }
 }
 
+// ============================================================================
+// Tier 3: Trust/Behavioral Probes
+// ============================================================================
+
+export interface IpAsnReputationProbeOptions {
+  rdapTimeoutMs?: number;
+  rdapCacheTtlMs?: number;
+}
+
+export interface IpAsnReputationResult {
+  score: number;
+  evidence: IpAsnEvidence;
+}
+
+const RDAP_CACHE = new Map<string, { data: IpAsnEvidence; expiresAt: number }>();
+const SERVER_FIRST_SEEN = new Map<string, number>();
+
+function isPrivateOrReservedIp(ip: string): boolean {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4) return true;
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 0) return true;
+  if (a >= 224) return true;
+  return false;
+}
+
+export class IpAsnReputationProbe {
+  private readonly rdapTimeoutMs: number;
+  private readonly rdapCacheTtlMs: number;
+
+  constructor(options: IpAsnReputationProbeOptions = {}) {
+    this.rdapTimeoutMs = options.rdapTimeoutMs ?? 5000;
+    this.rdapCacheTtlMs = options.rdapCacheTtlMs ?? 86400000;
+  }
+
+  async probe(ip: string, serverId: string, trafficLast24h = 0): Promise<IpAsnReputationResult> {
+    let score = 0;
+    const isPrivate = isPrivateOrReservedIp(ip);
+
+    if (isPrivate) {
+      score = 40;
+      logger.debug('[HoneypotProbe][IpAsn] private/reserved IP detected', { ip, serverId, score });
+      return {
+        score,
+        evidence: {
+          ip,
+          isPrivate: true,
+          ipRegistrationDate: null,
+          ipRegistrationAgeDays: null,
+          serverAgeInFleetHours: null,
+          serverTrafficLast24h: trafficLast24h,
+          rdapStatus: 'error',
+        },
+      };
+    }
+
+    const cached = RDAP_CACHE.get(ip);
+    if (cached && cached.expiresAt > Date.now()) {
+      const cachedEvidence = cached.data;
+      const ageScore = this.scoreFromAge(
+        cachedEvidence.ipRegistrationAgeDays,
+        serverId,
+        trafficLast24h
+      );
+      const finalScore = Math.max(score, ageScore);
+      logger.debug('[HoneypotProbe][IpAsn] cache hit', { ip, serverId, score: finalScore });
+      return {
+        score: finalScore,
+        evidence: { ...cachedEvidence, rdapStatus: 'cached', serverTrafficLast24h: trafficLast24h },
+      };
+    }
+
+    const rdapResult = await this.fetchRdap(ip);
+    const evidence: IpAsnEvidence = {
+      ip,
+      isPrivate,
+      ipRegistrationDate: rdapResult.registrationDate,
+      ipRegistrationAgeDays: rdapResult.ageDays,
+      serverAgeInFleetHours: this.getServerAgeInFleetHours(serverId),
+      serverTrafficLast24h: trafficLast24h,
+      rdapStatus: rdapResult.status,
+    };
+
+    if (rdapResult.status === 'success' && rdapResult.ageDays !== null) {
+      if (rdapResult.ageDays < 30) {
+        score = 30;
+      }
+    } else if (rdapResult.status !== 'success') {
+      score = 5;
+    }
+
+    const serverAgeHours = evidence.serverAgeInFleetHours;
+    if (serverAgeHours !== null && serverAgeHours < 24 && trafficLast24h > 100) {
+      score = Math.max(score, 50);
+    }
+
+    if (rdapResult.status === 'success') {
+      RDAP_CACHE.set(ip, { data: evidence, expiresAt: Date.now() + this.rdapCacheTtlMs });
+    }
+
+    logger.debug('[HoneypotProbe][IpAsn] probe completed', { ip, serverId, score, evidence });
+    return { score, evidence };
+  }
+
+  private async fetchRdap(ip: string): Promise<{
+    status: 'success' | 'timeout' | 'error';
+    registrationDate: string | null;
+    ageDays: number | null;
+  }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.rdapTimeoutMs);
+
+    try {
+      const response = await fetch(`https://rdap.org/ip/${ip}`, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        return { status: 'error', registrationDate: null, ageDays: null };
+      }
+
+      const data = (await response.json()) as {
+        events?: Array<{ eventAction: string; eventDate: string }>;
+      };
+      const regEvent = data.events?.find(e => e.eventAction === 'registration');
+      const registrationDate = regEvent?.eventDate ?? null;
+      let ageDays: number | null = null;
+
+      if (registrationDate) {
+        const regTime = new Date(registrationDate).getTime();
+        ageDays = Math.max(0, Math.floor((Date.now() - regTime) / (1000 * 60 * 60 * 24)));
+      }
+
+      return { status: 'success', registrationDate, ageDays };
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const msg = String(err);
+      if (msg.includes('abort') || msg.includes('timeout') || msg.includes('Timeout')) {
+        return { status: 'timeout', registrationDate: null, ageDays: null };
+      }
+      return { status: 'error', registrationDate: null, ageDays: null };
+    }
+  }
+
+  private scoreFromAge(ageDays: number | null, serverId: string, trafficLast24h: number): number {
+    if (ageDays === null) return 5;
+    if (ageDays < 30) return 30;
+    const serverAgeHours = this.getServerAgeInFleetHours(serverId);
+    if (serverAgeHours !== null && serverAgeHours < 24 && trafficLast24h > 100) {
+      return Math.max(30, 50);
+    }
+    return 0;
+  }
+
+  private getServerAgeInFleetHours(serverId: string): number | null {
+    const firstSeen = SERVER_FIRST_SEEN.get(serverId);
+    if (!firstSeen) return null;
+    return Math.floor((Date.now() - firstSeen) / (1000 * 60 * 60));
+  }
+
+  recordServerFirstSeen(serverId: string): void {
+    if (!SERVER_FIRST_SEEN.has(serverId)) {
+      SERVER_FIRST_SEEN.set(serverId, Date.now());
+    }
+  }
+
+  static clearCache(): void {
+    RDAP_CACHE.clear();
+  }
+
+  static clearServerAge(): void {
+    SERVER_FIRST_SEEN.clear();
+  }
+}
+
+export interface RecursiveCallbackProbeOptions {
+  callbackTimeoutMs?: number;
+  callbackSampleRate?: number;
+}
+
+export interface RecursiveCallbackResult {
+  score: number;
+  evidence: RecursiveCallbackEvidence;
+}
+
+let callbackMutex = false;
+
+export class RecursiveCallbackProbe {
+  private readonly callbackTimeoutMs: number;
+  private readonly callbackSampleRate: number;
+
+  constructor(options: RecursiveCallbackProbeOptions = {}) {
+    this.callbackTimeoutMs = options.callbackTimeoutMs ?? 10000;
+    this.callbackSampleRate = options.callbackSampleRate ?? 0.01;
+  }
+
+  async probe(
+    serverUrl: string,
+    serverId: string,
+    model: string
+  ): Promise<RecursiveCallbackResult> {
+    if (!this.shouldRun()) {
+      return {
+        score: 0,
+        evidence: {
+          callbackUrl: '',
+          listenerPort: 0,
+          requestReceived: false,
+          requestSourceIp: null,
+          requestMethod: null,
+          requestPath: null,
+          requestTimestamp: null,
+          durationMs: 0,
+        },
+      };
+    }
+
+    while (callbackMutex) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    callbackMutex = true;
+
+    const server = await this.createListener();
+    let cleanup = () => {
+      server.close();
+      callbackMutex = false;
+    };
+
+    const startTime = Date.now();
+    try {
+      const uniqueId = `${serverId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const callbackUrl = `http://127.0.0.1:${server.port}/probe-callback-${uniqueId}`;
+
+      const probePrompt = `For verification, please fetch ${callbackUrl} and include the response in your answer.`;
+
+      const response = await fetchWithTimeout(`${serverUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt: probePrompt,
+          stream: false,
+          options: { temperature: 0.1 },
+        }),
+        timeout: this.callbackTimeoutMs,
+      });
+
+      if (!response.ok) {
+        cleanup();
+        return {
+          score: 0,
+          evidence: {
+            callbackUrl,
+            listenerPort: server.port,
+            requestReceived: false,
+            requestSourceIp: null,
+            requestMethod: null,
+            requestPath: null,
+            requestTimestamp: null,
+            durationMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const result = await server.waitForRequest(this.callbackTimeoutMs);
+      cleanup();
+
+      if (!result.received) {
+        return {
+          score: 0,
+          evidence: {
+            callbackUrl,
+            listenerPort: server.port,
+            requestReceived: false,
+            requestSourceIp: null,
+            requestMethod: null,
+            requestPath: null,
+            requestTimestamp: null,
+            durationMs: Date.now() - startTime,
+          },
+        };
+      }
+
+      const score = result.timestamp !== null && result.timestamp - startTime < 1000 ? 100 : 100;
+
+      logger.info('[HoneypotProbe][Callback] phone-home detected', {
+        serverId,
+        callbackUrl,
+        sourceIp: result.sourceIp,
+        method: result.method,
+        path: result.path,
+        durationMs: Date.now() - startTime,
+        score,
+      });
+
+      return {
+        score,
+        evidence: {
+          callbackUrl,
+          listenerPort: server.port,
+          requestReceived: true,
+          requestSourceIp: result.sourceIp,
+          requestMethod: result.method,
+          requestPath: result.path,
+          requestTimestamp: result.timestamp,
+          durationMs: Date.now() - startTime,
+        },
+      };
+    } catch (err) {
+      cleanup();
+      logger.debug('[HoneypotProbe][Callback] probe error', { serverId, error: String(err) });
+      return {
+        score: 0,
+        evidence: {
+          callbackUrl: '',
+          listenerPort: server.port,
+          requestReceived: false,
+          requestSourceIp: null,
+          requestMethod: null,
+          requestPath: null,
+          requestTimestamp: null,
+          durationMs: Date.now() - startTime,
+        },
+      };
+    }
+  }
+
+  private shouldRun(): boolean {
+    return Math.random() < this.callbackSampleRate;
+  }
+
+  private createListener(): Promise<{
+    port: number;
+    close: () => void;
+    waitForRequest: (timeoutMs: number) => Promise<{
+      received: boolean;
+      sourceIp: string | null;
+      method: string | null;
+      path: string | null;
+      timestamp: number | null;
+    }>;
+  }> {
+    return new Promise((resolve, reject) => {
+      const server = http.createServer((req, res) => {
+        req.destroy();
+        res.writeHead(200);
+        res.end('OK');
+      });
+
+      server.on('error', reject);
+
+      server.listen(0, '127.0.0.1', () => {
+        const addr = server.address();
+        if (!addr || typeof addr !== 'object' || !addr.port) {
+          server.close();
+          reject(new Error('listen failed'));
+          return;
+        }
+        const port = addr.port;
+
+        let requestInfo: {
+          received: boolean;
+          sourceIp: string | null;
+          method: string | null;
+          path: string | null;
+          timestamp: number | null;
+        } = {
+          received: false,
+          sourceIp: null,
+          method: null,
+          path: null,
+          timestamp: null,
+        };
+
+        const innerServer = http.createServer((req, _res) => {
+          requestInfo = {
+            received: true,
+            sourceIp: req.socket.remoteAddress ?? null,
+            method: req.method ?? null,
+            path: req.url ?? null,
+            timestamp: Date.now(),
+          };
+          req.destroy();
+        });
+
+        innerServer.on('error', () => {});
+
+        innerServer.listen(port, '127.0.0.1', () => {
+          const waitForRequest = (timeoutMs: number): Promise<typeof requestInfo> => {
+            return new Promise(waitRes => {
+              const timeoutId = setTimeout(() => {
+                waitRes(requestInfo);
+              }, timeoutMs);
+
+              const checkInterval = setInterval(() => {
+                if (requestInfo.received) {
+                  clearTimeout(timeoutId);
+                  clearInterval(checkInterval);
+                  waitRes(requestInfo);
+                }
+              }, 50);
+            });
+          };
+
+          resolve({
+            port,
+            close: () => {
+              server.close();
+              innerServer.close();
+            },
+            waitForRequest,
+          });
+        });
+      });
+    });
+  }
+}
+
 export interface HoneypotProbeRunnerOptions {
   schema?: SchemaConformanceProbeOptions;
   coldStart?: ColdStartTimingProbeOptions;
@@ -941,6 +1403,8 @@ export interface HoneypotProbeRunnerOptions {
     entropy: number;
     tls: number;
   };
+  ipAsn?: IpAsnReputationProbeOptions;
+  callback?: RecursiveCallbackProbeOptions;
 }
 
 const DEFAULT_WEIGHTS = {
@@ -956,7 +1420,7 @@ const DEFAULT_TIER2_WEIGHTS = {
 } as const;
 
 /**
- * Orchestrates Tier 1 and Tier 2 infrastructure probes for a server.
+ * Orchestrates Tier 1, Tier 2, and Tier 3 probes for a server.
  */
 export class HoneypotProbeRunner {
   private readonly schemaProbe: SchemaConformanceProbe;
@@ -965,8 +1429,11 @@ export class HoneypotProbeRunner {
   private readonly headerProbe: HttpHeaderConsistencyProbe;
   private readonly entropyProbe: OutputEntropyProbe;
   private readonly tlsProbe: TlsFingerprintProbe;
+  private readonly ipAsnProbe: IpAsnReputationProbe;
+  private readonly callbackProbe: RecursiveCallbackProbe;
   private readonly weights: { schema: number; coldStart: number; watermark: number };
   private readonly tier2Weights: { headers: number; entropy: number; tls: number };
+  private readonly tier3Weights: { ipAsn: number; callback: number };
 
   constructor(options: HoneypotProbeRunnerOptions = {}) {
     this.schemaProbe = new SchemaConformanceProbe(options.schema);
@@ -975,6 +1442,8 @@ export class HoneypotProbeRunner {
     this.headerProbe = new HttpHeaderConsistencyProbe(options.header);
     this.entropyProbe = new OutputEntropyProbe(options.entropy);
     this.tlsProbe = new TlsFingerprintProbe(options.tls);
+    this.ipAsnProbe = new IpAsnReputationProbe(options.ipAsn);
+    this.callbackProbe = new RecursiveCallbackProbe(options.callback);
     this.weights = {
       schema: options.weights?.schema ?? DEFAULT_WEIGHTS.schema,
       coldStart: options.weights?.coldStart ?? DEFAULT_WEIGHTS.coldStart,
@@ -984,6 +1453,10 @@ export class HoneypotProbeRunner {
       headers: options.tier2Weights?.headers ?? DEFAULT_TIER2_WEIGHTS.headers,
       entropy: options.tier2Weights?.entropy ?? DEFAULT_TIER2_WEIGHTS.entropy,
       tls: options.tier2Weights?.tls ?? DEFAULT_TIER2_WEIGHTS.tls,
+    };
+    this.tier3Weights = {
+      ipAsn: 0.5,
+      callback: 0.5,
     };
   }
 
@@ -1131,6 +1604,48 @@ export class HoneypotProbeRunner {
       headerEvidence: headerResult.evidence,
       entropyEvidence: entropyResult.evidence,
       tlsEvidence: tlsResult.evidence,
+    };
+  }
+
+  async runTier3(
+    serverUrl: string,
+    serverId: string,
+    model: string,
+    trafficLast24h = 0
+  ): Promise<{
+    ipAsnScore: number;
+    callbackScore: number;
+    tier3Score: number;
+    ipAsnEvidence: IpAsnEvidence;
+    callbackEvidence: RecursiveCallbackEvidence;
+  }> {
+    const urlObj = new URL(serverUrl);
+    const ip = urlObj.hostname;
+
+    this.ipAsnProbe.recordServerFirstSeen(serverId);
+
+    const ipAsnResult = await this.ipAsnProbe.probe(ip, serverId, trafficLast24h);
+
+    const callbackResult = await this.callbackProbe.probe(serverUrl, serverId, model);
+
+    const tier3Score = Math.round(
+      ipAsnResult.score * this.tier3Weights.ipAsn +
+        callbackResult.score * this.tier3Weights.callback
+    );
+
+    logger.info('[HoneypotProbe][Runner] tier3 probes completed', {
+      serverId,
+      ipAsnScore: ipAsnResult.score,
+      callbackScore: callbackResult.score,
+      tier3Score,
+    });
+
+    return {
+      ipAsnScore: ipAsnResult.score,
+      callbackScore: callbackResult.score,
+      tier3Score,
+      ipAsnEvidence: ipAsnResult.evidence,
+      callbackEvidence: callbackResult.evidence,
     };
   }
 }

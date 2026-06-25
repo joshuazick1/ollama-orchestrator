@@ -18,9 +18,11 @@ interface HoneypotStatsResponse {
     flagged: number;
     tier1Signals: number;
     tier2Signals: number;
+    tier3Signals: number;
   };
   tier1Probes: string[];
   tier2Probes: string[];
+  tier3Probes: string[];
   results: HoneypotServerResult[];
 }
 
@@ -36,17 +38,22 @@ interface HoneypotServerResult {
   lastProbed: string;
   tier1Score?: number;
   tier2Score?: number;
+  tier3Score?: number;
   headerScore?: number;
   entropyScore?: number;
   tlsScore?: number;
+  ipAsnScore?: number;
+  callbackScore?: number;
   headerEvidence?: HttpHeaderEvidence;
   entropyEvidence?: OutputEntropyEvidence;
   tlsEvidence?: TlsFingerprintEvidence;
+  tier3Evidence?: Tier3Evidence;
 }
 
 type HttpHeaderEvidence = import('../utils/honeypot-probes.js').HttpHeaderEvidence;
 type OutputEntropyEvidence = import('../utils/honeypot-probes.js').OutputEntropyEvidence;
 type TlsFingerprintEvidence = import('../utils/honeypot-probes.js').TlsFingerprintEvidence;
+type Tier3Evidence = import('../utils/honeypot-probes.js').Tier3Evidence;
 
 export function getHoneypotStats(req: Request, res: Response): void {
   const config = getConfigManager().getConfig();
@@ -61,20 +68,31 @@ export function getHoneypotStats(req: Request, res: Response): void {
       entropySampleCount: 5,
       tlsTimeoutMs: 5000,
     },
+    tier3: {
+      enabled: true,
+      rdapTimeoutMs: 5000,
+      rdapCacheTtlMs: 86400000,
+      callbackSampleRate: 0.01,
+      callbackTimeoutMs: 10000,
+      intervalMs: 604800000,
+    },
   };
 
   const scheduler = getHoneypotProbeScheduler();
   const results = scheduler.getResults();
   const tier2Results = scheduler.getTier2Results();
+  const tier3Results = scheduler.getTier3Results();
 
   const tier1Probes = ['schemaConformance', 'coldStartTiming', 'watermark'];
   const tier2Probes = ['httpHeaderConsistency', 'outputEntropy', 'tlsFingerprint'];
+  const tier3Probes = ['ipAsnReputation', 'recursiveCallback'];
 
   let clean = 0;
   let suspicious = 0;
   let flagged = 0;
   let tier1Signals = 0;
   let tier2Signals = 0;
+  let tier3Signals = 0;
 
   for (const result of results.values()) {
     if (result.verdict === 'clean') {
@@ -92,9 +110,14 @@ export function getHoneypotStats(req: Request, res: Response): void {
     if (result.tier2Score && result.tier2Score >= 30) tier2Signals++;
   }
 
+  for (const result of tier3Results.values()) {
+    if (result.tier3Score && result.tier3Score >= 30) tier3Signals++;
+  }
+
   const serverResults: HoneypotServerResult[] = [];
   for (const [serverId, result] of results) {
     const tier2Result = tier2Results.get(serverId);
+    const tier3Result = tier3Results.get(serverId);
     serverResults.push({
       serverId,
       url: result.serverUrl,
@@ -107,12 +130,18 @@ export function getHoneypotStats(req: Request, res: Response): void {
       lastProbed: new Date(result.timestamp).toISOString(),
       tier1Score: result.tier1Score,
       tier2Score: tier2Result?.tier2Score,
+      tier3Score: tier3Result?.tier3Score,
       headerScore: tier2Result?.headerScore,
       entropyScore: tier2Result?.entropyScore,
       tlsScore: tier2Result?.tlsScore,
+      ipAsnScore: tier3Result?.ipAsnScore,
+      callbackScore: tier3Result?.callbackScore,
       headerEvidence: tier2Result?.headerEvidence,
       entropyEvidence: tier2Result?.entropyEvidence,
       tlsEvidence: tier2Result?.tlsEvidence,
+      tier3Evidence: tier3Result
+        ? { ipAsn: tier3Result.ipAsnEvidence, callback: tier3Result.callbackEvidence }
+        : undefined,
     });
   }
 
@@ -129,6 +158,7 @@ export function getHoneypotStats(req: Request, res: Response): void {
   logger.debug('[HoneypotStats] stats retrieved', {
     totalResults: results.size,
     tier2Results: tier2Results.size,
+    tier3Results: tier3Results.size,
     returned: paginated.length,
     filter: statusFilter ?? 'none',
   });
@@ -144,9 +174,11 @@ export function getHoneypotStats(req: Request, res: Response): void {
       flagged,
       tier1Signals,
       tier2Signals,
+      tier3Signals,
     },
     tier1Probes,
     tier2Probes,
+    tier3Probes,
     results: paginated,
   };
 

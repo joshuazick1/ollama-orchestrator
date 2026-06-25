@@ -637,6 +637,14 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       tlsTimeoutMs: 5000,
       intervalMs: 86400000,
     },
+    tier3: {
+      enabled: true,
+      rdapTimeoutMs: 5000,
+      rdapCacheTtlMs: 86400000,
+      callbackSampleRate: 0.01,
+      callbackTimeoutMs: 10000,
+      intervalMs: 604800000,
+    },
   },
 
   debug: {

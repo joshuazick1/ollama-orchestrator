@@ -2,7 +2,12 @@ import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.j
 import { getPsPollCoordinator } from './ps-poll-coordinator-instance.js';
 import { getConfigManager } from '../config/config.js';
 import { logger } from '../utils/logger.js';
-import { HoneypotProbeRunner, type HoneypotProbeResult } from '../utils/honeypot-probes.js';
+import {
+  HoneypotProbeRunner,
+  type HoneypotProbeResult,
+  type IpAsnEvidence,
+  type RecursiveCallbackEvidence,
+} from '../utils/honeypot-probes.js';
 
 let schedulerInstance: HoneypotProbeScheduler | null = null;
 
@@ -33,13 +38,27 @@ export interface Tier2ProbeResult {
   timestamp: number;
 }
 
+export interface Tier3ProbeResult {
+  serverId: string;
+  serverUrl: string;
+  ipAsnScore: number;
+  callbackScore: number;
+  tier3Score: number;
+  ipAsnEvidence: IpAsnEvidence;
+  callbackEvidence: RecursiveCallbackEvidence;
+  timestamp: number;
+}
+
 export class HoneypotProbeScheduler {
   private results = new Map<string, HoneypotProbeResult>();
   private tier2Results = new Map<string, Tier2ProbeResult>();
+  private tier3Results = new Map<string, Tier3ProbeResult>();
   private intervalHandle: NodeJS.Timeout | null = null;
   private tier2IntervalHandle: NodeJS.Timeout | null = null;
+  private tier3IntervalHandle: NodeJS.Timeout | null = null;
   private isRunning = false;
   private isTier2Running = false;
+  private isTier3Running = false;
   private config = {
     enabled: true,
     intervalMs: 21600000,
@@ -52,6 +71,14 @@ export class HoneypotProbeScheduler {
     entropySampleCount: 5,
     tlsTimeoutMs: 5000,
     intervalMs: 86400000,
+  };
+  private tier3Config = {
+    enabled: true,
+    rdapTimeoutMs: 5000,
+    rdapCacheTtlMs: 86400000,
+    callbackSampleRate: 0.01,
+    callbackTimeoutMs: 10000,
+    intervalMs: 604800000,
   };
 
   constructor() {
@@ -73,6 +100,14 @@ export class HoneypotProbeScheduler {
         entropySampleCount: cfg.tier2?.entropySampleCount ?? 5,
         tlsTimeoutMs: cfg.tier2?.tlsTimeoutMs ?? 5000,
         intervalMs: cfg.tier2?.intervalMs ?? 86400000,
+      };
+      this.tier3Config = {
+        enabled: cfg.tier3?.enabled ?? true,
+        rdapTimeoutMs: cfg.tier3?.rdapTimeoutMs ?? 5000,
+        rdapCacheTtlMs: cfg.tier3?.rdapCacheTtlMs ?? 86400000,
+        callbackSampleRate: cfg.tier3?.callbackSampleRate ?? 0.01,
+        callbackTimeoutMs: cfg.tier3?.callbackTimeoutMs ?? 10000,
+        intervalMs: cfg.tier3?.intervalMs ?? 604800000,
       };
     }
   }
@@ -105,6 +140,10 @@ export class HoneypotProbeScheduler {
     if (this.tier2Config.enabled) {
       this.startTier2();
     }
+
+    if (this.tier3Config.enabled) {
+      this.startTier3();
+    }
   }
 
   private startTier2(): void {
@@ -134,6 +173,33 @@ export class HoneypotProbeScheduler {
     }
   }
 
+  private startTier3(): void {
+    if (this.tier3IntervalHandle) {
+      logger.warn('[HoneypotProbe] Tier 3 scheduler already running');
+      return;
+    }
+
+    logger.info('[HoneypotProbe] Tier 3 scheduler starting', {
+      intervalMs: this.tier3Config.intervalMs,
+      callbackSampleRate: this.tier3Config.callbackSampleRate,
+      rdapTimeoutMs: this.tier3Config.rdapTimeoutMs,
+    });
+
+    this.runTier3Cycle().catch(err =>
+      logger.error('[HoneypotProbe] Tier 3 initial cycle failed', { error: String(err) })
+    );
+
+    this.tier3IntervalHandle = setInterval(() => {
+      this.runTier3Cycle().catch(err =>
+        logger.error('[HoneypotProbe] Tier 3 scheduled cycle failed', { error: String(err) })
+      );
+    }, this.tier3Config.intervalMs);
+
+    if (this.tier3IntervalHandle.unref) {
+      this.tier3IntervalHandle.unref();
+    }
+  }
+
   stop(): void {
     if (this.intervalHandle) {
       clearInterval(this.intervalHandle);
@@ -142,6 +208,10 @@ export class HoneypotProbeScheduler {
     if (this.tier2IntervalHandle) {
       clearInterval(this.tier2IntervalHandle);
       this.tier2IntervalHandle = null;
+    }
+    if (this.tier3IntervalHandle) {
+      clearInterval(this.tier3IntervalHandle);
+      this.tier3IntervalHandle = null;
     }
     logger.info('[HoneypotProbe] scheduler stopped');
   }
@@ -152,6 +222,10 @@ export class HoneypotProbeScheduler {
 
   getTier2Results(): Map<string, Tier2ProbeResult> {
     return new Map(this.tier2Results);
+  }
+
+  getTier3Results(): Map<string, Tier3ProbeResult> {
+    return new Map(this.tier3Results);
   }
 
   async runCycle(): Promise<void> {
@@ -283,6 +357,80 @@ export class HoneypotProbeScheduler {
       });
     } finally {
       this.isTier2Running = false;
+    }
+  }
+
+  async runTier3Cycle(): Promise<void> {
+    if (this.isTier3Running) {
+      logger.debug('[HoneypotProbe] Tier 3 cycle already in progress, skipping');
+      return;
+    }
+    this.isTier3Running = true;
+
+    try {
+      const orchestrator = getOrchestratorInstance();
+      const psCoordinator = getPsPollCoordinator();
+      const servers = orchestrator.getServers().filter(s => s.healthy);
+
+      logger.info('[HoneypotProbe][Tier3] starting Tier 3 cycle', {
+        serverCount: servers.length,
+        callbackSampleRate: this.tier3Config.callbackSampleRate,
+      });
+
+      const batchSize = Math.max(1, Math.floor(this.config.batchSize / 10));
+      const runner = new HoneypotProbeRunner({
+        ipAsn: {
+          rdapTimeoutMs: this.tier3Config.rdapTimeoutMs,
+          rdapCacheTtlMs: this.tier3Config.rdapCacheTtlMs,
+        },
+        callback: {
+          callbackTimeoutMs: this.tier3Config.callbackTimeoutMs,
+          callbackSampleRate: this.tier3Config.callbackSampleRate,
+        },
+      });
+
+      for (let i = 0; i < servers.length; i += batchSize) {
+        const batch = servers.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async server => {
+            try {
+              const models = psCoordinator.getModelsOnServer(server.id);
+              const model = models.size > 0 ? [...models][0] : 'llama3.2:3b';
+
+              const result = await runner.runTier3(server.url, server.id, model, 0);
+
+              const tier3Result: Tier3ProbeResult = {
+                serverId: server.id,
+                serverUrl: server.url,
+                ipAsnScore: result.ipAsnScore,
+                callbackScore: result.callbackScore,
+                tier3Score: result.tier3Score,
+                ipAsnEvidence: result.ipAsnEvidence,
+                callbackEvidence: result.callbackEvidence,
+                timestamp: Date.now(),
+              };
+
+              this.tier3Results.set(server.id, tier3Result);
+            } catch (err) {
+              logger.warn('[HoneypotProbe][Tier3] server Tier 3 probe failed', {
+                serverId: server.id,
+                error: String(err),
+              });
+            }
+          })
+        );
+
+        if (i + batchSize < servers.length) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      logger.info('[HoneypotProbe][Tier3] Tier 3 cycle complete', {
+        serverCount: servers.length,
+        resultCount: this.tier3Results.size,
+      });
+    } finally {
+      this.isTier3Running = false;
     }
   }
 }

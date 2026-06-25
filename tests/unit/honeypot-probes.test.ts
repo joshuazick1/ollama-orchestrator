@@ -15,6 +15,9 @@ import {
   ColdStartTimingProbe,
   ZeroWidthWatermarkProbe,
   HoneypotProbeRunner,
+  IpAsnReputationProbe,
+  RecursiveCallbackProbe,
+  Tier3Evidence,
 } from '../../../src/utils/honeypot-probes.js';
 import { fetchWithTimeout } from '../../../src/utils/fetch-with-timeout.js';
 
@@ -777,5 +780,197 @@ describe('HoneypotProbeRunner runTier2', () => {
     expect(result.headerEvidence).toBeDefined();
     expect(result.entropyEvidence).toBeDefined();
     expect(result.tlsEvidence).toBeDefined();
+  });
+});
+
+describe('IpAsnReputationProbe', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    IpAsnReputationProbe.clearCache();
+    IpAsnReputationProbe.clearServerAge();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('scores 40 for private IP (192.168.x)', async () => {
+    const probe = new IpAsnReputationProbe({ rdapTimeoutMs: 5000 });
+    const result = await probe.probe('192.168.1.50', 'srv-test', 0);
+
+    expect(result.score).toBe(40);
+    expect(result.evidence.isPrivate).toBe(true);
+    expect(result.evidence.rdapStatus).toBe('error');
+  });
+
+  it('scores 40 for reserved IP (127.0.0.1)', async () => {
+    const probe = new IpAsnReputationProbe({ rdapTimeoutMs: 5000 });
+    const result = await probe.probe('127.0.0.1', 'srv-test', 0);
+
+    expect(result.score).toBe(40);
+    expect(result.evidence.isPrivate).toBe(true);
+  });
+
+  it('scores 40 for 10.x private range', async () => {
+    const probe = new IpAsnReputationProbe({ rdapTimeoutMs: 5000 });
+    const result = await probe.probe('10.0.0.1', 'srv-test', 0);
+
+    expect(result.score).toBe(40);
+    expect(result.evidence.isPrivate).toBe(true);
+  });
+
+  it('scores 40 for 172.16-31.x private range', async () => {
+    const probe = new IpAsnReputationProbe({ rdapTimeoutMs: 5000 });
+    const result = await probe.probe('172.20.0.1', 'srv-test', 0);
+
+    expect(result.score).toBe(40);
+    expect(result.evidence.isPrivate).toBe(true);
+  });
+
+  it('scores 0 for public IP with old registration age (RDAP lookup)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          events: [{ eventAction: 'registration', eventDate: '2000-01-01T00:00:00Z' }],
+        }),
+    } as unknown as Response);
+
+    const probe = new IpAsnReputationProbe({ rdapTimeoutMs: 5000 });
+    const result = await probe.probe('8.8.8.8', 'srv-test', 0);
+
+    expect(result.score).toBe(0);
+    expect(result.evidence.ipRegistrationAgeDays).toBeGreaterThan(9000);
+    expect(result.evidence.rdapStatus).toBe('success');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('scores 5 when RDAP times out', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      return new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000));
+    });
+
+    const probe = new IpAsnReputationProbe({ rdapTimeoutMs: 1000 });
+    const result = await probe.probe('1.1.1.1', 'srv-test', 0);
+
+    expect(result.score).toBe(5);
+    expect(result.evidence.rdapStatus).toBe('timeout');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('records server first-seen timestamp', () => {
+    const probe = new IpAsnReputationProbe({ rdapTimeoutMs: 5000 });
+
+    probe.recordServerFirstSeen('srv-new');
+    probe.recordServerFirstSeen('srv-existing');
+
+    const age = (probe as any).getServerAgeInFleetHours('srv-new');
+    expect(age).toBeGreaterThanOrEqual(0);
+  });
+
+  it('clears cache on clearCache() does not throw', () => {
+    IpAsnReputationProbe.clearCache();
+    IpAsnReputationProbe.clearServerAge();
+    expect(() => {
+      IpAsnReputationProbe.clearCache();
+    }).not.toThrow();
+  });
+});
+
+describe('RecursiveCallbackProbe', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ response: 'callback received' }),
+    } as unknown as Response);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it('respects 0% sample rate (never runs)', async () => {
+    const probe = new RecursiveCallbackProbe({
+      callbackTimeoutMs: 2000,
+      callbackSampleRate: 0,
+    });
+    const result = await probe.probe('http://localhost:11434', 'srv-test', 'llama3:8b');
+
+    expect(result.score).toBe(0);
+    expect(result.evidence.callbackUrl).toBe('');
+  });
+});
+
+describe('HoneypotProbeRunner runTier3', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ response: 'test response' }),
+    } as unknown as Response);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it('runTier3 returns all tier3 scores and evidence', async () => {
+    IpAsnReputationProbe.clearCache();
+    IpAsnReputationProbe.clearServerAge();
+
+    const runner = new HoneypotProbeRunner({
+      ipAsn: { rdapTimeoutMs: 5000, rdapCacheTtlMs: 86400000 },
+      callback: { callbackTimeoutMs: 2000, callbackSampleRate: 0 },
+    });
+
+    const result = await runner.runTier3('http://localhost:11434', 'srv-test', 'llama3:8b', 0);
+
+    expect(result.ipAsnScore).toBeDefined();
+    expect(result.callbackScore).toBeDefined();
+    expect(result.tier3Score).toBeDefined();
+    expect(result.ipAsnEvidence).toBeDefined();
+    expect(result.callbackEvidence).toBeDefined();
+  });
+
+  it('aggregates tier3 scores correctly', async () => {
+    IpAsnReputationProbe.clearCache();
+    IpAsnReputationProbe.clearServerAge();
+
+    const runner = new HoneypotProbeRunner({
+      ipAsn: { rdapTimeoutMs: 5000, rdapCacheTtlMs: 86400000 },
+      callback: { callbackTimeoutMs: 2000, callbackSampleRate: 0 },
+    });
+
+    const result = await runner.runTier3('http://192.168.1.50:11434', 'srv-test', 'llama3:8b', 0);
+
+    expect(result.ipAsnScore).toBe(40);
+    expect(result.tier3Score).toBe(20);
+  });
+
+  it('callback sample rate 0 means callback score is always 0', async () => {
+    const { HoneypotProbeRunner, IpAsnReputationProbe } =
+      await import('../../../src/utils/honeypot-probes.js');
+
+    IpAsnReputationProbe.clearCache();
+    IpAsnReputationProbe.clearServerAge();
+
+    const runner = new HoneypotProbeRunner({
+      ipAsn: { rdapTimeoutMs: 5000, rdapCacheTtlMs: 86400000 },
+      callback: { callbackTimeoutMs: 2000, callbackSampleRate: 0 },
+    });
+
+    const result = await runner.runTier3('http://1.1.1.1:11434', 'srv-test', 'llama3:8b', 0);
+
+    expect(result.callbackScore).toBe(0);
   });
 });

@@ -581,6 +581,23 @@ export const honeypotProbesConfigSchema = z.object({
       intervalMs: z.number().int().min(3600000).default(86400000),
     })
     .default({ enabled: true, entropySampleCount: 5, tlsTimeoutMs: 5000, intervalMs: 86400000 }),
+  tier3: z
+    .object({
+      enabled: z.boolean().default(true),
+      rdapTimeoutMs: z.number().int().min(1000).default(5000),
+      rdapCacheTtlMs: z.number().int().min(60000).default(86400000),
+      callbackSampleRate: z.number().min(0).max(1).default(0.01),
+      callbackTimeoutMs: z.number().int().min(1000).default(10000),
+      intervalMs: z.number().int().min(3600000).default(604800000),
+    })
+    .default({
+      enabled: true,
+      rdapTimeoutMs: 5000,
+      rdapCacheTtlMs: 86400000,
+      callbackSampleRate: 0.01,
+      callbackTimeoutMs: 10000,
+      intervalMs: 604800000,
+    }),
 });
 
 export const proxyConfigSchema = z.object({

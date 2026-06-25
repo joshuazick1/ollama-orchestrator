@@ -144,6 +144,12 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_HONEYPOT_TIER2_ENTROPY_SAMPLE_COUNT: 'honeypotProbes.tier2.entropySampleCount',
   ORCHESTRATOR_HONEYPOT_TIER2_TLS_TIMEOUT_MS: 'honeypotProbes.tier2.tlsTimeoutMs',
   ORCHESTRATOR_HONEYPOT_TIER2_INTERVAL_MS: 'honeypotProbes.tier2.intervalMs',
+  ORCHESTRATOR_HONEYPOT_TIER3_ENABLED: 'honeypotProbes.tier3.enabled',
+  ORCHESTRATOR_HONEYPOT_TIER3_RDAP_TIMEOUT_MS: 'honeypotProbes.tier3.rdapTimeoutMs',
+  ORCHESTRATOR_HONEYPOT_TIER3_RDAP_CACHE_TTL_MS: 'honeypotProbes.tier3.rdapCacheTtlMs',
+  ORCHESTRATOR_HONEYPOT_TIER3_CALLBACK_SAMPLE_RATE: 'honeypotProbes.tier3.callbackSampleRate',
+  ORCHESTRATOR_HONEYPOT_TIER3_CALLBACK_TIMEOUT_MS: 'honeypotProbes.tier3.callbackTimeoutMs',
+  ORCHESTRATOR_HONEYPOT_TIER3_INTERVAL_MS: 'honeypotProbes.tier3.intervalMs',
 };
 
 /**
