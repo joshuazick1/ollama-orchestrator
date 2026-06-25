@@ -13,6 +13,7 @@ Files of record (current):
 - [circuit-breaker-controller.ts](circuit-breaker-controller.ts) — Read, reset, force-open/close/half-open for circuit breakers.
 - [config-controller.ts](config-controller.ts) — Read/update/reload/save the orchestrator config.
 - [error-events-controller.ts](error-events-controller.ts) — Read error event history.
+- [honeypot-stats-controller.ts](honeypot-stats-controller.ts) — `GET /api/orchestrator/honeypot-stats` — Returns honeypot probe results summary (clean/suspicious/flagged counts), latest results, and distribution stats.
 - [logs-controller.ts](logs-controller.ts) — Read and clear the in-memory log buffer.
 - [metrics-controller.ts](metrics-controller.ts) — Metrics dashboard JSON, per-server:model metrics, Prometheus export.
 - [model-controller.ts](model-controller.ts) — Model map, fleet stats, model status, warmup, unload, cancel, recommendations.

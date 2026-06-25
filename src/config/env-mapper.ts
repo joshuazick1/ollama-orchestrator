@@ -132,6 +132,14 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   AUTO_WARMUP_TOP_N: 'autoWarmup.topN',
   AUTO_WARMUP_SERVERS_PER_MODEL: 'autoWarmup.serversPerModel',
   ORCHESTRATOR_CONFIG_RELOAD_INTERVAL: 'configReloadIntervalMs',
+
+  // Honeypot probe settings
+  ORCHESTRATOR_HONEYPOT_ENABLED: 'honeypotProbes.enabled',
+  ORCHESTRATOR_HONEYPOT_INTERVAL_MS: 'honeypotProbes.intervalMs',
+  ORCHESTRATOR_HONEYPOT_BATCH_SIZE: 'honeypotProbes.batchSize',
+  ORCHESTRATOR_HONEYPOT_TIMEOUT_MS: 'honeypotProbes.timeoutMs',
+  ORCHESTRATOR_HONEYPOT_SCORE_THRESHOLD_SUSPICIOUS: 'honeypotProbes.scoreThreshold.suspicious',
+  ORCHESTRATOR_HONEYPOT_SCORE_THRESHOLD_FLAGGED: 'honeypotProbes.scoreThreshold.flagged',
 };
 
 /**

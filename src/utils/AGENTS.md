@@ -72,6 +72,10 @@ Files of record (grouped by concern):
 - [async-helpers.ts](async-helpers.ts) — `sleep`, async utilities.
 - [hash.ts](hash.ts) — Hashing utilities: consistent hash ring construction for prefix-cache-aware routing.
 
+**Honeypot detection**
+
+- [honeypot-probes.ts](honeypot-probes.ts) — `SchemaConformanceProbe`, `ColdStartTimingProbe`, `ZeroWidthWatermarkProbe`, `HoneypotProbeRunner`. Detects honeypot/synthetic Ollama servers via API schema fingerprinting, cold-start timing analysis, and zero-width unicode watermark detection.
+
 **Metadata**
 
 - [version.ts](version.ts) — Version metadata.

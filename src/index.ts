@@ -49,6 +49,10 @@ import { getUserStore } from './storage/user-store.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { initLoggerConfigSubscription, logger } from './utils/logger.js';
 import { WarmupScheduler } from './utils/warmup-scheduler.js';
+import {
+  getHoneypotProbeScheduler,
+  resetHoneypotProbeScheduler,
+} from './probe/honeypot-probe-scheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -451,6 +455,19 @@ async function initialize(): Promise<void> {
       } else {
         logger.info('Warmup scheduler disabled by config');
       }
+
+      const honeypotConfig = configManager.getConfig().honeypotProbes;
+      if (honeypotConfig?.enabled) {
+        const honeypotScheduler = getHoneypotProbeScheduler();
+        honeypotScheduler.start();
+        (globalThis as { __honeypotScheduler?: typeof honeypotScheduler }).__honeypotScheduler =
+          honeypotScheduler;
+        logger.info(
+          `Honeypot probe scheduler enabled (interval=${honeypotConfig.intervalMs}ms, batchSize=${honeypotConfig.batchSize})`
+        );
+      } else {
+        logger.info('Honeypot probe scheduler disabled by config');
+      }
     });
   } catch (err) {
     logger.error('Failed to initialize orchestrator', { error: err });
@@ -485,6 +502,12 @@ process.on('SIGTERM', () => {
   const ws = (globalThis as { __warmupScheduler?: WarmupScheduler }).__warmupScheduler;
   if (ws) {
     ws.stop();
+  }
+
+  const hs = (globalThis as { __honeypotScheduler?: ReturnType<typeof getHoneypotProbeScheduler> })
+    .__honeypotScheduler;
+  if (hs) {
+    hs.stop();
   }
 
   // Stop accepting new connections

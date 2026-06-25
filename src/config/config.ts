@@ -17,6 +17,7 @@ import type {
   CircuitBreakerConfig,
   CapabilityProbeConfig,
   DebugConfig,
+  HoneypotProbesConfig,
   ProbeConfig,
   ProxyConfig,
   QueueConfig,
@@ -271,6 +272,7 @@ export interface OrchestratorConfig {
   probeScheduler: ProbeSchedulerConfig;
   probe?: ProbeConfig | undefined;
   capabilityProbe: CapabilityProbeConfig;
+  honeypotProbes: HoneypotProbesConfig;
   debug: DebugConfig;
   proxy: ProxyConfig;
   anthropic: AnthropicConfig;
@@ -618,6 +620,17 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     requestTimeoutMs: 5000,
     staggerOffsetMs: 30000,
     allowPrivateNetwork: false,
+  },
+
+  honeypotProbes: {
+    enabled: true,
+    intervalMs: 21600000,
+    batchSize: 50,
+    timeoutMs: 10000,
+    scoreThreshold: {
+      suspicious: 30,
+      flagged: 70,
+    },
   },
 
   debug: {
@@ -1119,6 +1132,7 @@ export class ConfigManager {
       probeScheduler: { ...DEFAULT_CONFIG.probeScheduler, ...partial.probeScheduler },
       probe: partial.probe ?? DEFAULT_CONFIG.probe,
       capabilityProbe: { ...DEFAULT_CONFIG.capabilityProbe, ...partial.capabilityProbe },
+      honeypotProbes: { ...DEFAULT_CONFIG.honeypotProbes, ...partial.honeypotProbes },
       debug: { ...DEFAULT_CONFIG.debug, ...partial.debug },
       proxy: { ...DEFAULT_CONFIG.proxy, ...partial.proxy },
       anthropic: { ...DEFAULT_CONFIG.anthropic, ...partial.anthropic },

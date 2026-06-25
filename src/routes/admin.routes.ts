@@ -7,6 +7,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 
 import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
+import { getHoneypotStats } from '../controllers/honeypot-stats-controller.js';
 import {
   resetBreaker,
   getBreakerDetails,
@@ -277,3 +278,6 @@ adminRouter.post('/recovery-failures/:serverId/reset', requireAdmin(), resetServ
 adminRouter.get('/logs', requireAuth(), getLogs);
 adminRouter.post('/logs/clear', requireAdmin(), clearLogs);
 adminRouter.post('/logs/client-error', requireAdmin(), logClientError);
+
+// Honeypot detection stats
+adminRouter.get('/honeypot-stats', requireAuth(), asyncHandler(getHoneypotStats));

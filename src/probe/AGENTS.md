@@ -76,6 +76,12 @@ Polling is controlled by the `loadBalancer.psPoll` config section (if present) o
 
 The `PsPollCoordinator` is started during probe subsystem initialization and is accessed via `getPsPollCoordinator()` from `src/probe/probe-scheduler-instance.ts`. It reads server URLs from the orchestrator and writes model availability to the `EndpointRegistry`.
 
+## Honeypot Probe Scheduler
+
+[honeypot-probe-scheduler.ts](honeypot-probe-scheduler.ts) — `HoneypotProbeScheduler`. Runs Tier 1 honeypot probes (schema conformance, cold-start timing, zero-width watermark) on a configurable interval across the server fleet. Reads model from PS poll coordinator; batches servers; stores results in-memory. Accessed via `getHoneypotProbeScheduler()` singleton.
+
+Configuration fields (`honeypotProbes` config section): `enabled`, `intervalMs`, `batchSize`, `timeoutMs`, `scoreThreshold.suspicious`, `scoreThreshold.flagged`.
+
 ## Ownership
 
 - Owns all health state and recovery semantics. The load balancer reads `canServe` but never mutates probe state.

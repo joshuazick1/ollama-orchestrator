@@ -562,6 +562,19 @@ export const capabilityProbeConfigSchema = z.object({
   allowPrivateNetwork: z.boolean().default(false),
 });
 
+export const honeypotProbesConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  intervalMs: z.number().int().min(60000).default(21600000),
+  batchSize: z.number().int().min(1).max(500).default(50),
+  timeoutMs: z.number().int().min(1000).default(10000),
+  scoreThreshold: z
+    .object({
+      suspicious: z.number().min(0).max(100).default(30),
+      flagged: z.number().min(0).max(100).default(70),
+    })
+    .default({ suspicious: 30, flagged: 70 }),
+});
+
 export const proxyConfigSchema = z.object({
   stripHeaders: z.array(z.string()).default([]),
   /**
@@ -707,6 +720,7 @@ export const orchestratorConfigSchema = z.object({
   adaptiveWeightTuner: z.object({
     enabled: z.boolean().default(true),
   }),
+  honeypotProbes: honeypotProbesConfigSchema,
   recoveryBackoff: recoveryBackoffConfigSchema,
 
   // Ollama servers
@@ -742,6 +756,7 @@ export type StorageConfig = z.infer<typeof storageConfigSchema>;
 export type ProbeSchedulerConfig = z.infer<typeof probeSchedulerConfigSchema>;
 export type ProbeConfig = z.infer<typeof probeConfigSchema>;
 export type CapabilityProbeConfig = z.infer<typeof capabilityProbeConfigSchema>;
+export type HoneypotProbesConfig = z.infer<typeof honeypotProbesConfigSchema>;
 export type DebugConfig = z.infer<typeof debugConfigSchema>;
 export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type AzureConfig = z.infer<typeof azureConfigSchema>;

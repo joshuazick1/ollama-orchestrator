@@ -69,3 +69,4 @@ export const PERFORMANCE_PROBE_COVERAGE_GRID = '/api/orchestrator/performance-pr
 export const PERFORMANCE_PROBE_SCHEDULED_PROBES =
   '/api/orchestrator/performance-probe/scheduled-probes';
 export const SERVERS_GHOST_STATS = '/api/orchestrator/servers/ghost-stats';
+export const HONEYPOT_STATS = '/api/orchestrator/honeypot-stats';
