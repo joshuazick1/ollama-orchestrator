@@ -29,6 +29,16 @@ describe('classifyOrchestratorRoutingError', () => {
     expect(result.isNoServersError).toBe(true);
   });
 
+  it('should detect retry budget exhausted as no servers error', () => {
+    const result = classifyOrchestratorRoutingError('Retry budget exhausted for model llama3');
+    expect(result.isNoServersError).toBe(true);
+  });
+
+  it('should detect retry budget (lowercase) as no servers error', () => {
+    const result = classifyOrchestratorRoutingError('retry budget exceeded for srv-1');
+    expect(result.isNoServersError).toBe(true);
+  });
+
   it('should return all false for unknown error', () => {
     const result = classifyOrchestratorRoutingError('Some random error');
     expect(result.isNoServersError).toBe(false);
