@@ -39,6 +39,7 @@ import {
   inferenceRouter,
   v1Router,
   anthropicRouter,
+  batchesRouter,
   authRouter,
   userRouter,
 } from './routes/orchestrator.js';
@@ -47,6 +48,7 @@ import { getMetricsStore } from './storage/metrics-store.js';
 import { getUserStore } from './storage/user-store.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { initLoggerConfigSubscription, logger } from './utils/logger.js';
+import { WarmupScheduler } from './utils/warmup-scheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -253,6 +255,7 @@ async function initialize(): Promise<void> {
     // OpenAI-compatible endpoints at /v1/*
     app.use('/v1', inferenceRateLimiter, v1Router);
     app.use('/v1', inferenceRateLimiter, anthropicRouter);
+    app.use('/v1', inferenceRateLimiter, batchesRouter);
 
     // User management routes (require auth + admin for most operations)
     app.use('/api/orchestrator', adminRateLimiter, requireAuthentication, userRouter);
@@ -428,6 +431,23 @@ async function initialize(): Promise<void> {
       logger.info(`  - Health check:      GET    /health`);
       logger.info(`  - Logging:           GET    /api/orchestrator/logs`);
       logger.info(`  - Logging:           POST   /api/orchestrator/logs/clear`);
+
+      const warmupConfig = configManager.getConfig().autoWarmup;
+      if (warmupConfig?.enabled) {
+        const warmupScheduler = new WarmupScheduler({
+          enabled: true,
+          intervalMs: warmupConfig.intervalMs,
+          topN: warmupConfig.topN,
+          serversPerModel: warmupConfig.serversPerModel,
+        });
+        warmupScheduler.start();
+        (globalThis as { __warmupScheduler?: WarmupScheduler }).__warmupScheduler = warmupScheduler;
+        logger.info(
+          `Warmup scheduler enabled (interval=${warmupConfig.intervalMs}ms, topN=${warmupConfig.topN})`
+        );
+      } else {
+        logger.info('Warmup scheduler disabled by config');
+      }
     });
   } catch (err) {
     logger.error('Failed to initialize orchestrator', { error: err });
@@ -459,6 +479,11 @@ process.on('SIGTERM', () => {
   const metricsStore = getMetricsStore();
   metricsStore.flushSync();
 
+  const ws = (globalThis as { __warmupScheduler?: WarmupScheduler }).__warmupScheduler;
+  if (ws) {
+    ws.stop();
+  }
+
   // Stop accepting new connections
   server!.close(() => {
     logger.info('HTTP server closed');
@@ -488,6 +513,11 @@ process.on('SIGINT', () => {
   // Flush metrics synchronously
   const metricsStore = getMetricsStore();
   metricsStore.flushSync();
+
+  const ws = (globalThis as { __warmupScheduler?: WarmupScheduler }).__warmupScheduler;
+  if (ws) {
+    ws.stop();
+  }
 
   // Stop accepting new connections
   server!.close(() => {
