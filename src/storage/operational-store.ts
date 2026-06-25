@@ -61,6 +61,23 @@ interface CBTransitionRow {
   timestamp: number;
 }
 
+interface ProbeStateRow {
+  tuple_key: string;
+  server_id: string;
+  model: string;
+  endpoint: string;
+  state: string;
+  consecutive_successes: number;
+  consecutive_failures: number;
+  error_window: string | null;
+  last_transition: number | null;
+  last_probe_at: number | null;
+  next_probe_at: number | null;
+  recovery_attempts: number;
+  last_error_kind: string | null;
+  updated_at: number;
+}
+
 interface MetricsSnapshotRow {
   server_id: string;
   model: string;
@@ -587,6 +604,142 @@ export class OperationalStore {
     }));
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Probe State CRUD (Task G1: CB State Persistence)
+  // Direct persistence for ProbeOrchestrator tuple states
+  // Complements WAL-based persistence with direct CRUD access
+  // ══════════════════════════════════════════════════════════════════════════
+
+  saveProbeTupleState(
+    tupleKey: string,
+    serverId: string,
+    model: string,
+    endpoint: string,
+    data: {
+      state: string;
+      consecutiveSuccesses: number;
+      consecutiveFailures: number;
+      errorWindow?: number[];
+      lastTransition?: number;
+      lastProbeAt?: number;
+      nextProbeAt?: number;
+      recoveryAttempts?: number;
+      lastErrorKind?: string;
+    }
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO probe_state
+           (tuple_key, server_id, model, endpoint, state,
+            consecutive_successes, consecutive_failures, error_window,
+            last_transition, last_probe_at, next_probe_at,
+            recovery_attempts, last_error_kind, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        tupleKey,
+        serverId,
+        model,
+        endpoint,
+        data.state,
+        data.consecutiveSuccesses,
+        data.consecutiveFailures,
+        data.errorWindow ? JSON.stringify(data.errorWindow) : null,
+        data.lastTransition ?? null,
+        data.lastProbeAt ?? null,
+        data.nextProbeAt ?? null,
+        data.recoveryAttempts ?? 0,
+        data.lastErrorKind ?? null,
+        Date.now()
+      );
+  }
+
+  getProbeTupleState(tupleKey: string):
+    | {
+        tupleKey: string;
+        serverId: string;
+        model: string;
+        endpoint: string;
+        state: string;
+        consecutiveSuccesses: number;
+        consecutiveFailures: number;
+        errorWindow: number[];
+        lastTransition: number | null;
+        lastProbeAt: number | null;
+        nextProbeAt: number | null;
+        recoveryAttempts: number;
+        lastErrorKind: string | null;
+        updatedAt: number;
+      }
+    | undefined {
+    const row = this.db.prepare(`SELECT * FROM probe_state WHERE tuple_key = ?`).get(tupleKey) as
+      | ProbeStateRow
+      | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      tupleKey: row.tuple_key,
+      serverId: row.server_id,
+      model: row.model,
+      endpoint: row.endpoint,
+      state: row.state,
+      consecutiveSuccesses: row.consecutive_successes,
+      consecutiveFailures: row.consecutive_failures,
+      errorWindow: row.error_window ? JSON.parse(row.error_window) : [],
+      lastTransition: row.last_transition,
+      lastProbeAt: row.last_probe_at,
+      nextProbeAt: row.next_probe_at,
+      recoveryAttempts: row.recovery_attempts,
+      lastErrorKind: row.last_error_kind,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  getAllProbeStates(): Array<{
+    tupleKey: string;
+    serverId: string;
+    model: string;
+    endpoint: string;
+    state: string;
+    consecutiveSuccesses: number;
+    consecutiveFailures: number;
+    errorWindow: number[];
+    lastTransition: number | null;
+    lastProbeAt: number | null;
+    nextProbeAt: number | null;
+    recoveryAttempts: number;
+    lastErrorKind: string | null;
+    updatedAt: number;
+  }> {
+    const rows = this.db.prepare(`SELECT * FROM probe_state`).all() as ProbeStateRow[];
+    return rows.map(r => ({
+      tupleKey: r.tuple_key,
+      serverId: r.server_id,
+      model: r.model,
+      endpoint: r.endpoint,
+      state: r.state,
+      consecutiveSuccesses: r.consecutive_successes,
+      consecutiveFailures: r.consecutive_failures,
+      errorWindow: r.error_window ? JSON.parse(r.error_window) : [],
+      lastTransition: r.last_transition,
+      lastProbeAt: r.last_probe_at,
+      nextProbeAt: r.next_probe_at,
+      recoveryAttempts: r.recovery_attempts,
+      lastErrorKind: r.last_error_kind,
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  deleteProbeTupleState(tupleKey: string): void {
+    this.db.prepare(`DELETE FROM probe_state WHERE tuple_key = ?`).run(tupleKey);
+  }
+
+  deleteAllProbeStatesForServer(serverId: string): number {
+    const result = this.db.prepare(`DELETE FROM probe_state WHERE server_id = ?`).run(serverId);
+    return result.changes;
+  }
+
   private migrateJsonCircuitBreakers(filePath: string): void {
     const raw = fs.readFileSync(filePath, 'utf-8');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1065,6 +1218,75 @@ export class OperationalStore {
     migrate();
     fs.renameSync(filePath, `${filePath}.bak`);
     logger.info(`[OperationalStore] Migrated metrics summary from ${filePath}`);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Quarantine CRUD (Tarpit Quarantine Pool)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  quarantineServer(entry: {
+    serverId: string;
+    quarantinedAt: number;
+    reason: string;
+    evidence: Record<string, unknown> | null;
+    expiresAt: number | null;
+    consecutiveCleanCycles: number;
+    isManual: boolean;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO quarantine
+           (server_id, quarantined_at, reason, evidence, expires_at, consecutive_clean_cycles, is_manual)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        entry.serverId,
+        entry.quarantinedAt,
+        entry.reason,
+        entry.evidence ? JSON.stringify(entry.evidence) : null,
+        entry.expiresAt ?? null,
+        entry.consecutiveCleanCycles,
+        entry.isManual ? 1 : 0
+      );
+  }
+
+  deleteQuarantine(serverId: string): void {
+    this.db.prepare(`DELETE FROM quarantine WHERE server_id = ?`).run(serverId);
+  }
+
+  updateQuarantineCleanCycles(serverId: string, cycles: number): void {
+    this.db
+      .prepare(`UPDATE quarantine SET consecutive_clean_cycles = ? WHERE server_id = ?`)
+      .run(cycles, serverId);
+  }
+
+  getQuarantinedServers(): Array<{
+    serverId: string;
+    quarantinedAt: number;
+    reason: string;
+    evidence: Record<string, unknown> | null;
+    expiresAt: number | null;
+    consecutiveCleanCycles: number;
+    isManual: boolean;
+  }> {
+    const rows = this.db.prepare(`SELECT * FROM quarantine`).all() as Array<{
+      server_id: string;
+      quarantined_at: number;
+      reason: string;
+      evidence: string | null;
+      expires_at: number | null;
+      consecutive_clean_cycles: number;
+      is_manual: number;
+    }>;
+    return rows.map(r => ({
+      serverId: r.server_id,
+      quarantinedAt: r.quarantined_at,
+      reason: r.reason,
+      evidence: r.evidence ? JSON.parse(r.evidence) : null,
+      expiresAt: r.expires_at,
+      consecutiveCleanCycles: r.consecutive_clean_cycles,
+      isManual: r.is_manual === 1,
+    }));
   }
 
   // ══════════════════════════════════════════════════════════════════════════

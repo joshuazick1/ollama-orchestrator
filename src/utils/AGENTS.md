@@ -21,6 +21,7 @@ Files of record (grouped by concern):
 
 - [in-flight-manager.ts](in-flight-manager.ts) — `InFlightManager` (singleton via `getInFlightManager`). Per-server, per-server:model, and per-stream tracking. Also tracks streaming progress, handoff candidates, and stall detection.
 - [ban-manager.ts](ban-manager.ts) — `BanManager`. Per-server:model permanent and cooldown bans.
+- [quarantine-pool.ts](quarantine-pool.ts) — `QuarantinePool` (singleton via `getQuarantinePool`). Tarpit quarantine pool for honeypot-flagged servers. Auto-quarantine on honeypot probe failure; auto-unquarantine after clean cycles.
 - [timeout-manager.ts](timeout-manager.ts) — `TimeoutManager`, `TimeoutConfig`, `TimeoutState`. Adaptive timeouts.
 - [timeout-telemetry.ts](timeout-telemetry.ts) — Telemetry counters for timeout events.
 - [retry-budget.ts](retry-budget.ts) — `RetryBudget` for request-level retry budget enforcement.

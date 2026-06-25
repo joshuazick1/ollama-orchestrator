@@ -394,7 +394,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       p95WindowMs: 60000,
     },
     ghostServers: {
-      staleThresholdMs: 1800000,
+      staleThresholdMs: 86400000,
       removeOnCleanup: true,
     },
     tokenWeightedLoad: {

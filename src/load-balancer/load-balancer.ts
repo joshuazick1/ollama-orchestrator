@@ -9,6 +9,7 @@ import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import { getUserStore } from '../storage/user-store.js';
 import { BoundedMap } from '../utils/bounded-map.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
+import { getQuarantinePool } from '../utils/quarantine-pool.js';
 import { logger } from '../utils/logger.js';
 
 import { PrefixCacheRouter } from './prefix-cache-router.js';
@@ -133,6 +134,12 @@ export interface LoadBalancerConfig {
     promptTokenWeight: number;
     outputTokenWeight: number;
   };
+  // Quarantine pool settings
+  quarantine?: {
+    autoQuarantine: boolean;
+    autoUnquarantineAfterCleanCycles: number;
+    lastResortFallback: boolean;
+  };
 }
 
 /**
@@ -206,7 +213,7 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     p95WindowMs: 60000,
   },
   ghostServers: {
-    staleThresholdMs: 300000,
+    staleThresholdMs: 86400000,
     removeOnCleanup: false,
   },
   tokenWeightedLoad: {
@@ -788,9 +795,17 @@ export class LoadBalancer {
     // Apply user access filtering before scoring
     const filteredCandidates = this.filterByUserAccess(candidates, model, userId, isAdmin);
 
+    const quarantinePool = getQuarantinePool();
+    const nonQuarantined = filteredCandidates.filter(s => !quarantinePool.isQuarantined(s.id));
+
+    let candidatesToScore = nonQuarantined;
+    if (candidatesToScore.length === 0 && this.config.quarantine?.lastResortFallback !== false) {
+      candidatesToScore = filteredCandidates;
+    }
+
     if (this.sloFallbackMonitor?.isActive() && this.config.fallbackToFastestResponse !== true) {
       return this.selectFastestResponse(
-        filteredCandidates,
+        candidatesToScore,
         model,
         getLoad,
         getTotalLoad,
@@ -800,7 +815,7 @@ export class LoadBalancer {
 
     if (this.config.fallbackToFastestResponse) {
       return this.selectFastestResponse(
-        filteredCandidates,
+        candidatesToScore,
         model,
         getLoad,
         getTotalLoad,
@@ -812,7 +827,7 @@ export class LoadBalancer {
       case 'weighted':
       case 'weighted-v2':
         return this.selectWeighted(
-          filteredCandidates,
+          candidatesToScore,
           model,
           getLoad,
           getTotalLoad,
@@ -823,17 +838,17 @@ export class LoadBalancer {
         );
 
       case 'round-robin':
-        return this.selectRoundRobin(filteredCandidates, getTotalLoad, clientId, model);
+        return this.selectRoundRobin(candidatesToScore, getTotalLoad, clientId, model);
 
       case 'least-connections':
-        return this.selectLeastConnections(filteredCandidates, getTotalLoad, getMetrics, model);
+        return this.selectLeastConnections(candidatesToScore, getTotalLoad, getMetrics, model);
 
       case 'random':
-        return this.selectRandom(filteredCandidates);
+        return this.selectRandom(candidatesToScore);
 
       case 'fastest-response':
         return this.selectFastestResponse(
-          filteredCandidates,
+          candidatesToScore,
           model,
           getLoad,
           getTotalLoad,
@@ -842,7 +857,7 @@ export class LoadBalancer {
 
       case 'streaming-optimized':
         return this.selectStreamingOptimized(
-          filteredCandidates,
+          candidatesToScore,
           model,
           getLoad,
           getTotalLoad,
@@ -852,7 +867,7 @@ export class LoadBalancer {
 
       case 'prefix-cache-aware':
         return this.selectPrefixCacheAware(
-          filteredCandidates,
+          candidatesToScore,
           model,
           getLoad,
           getTotalLoad,
@@ -862,7 +877,7 @@ export class LoadBalancer {
 
       default:
         return this.selectWeighted(
-          filteredCandidates,
+          candidatesToScore,
           model,
           getLoad,
           getTotalLoad,

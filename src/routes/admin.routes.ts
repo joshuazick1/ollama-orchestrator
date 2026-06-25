@@ -9,6 +9,11 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
 import { getHoneypotStats } from '../controllers/honeypot-stats-controller.js';
 import {
+  listQuarantined,
+  quarantineServer,
+  unquarantineServer,
+} from '../controllers/quarantine-controller.js';
+import {
   resetBreaker,
   getBreakerDetails,
   forceOpenBreaker,
@@ -281,3 +286,8 @@ adminRouter.post('/logs/client-error', requireAdmin(), logClientError);
 
 // Honeypot detection stats
 adminRouter.get('/honeypot-stats', requireAuth(), asyncHandler(getHoneypotStats));
+
+// Quarantine pool
+adminRouter.get('/quarantine', requireAuth(), asyncHandler(listQuarantined));
+adminRouter.post('/quarantine/:serverId', requireAdmin(), asyncHandler(quarantineServer));
+adminRouter.delete('/quarantine/:serverId', requireAdmin(), asyncHandler(unquarantineServer));

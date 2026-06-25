@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 /**
  * All DDL statements for schema version 1.
@@ -488,6 +488,32 @@ ALTER TABLE decision_candidates ADD COLUMN throughput_score REAL;
 ALTER TABLE decision_candidates ADD COLUMN vram_score REAL;
 `;
 
+export const SCHEMA_V7_MIGRATION = `
+-- ============================================================
+-- V7: Add probe_state table for direct probe state persistence
+-- This complements the WAL-based persistence with direct CRUD access
+-- ============================================================
+CREATE TABLE IF NOT EXISTS probe_state (
+  tuple_key         TEXT NOT NULL,
+  server_id         TEXT NOT NULL,
+  model             TEXT NOT NULL,
+  endpoint          TEXT NOT NULL,
+  state             TEXT NOT NULL,
+  consecutive_successes INTEGER DEFAULT 0,
+  consecutive_failures  INTEGER DEFAULT 0,
+  error_window      TEXT,
+  last_transition   INTEGER,
+  last_probe_at     INTEGER,
+  next_probe_at     INTEGER,
+  recovery_attempts INTEGER DEFAULT 0,
+  last_error_kind   TEXT,
+  updated_at        INTEGER NOT NULL,
+  PRIMARY KEY (tuple_key)
+);
+CREATE INDEX IF NOT EXISTS idx_probe_state_server ON probe_state(server_id);
+CREATE INDEX IF NOT EXISTS idx_probe_state_model ON probe_state(model);
+`;
+
 export const SCHEMA_V5_MIGRATION = `
 -- ============================================================
 -- V5: Drop old circuit_breaker tables, create probe WAL
@@ -524,6 +550,7 @@ export const MIGRATIONS: Record<number, string> = {
   4: SCHEMA_V4_MIGRATION,
   5: SCHEMA_V5_MIGRATION,
   6: SCHEMA_V6_MIGRATION,
+  7: SCHEMA_V7_MIGRATION,
 };
 
 /**

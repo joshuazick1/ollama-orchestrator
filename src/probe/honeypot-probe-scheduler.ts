@@ -2,6 +2,7 @@ import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.j
 import { getPsPollCoordinator } from './ps-poll-coordinator-instance.js';
 import { getConfigManager } from '../config/config.js';
 import { logger } from '../utils/logger.js';
+import { getQuarantinePool } from '../utils/quarantine-pool.js';
 import {
   HoneypotProbeRunner,
   type HoneypotProbeResult,
@@ -265,6 +266,34 @@ export class HoneypotProbeScheduler {
               );
 
               this.results.set(server.id, result);
+
+              const quarantineConfig = getConfigManager().getConfig().loadBalancer?.quarantine;
+              const pool = getQuarantinePool();
+
+              if (quarantineConfig?.autoQuarantine !== false) {
+                if (
+                  result.compositeScore >= this.config.scoreThreshold.flagged &&
+                  !pool.isQuarantined(server.id)
+                ) {
+                  pool.quarantine(
+                    server.id,
+                    'honeypot-flagged',
+                    result.evidence as Record<string, unknown>,
+                    false
+                  );
+                } else if (
+                  result.compositeScore < this.config.scoreThreshold.suspicious &&
+                  pool.isQuarantined(server.id)
+                ) {
+                  const entry = pool.getEntry(server.id);
+                  if (entry && !entry.isManual) {
+                    const cycles = pool.recordCleanCycle(server.id);
+                    if (cycles >= (quarantineConfig?.autoUnquarantineAfterCleanCycles ?? 3)) {
+                      pool.unquarantine(server.id);
+                    }
+                  }
+                }
+              }
             } catch (err) {
               logger.warn('[HoneypotProbe] server probe failed', {
                 serverId: server.id,

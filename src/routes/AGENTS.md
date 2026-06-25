@@ -9,7 +9,7 @@ Composes the routers mounted by [src/index.ts](../index.ts) and applies the per-
 Files of record:
 
 - [orchestrator.ts](orchestrator.ts) — Barrel that composes the per-area routers and re-exports them as a single object.
-- [admin.routes.ts](admin.routes.ts) — Admin operations (server add/remove, drain, undrain, maintenance, config, ban management, breaker controls).
+- [admin.routes.ts](admin.routes.ts) — Admin operations (server add/remove, drain, undrain, maintenance, config, ban management, breaker controls, quarantine pool).
 - [inference.routes.ts](inference.routes.ts) — Standard `/api/generate`, `/api/chat`, `/api/embeddings`, `/api/ps`, `/api/version` plus the `--:serverId` bypass variants.
 - [monitoring.routes.ts](monitoring.routes.ts) — Health, stats, metrics, logs, in-flight, model status, circuit-breaker read.
 - [v1.routes.ts](v1.routes.ts) — OpenAI-compatible `/v1/*` (chat/completions, completions, embeddings, models) plus the `--:serverId` bypass variants.

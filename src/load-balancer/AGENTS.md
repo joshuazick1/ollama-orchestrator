@@ -29,6 +29,7 @@ Files of record:
 - Token-weighted load: Request load is weighted by `promptTokenWeight * promptTokens + outputTokenWeight * outputTokens` instead of simple concurrency count. Configured via `loadBalancer.tokenWeightedLoad` (enabled, promptTokenWeight, outputTokenWeight). Default: prompt=1.0, output=4.0.
 - Cold-start magnitude: Servers that have recently cold-started (TTFT above `loadBalancer.coldStartMagnitude.thresholdMs`) receive a time-limited penalty score for `penaltyDurationMs`. Configured via `loadBalancer.coldStartMagnitude` (enabled, thresholdMs, penaltyDurationMs).
 - `fallbackToFastestResponse` kill switch: When set to `true`, all algorithms behave as `fastest-response` regardless of configured algorithm. This reverts to pre-stability-release behavior.
+- Quarantine filter: Quarantined servers (via `QuarantinePool`) are filtered from candidate lists during server selection. If `loadBalancer.quarantine.lastResortFallback` is `true` and all candidates are quarantined, they are included as a last resort.
 - `calculateServerScore(server, metrics, config, ...)` is the single source of truth for the weighted score; tests assert on its breakdown.
 - Weight defaults are documented in the load-balancer test suite and the config schema. Changing them is a config- and behavior-level change and must be reflected in [src/config/schema.ts](../config/schema.ts).
 - The temporal scorer is a process-wide singleton; do not instantiate it directly in tests unless the test exercises temporal pattern behavior.

@@ -15,6 +15,7 @@ Files of record (current):
 - [error-events-controller.ts](error-events-controller.ts) — Read error event history.
 - [honeypot-stats-controller.ts](honeypot-stats-controller.ts) — `GET /api/orchestrator/honeypot-stats` — Returns honeypot probe results summary (clean/suspicious/flagged counts), latest results, and distribution stats.
 - [logs-controller.ts](logs-controller.ts) — Read and clear the in-memory log buffer.
+- [quarantine-controller.ts](quarantine-controller.ts) — Tarpit quarantine pool management: list quarantined servers, quarantine a server, unquarantine a server.
 - [metrics-controller.ts](metrics-controller.ts) — Metrics dashboard JSON, per-server:model metrics, Prometheus export.
 - [model-controller.ts](model-controller.ts) — Model map, fleet stats, model status, warmup, unload, cancel, recommendations.
 - [ollama-controller.ts](ollama-controller.ts) — Ollama-compatible `/api/tags`, `/api/generate`, `/api/chat`, `/api/embeddings`, `/api/ps`, `/api/version` plus server-specific bypass variants.
