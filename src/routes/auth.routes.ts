@@ -7,6 +7,7 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 
 import { requireAuth, isAuthEnabled, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
+import { createAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf.js';
 import { getUserStore } from '../storage/user-store.js';
 import {
@@ -22,6 +23,8 @@ import {
   getRefreshTokenFromCookie,
 } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
+
+const authRateLimiter = createAuthRateLimiter();
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -59,6 +62,7 @@ authRouter.get(
 
 authRouter.post(
   '/login',
+  authRateLimiter,
   validateCsrfToken,
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = loginSchema.safeParse(req.body);
@@ -101,6 +105,7 @@ authRouter.post(
 
 authRouter.post(
   '/logout',
+  authRateLimiter,
   validateCsrfToken,
   asyncHandler((_req: Request, res: Response) => {
     clearTokenCookie(res);

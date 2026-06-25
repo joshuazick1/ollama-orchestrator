@@ -110,14 +110,67 @@ export function createMonitoringRateLimiter(): any {
 }
 
 /**
- * Admin endpoint rate limiter - more restrictive
+ * Admin endpoint rate limiter - protects /api/orchestrator admin routes.
+ * Reads config dynamically on every request so adminRateLimitMax and
+ * adminRateLimitWindowMs changes take effect without restart.
  */
+const adminRequestCounts: Map<string, { count: number; resetAt: number }> = new Map();
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createAdminRateLimiter(): any {
-  return createRateLimiter({
-    windowMs: 5 * 60 * 1000, // 5 minutes
-    maxRequests: 50, // 50 requests per 5 minutes
-  });
+  return (req: Request, res: Response, next: () => void) => {
+    // Skip health and metrics endpoints
+    if (req.path === '/health' || req.path === '/metrics') {
+      return next();
+    }
+
+    // Read CURRENT config on every request (hot-reloadable)
+    const config = getConfigManager().getConfig();
+    const max = config.security?.adminRateLimitMax ?? 200;
+    const windowMs = config.security?.adminRateLimitWindowMs ?? 60000;
+    const windowSeconds = Math.ceil(windowMs / 1000);
+
+    const key = defaultKeyGenerator(req);
+    const now = Date.now();
+    const entry = adminRequestCounts.get(key);
+
+    // Initialize or reset window
+    if (!entry || entry.resetAt < now) {
+      adminRequestCounts.set(key, { count: 1, resetAt: now + windowMs });
+      res.setHeader('RateLimit-Policy', `${max};w=${windowSeconds}`);
+      res.setHeader('RateLimit-Limit', max.toString());
+      res.setHeader('RateLimit-Remaining', (max - 1).toString());
+      return next();
+    }
+
+    entry.count++;
+
+    if (entry.count > max) {
+      // Rate limit exceeded
+      res.setHeader('RateLimit-Policy', `${max};w=${windowSeconds}`);
+      res.setHeader('RateLimit-Limit', max.toString());
+      res.setHeader('RateLimit-Remaining', '0');
+      res.setHeader('Retry-After', Math.ceil((entry.resetAt - now) / 1000).toString());
+
+      logger.warn(`Admin rate limit exceeded for ${req.ip}`, {
+        path: req.path,
+        method: req.method,
+        configuredMax: max,
+      });
+
+      return res.status(429).json({
+        error: 'Too many requests',
+        message: 'Rate limit exceeded. Please try again later.',
+        retryAfter: Math.ceil((entry.resetAt - now) / 1000),
+      });
+    }
+
+    // Within limit
+    res.setHeader('RateLimit-Policy', `${max};w=${windowSeconds}`);
+    res.setHeader('RateLimit-Limit', max.toString());
+    res.setHeader('RateLimit-Remaining', (max - entry.count).toString());
+    return next();
+  };
 }
 
 /**
