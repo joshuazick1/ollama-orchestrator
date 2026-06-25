@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K6_PATH="${K6_PATH:-/usr/local/bin/k6}"
+K6_SCRIPT="${K6_SCRIPT:-$SCRIPT_DIR/k6-base.js}"
 K6_DEFAULTS="--vus 100 --duration 10m"
 
 usage() {
@@ -41,7 +42,7 @@ if [[ "$NETNS_NUM" == "0" ]] || [[ -z "$NETNS_NUM" ]]; then
   export BASE_URL="$BASE_URL"
   echo "BASE_URL: $BASE_URL"
   echo ""
-  $K6_PATH run $K6_ARGS
+  $K6_PATH run $K6_ARGS "$K6_SCRIPT"
 else
   if ip netns list 2>/dev/null | grep -q "^$NETNS_NAME "; then
     # netns 1-5 maps to host veth IP 192.168.42.10-14
@@ -58,7 +59,7 @@ else
     export BASE_URL="$BASE_URL"
     echo "BASE_URL: $BASE_URL"
     echo ""
-    ip netns exec "$NETNS_NAME" "$K6_PATH" run $K6_ARGS
+    ip netns exec "$NETNS_NAME" "$K6_PATH" run $K6_ARGS "$K6_SCRIPT"
   else
     echo "WARNING: Namespace $NETNS_NAME not found. Running on host instead." >&2
     echo "         API key will still be used: ${API_KEY:0:20}..." >&2
@@ -69,6 +70,6 @@ else
     export BASE_URL="$BASE_URL"
     echo "BASE_URL: $BASE_URL"
     echo ""
-    $K6_PATH run $K6_ARGS
+    $K6_PATH run $K6_ARGS "$K6_SCRIPT"
   fi
 fi
