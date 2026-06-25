@@ -14,7 +14,32 @@ import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
 import { forwardStreamingResponseHeaders } from './utils/response-header-forwarder.js';
+import { classifyOrchestratorRoutingError } from './utils/orchestrator-error-classifier.js';
 import { recordStallDetected, recordStreamingChunkGap } from './utils/timeout-telemetry.js';
+
+/**
+ * Maps a streaming error to an appropriate HTTP status code for SSE error events.
+ */
+export function getStatusFromStreamingError(error: Error): number {
+  const msg = error.message;
+
+  // Check for timeout patterns (not covered by orchestrator-error-classifier)
+  if (msg.includes('timeout') || msg.includes('Timeout') || msg.includes('timed out')) {
+    return 504;
+  }
+
+  // Use orchestrator error classification
+  const classification = classifyOrchestratorRoutingError(msg);
+  if (classification.isNoServersError) return 503;
+  if (classification.isConcurrencySaturated) return 503;
+  if (classification.isAccessDenied) return 403;
+  if (classification.isModelNotFound) return 404;
+
+  // Common patterns
+  if (msg.includes('abort')) return 499; // Client closed request
+
+  return 500;
+}
 
 export interface StreamingTelemetryMeta {
   serverId: string;
@@ -850,11 +875,12 @@ export async function streamResponse(
         details: error instanceof Error ? error.message : String(error),
       });
     } else {
-      const errorPayload = JSON.stringify({
-        error: 'Streaming failed',
-        details: error instanceof Error ? error.message : String(error),
-      });
-      clientResponse.write(`${errorPayload}\n`);
+      // Headers already sent - emit SSE error event with status code
+      const status = error instanceof Error ? getStatusFromStreamingError(error) : 500;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      clientResponse.write(
+        `event: error\ndata: ${JSON.stringify({ status, message: errorMessage })}\n\n`
+      );
       clientResponse.end();
     }
   } finally {
