@@ -35,6 +35,13 @@ export interface LoadedModel {
   digest: string;
 }
 
+export interface VLLMModelMeta {
+  max_model_len?: number;
+  quantization?: string;
+  supports_tool_calling?: boolean;
+  supports_vision?: boolean;
+}
+
 export interface AIServer {
   id: string;
   url: string;
@@ -50,6 +57,8 @@ export interface AIServer {
   // NEW: OpenAI-compatible models (from /v1/models)
   v1Models?: string[];
   discoveredV1Models?: string[];
+  // vLLM-specific metadata per model (max_model_len, quantization, etc.)
+  vllmMetadata?: Record<string, VLLMModelMeta>;
   // NEW: Anthropic capability
   supportsAnthropic?: boolean; // Whether server supports /v1/messages Anthropic endpoints
 
@@ -75,6 +84,7 @@ export interface AIServer {
 
   // NEW: Optional API key for authentication
   apiKey?: string;
+  deploymentName?: string;
   // Operational state
   draining?: boolean;
   maintenance?: boolean;
@@ -329,6 +339,8 @@ export interface RequestContext {
   cacheReadTokens?: number;
   /** Whether thinking was auto-disabled due to upstream 400 rejection */
   thinkingAutoDisabled?: boolean;
+  /** Upstream's request-id (Anthropic) or x-request-id (OpenAI) from response headers */
+  upstreamRequestId?: string;
 }
 
 /**
@@ -353,6 +365,8 @@ export interface GlobalMetrics {
   images?: ImageMetrics;
   /** Anthropic tool use metrics */
   tool?: ToolUseMetrics;
+  /** OpenAI n parameter parallel completions count */
+  parallelCompletionsCount?: number;
 }
 
 /**
