@@ -13,6 +13,8 @@ Files of record:
 - [Models.tsx](Models.tsx) — Fleet model status, warmup, unload, recommendations.
 - [InFlight.tsx](InFlight.tsx) — Active in-flight request monitoring.
 - [CircuitBreakers.tsx](CircuitBreakers.tsx) — Circuit breaker list, detail modal, force state changes, recovery test.
+- [Honeypot.tsx](Honeypot.tsx) — Honeypot detection dashboard with scored servers, verdict badges, and quarantine actions.
+- [Quarantine.tsx](Quarantine.tsx) — Quarantine management with quarantined servers, recovery progress, and unquarantine actions.
 - [Logs.tsx](Logs.tsx) — Application log viewer, search, clear.
 - [Login.tsx](Login.tsx) — Public login form.
 - [analytics/](analytics/) — Analytics page (multi-tab).

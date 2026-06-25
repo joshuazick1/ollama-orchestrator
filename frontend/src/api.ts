@@ -151,3 +151,19 @@ export {
   type CancelPerfProbeResponse,
   type RecentPerfProbeTask,
 } from './api/perf-probe';
+export {
+  getHoneypotStats,
+  getHoneypotSummary,
+  getTopFlagged,
+  getQuarantineList,
+  quarantineServer,
+  unquarantineServer,
+  getGhostStats,
+  type HoneypotServerResult,
+  type HoneypotSummary,
+  type HoneypotStatsResponse,
+  type TopFlaggedResponse,
+  type QuarantineEntry,
+  type QuarantineListResponse,
+  type GhostStats,
+} from './api/honeypot';

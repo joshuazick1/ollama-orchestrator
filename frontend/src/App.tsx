@@ -34,6 +34,8 @@ const ClusterStatus = lazy(() =>
 const Playground = lazy(() => import('./pages/Playground').then(m => ({ default: m.Playground })));
 const PerfProbe = lazy(() => import('./pages/PerfProbe').then(m => ({ default: m.PerfProbe })));
 const Setup = lazy(() => import('./pages/Setup').then(m => ({ default: m.Setup })));
+const Honeypot = lazy(() => import('./pages/Honeypot').then(m => ({ default: m.Honeypot })));
+const Quarantine = lazy(() => import('./pages/Quarantine').then(m => ({ default: m.Quarantine })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -200,6 +202,22 @@ function AppContent() {
             element={
               <Suspense fallback={<PageLoader />}>
                 <PerfProbe />
+              </Suspense>
+            }
+          />
+          <Route
+            path="honeypot"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Honeypot />
+              </Suspense>
+            }
+          />
+          <Route
+            path="quarantine"
+            element={
+              <Suspense fallback={<PageLoader />}>
+                <Quarantine />
               </Suspense>
             }
           />
