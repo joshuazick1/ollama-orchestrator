@@ -44,5 +44,24 @@ describe('classifyOrchestratorRoutingError', () => {
     expect(result.isNoServersError).toBe(false);
     expect(result.isConcurrencySaturated).toBe(false);
     expect(result.isAccessDenied).toBe(false);
+    expect(result.isTimeout).toBe(false);
+  });
+
+  it('should detect timeout error', () => {
+    const result = classifyOrchestratorRoutingError('Request timeout exceeded');
+    expect(result.isTimeout).toBe(true);
+    expect(result.isNoServersError).toBe(false);
+    expect(result.isConcurrencySaturated).toBe(false);
+    expect(result.isAccessDenied).toBe(false);
+  });
+
+  it('should detect Timeout error (capital T)', () => {
+    const result = classifyOrchestratorRoutingError('Server Timeout for model llama3');
+    expect(result.isTimeout).toBe(true);
+  });
+
+  it('should detect timeout in context', () => {
+    const result = classifyOrchestratorRoutingError('connection timeout after 30s');
+    expect(result.isTimeout).toBe(true);
   });
 });

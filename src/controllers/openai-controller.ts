@@ -1353,7 +1353,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
@@ -1365,6 +1365,15 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             message: errorMessage,
             type: 'access_denied',
             code: 'forbidden',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isTimeout) {
+        res.status(504).json({
+          error: {
+            message: errorMessage,
+            type: 'timeout',
+            code: 'gateway_timeout',
           },
           ...(debugPayload && { debug: debugPayload }),
         });
@@ -1549,7 +1558,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     logger.error('OpenAI completions failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
@@ -1561,6 +1570,15 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
             message: errorMessage,
             type: 'access_denied',
             code: 'forbidden',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isTimeout) {
+        res.status(504).json({
+          error: {
+            message: errorMessage,
+            type: 'timeout',
+            code: 'gateway_timeout',
           },
           ...(debugPayload && { debug: debugPayload }),
         });
@@ -1657,7 +1675,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
     logger.error('OpenAI embeddings failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
@@ -1669,6 +1687,15 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
             message: errorMessage,
             type: 'access_denied',
             code: 'forbidden',
+          },
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isTimeout) {
+        res.status(504).json({
+          error: {
+            message: errorMessage,
+            type: 'timeout',
+            code: 'gateway_timeout',
           },
           ...(debugPayload && { debug: debugPayload }),
         });

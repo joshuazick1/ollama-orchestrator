@@ -488,8 +488,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound } =
-        classifyOrchestratorRoutingError(errorMessage);
+      const {
+        isNoServersError,
+        isConcurrencySaturated,
+        isAccessDenied,
+        isModelNotFound,
+        isTimeout,
+      } = classifyOrchestratorRoutingError(errorMessage);
 
       // Include routing context in error responses when debug is requested
       const debugPayload = isDebugRequested(req)
@@ -513,6 +518,13 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
           error: isConcurrencySaturated
             ? 'All servers at max concurrency'
             : 'No available servers for model',
+          model,
+          message: errorMessage,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isTimeout) {
+        res.status(504).json({
+          error: 'Gateway timeout',
           model,
           message: errorMessage,
           ...(debugPayload && { debug: debugPayload }),
