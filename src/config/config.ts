@@ -37,6 +37,8 @@ export interface SecurityConfig {
   corsOrigins: string[];
   rateLimitWindowMs: number;
   rateLimitMax: number;
+  adminRateLimitMax: number;
+  adminRateLimitWindowMs: number;
   authMustBeEnabled: boolean;
   apiKeyHeader?: string;
   apiKeys?: string[];
@@ -459,6 +461,8 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     corsOrigins: [],
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
+    adminRateLimitMax: 200,
+    adminRateLimitWindowMs: 60000,
     authMustBeEnabled: false,
   },
 
