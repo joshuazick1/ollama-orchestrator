@@ -70,3 +70,5 @@ export const PERFORMANCE_PROBE_SCHEDULED_PROBES =
   '/api/orchestrator/performance-probe/scheduled-probes';
 export const SERVERS_GHOST_STATS = '/api/orchestrator/servers/ghost-stats';
 export const HONEYPOT_STATS = '/api/orchestrator/honeypot-stats';
+export const HONEYPOT_STATS_SUMMARY = '/api/orchestrator/honeypot-stats/summary';
+export const HONEYPOT_STATS_TOP = '/api/orchestrator/honeypot-stats/top';
