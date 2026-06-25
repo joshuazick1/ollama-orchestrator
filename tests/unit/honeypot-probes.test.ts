@@ -383,3 +383,399 @@ describe('HoneypotProbeRunner', () => {
     expect(result.verdict).toBe('clean'); // composite=24 < suspicious(30)
   });
 });
+
+describe('HttpHeaderConsistencyProbe', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ version: '0.1.0' }),
+      headers: new Map([
+        ['content-type', 'application/json; charset=utf-8'],
+        ['date', 'Thu, 25 Jun 2026 12:00:00 GMT'],
+      ]),
+    } as unknown as Response);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it('scores 0 for real Ollama headers', async () => {
+    const { HttpHeaderConsistencyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new HttpHeaderConsistencyProbe({ timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434');
+
+    expect(result.score).toBe(0);
+    expect(result.evidence.contentType).toContain('application/json');
+    expect(result.evidence.hasDate).toBe(true);
+    expect(result.evidence.issues).toHaveLength(0);
+  });
+
+  it('scores 40 for wrong Content-Type', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+      headers: new Map([
+        ['content-type', 'text/html'],
+        ['date', 'Thu, 25 Jun 2026 12:00:00 GMT'],
+      ]),
+    } as unknown as Response);
+
+    const { HttpHeaderConsistencyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new HttpHeaderConsistencyProbe({ timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434');
+
+    expect(result.score).toBe(40);
+    expect(result.evidence.issues).toContain('Wrong Content-Type (not application/json)');
+  });
+
+  it('scores 20 for missing Date header', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+      headers: new Map([['content-type', 'application/json; charset=utf-8']]),
+    } as unknown as Response);
+
+    const { HttpHeaderConsistencyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new HttpHeaderConsistencyProbe({ timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434');
+
+    expect(result.score).toBe(20);
+    expect(result.evidence.issues).toContain('Missing Date header');
+  });
+
+  it('scores 50 for suspicious Server header', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({}),
+      headers: new Map([
+        ['content-type', 'application/json; charset=utf-8'],
+        ['date', 'Thu, 25 Jun 2026 12:00:00 GMT'],
+        ['server', 'nginx/1.18.0'],
+      ]),
+    } as unknown as Response);
+
+    const { HttpHeaderConsistencyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new HttpHeaderConsistencyProbe({ timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434');
+
+    expect(result.score).toBe(50);
+    expect(result.evidence.issues.some((i: string) => i.includes('nginx'))).toBe(true);
+  });
+
+  it('scores 30 for unparseable JSON', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => {
+        throw new Error('parse error');
+      },
+      headers: new Map([
+        ['content-type', 'application/json; charset=utf-8'],
+        ['date', 'Thu, 25 Jun 2026 12:00:00 GMT'],
+      ]),
+    } as unknown as Response);
+
+    const { HttpHeaderConsistencyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new HttpHeaderConsistencyProbe({ timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434');
+
+    expect(result.score).toBe(30);
+    expect(result.evidence.issues).toContain('Unparseable JSON response');
+  });
+});
+
+describe('OutputEntropyProbe', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ response: '42, 17, 89' }),
+    } as unknown as Response);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it('scores 0 when all 5 responses are unique', async () => {
+    const responses = ['42, 17, 89', '11, 55, 33', '7, 21, 14', '99, 3, 67', '25, 41, 58'];
+    let callCount = 0;
+    fetchSpy.mockImplementation(async () => {
+      const response = responses[callCount % responses.length];
+      callCount++;
+      return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ response }),
+      } as unknown as Response;
+    });
+
+    const { OutputEntropyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new OutputEntropyProbe({ sampleCount: 5, timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434', 'llama3:8b');
+
+    expect(result.score).toBe(0);
+    expect(result.evidence.uniqueCount).toBe(5);
+    expect(result.evidence.identicalRatio).toBe(0);
+  });
+
+  it('scores 100 when all 5 responses are identical', async () => {
+    fetchSpy.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ response: '42, 17, 89' }),
+    } as unknown as Response);
+
+    const { OutputEntropyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new OutputEntropyProbe({ sampleCount: 5, timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434', 'llama3:8b');
+
+    expect(result.score).toBe(100);
+    expect(result.evidence.uniqueCount).toBe(1);
+    expect(result.evidence.identicalRatio).toBe(0.8);
+  });
+
+  it('scores 60 when 4 out of 5 responses are identical', async () => {
+    let callCount = 0;
+    fetchSpy.mockImplementation(async () => {
+      callCount++;
+      const response = callCount <= 4 ? '42, 17, 89' : '11, 55, 33';
+      return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ response }),
+      } as unknown as Response;
+    });
+
+    const { OutputEntropyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new OutputEntropyProbe({ sampleCount: 5, timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434', 'llama3:8b');
+
+    expect(result.score).toBe(60);
+    expect(result.evidence.uniqueCount).toBe(2);
+  });
+
+  it('scores 30 when 3 out of 5 responses are identical', async () => {
+    let callCount = 0;
+    fetchSpy.mockImplementation(async () => {
+      callCount++;
+      const response =
+        callCount <= 3 ? '42, 17, 89' : `${callCount * 10}, ${callCount * 5}, ${callCount}`;
+      return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ response }),
+      } as unknown as Response;
+    });
+
+    const { OutputEntropyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new OutputEntropyProbe({ sampleCount: 5, timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434', 'llama3:8b');
+
+    expect(result.score).toBe(30);
+    expect(result.evidence.uniqueCount).toBe(3);
+  });
+
+  it('scores 10 when 2 out of 5 responses are identical', async () => {
+    let callCount = 0;
+    fetchSpy.mockImplementation(async () => {
+      callCount++;
+      const responses = ['42, 17, 89', '11, 55, 33', '77, 22, 88', '42, 17, 89', '99, 1, 44'];
+      return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ response: responses[callCount - 1] }),
+      } as unknown as Response;
+    });
+
+    const { OutputEntropyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new OutputEntropyProbe({ sampleCount: 5, timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434', 'llama3:8b');
+
+    expect(result.score).toBe(10);
+    expect(result.evidence.uniqueCount).toBe(4);
+  });
+
+  it('handles fetch failures gracefully', async () => {
+    fetchSpy.mockRejectedValue(new Error('network error'));
+
+    const { OutputEntropyProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new OutputEntropyProbe({ sampleCount: 5, timeoutMs: 5000 });
+    const result = await probe.probe('http://localhost:11434', 'llama3:8b');
+
+    expect(result.score).toBe(0);
+    expect(result.evidence.responses).toHaveLength(0);
+  });
+});
+
+describe('TlsFingerprintProbe', () => {
+  beforeEach(() => {
+    vi.stubGlobal('net', {
+      createConnection: vi.fn().mockReturnValue({
+        on: vi.fn(),
+        destroy: vi.fn(),
+      }),
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('scores 0 for known Ollama/Node.js fingerprint', async () => {
+    vi.doMock('node:tls', () => ({
+      connect: vi.fn((_options: unknown, callback: () => void) => {
+        setTimeout(callback, 0);
+        return {
+          on: vi.fn((event: string, handler: () => void) => {
+            if (event === 'error') {
+            }
+          }),
+          getCipher: () => ({ name: 'TLS_AES_256_GCM_SHA384', version: 'TLSv1.3' }),
+          getPeerCertificate: () => ({ serialNumber: '01' }),
+          destroy: vi.fn(),
+          removeAllListeners: vi.fn(),
+        };
+      }),
+    }));
+
+    const { TlsFingerprintProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new TlsFingerprintProbe({ timeoutMs: 5000 });
+
+    const mockTls = await import('node:tls');
+    vi.mocked(mockTls.connect).mockImplementation((_options: unknown, callback: () => void) => {
+      setTimeout(callback, 0);
+      return {
+        on: vi.fn(),
+        getCipher: () => ({ name: 'TLS_AES_256_GCM_SHA384', version: 'TLSv1.3' }),
+        getPeerCertificate: () => ({ serialNumber: '01' }),
+        destroy: vi.fn(),
+        removeAllListeners: vi.fn(),
+      };
+    });
+
+    const result = await probe.probe('localhost', 11434);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.evidence.rawHandshakeSummary).toBeTruthy();
+  });
+
+  it('scores 0 for timeout', async () => {
+    vi.doMock('node:tls', () => ({
+      connect: vi.fn(() => {
+        return {
+          on: vi.fn((_event: string, _handler: () => void) => {}),
+          getCipher: () => null,
+          getPeerCertificate: () => null,
+          destroy: vi.fn(),
+          removeAllListeners: vi.fn(),
+        };
+      }),
+    }));
+
+    const { TlsFingerprintProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new TlsFingerprintProbe({ timeoutMs: 50 });
+    const result = await probe.probe('192.168.1.1', 11434);
+
+    expect(result.score).toBe(0);
+    expect(['timeout', 'connection_error', 'setup_error']).toContain(
+      result.evidence.rawHandshakeSummary
+    );
+  });
+
+  it('handles connection errors gracefully', async () => {
+    vi.doMock('node:tls', () => ({
+      connect: vi.fn((_options: unknown, _callback: () => void) => {
+        return {
+          on: vi.fn((event: string, handler: (err: Error) => void) => {
+            if (event === 'error') {
+              setTimeout(() => handler(new Error('Connection refused')), 0);
+            }
+          }),
+          getCipher: () => null,
+          getPeerCertificate: () => null,
+          destroy: vi.fn(),
+          removeAllListeners: vi.fn(),
+        };
+      }),
+    }));
+
+    const { TlsFingerprintProbe } = await import('../../../src/utils/honeypot-probes.js');
+    const probe = new TlsFingerprintProbe({ timeoutMs: 5000 });
+    const result = await probe.probe('192.168.1.1', 11434);
+
+    expect(result.score).toBe(0);
+    expect(['connection_error', 'tls_error', 'setup_error']).toContain(
+      result.evidence.rawHandshakeSummary
+    );
+  });
+});
+
+describe('HoneypotProbeRunner runTier2', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ response: 'test response' }),
+      headers: new Map([
+        ['content-type', 'application/json; charset=utf-8'],
+        ['date', 'Thu, 25 Jun 2026 12:00:00 GMT'],
+      ]),
+    } as unknown as Response);
+
+    vi.stubGlobal('net', {
+      createConnection: vi.fn().mockReturnValue({
+        on: vi.fn(),
+        destroy: vi.fn(),
+      }),
+    });
+
+    vi.doMock('node:tls', () => ({
+      connect: vi.fn((_options: unknown, callback: () => void) => {
+        setTimeout(callback, 0);
+        return {
+          on: vi.fn(),
+          getCipher: () => ({ name: 'TLS_AES_256_GCM_SHA384', version: 'TLSv1.3' }),
+          getPeerCertificate: () => ({ serialNumber: '01' }),
+          destroy: vi.fn(),
+          removeAllListeners: vi.fn(),
+        };
+      }),
+    }));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it('runTier2 returns all tier2 scores and evidence', async () => {
+    const { HoneypotProbeRunner } = await import('../../../src/utils/honeypot-probes.js');
+    const runner = new HoneypotProbeRunner({
+      entropy: { sampleCount: 2 },
+      tls: { timeoutMs: 5000 },
+    });
+
+    const result = await runner.runTier2('http://localhost:11434', 'srv-test', 'llama3:8b');
+
+    expect(result.headerScore).toBeDefined();
+    expect(result.entropyScore).toBeDefined();
+    expect(result.tlsScore).toBeDefined();
+    expect(result.tier2Score).toBeDefined();
+    expect(result.headerEvidence).toBeDefined();
+    expect(result.entropyEvidence).toBeDefined();
+    expect(result.tlsEvidence).toBeDefined();
+  });
+});

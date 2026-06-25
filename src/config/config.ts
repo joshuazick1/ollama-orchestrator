@@ -631,6 +631,12 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       suspicious: 30,
       flagged: 70,
     },
+    tier2: {
+      enabled: true,
+      entropySampleCount: 5,
+      tlsTimeoutMs: 5000,
+      intervalMs: 86400000,
+    },
   },
 
   debug: {

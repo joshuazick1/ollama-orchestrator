@@ -140,6 +140,10 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_HONEYPOT_TIMEOUT_MS: 'honeypotProbes.timeoutMs',
   ORCHESTRATOR_HONEYPOT_SCORE_THRESHOLD_SUSPICIOUS: 'honeypotProbes.scoreThreshold.suspicious',
   ORCHESTRATOR_HONEYPOT_SCORE_THRESHOLD_FLAGGED: 'honeypotProbes.scoreThreshold.flagged',
+  ORCHESTRATOR_HONEYPOT_TIER2_ENABLED: 'honeypotProbes.tier2.enabled',
+  ORCHESTRATOR_HONEYPOT_TIER2_ENTROPY_SAMPLE_COUNT: 'honeypotProbes.tier2.entropySampleCount',
+  ORCHESTRATOR_HONEYPOT_TIER2_TLS_TIMEOUT_MS: 'honeypotProbes.tier2.tlsTimeoutMs',
+  ORCHESTRATOR_HONEYPOT_TIER2_INTERVAL_MS: 'honeypotProbes.tier2.intervalMs',
 };
 
 /**

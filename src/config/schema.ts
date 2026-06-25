@@ -573,6 +573,14 @@ export const honeypotProbesConfigSchema = z.object({
       flagged: z.number().min(0).max(100).default(70),
     })
     .default({ suspicious: 30, flagged: 70 }),
+  tier2: z
+    .object({
+      enabled: z.boolean().default(true),
+      entropySampleCount: z.number().int().min(1).max(10).default(5),
+      tlsTimeoutMs: z.number().int().min(1000).default(5000),
+      intervalMs: z.number().int().min(3600000).default(86400000),
+    })
+    .default({ enabled: true, entropySampleCount: 5, tlsTimeoutMs: 5000, intervalMs: 86400000 }),
 });
 
 export const proxyConfigSchema = z.object({
