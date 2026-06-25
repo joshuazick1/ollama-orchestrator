@@ -97,6 +97,38 @@ export class WarmupScheduler {
           const subset = model.servers.slice(0, this.config.serversPerModel);
           logger.info(`[WarmupScheduler] Warming ${model.name} on ${subset.length} servers`);
 
+          // Fire warmup requests in parallel — one failed warmup must not abort the rest
+          const warmupResults = await Promise.allSettled(
+            subset.map(serverId =>
+              fetch(
+                `http://localhost:5100/api/orchestrator/models/${encodeURIComponent(model.name)}/warmup`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ servers: [serverId] }),
+                }
+              ).then(async res => {
+                if (!res.ok) {
+                  const detail = await res.text().catch(() => '');
+                  throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
+                }
+                return { serverId, ok: true };
+              })
+            )
+          );
+
+          for (let i = 0; i < warmupResults.length; i++) {
+            const result = warmupResults[i];
+            const serverId = subset[i];
+            if (result.status === 'rejected') {
+              logger.warn(
+                `[WarmupScheduler] Warmup ${model.name} on ${serverId} failed: ${result.reason}`
+              );
+            } else {
+              logger.info(`[WarmupScheduler] ✓ Warmed ${model.name} on ${serverId}`);
+            }
+          }
+
           if (this.config.verbose !== false) {
             logger.info(`[WarmupScheduler] ✓ ${model.name} (${subset.length} servers)`);
           }
