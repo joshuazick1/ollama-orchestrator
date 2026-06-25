@@ -25,6 +25,15 @@ export const API_ENDPOINTS = {
   ANTHROPIC: {
     MESSAGES: '/v1/messages',
     MODELS: '/v1/models',
+    MESSAGES_BATCHES: '/v1/messages/batches',
+  },
+  COHERE: {
+    CHAT: '/v1/chat',
+    MODELS: '/v1/models',
+  },
+  BEDROCK: {
+    INVOKE: '/model/{modelId}/invoke',
+    INVOKE_STREAM: '/model/{modelId}/invoke-with-response-stream',
   },
 } as const;
 
@@ -35,6 +44,7 @@ export type OllamaEndpoint = (typeof API_ENDPOINTS.OLLAMA)[keyof typeof API_ENDP
 export type OpenAIEndpoint = (typeof API_ENDPOINTS.OPENAI)[keyof typeof API_ENDPOINTS.OPENAI];
 export type AnthropicEndpoint =
   (typeof API_ENDPOINTS.ANTHROPIC)[keyof typeof API_ENDPOINTS.ANTHROPIC];
+export type CohereEndpoint = (typeof API_ENDPOINTS.COHERE)[keyof typeof API_ENDPOINTS.COHERE];
 
 export const CAPABILITY_PROBE = '/api/orchestrator/servers/:id/capability-probe';
 export const TEST_CONNECTION = '/api/orchestrator/servers/test-connection';
@@ -58,3 +68,4 @@ export const PERFORMANCE_PROBE_RECENT = '/api/orchestrator/performance-probe/rec
 export const PERFORMANCE_PROBE_COVERAGE_GRID = '/api/orchestrator/performance-probe/coverage-grid';
 export const PERFORMANCE_PROBE_SCHEDULED_PROBES =
   '/api/orchestrator/performance-probe/scheduled-probes';
+export const SERVERS_GHOST_STATS = '/api/orchestrator/servers/ghost-stats';

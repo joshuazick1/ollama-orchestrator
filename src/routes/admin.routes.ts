@@ -69,6 +69,7 @@ import {
   testConnection,
   getTestResult,
   testExistingServer,
+  getGhostStats,
 } from '../controllers/servers-controller.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
@@ -136,6 +137,9 @@ adminRouter.post(
 );
 adminRouter.get('/servers/test-connection/:testId', requireAdmin(), asyncHandler(getTestResult));
 adminRouter.post('/servers/:id/test', requireAdmin(), asyncHandler(testExistingServer));
+
+// Ghost server stats
+adminRouter.get('/servers/ghost-stats', requireAuth(), asyncHandler(getGhostStats));
 
 // Server drain/undrain/maintenance
 adminRouter.post('/servers/:id/drain', requireAdmin(), asyncHandler(drainServer));

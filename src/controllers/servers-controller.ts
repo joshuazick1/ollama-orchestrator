@@ -485,61 +485,63 @@ export function getCircuitBreakers(req: Request, res: Response): void {
     const allStates = probeOrchestrator.getAllStates();
     const servers = orchestrator.getServers();
 
-    const breakerArray = Array.from(allStates.entries()).map(([tupleKey, tupleState]) => {
-      const { serverId: rawServerId, model, endpoint } = parseTupleKey(tupleKey);
-      // Normalize serverId to match actual server IDs (srv- prefix + base64url format)
-      const serverId = normalizeServerId(rawServerId, servers);
-      const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
-      const errorRate =
-        tupleState.errorWindow.length > 0
-          ? tupleState.errorWindow.length /
-            Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
-          : 0;
+    const breakerArray = Array.from(allStates.entries())
+      .filter(([tupleKey]) => tupleKey && typeof tupleKey === 'string' && tupleKey.includes(':'))
+      .map(([tupleKey, tupleState]) => {
+        const { serverId: rawServerId, model, endpoint } = parseTupleKey(tupleKey);
+        // Normalize serverId to match actual server IDs (srv- prefix + base64url format)
+        const serverId = normalizeServerId(rawServerId, servers);
+        const lbScore = orchestrator.getLBScoreForServerModel(serverId, model);
+        const errorRate =
+          tupleState.errorWindow.length > 0
+            ? tupleState.errorWindow.length /
+              Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
+            : 0;
 
-      return {
-        serverId,
-        serverIdOnly: serverId,
-        model,
-        endpoint,
-        tupleKey,
-        state: tupleState.state,
-        uiState: probeStateToUIState(tupleState.state),
-        failureCount: tupleState.consecutiveFailures,
-        successCount: tupleState.consecutiveSuccesses,
-        totalRequestCount: 0,
-        blockedRequestCount: 0,
-        lastFailure: 0,
-        lastSuccess: 0,
-        nextRetryAt: tupleState.nextProbeAt,
-        halfOpenStartedAt:
-          tupleState.state === 'RECOVERING' ? tupleState.lastTransition : undefined,
-        errorRate: Math.round(errorRate * 100) / 100,
-        errorCounts: {
-          retryable: 0,
-          'non-retryable': 0,
-          transient: 0,
-          permanent: 0,
-          rateLimited: 0,
-        },
-        consecutiveSuccesses: tupleState.consecutiveSuccesses,
-        modelType: endpointRegistry.isEmbeddingModel(model) ? 'embedding' : 'generation',
-        lastFailureReason: tupleState.lastErrorKind ?? undefined,
-        lastErrorType: tupleState.lastErrorKind ?? undefined,
-        halfOpenAttempts: tupleState.recoveryAttempts,
-        activeTestsInProgress: undefined,
-        lbScore: lbScore
-          ? {
-              totalScore: lbScore.totalScore,
-              latencyScore: lbScore.breakdown.latencyScore,
-              successRateScore: lbScore.breakdown.successRateScore,
-              loadScore: lbScore.breakdown.loadScore,
-              capacityScore: lbScore.breakdown.capacityScore,
-              circuitBreakerScore: lbScore.breakdown.circuitBreakerScore,
-              timeoutScore: lbScore.breakdown.timeoutScore,
-            }
-          : null,
-      };
-    });
+        return {
+          serverId,
+          serverIdOnly: serverId,
+          model,
+          endpoint,
+          tupleKey,
+          state: tupleState.state,
+          uiState: probeStateToUIState(tupleState.state),
+          failureCount: tupleState.consecutiveFailures,
+          successCount: tupleState.consecutiveSuccesses,
+          totalRequestCount: 0,
+          blockedRequestCount: 0,
+          lastFailure: 0,
+          lastSuccess: 0,
+          nextRetryAt: tupleState.nextProbeAt,
+          halfOpenStartedAt:
+            tupleState.state === 'RECOVERING' ? tupleState.lastTransition : undefined,
+          errorRate: Math.round(errorRate * 100) / 100,
+          errorCounts: {
+            retryable: 0,
+            'non-retryable': 0,
+            transient: 0,
+            permanent: 0,
+            rateLimited: 0,
+          },
+          consecutiveSuccesses: tupleState.consecutiveSuccesses,
+          modelType: endpointRegistry.isEmbeddingModel(model) ? 'embedding' : 'generation',
+          lastFailureReason: tupleState.lastErrorKind ?? undefined,
+          lastErrorType: tupleState.lastErrorKind ?? undefined,
+          halfOpenAttempts: tupleState.recoveryAttempts,
+          activeTestsInProgress: undefined,
+          lbScore: lbScore
+            ? {
+                totalScore: lbScore.totalScore,
+                latencyScore: lbScore.breakdown.latencyScore,
+                successRateScore: lbScore.breakdown.successRateScore,
+                loadScore: lbScore.breakdown.loadScore,
+                capacityScore: lbScore.breakdown.capacityScore,
+                circuitBreakerScore: lbScore.breakdown.circuitBreakerScore,
+                timeoutScore: lbScore.breakdown.timeoutScore,
+              }
+            : null,
+        };
+      });
 
     const byState: Record<string, number> = { OPEN: 0, CLOSED: 0, HALF_OPEN: 0, UNKNOWN: 0 };
     for (const breaker of breakerArray) {
@@ -1508,4 +1510,107 @@ export async function testExistingServer(req: Request, res: Response): Promise<v
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+function formatMsToHumanReadable(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+/**
+ * Get ghost server statistics
+ * GET /api/orchestrator/servers/ghost-stats
+ * Query params:
+ *   - limit: number of servers to return (default 100, max 1000)
+ *   - onlyRemovable: if "true", return only servers that would be removed
+ */
+export function getGhostStats(req: Request, res: Response): void {
+  const orchestrator = getOrchestratorInstance();
+  const psCoordinator = getPsPollCoordinator();
+  const config = getConfigManager().getConfig();
+
+  const ghostConfig = config.loadBalancer?.ghostServers ?? {
+    staleThresholdMs: 1800000,
+    removeOnCleanup: true,
+  };
+
+  const limit = Math.min(Math.max(1, parseInt(String(req.query.limit ?? '100'), 10) || 100), 1000);
+  const onlyRemovable = req.query.onlyRemovable === 'true';
+
+  const now = Date.now();
+  const allServers = orchestrator.getServers();
+  const healthyServers = allServers.filter(s => s.healthy);
+
+  interface GhostServerEntry {
+    id: string;
+    url: string;
+    healthy: boolean;
+    ghost: boolean;
+    ghostAgeMs: number;
+    ghostAgeHumanReadable: string;
+    lastPollAt: string;
+    wouldBeRemoved: boolean;
+    reason: string;
+  }
+
+  const ghostEntries: GhostServerEntry[] = [];
+
+  let ghostCount = 0;
+  let wouldBeRemovedCount = 0;
+
+  for (const server of allServers) {
+    if (!server.healthy) {
+      continue;
+    }
+    const models = psCoordinator.getModelsOnServer(server.id);
+    const lastPollAt = psCoordinator.getServerLastPollAt(server.id);
+    const hasModels = models.size > 0;
+
+    if (!hasModels && lastPollAt > 0) {
+      ghostCount++;
+      const staleDuration = now - lastPollAt;
+      const isStale = staleDuration >= ghostConfig.staleThresholdMs;
+      const wouldRemove = isStale && ghostConfig.removeOnCleanup;
+
+      if (wouldRemove) {
+        wouldBeRemovedCount++;
+      }
+
+      ghostEntries.push({
+        id: server.id,
+        url: server.url,
+        healthy: server.healthy,
+        ghost: true,
+        ghostAgeMs: staleDuration,
+        ghostAgeHumanReadable: formatMsToHumanReadable(staleDuration),
+        lastPollAt: new Date(lastPollAt).toISOString(),
+        wouldBeRemoved: wouldRemove,
+        reason: isStale
+          ? `stale ${Math.round(staleDuration / 60000)}min > ${Math.round(ghostConfig.staleThresholdMs / 60000)}min threshold`
+          : `ghost (0 models), not yet stale`,
+      });
+    }
+  }
+
+  ghostEntries.sort((a, b) => b.ghostAgeMs - a.ghostAgeMs);
+
+  const filteredEntries = onlyRemovable ? ghostEntries.filter(e => e.wouldBeRemoved) : ghostEntries;
+
+  const limitedEntries = filteredEntries.slice(0, limit);
+
+  res.status(200).json({
+    thresholdMs: ghostConfig.staleThresholdMs,
+    removeOnCleanup: ghostConfig.removeOnCleanup,
+    summary: {
+      totalServers: allServers.length,
+      healthyServers: healthyServers.length,
+      ghostServers: ghostCount,
+      wouldBeRemoved: wouldBeRemovedCount,
+      wouldRemainAsGhost: ghostCount - wouldBeRemovedCount,
+    },
+    servers: limitedEntries,
+  });
 }
