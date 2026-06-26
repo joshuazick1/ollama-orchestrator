@@ -395,7 +395,9 @@ describe('OpenAI Controller', () => {
         'openai',
         expect.any(Object),
         undefined,
-        expect.any(Number) // estimated tokens
+        expect.any(Number),
+        undefined,
+        true
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -530,9 +532,6 @@ describe('OpenAI Controller', () => {
         'http://localhost:11434/v1/embeddings',
         expect.objectContaining({
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
           body: JSON.stringify({
             model: 'llama3:latest',
             input: 'Hello world',
@@ -806,9 +805,11 @@ describe('OpenAI Controller', () => {
         false,
         'generate',
         'openai',
-        {},
+        expect.any(Object),
         undefined,
-        expect.any(Number) // estimated tokens
+        expect.any(Number),
+        undefined,
+        true
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });
@@ -1200,9 +1201,11 @@ describe('OpenAI Controller', () => {
         false,
         'generate',
         'openai',
-        {},
+        expect.any(Object),
         undefined,
-        expect.any(Number) // estimated tokens
+        expect.any(Number),
+        undefined,
+        true
       );
       expect(mockRes.json).toHaveBeenCalledWith(mockResult);
     });

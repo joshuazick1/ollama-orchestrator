@@ -158,11 +158,20 @@ export function getStreamingConfig(): StreamingConfig {
   return cachedStreamingConfig;
 }
 
-getConfigManager().onChange(config => {
-  if (config.streaming) {
-    updateStreamingConfig(config.streaming);
+// Register config change listener with defensive fallback for test environments
+// where getConfigManager() may not be fully initialized at module load time
+try {
+  const manager = getConfigManager();
+  if (manager && typeof manager.onChange === 'function') {
+    manager.onChange(config => {
+      if (config.streaming) {
+        updateStreamingConfig(config.streaming);
+      }
+    });
   }
-});
+} catch {
+  // Config manager not ready at module load - streaming config will use defaults
+}
 
 function parseStreamChunk(chunk: Uint8Array): {
   done?: boolean;
