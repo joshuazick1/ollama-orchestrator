@@ -81,19 +81,50 @@ function runHandlerSync(
     }
   }
 
+  // Run all layers from start up to and including the matched route.
   let layerIdx = 0;
-  const next = () => {
-    if (layerIdx <= routeIndex) {
+  const runLayer = (): void => {
+    while (layerIdx <= routeIndex) {
       const layer = router.stack[layerIdx++];
-      if (typeof layer.handle === 'function') {
-        layer.handle(req, res, next);
-      } else {
-        next();
+      if (typeof layer.handle !== 'function') {
+        continue;
       }
+      let nextCalled = false;
+      const next = (): void => {
+        if (!nextCalled) {
+          nextCalled = true;
+          runLayer();
+        }
+      };
+      layer.handle(req, res, next);
+      return;
     }
   };
 
-  next();
+  // Also iterate through route.stack handlers (per-route middlewares + handler).
+  const runRouteHandlers = (): void => {
+    const handlers = routeLayer.route.stack;
+    let handlerIdx = 0;
+    const next = (): void => {
+      if (handlerIdx < handlers.length) {
+        const handler = handlers[handlerIdx++].handle;
+        let nextCalled = false;
+        const onNext = (): void => {
+          if (!nextCalled) {
+            nextCalled = true;
+            next();
+          }
+        };
+        handler(req, res, onNext);
+      }
+    };
+    next();
+  };
+
+  runLayer();
+  // After all router.stack layers run, then run the per-route handlers
+  // This simulates the actual Express request flow
+  runRouteHandlers();
 }
 
 describe('user.routes', () => {

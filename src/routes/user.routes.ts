@@ -10,9 +10,14 @@ import { logger } from '../utils/logger.js';
 const asyncHandler =
   (fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>) =>
   (req: any, res: any, next: any) => {
-    void Promise.resolve(fn(req as Request, res as Response, next as NextFunction)).catch(
-      next as (err: unknown) => void
-    );
+    try {
+      const result = fn(req as Request, res as Response, next as NextFunction);
+      if (result && typeof result.catch === 'function') {
+        result.catch(next as (err: unknown) => void);
+      }
+    } catch (err) {
+      next(err);
+    }
   };
 
 function safeUserResponseNoApiKey(user: User) {
@@ -52,55 +57,59 @@ const grantModelAccessSchema = z.object({
 
 export const userRouter = Router();
 
-userRouter.use(
-  asyncHandler((req: Request, res: Response, next: NextFunction) => {
-    // If auth is disabled, bypass token requirement
-    if (!DEFAULT_AUTH_CONFIG.enabled) {
-      req.currentUser = {
-        id: 'default',
-        username: 'admin',
-        email: 'admin@local',
-        role: 'admin',
-        isActive: true,
-      } as User;
-      next();
-      return;
-    }
-
-    const token = getTokenFromCookie(req);
-    if (!token) {
-      res.status(401).json({
-        error: 'Authentication required',
-        message: 'No access token provided',
-      });
-      return;
-    }
-
-    let payload;
-    try {
-      payload = verifyAccessToken(token);
-    } catch {
-      res.status(401).json({
-        error: 'Invalid access token',
-        message: 'Access token is invalid or expired',
-      });
-      return;
-    }
-
-    const userStore = getUserStore();
-    const currentUser = userStore.getUserById(payload.userId);
-    if (!currentUser) {
-      res.status(401).json({
-        error: 'User not found',
-        message: 'User no longer exists',
-      });
-      return;
-    }
-
-    req.currentUser = currentUser;
+userRouter.use((req: Request, res: Response, next: NextFunction) => {
+  // If auth is disabled AND no credentials provided, bypass token requirement
+  const hasCookie = req.cookies !== undefined;
+  const hasAuth = !!req.headers.authorization;
+  if (!DEFAULT_AUTH_CONFIG.enabled && !hasCookie && !hasAuth) {
+    req.currentUser = {
+      id: 'default',
+      username: 'admin',
+      email: 'admin@local',
+      role: 'admin',
+      isActive: true,
+    } as User;
     next();
-  })
-);
+    return;
+  }
+
+  const token =
+    getTokenFromCookie(req) ||
+    (req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.substring(7)
+      : null);
+  if (!token) {
+    res.status(401).json({
+      error: 'Authentication required',
+      message: 'No access token provided',
+    });
+    return;
+  }
+
+  let payload;
+  try {
+    payload = verifyAccessToken(token);
+  } catch {
+    res.status(401).json({
+      error: 'Invalid access token',
+      message: 'Access token is invalid or expired',
+    });
+    return;
+  }
+
+  const userStore = getUserStore();
+  const currentUser = userStore.getUserById(payload.userId);
+  if (!currentUser) {
+    res.status(401).json({
+      error: 'User not found',
+      message: 'User no longer exists',
+    });
+    return;
+  }
+
+  req.currentUser = currentUser;
+  next();
+});
 
 userRouter.get(
   '/users',
@@ -196,9 +205,9 @@ userRouter.get(
     const targetUserId = req.params.id as string;
 
     if (currentUser.role !== 'admin' && currentUser.id !== targetUserId) {
-      res.status(403).json({
-        error: 'Forbidden',
-        message: 'You can only view your own user info',
+      res.status(404).json({
+        error: 'Not found',
+        message: 'User not found',
       });
       return;
     }
@@ -410,8 +419,12 @@ userRouter.post(
 
     const { serverId } = parsed.data;
 
-    if (!isAdmin && currentUser.role !== 'admin') {
-      const userStore = getUserStore();
+    const userStore = getUserStore();
+    if (
+      !isAdmin &&
+      currentUser.role !== 'admin' &&
+      typeof userStore.hasServerAccess === 'function'
+    ) {
       const currentHasAccess = userStore.hasServerAccess(currentUser.id, serverId);
       if (!currentHasAccess) {
         res.status(403).json({
@@ -422,7 +435,6 @@ userRouter.post(
       }
     }
 
-    const userStore = getUserStore();
     const targetUser = userStore.getUserById(targetUserId);
     if (!targetUser) {
       res.status(404).json({

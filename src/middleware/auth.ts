@@ -148,16 +148,31 @@ export function requireAuth(
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction): void => {
     // If auth is disabled, set req.auth to internal admin and allow request
-    if (!DEFAULT_AUTH_CONFIG.enabled) {
+    if (!config.enabled) {
       req.auth = { isAdmin: true, apiKey: 'internal' };
       next();
       return;
     }
 
-    // Check for JWT token first (Bearer token in Authorization header)
+    // Check for Bearer token in Authorization header
+    // First try API key, then fall back to JWT
     const authHeader = req.headers.authorization;
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
+
+      // Try as API key first
+      const isAdminKey = config.adminApiKeys.some(key => safeCompare(token, key));
+      const isUserKey = config.apiKeys.some(key => safeCompare(token, key));
+      if (isAdminKey || isUserKey) {
+        req.auth = {
+          apiKey: token,
+          isAdmin: isAdminKey,
+        };
+        next();
+        return;
+      }
+
+      // Try as JWT
       try {
         const payload = verifyAccessToken(token);
         // JWT is valid - set req.user with userId and role
@@ -172,16 +187,8 @@ export function requireAuth(
         };
         next();
         return;
-      } catch (err) {
-        logger.warn('JWT verification failed for Bearer token', {
-          path: req.path,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        res.status(401).json({
-          error: 'Authentication failed',
-          message: 'Invalid Bearer token',
-        });
-        return;
+      } catch {
+        // Fall through to API key check below
       }
     }
 

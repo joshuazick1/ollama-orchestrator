@@ -473,6 +473,18 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
   const orchestratorConfig = getConfigManager().getConfig();
   const defaultVersion = orchestratorConfig.anthropic?.defaultVersion ?? '2023-06-01';
 
+  // Require anthropic-version header (must be a string)
+  if (clientVersion === undefined || typeof clientVersion !== 'string') {
+    res.status(400).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'anthropic-version header is required',
+      },
+    });
+    return;
+  }
+
   // Validate format if provided, use default if absent
   let anthropicVersion: string;
   if (clientVersion !== undefined) {
@@ -515,6 +527,49 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
   }
 
   const rawBody = req.body as Record<string, unknown>;
+
+  // Validate messages array is non-empty (if provided)
+  if (
+    rawBody.messages !== undefined &&
+    Array.isArray(rawBody.messages) &&
+    rawBody.messages.length === 0
+  ) {
+    res.status(400).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'messages must be a non-empty array',
+        param: 'messages',
+      },
+    });
+    return;
+  }
+
+  // Reject thinking field (not yet supported)
+  if ('thinking' in rawBody && rawBody.thinking !== undefined) {
+    res.status(400).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'thinking is not supported',
+        param: 'thinking',
+      },
+    });
+    return;
+  }
+
+  // Reject cache_control field (not yet supported)
+  if ('cache_control' in rawBody && rawBody.cache_control !== undefined) {
+    res.status(400).json({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: 'cache_control is not supported',
+        param: 'cache_control',
+      },
+    });
+    return;
+  }
 
   const parseResult = AnthropicMessagesRequestSchema.safeParse(rawBody);
   if (!parseResult.success) {
