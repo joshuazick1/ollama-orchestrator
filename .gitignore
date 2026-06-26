@@ -66,5 +66,10 @@ docs/DESIGN-*.md
 .sisyphus/evidence/
 .sisyphus/notepads/
 
+# Plan files containing PII (real server URLs / credentials)
+# Use placeholder examples in these files instead
+.sisyphus/plans/minimax-server-config.md
+.sisyphus/plans/server-model-management.md
+
 # Playwright browser state
 .playwright-mcp/
