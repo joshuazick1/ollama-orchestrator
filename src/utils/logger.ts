@@ -1,3 +1,12 @@
+/**
+ * LOGGER SELF-REFERENCE EXCEPTION
+ *
+ * The 7 console.* calls in this file are INTENTIONAL FALLBACKS and MUST NOT be replaced with logger.* calls.
+ * Reason: If the logger itself fails (e.g., file write error), it cannot call itself without infinite recursion.
+ * These console.* calls are the terminal output destination for the logger.
+ * See .sisyphus/plans/test-failure-cleanup.md for context.
+ */
+
 import { appendFileSync, mkdirSync } from 'fs';
 
 import { getConfigManager } from '../config/config.js';
