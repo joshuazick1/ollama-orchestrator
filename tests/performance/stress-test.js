@@ -1,3 +1,4 @@
+/* global __ENV, __VU */
 /**
  * K6 Stress Test: System Limits Testing
  *

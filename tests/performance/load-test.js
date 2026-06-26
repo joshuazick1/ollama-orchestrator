@@ -1,3 +1,4 @@
+/* global __ENV */
 /**
  * K6 Load Test: Basic Load Testing
  *

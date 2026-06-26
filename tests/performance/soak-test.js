@@ -1,3 +1,4 @@
+/* global __ENV */
 /**
  * K6 Soak Test: Long-Running Stability Testing
  *
