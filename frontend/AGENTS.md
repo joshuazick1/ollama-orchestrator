@@ -32,6 +32,7 @@ Entry points:
 
 - New page: add it under [src/pages/](src/pages/), add a route in [src/App.tsx](src/App.tsx), and add a nav entry in [src/constants/navigation.ts](src/constants/navigation.ts).
 - New reusable component: add it under [src/components/](src/components/). Use the existing primitives (`Button`, `Card`, `Modal`, `Badge`, `EmptyState`, `StatCard`, `DataToolbar`).
+- New dynamic-width bar: prefer extending [src/components/ProgressBar.tsx](src/components/ProgressBar.tsx). Do not introduce inline `style={{ width: '...' }}`.
 - New API call: add a typed method to [src/api.ts](src/api.ts). Reuse `ApiError` for error normalization; do not throw raw axios errors from UI code.
 - New type from the backend: regenerate the mirror with `npm run build` (which runs `prebuild` → `scripts/sync-types.sh`) — do not hand-edit the generated file.
 - Avoid hardcoded colors outside [src/constants/colors.ts](src/constants/colors.ts). Use the palette or the Tailwind theme.

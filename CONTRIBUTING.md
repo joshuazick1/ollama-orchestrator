@@ -6,7 +6,7 @@ Thank you for your interest in contributing to the Ollama Orchestrator project! 
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
+- Node.js (v20 or higher)
 - npm (v9 or higher)
 - Docker and Docker Compose (optional, for containerized testing)
 
@@ -82,29 +82,50 @@ We use **Vitest** for testing. Please ensure all tests pass before submitting a 
 
 ## Linting and Formatting
 
-We use **ESLint** and **Prettier** to maintain code quality.
+We use **ESLint** and **Prettier** to maintain code quality. ESLint has two profiles:
 
-- **Check for linting errors:**
+- **`.eslintrc.json`** — full profile with `@typescript-eslint/recommended-requiring-type-checking` (used by `lint`/`lint:fix`). Runs type analysis on every pass; appropriate for CI.
+- **`.eslintrc.fast.json`** — lightweight profile without type-aware rules (used by `lint:fast`). Appropriate for local dev iteration.
 
+**Scripts:**
+
+```bash
+npm run lint:fast    # fast: no TypeScript type analysis (~2–5s)
+npm run lint         # full: includes type checking (~10–20s)
+npm run lint:fix     # full + auto-fix
+npm run format:check # prettier format check
+```
+
+**Logging:** Use `logger` from `src/utils/logger.ts` instead of `console.log`. `console.*` is set to `warn` level — it won't block CI but will produce warnings. Suppress with `// eslint-disable-next-line no-console` when truly needed.
+
+- **Format check:**
   ```bash
-  npm run lint
-  ```
-
-- **Fix linting errors automatically:**
-  ```bash
-  npm run lint:fix
+  npm run format:check
   ```
 
 ## Project Structure
 
 - `src/`: Backend source code
-  - `config/`: Configuration logic
-  - `routes/`: API route definitions
-  - `services/`: Core business logic (LoadBalancer, Queue, etc.)
+  - `config/`: Configuration management (Zod schema, hot-reload)
+  - `controllers/`: HTTP request handlers (18 controllers)
+  - `middleware/`: Auth, rate-limiting, validation middleware
+  - `orchestrator/`: Core routing engine, types, persistence
+  - `probe/`: Circuit breaker state machine, health checks
+  - `routes/`: Express router composition
+  - `analytics/`: Analytics engine, recovery-failure tracker
+  - `metrics/`: Prometheus exporter, sliding-window metrics
+  - `storage/`: SQLite + JSON file persistence
   - `types/`: TypeScript type definitions
-- `frontend/`: React frontend source code
-- `tests/`: Integration tests
-- `docs/`: Documentation
+  - `utils/`: Pure helpers (fetch, logging, streaming, etc.)
+- `frontend/`: React dashboard (Vite, shadcn/ui)
+  - `src/pages/`: Page components (Dashboard, Servers, Models, Analytics, etc.)
+  - `src/components/`: Reusable UI primitives
+  - `src/hooks/`: React hooks (auth, data table, websocket, etc.)
+  - `src/types/generated/`: Auto-generated backend type mirror
+- `tests/`: Vitest + Playwright test suite
+  - `unit/`, `integration/`, `e2e/`, `chaos/`, `performance/`
+- `docs/`: Operator guides (API, Deployment, Operations, Examples)
+- `scripts/`: Operational scripts (install, load test, sync-types, etc.)
 
 ## Submitting a Pull Request
 

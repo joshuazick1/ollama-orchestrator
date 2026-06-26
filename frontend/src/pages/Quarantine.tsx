@@ -8,6 +8,7 @@ import { DataToolbar } from '../components/DataToolbar';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { EmptyState } from '../components/EmptyState';
 import { Card } from '../components/Card';
+import { ProgressBar } from '../components/ProgressBar';
 import { useLiveUpdates } from '../hooks/useLiveUpdates';
 import { useQuarantineList, useUnquarantineMutation, useGhostStats } from '../hooks/useHoneypot';
 import { toastSuccess, toastError } from '../utils/toast';
@@ -218,13 +219,11 @@ export const Quarantine = memo(() => {
                     <span>Recovery Progress</span>
                     <span>{server.consecutiveCleanCycles}/3</span>
                   </div>
-                  <div className="h-2 bg-surface-raised rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 rounded-full transition-all"
-                      // eslint-disable-next-line no-restricted-syntax
-                      style={{ width: `${(server.consecutiveCleanCycles / 3) * 100}%` }}
-                    />
-                  </div>
+                  <ProgressBar
+                    value={(server.consecutiveCleanCycles / 3) * 100}
+                    color="green"
+                    ariaLabel="Recovery progress"
+                  />
                 </div>
 
                 <Button

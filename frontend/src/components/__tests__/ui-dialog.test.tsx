@@ -21,7 +21,7 @@ const DialogTestWrapper = ({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
   const isOpen = isControlled ? controlledOpen : uncontrolledOpen;
-  const handleOpenChange = isControlled ? onOpenChange! : setUncontrolledOpen;
+  const handleOpenChange = isControlled ? onOpenChange || (() => {}) : setUncontrolledOpen;
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>

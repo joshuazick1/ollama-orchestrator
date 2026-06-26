@@ -2,6 +2,22 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ErrorBoundary } from '../ErrorBoundary';
 
+const { mockLogClientError } = vi.hoisted(() => {
+  const fn = vi.fn<
+    (p: {
+      message: string;
+      stack?: string;
+      componentStack?: string;
+      timestamp: number;
+    }) => Promise<void>
+  >(() => Promise.resolve());
+  return { mockLogClientError: fn };
+});
+
+vi.mock('../../api', () => ({
+  logClientError: mockLogClientError,
+}));
+
 const ThrowError = ({ message }: { message: string }) => {
   throw new Error(message);
 };
@@ -12,11 +28,13 @@ describe('ErrorBoundary', () => {
   beforeEach(() => {
     consoleErrorMock = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    // Mock window.location.reload
     Object.defineProperty(window, 'location', {
       value: { reload: vi.fn() },
       writable: true,
     });
+
+    mockLogClientError.mockReset();
+    mockLogClientError.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -48,7 +66,6 @@ describe('ErrorBoundary', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Test error message')).toBeInTheDocument();
 
-    // Check reload button
     const reloadButton = screen.getByRole('button', { name: 'Refresh Page' });
     fireEvent.click(reloadButton);
     expect(window.location.reload).toHaveBeenCalledTimes(1);
@@ -63,5 +80,22 @@ describe('ErrorBoundary', () => {
 
     expect(screen.getByText('Custom Error View')).toBeInTheDocument();
     expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument();
+  });
+
+  it('calls logClientError with error details when a child throws', () => {
+    render(
+      <ErrorBoundary>
+        <ThrowError message="boom" />
+      </ErrorBoundary>
+    );
+
+    expect(mockLogClientError).toHaveBeenCalledTimes(1);
+    const payload = mockLogClientError.mock.calls[0]![0];
+    expect(payload.message).toBe('boom');
+    expect(payload.stack).toBeTruthy();
+    expect(payload.stack!.length).toBeGreaterThan(0);
+    expect(payload.componentStack).toBeTruthy();
+    expect(payload.componentStack!.length).toBeGreaterThan(0);
+    expect(typeof payload.timestamp).toBe('number');
   });
 });

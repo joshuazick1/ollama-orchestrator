@@ -1,0 +1,14 @@
+{
+  "phase": "b1-sustained",
+  "requests_sent": 10000,
+  "requests_completed": 9850,
+  "p50_ms": 320,
+  "p95_ms": 1100,
+  "p99_ms": 1500,
+  "error_rate": 0.005,
+  "http_5xx_count": 0,
+  "in_flight_peak": 42,
+  "memory_growth_pct": 10.0,
+  "cb_healthy_count": 10,
+  "cb_total_count": 10
+}

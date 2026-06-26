@@ -77,10 +77,9 @@ const ModelPullsContext = createContext<ModelPullsContextValue | null>(null);
 export function ModelPullsProvider({ children }: { children: ReactNode }) {
   const storeRef = useRef<PullStore>(createPullStore());
 
-  const store = storeRef.current;
-
   const startPull = useCallback(
     (serverId: string, serverUrl: string, model: string, sourceServerId?: string) => {
+      const store = storeRef.current;
       const id = makePullId(serverId, model);
 
       // If already in progress, don't start another

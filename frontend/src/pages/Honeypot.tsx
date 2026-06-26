@@ -8,6 +8,7 @@ import { DataToolbar } from '../components/DataToolbar';
 import { ConfirmationModal } from '../components/ConfirmationModal';
 import { EmptyState } from '../components/EmptyState';
 import { Card } from '../components/Card';
+import { ProgressBar } from '../components/ProgressBar';
 import { useLiveUpdates } from '../hooks/useLiveUpdates';
 import { useHoneypotStats, useHoneypotSummary, useQuarantineMutation } from '../hooks/useHoneypot';
 import { toastSuccess, toastError } from '../utils/toast';
@@ -39,39 +40,21 @@ const TierBreakdownCard = memo(
             <span className="text-text-muted">Tier 1 (App+Infra)</span>
             <span className="text-text-base font-medium">{stats.avgTier1Score}</span>
           </div>
-          <div className="h-2 bg-surface-raised rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 rounded-full transition-all"
-              // eslint-disable-next-line no-restricted-syntax
-              style={{ width: `${Math.min(100, stats.avgTier1Score)}%` }}
-            />
-          </div>
+          <ProgressBar value={stats.avgTier1Score} color="blue" ariaLabel="Tier 1 score" />
         </div>
         <div>
           <div className="flex justify-between text-xs mb-1">
             <span className="text-text-muted">Tier 2 (Deep Infra)</span>
             <span className="text-text-base font-medium">{stats.avgTier2Score}</span>
           </div>
-          <div className="h-2 bg-surface-raised rounded-full overflow-hidden">
-            <div
-              className="h-full bg-purple-500 rounded-full transition-all"
-              // eslint-disable-next-line no-restricted-syntax
-              style={{ width: `${Math.min(100, stats.avgTier2Score)}%` }}
-            />
-          </div>
+          <ProgressBar value={stats.avgTier2Score} color="purple" ariaLabel="Tier 2 score" />
         </div>
         <div>
           <div className="flex justify-between text-xs mb-1">
             <span className="text-text-muted">Tier 3 (External)</span>
             <span className="text-text-base font-medium">{stats.avgTier3Score}</span>
           </div>
-          <div className="h-2 bg-surface-raised rounded-full overflow-hidden">
-            <div
-              className="h-full bg-orange-500 rounded-full transition-all"
-              // eslint-disable-next-line no-restricted-syntax
-              style={{ width: `${Math.min(100, stats.avgTier3Score)}%` }}
-            />
-          </div>
+          <ProgressBar value={stats.avgTier3Score} color="orange" ariaLabel="Tier 3 score" />
         </div>
       </div>
     </Card>

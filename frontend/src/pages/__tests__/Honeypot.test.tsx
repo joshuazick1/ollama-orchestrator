@@ -1,4 +1,4 @@
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '../../__tests__/setup';
 import { Honeypot } from '../Honeypot';
@@ -110,10 +110,11 @@ describe('Honeypot Page', () => {
       expect(screen.getByText('Total Scored')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('3')).toBeInTheDocument();
-    expect(screen.getByText('Clean')).toBeInTheDocument();
-    expect(screen.getByText('Suspicious')).toBeInTheDocument();
-    expect(screen.getByText('Flagged')).toBeInTheDocument();
+    const allThrees = screen.getAllByText('3');
+    expect(allThrees[0]).toBeInTheDocument();
+    expect(screen.getByText('Clean', { selector: 'p.text-text-muted' })).toBeInTheDocument();
+    expect(screen.getByText('Suspicious', { selector: 'p.text-text-muted' })).toBeInTheDocument();
+    expect(screen.getByText('Flagged', { selector: 'p.text-text-muted' })).toBeInTheDocument();
     expect(screen.getByText('Quarantined')).toBeInTheDocument();
   });
 
@@ -152,7 +153,7 @@ describe('Honeypot Page', () => {
       expect(screen.getByText('server1')).toBeInTheDocument();
     });
 
-    const verdictFilter = screen.getByRole('combobox', { name: /verdict/i });
+    const verdictFilter = screen.getAllByRole('combobox')[0];
     fireEvent.change(verdictFilter, { target: { value: 'flagged' } });
 
     await waitFor(() => {
@@ -208,7 +209,9 @@ describe('Honeypot Page', () => {
       expect(screen.getByText('Quarantine Server?')).toBeInTheDocument();
     });
 
-    const confirmButton = screen.getByText('Quarantine', { selector: 'button' });
+    const confirmButton = within(screen.getByRole('alertdialog')).getByRole('button', {
+      name: /^quarantine$/i,
+    });
     fireEvent.click(confirmButton);
 
     await waitFor(() => {

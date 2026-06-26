@@ -7,7 +7,7 @@ import {
   getCircuitBreakerStateIcon,
 } from '../../utils/circuitBreaker';
 import type { CircuitBreakerInfo } from '../../api';
-import { PROVIDER_COLORS, type ProviderName } from '../../constants/colors';
+import { PROVIDER_BADGE_COLORS, type ProviderBadgeColorKey } from '../../constants/colors';
 
 interface CircuitBreakerCardProps {
   breaker: CircuitBreakerInfo;
@@ -55,10 +55,7 @@ export const CircuitBreakerCard = memo<CircuitBreakerCardProps>(
                 </span>
                 {provider && (
                   <span
-                    className="px-2 py-0.5 rounded text-xs font-medium text-white"
-                    style={{
-                      backgroundColor: PROVIDER_COLORS[provider as ProviderName] || '#6B7280',
-                    }}
+                    className={`px-2 py-0.5 rounded text-xs font-medium border ${PROVIDER_BADGE_COLORS[provider as ProviderBadgeColorKey]?.bg || 'bg-gray-500/20'} ${PROVIDER_BADGE_COLORS[provider as ProviderBadgeColorKey]?.text || 'text-gray-400'} ${PROVIDER_BADGE_COLORS[provider as ProviderBadgeColorKey]?.border || 'border-gray-500/50'}`}
                   >
                     {provider}
                   </span>

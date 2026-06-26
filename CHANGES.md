@@ -1,5 +1,17 @@
 ## [Unreleased] - Orchestrator Stability Release
 
+Complete rewrite and correction of all user-facing documentation to reflect the current state of the codebase.
+
+### Updated
+
+- **docs/API.md** — Complete rewrite from 1,438 to 3,759 lines. Added all missing endpoint groups (authentication, user management, Anthropic, Batches, Cohere, Bedrock, performance probe scheduler), corrected auth requirements, removed stale `/queue` endpoints, added streaming content-type documentation, added server-specific bypass pattern, added error response format documentation for all three protocol families (orchestrator, OpenAI, Anthropic).
+- **README.md** — Updated project structure to reflect all current controllers/routes/types files. Added missing API endpoint groups (authentication, user management, Anthropic inference, Batches, Cohere, Bedrock, performance probe). Fixed circuit breaker configuration defaults (threshold 5, half-open 60s, recovery 3, error rate 50%). Added missing Key Features (Anthropic-compatible API, Multi-Protocol Support, Authentication & User Management, Performance Probing).
+- **docs/DEPLOYMENT.md** — Fixed Node.js prerequisite (v18 → v20). Fixed all circuit breaker env var defaults to match `.env.example`. Added missing auth environment variables (`ORCHESTRATOR_ENABLE_AUTH`, `ORCHESTRATOR_API_KEYS`, `ORCHESTRATOR_ADMIN_API_KEYS`). Added `ORCHESTRATOR_INFERENCE_TIMEOUT_MS`. Removed stale `/api/orchestrator/queue` health check reference, queue Grafana dashboard, `orchestrator_queue_size` metric reference. Removed stale `queue:` YAML section from config examples.
+- **docs/OPERATIONS.md** — Removed all references to non-existent queue endpoints (`/queue`, `/queue/pause`, `/queue/resume`). Removed Queue Backlog troubleshooting section entirely. Fixed rolling updates to watch in-flight requests. Fixed Prometheus alert rules (removed QueueFull alert). Fixed circuit breaker config tuning examples (errorRateThreshold/openTimeout field names, correct defaults).
+- **docs/EXAMPLES.md** — Added Authentication section (first-time setup, JWT cookie login with CSRF, API key auth). Added Anthropic-Compatible API section (curl streaming/non-streaming, Anthropic Python SDK). Added Performance Probe examples. Added OpenAI Node.js SDK and streaming examples. Added Ollama JavaScript library example. Fixed typo (`localhost.5100` → `localhost:5100`). Removed entire Queue Management section (3 non-existent endpoints).
+
+---
+
 Orchestrator Stability Release bringing production hardening, new load balancing algorithms, comprehensive metrics, and 36 bug fixes. See `.sisyphus/plans/orchestrator-stability-release.md` for full implementation details.
 
 **Kill switch**: If issues arise with the new scoring components, set `loadBalancer.fallbackToFastestResponse = true` to immediately revert all algorithms to `fastest-response` behavior.

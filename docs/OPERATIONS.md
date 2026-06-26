@@ -13,8 +13,8 @@ curl -f http://localhost:5100/health
 # Detailed health status
 curl http://localhost:5100/api/orchestrator/health
 
-# Queue status
-curl http://localhost:5100/api/orchestrator/queue
+# In-flight requests
+curl http://localhost:5100/api/orchestrator/in-flight
 
 # Server status
 curl http://localhost:5100/api/orchestrator/servers
@@ -26,14 +26,10 @@ curl http://localhost:5100/api/orchestrator/servers
 - `uptime`: Service uptime in seconds
 - `version`: Current version
 - `servers`: Count of healthy/total servers
-- `queue`: Current queue depth
 
 ### Extended Monitoring
 
 ```bash
-# Queue status
-curl http://localhost:5100/api/orchestrator/queue
-
 # In-flight requests by server
 curl http://localhost:5100/api/orchestrator/in-flight
 
@@ -110,8 +106,8 @@ The `ExecStartPost` will time out after 30s and mark the service as failed (not 
 # Check server performance
 curl http://localhost:5100/api/orchestrator/analytics/server-performance
 
-# Check queue status
-curl http://localhost:5100/api/orchestrator/queue
+# Check in-flight status
+curl http://localhost:5100/api/orchestrator/in-flight
 
 # Check circuit breaker status
 curl http://localhost:5100/api/orchestrator/metrics | grep circuit_breaker
@@ -122,7 +118,7 @@ curl http://localhost:5100/api/orchestrator/metrics | grep circuit_breaker
 1. Add more Ollama servers
 2. Reduce maxConcurrency per server
 3. Check Ollama server resources (CPU/memory)
-4. Enable queue timeout reduction
+4. Check in-flight request backlog
 
 ### Circuit Breaker Tripping
 
@@ -149,28 +145,6 @@ curl http://localhost:5100/api/orchestrator/analytics/errors
 
 ```bash
 curl -X POST http://localhost:5100/api/orchestrator/circuit-breakers/{serverId}/{model}/reset
-```
-
-### Queue Backlog
-
-**Symptoms:**
-
-- Queue size > 100
-- New requests rejected
-- High memory usage
-
-**Solutions:**
-
-```bash
-# Temporarily increase queue size
-curl -X PATCH http://localhost:5100/api/orchestrator/config/queue \
-  -H "Content-Type: application/json" \
-  -d '{"maxSize": 2000}'
-
-# Pause queue if needed
-curl -X POST http://localhost:5100/api/orchestrator/queue/pause
-
-# Add more servers to handle load
 ```
 
 ### Server Failures
@@ -377,8 +351,8 @@ curl -X POST http://localhost:5100/api/orchestrator/servers/{serverId}/maintenan
   -H "Content-Type: application/json" \
   -d '{"enabled": true}'
 
-# Wait for queue to drain
-watch curl http://localhost:5100/api/orchestrator/queue
+# Wait for in-flight requests to complete
+watch -n5 curl -s http://localhost:5100/api/orchestrator/in-flight
 
 # Update and restart
 docker-compose -f docker-compose.prod.yml up -d orchestrator
@@ -446,12 +420,6 @@ groups:
         for: 5m
         labels:
           severity: critical
-
-      - alert: QueueFull
-        expr: orchestrator_queue_size / orchestrator_queue_max_size > 0.9
-        for: 2m
-        labels:
-          severity: warning
 ```
 
 ## Performance Tuning
@@ -484,22 +452,14 @@ Based on load testing results:
 
 ```yaml
 # High throughput
-queue:
-  maxSize: 5000
-  timeout: 60000
-
 circuitBreaker:
-  failureThreshold: 0.3
-  recoveryTimeout: 15000
+  errorRateThreshold: 0.5
+  openTimeout: 15000
 
 # Low latency
-queue:
-  maxSize: 100
-  timeout: 10000
-
 circuitBreaker:
-  failureThreshold: 0.1
-  recoveryTimeout: 5000
+  errorRateThreshold: 0.3
+  openTimeout: 5000
 ```
 
 ## Backup and Restore
@@ -625,19 +585,10 @@ The orchestrator uses SQLite for metrics storage at `data/metrics.db`. Without i
 
 ### Manual Cleanup
 
-Use the API to prune old data:
+Prune old metrics directly via SQLite:
 
 ```bash
-curl -X POST http://localhost:5100/api/orchestrator/admin/metrics/prune \
-  -H "X-Admin-API-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"olderThanDays": 7}'
-```
-
-Or directly via SQLite:
-
-```bash
-sqlite3 data/metrics.db "DELETE FROM metrics WHERE timestamp < strftime('%s', 'now', '-7 days') * 1000"
+sqlite3 data/metrics.db "DELETE FROM request_metrics WHERE timestamp < strftime('%s', 'now', '-7 days') * 1000"
 ```
 
 ## Log Rotation

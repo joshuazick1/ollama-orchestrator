@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { ChevronDown, ChevronRight, Server, Shield } from 'lucide-react';
 import type { CircuitBreakerInfo } from '../../api';
 import { CircuitBreakerCard } from './CircuitBreakerCard';
-import { PROVIDER_COLORS, type ProviderName } from '../../constants/colors';
+import { PROVIDER_BADGE_COLORS, type ProviderBadgeColorKey } from '../../constants/colors';
 
 interface GroupedBreakers {
   serverId: string;
@@ -66,11 +66,7 @@ export const ServerGroupCard = memo<ServerGroupCardProps>(
                 </h3>
                 {server.provider && (
                   <span
-                    className="px-2 py-0.5 rounded text-xs font-medium text-white"
-                    style={{
-                      backgroundColor:
-                        PROVIDER_COLORS[server.provider as ProviderName] || '#6B7280',
-                    }}
+                    className={`px-2 py-0.5 rounded text-xs font-medium border ${PROVIDER_BADGE_COLORS[server.provider as ProviderBadgeColorKey]?.bg || 'bg-gray-500/20'} ${PROVIDER_BADGE_COLORS[server.provider as ProviderBadgeColorKey]?.text || 'text-gray-400'} ${PROVIDER_BADGE_COLORS[server.provider as ProviderBadgeColorKey]?.border || 'border-gray-500/50'}`}
                   >
                     {server.provider}
                   </span>

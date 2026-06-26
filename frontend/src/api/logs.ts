@@ -28,3 +28,16 @@ export const clearLogs = async () => {
     return response.data;
   });
 };
+
+export interface ClientErrorPayload {
+  message: string;
+  stack?: string;
+  componentStack?: string;
+  timestamp: number;
+}
+
+export const logClientError = async (payload: ClientErrorPayload): Promise<void> => {
+  return void apiCall(async () => {
+    await apiClient.post('/logs/client-error', payload);
+  });
+};

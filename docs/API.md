@@ -1,255 +1,661 @@
 # Ollama Orchestrator API Reference
 
-This document provides comprehensive API documentation for the Ollama Orchestrator.
+Complete API reference for the Ollama Orchestrator. All endpoints, request/response schemas, authentication requirements, and error formats are documented here.
+
+## Table of Contents
+
+- [Table of Contents](#table-of-contents)
+- [Base URL](#base-url)
+- [Authentication](#authentication)
+  - [Bearer JWT (Cookie-Based)](#bearer-jwt-cookie-based)
+  - [API Key (Header-Based)](#api-key-header-based)
+  - [CSRF Protection](#csrf-protection)
+  - [When Auth Is Disabled (`ENABLE_AUTH=false`)](#when-auth-is-disabled-enable_authfalse)
+  - [Auth Config Summary](#auth-config-summary)
+- [Error Response Formats](#error-response-formats)
+- [Server-Specific Bypass (`--:serverId`)](#server-specific-bypass---serverid)
+- [Streaming Responses](#streaming-responses)
+- [Setup](#setup)
+- [Authentication Endpoints](#authentication-endpoints)
+- [Health and Metrics](#health-and-metrics)
+- [Orchestrator Monitoring Endpoints](#orchestrator-monitoring-endpoints)
+  - [Servers](#servers)
+  - [Models](#models)
+  - [Health and Stats](#health-and-stats)
+  - [Events Stream](#events-stream)
+  - [Circuit Breakers (Read)](#circuit-breakers-read)
+  - [Metrics](#metrics)
+  - [Recovery Tests](#recovery-tests)
+  - [Performance Probe](#performance-probe)
+  - [Errors](#errors)
+  - [Cluster Status](#cluster-status)
+- [Orchestrator Admin Endpoints](#orchestrator-admin-endpoints)
+  - [Server Management](#server-management)
+  - [Server Configuration](#server-configuration)
+  - [Server Maintenance](#server-maintenance)
+  - [Per-Server Model Management](#per-server-model-management)
+  - [Model Actions](#model-actions)
+  - [Configuration](#configuration)
+  - [Ban Management](#ban-management)
+  - [Circuit Breaker Management (Write)](#circuit-breaker-management-write)
+  - [Recovery Failure Tracking](#recovery-failure-tracking)
+  - [Logging](#logging)
+- [User Management Endpoints](#user-management-endpoints)
+- [Ollama-Compatible Inference Endpoints](#ollama-compatible-inference-endpoints)
+- [OpenAI-Compatible Endpoints](#openai-compatible-endpoints)
+- [Anthropic-Compatible Endpoints](#anthropic-compatible-endpoints)
+- [Cohere Endpoints](#cohere-endpoints)
+- [AWS Bedrock Endpoints](#aws-bedrock-endpoints)
+- [Batches Endpoints](#batches-endpoints)
+- [Provider Configuration](#provider-configuration)
+
+---
 
 ## Base URL
 
-All API endpoints are prefixed with `/api/orchestrator/` unless otherwise noted.
+The orchestrator runs on port **5100** by default. Endpoints are mounted at:
+
+| Prefix                | Description                                                 |
+| --------------------- | ----------------------------------------------------------- |
+| `/api/orchestrator/*` | Orchestrator management routes                              |
+| `/api/*`              | Ollama-compatible inference routes                          |
+| `/v1/*`               | OpenAI-compatible, Anthropic-compatible, and Batches routes |
+| `/chat/*`             | Cohere routes                                               |
+| `/model/*`            | AWS Bedrock routes                                          |
+
+---
 
 ## Authentication
 
-Currently, no authentication is required. Configure security settings in the configuration endpoint.
+The orchestrator supports three authentication mechanisms. All can be used simultaneously.
 
-## CSRF Protection
+### Bearer JWT (Cookie-Based)
 
-State-changing operations (POST, PUT, PATCH, DELETE) are protected by CSRF validation.
-CSRF validation is skipped when `ENABLE_AUTH=false`.
+The orchestrator issues httpOnly JWT cookies on successful login. Subsequent requests automatically include the cookie.
 
-**Option 1 — Same-origin header (recommended for browsers and same-host clients)**
-Include an `Origin` or `Referer` header matching the server host. Browsers send this automatically for same-origin requests.
-
-**Option 2 — Double Submit Cookie (recommended for scripts and API clients)**
-
-1. Fetch a CSRF token: `GET /api/orchestrator/auth/csrf-token`
-   This sets a `csrf-token` cookie (readable by JavaScript — `httpOnly: false`).
-2. Include the token value in the `X-CSRF-Token` header on state-changing requests.
-
-**Example (curl):**
+**Login flow:**
 
 ```bash
-# Step 1: Get token
+# Step 1: Get CSRF token
 curl -c cookies.txt http://localhost:5100/api/orchestrator/auth/csrf-token
 
-# Step 2: Extract token from cookie jar and use it
-TOKEN=$(grep csrf-token cookies.txt | awk '{print $7}')
-curl -X POST http://localhost:5100/api/orchestrator/auth/login \
-  -b cookies.txt \
-  -H "X-CSRF-Token: $TOKEN" \
+# Step 2: Login (token from cookie is sent automatically)
+curl -b cookies.txt -X POST http://localhost:5100/api/orchestrator/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"password"}'
+  -d '{"username":"admin","password":"yourpassword"}'
+# Response sets access_token and refresh_token httpOnly cookies
+
+# Step 3: Subsequent requests include the cookie automatically
+curl -b cookies.txt http://localhost:5100/api/orchestrator/servers
 ```
 
-## Response Format
+**Token refresh:**
 
-All responses follow this structure:
-
-```json
-{
-  "success": true,
-  "data": "...",
-  "error": "error message (if success=false)"
-}
+```bash
+curl -b cookies.txt -X POST http://localhost:5100/api/orchestrator/auth/refresh
 ```
 
-## Error Codes
+### API Key (Header-Based)
 
-- `200` - Success
-- `400` - Bad Request (invalid parameters)
-- `404` - Not Found
-- `500` - Internal Server Error
+API keys are configured via environment variables:
+
+| Env Var          | Description                                                    |
+| ---------------- | -------------------------------------------------------------- |
+| `API_KEYS`       | Comma-separated list of standard API keys (grants `user` role) |
+| `ADMIN_API_KEYS` | Comma-separated list of admin API keys (grants `admin` role)   |
+
+```bash
+# Standard key
+curl -H "X-API-Key: your-api-key" http://localhost:5100/api/orchestrator/servers
+
+# Admin key
+curl -H "X-API-Key: your-admin-api-key" http://localhost:5100/api/orchestrator/servers/add
+
+# Also works as Bearer token (for clients that use Authorization header)
+curl -H "Authorization: Bearer your-api-key" http://localhost:5100/api/orchestrator/servers
+```
+
+### CSRF Protection
+
+State-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`) require CSRF validation when `ENABLE_AUTH=true`.
+
+**Option 1 — Same-origin (browsers send automatically):**
+
+Include an `Origin` or `Referer` header matching the server host. Browsers enforce this automatically for same-origin requests.
+
+**Option 2 — Double Submit Cookie (scripts and API clients):**
+
+```bash
+# Step 1: Get CSRF token (sets csrf-token cookie)
+curl -c cookies.txt http://localhost:5100/api/orchestrator/auth/csrf-token
+
+# Step 2: Extract token from cookie and include in X-CSRF-Token header
+TOKEN=$(grep csrf-token cookies.txt | awk '{print $7}')
+curl -b cookies.txt -X POST http://localhost:5100/api/orchestrator/auth/logout \
+  -H "X-CSRF-Token: $TOKEN"
+```
+
+### When Auth Is Disabled (`ENABLE_AUTH=false`)
+
+When `ENABLE_AUTH=false` or `ORCHESTRATOR_AUTH_ENABLED=false`:
+
+- All requests are treated as internal admin
+- CSRF validation is skipped
+- JWT cookies are still issued but not required
+- No API key is required
+
+```bash
+# With auth disabled, everything works without credentials
+curl http://localhost:5100/api/orchestrator/servers
+curl -X POST http://localhost:5100/api/orchestrator/servers/add \
+  -H "Content-Type: application/json" \
+  -d '{"id":"s1","url":"http://localhost:11434"}'
+```
+
+### Auth Config Summary
+
+| Endpoint Group                                  | Auth Required | Auth Type                                             |
+| ----------------------------------------------- | ------------- | ----------------------------------------------------- |
+| Setup (`POST /api/orchestrator/setup`)          | No            | None                                                  |
+| Auth (`/api/orchestrator/auth/*`)               | No            | None (except `/me`)                                   |
+| Ollama inference (`/api/*`)                     | Conditional   | `optionalAuth` — JWT cookie, API key, or none         |
+| OpenAI (`/v1/*`)                                | Conditional   | `optionalAuth` or `requireAuth` depending on endpoint |
+| Anthropic (`/v1/*`)                             | Conditional   | `requireAuth` (most), none (models list)              |
+| Batches (`/v1/*`)                               | Mixed         | None (list/get), `requireAuth` (create/cancel)        |
+| Cohere (`/chat/*`)                              | Yes           | `requireAuth`                                         |
+| Bedrock (`/model/*`)                            | No            | None                                                  |
+| Health (`/health/*`)                            | No            | None                                                  |
+| Metrics (`/metrics`)                            | No            | localhost-only in production                          |
+| Orchestrator monitoring (`/api/orchestrator/*`) | Yes           | `requireAuth` (JWT or API key)                        |
+| Orchestrator admin (`/api/orchestrator/*`)      | Yes           | `requireAuth` + `requireAdmin` (JWT or API key)       |
+| User management (`/api/orchestrator/users/*`)   | Yes           | `requireAuth` (self or admin for most)                |
 
 ---
 
-## Server Management
+## Error Response Formats
 
-### Add Server
+**Inference routes** (`/api/*`, `/v1/*` excluding `/api/orchestrator/*`):
 
-**POST** `/api/orchestrator/servers/add`
+```json
+{
+  "error": {
+    "message": "The model 'llama2' is not available",
+    "type": "server_error",
+    "code": "model_not_found"
+  }
+}
+```
 
-Add a new Ollama server to the orchestrator.
+**Orchestrator routes** (`/api/orchestrator/*`):
+
+```json
+{
+  "error": "Error message here",
+  "details": "Additional error details"
+}
+```
+
+RFC 7807 format for 404 responses:
+
+```json
+{
+  "type": "https://orchestrator.local/errors/not_found",
+  "status": 404,
+  "title": "Not Found",
+  "detail": "Server 'unknown-server' not found"
+}
+```
+
+**Anthropic format:**
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "Missing required header: anthropic-version"
+  }
+}
+```
+
+**Status Codes:**
+
+| Code | Meaning                                        |
+| ---- | ---------------------------------------------- |
+| 200  | Success                                        |
+| 201  | Created                                        |
+| 400  | Bad Request (validation failure)               |
+| 401  | Authentication required or failed              |
+| 403  | Forbidden (insufficient permissions)           |
+| 404  | Not Found                                      |
+| 409  | Conflict (e.g., user already exists)           |
+| 429  | Rate Limited                                   |
+| 500  | Internal Server Error                          |
+| 503  | Service Unavailable (e.g., no healthy servers) |
+
+---
+
+## Server-Specific Bypass (`--:serverId`)
+
+Route inference requests directly to a specific server, bypassing the load balancer. Useful for debugging and targeted testing.
+
+**Pattern:** Append `--<serverId>` to the endpoint path before any additional path segments.
+
+**Examples:**
+
+| Standard Endpoint           | Bypass Endpoint                       |
+| --------------------------- | ------------------------------------- |
+| `POST /api/chat`            | `POST /api/chat--server-1`            |
+| `POST /api/generate`        | `POST /api/generate--my-server`       |
+| `POST /api/embeddings`      | `POST /api/embeddings--gpu-server-1`  |
+| `POST /v1/chat/completions` | `POST /v1/chat/completions--server-1` |
+| `POST /v1/completions`      | `POST /v1/completions--server-1`      |
+| `POST /v1/embeddings`       | `POST /v1/embeddings--server-1`       |
+| `POST /v1/messages`         | `POST /v1/messages--server-1`         |
+| `POST /chat/chat`           | `POST /chat/chat--server-1`           |
+
+The `--serverId` suffix is parsed as a route parameter by the matching controller.
+
+---
+
+## Streaming Responses
+
+Three streaming content types are used:
+
+| Content-Type           | Used By                                                                                                             | Format                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `application/x-ndjson` | Ollama endpoints (`/api/generate`, `/api/chat`)                                                                     | Newline-delimited JSON objects |
+| `text/event-stream`    | OpenAI SSE (`/v1/chat/completions?stream=true`, `/v1/completions?stream=true`), Anthropic messages, model pull/copy | SSE with `data:` prefix        |
+| `application/jsonl`    | Batch results (`/v1/messages/batches/:id/results`)                                                                  | Newline-delimited JSON objects |
+
+**Ollama streaming (NDJSON):**
+
+```
+Content-Type: application/x-ndjson
+{"model":"llama2:13b","response":"Hello","done":false}
+{"model":"llama2:13b","response":"!","done":false}
+{"model":"llama2:13b","response":"","done":true,"total_duration":5000000000}
+```
+
+**OpenAI/Anthropic SSE:**
+
+```
+Content-Type: text/event-stream
+
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":null}]}
+
+data: [DONE]
+```
+
+**Model pull/copy progress (SSE):**
+
+```
+data: {"status":"pulling manifest","digest":"sha256:..."}
+data: {"status":"pulling分层","digested":"sha256:...","size":"10MB"}
+data: {"status":"success"}
+```
+
+---
+
+## Setup
+
+### POST /api/orchestrator/setup
+
+Create the initial admin user. Only works when no admin users exist.
+
+**Auth:** None (rate-limited with admin rate limiter)
 
 **Request Body:**
 
 ```json
 {
-  "id": "server-1",
-  "url": "http://localhost:11434",
-  "maxConcurrency": 4,
-  "priority": 1,
-  "tags": ["gpu", "high-mem"]
+  "username": "admin",
+  "email": "admin@example.com",
+  "password": "your-secure-password"
 }
 ```
 
-**Parameters:**
+| Field      | Type   | Required | Description                        |
+| ---------- | ------ | -------- | ---------------------------------- |
+| `username` | string | Yes      | 3-64 chars, alphanumeric + `_` `-` |
+| `email`    | string | No       | Valid email format                 |
+| `password` | string | Yes      | 16-128 characters                  |
 
-- `id` (string, required): Unique server identifier
-- `url` (string, required): Ollama server URL
-- `maxConcurrency` (number, optional): Max concurrent requests (default: 4)
-- `priority` (number, optional): Server priority for load balancing (default: 1)
-- `tags` (array, optional): Server tags for filtering
-
-**Response:**
+**Response (200):**
 
 ```json
 {
   "success": true,
-  "server": {
-    "id": "server-1",
-    "url": "http://localhost:11434",
-    "maxConcurrency": 4,
-    "status": "healthy"
-  }
+  "message": "Admin created. Please log in."
 }
 ```
 
-### Remove Server
+**Errors:**
 
-**DELETE** `/api/orchestrator/servers/:id`
+- `403` — Setup already completed (admin users exist)
+- `400` — Validation failed
 
-Remove a server from the orchestrator.
+---
 
-### Update Server
+## Authentication Endpoints
 
-**PATCH** `/api/orchestrator/servers/:id`
+All auth endpoints are prefixed with `/api/orchestrator/auth`.
 
-Update server configuration.
+### GET /api/orchestrator/auth/csrf-token
 
-### Update Server Configuration
+Retrieve a CSRF token. Sets the `csrf-token` cookie.
 
-**PATCH** `/api/orchestrator/servers/:id/config`
+**Auth:** None
 
-Update advanced server configuration including provider type, model mappings, and endpoint overrides. This endpoint is used to configure how the orchestrator interacts with different AI providers.
+**Response (200):**
 
-**Path Parameters:**
+```json
+{
+  "message": "CSRF token set"
+}
+```
 
-- `id` (string, required): Server identifier
+### POST /api/orchestrator/auth/login
+
+Authenticate and receive JWT cookies.
+
+**Auth:** None (CSRF required)
 
 **Request Body:**
 
 ```json
 {
-  "type": "openai",
-  "v1Models": ["gpt-4", "gpt-3.5-turbo"],
-  "forcedCapabilities": {
-    "supportsOllama": false,
-    "supportsV1": true,
-    "supportsAnthropic": false
-  },
-  "endpointOverrides": {
-    "anthropic_messages": "/v1/messages",
-    "anthropic_auth": {
-      "headerName": "x-api-key",
-      "headerPrefix": ""
-    },
-    "modelPrefix": "anthropic/"
-  }
+  "username": "admin",
+  "password": "password"
 }
 ```
 
-**Parameters:**
-
-- `type` (string, optional): Server type - `ollama`, `openai`, or `auto` (auto-detect based on capabilities)
-- `v1Models` (array, optional): List of models that support OpenAI v1 protocol on this server
-- `forcedCapabilities` (object, optional): Override capability detection
-  - `supportsOllama` (boolean): Whether server supports Ollama API
-  - `supportsV1` (boolean): Whether server supports OpenAI v1 protocol
-  - `supportsAnthropic` (boolean): Whether server supports Anthropic API
-- `endpointOverrides` (object, optional): Custom endpoint configuration
-  - `anthropic_messages` (string): Custom path for Anthropic messages endpoint
-  - `anthropic_auth` (object): Custom auth header for Anthropic
-    - `headerName` (string): Auth header name
-    - `headerPrefix` (string): Auth prefix (e.g., "Bearer")
-  - `modelPrefix` (string): Prefix to prepend to model names for this provider
-
-**Response:**
+**Response (200):**
 
 ```json
 {
-  "success": true,
-  "id": "server-1",
-  "type": "openai",
-  "v1Models": ["gpt-4", "gpt-3.5-turbo"],
-  "forcedCapabilities": {
-    "supportsOllama": false,
-    "supportsV1": true,
-    "supportsAnthropic": false
-  },
-  "endpointOverrides": {
-    "anthropic_messages": "/v1/messages",
-    "anthropic_auth": {
-      "headerName": "x-api-key",
-      "headerPrefix": ""
-    },
-    "modelPrefix": "anthropic/"
+  "user": {
+    "id": "usr_abc123",
+    "username": "admin",
+    "email": "admin@local",
+    "role": "admin"
   }
 }
 ```
 
-**Error Codes:**
+**Errors:**
 
-- `400` - Bad Request (invalid parameters)
-- `404` - Server not found
-- `500` - Internal Server Error (failed to update)
+- `400` — Validation failed
+- `401` — Invalid credentials
 
-### Drain Server
+### POST /api/orchestrator/auth/logout
 
-**POST** `/api/orchestrator/servers/:id/drain`
+Clear authentication cookies.
 
-Gracefully drain a server (stop accepting new requests, wait for existing to complete).
+**Auth:** None (CSRF required)
+
+**Response (200):**
+
+```json
+{
+  "message": "Logged out successfully"
+}
+```
+
+### POST /api/orchestrator/auth/refresh
+
+Refresh the access token using the refresh cookie.
+
+**Auth:** None (CSRF required)
+
+**Response (200):**
+
+```json
+{
+  "user": {
+    "id": "usr_abc123",
+    "username": "admin",
+    "email": "admin@local",
+    "role": "admin"
+  }
+}
+```
+
+**Errors:**
+
+- `401` — No refresh token or invalid/expired refresh token
+
+### GET /api/orchestrator/auth/status
+
+Check authentication configuration status.
+
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "enabled": true,
+  "setupRequired": false
+}
+```
+
+| Field           | Type    | Description                                        |
+| --------------- | ------- | -------------------------------------------------- |
+| `enabled`       | boolean | Whether auth is enabled                            |
+| `setupRequired` | boolean | True when auth is enabled but no admin user exists |
+
+### GET /api/orchestrator/auth/me
+
+Get current authenticated user info.
+
+**Auth:** Required (`requireAuth`)
+
+**Response (200):**
+
+```json
+{
+  "user": {
+    "id": "usr_abc123",
+    "username": "admin",
+    "email": "admin@local",
+    "role": "admin"
+  },
+  "needsSetup": false
+}
+```
+
+**Errors:**
+
+- `401` — Not authenticated
 
 ---
 
-## Metrics & Health
+## Health and Metrics
 
-### Comprehensive Metrics
+### GET /health
 
-**GET** `/api/orchestrator/metrics`
+Full health check with orchestrator statistics.
 
-Get detailed metrics for all servers and global statistics.
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "status": "ok",
+  "uptime": 3600.5,
+  "timestamp": "2026-01-01T12:00:00.000Z",
+  "healthy": 5,
+  "total": 6,
+  "orchestrator": {
+    "totalServers": 6,
+    "healthyServers": 5,
+    "inFlightRequests": 12,
+    "circuitBreakersByState": {
+      "HEALTHY": 24,
+      "RECOVERING": 1,
+      "SUSPECT": 0,
+      "UNHEALTHY": 0
+    }
+  }
+}
+```
+
+### GET /health/live
+
+Liveness probe. Returns 200 if the process is running.
+
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### GET /health/ready
+
+Readiness probe. Returns 503 if no healthy servers are available.
+
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "status": "ready",
+  "healthyServers": 5
+}
+```
+
+**Response (503):**
+
+```json
+{
+  "status": "not_ready",
+  "reason": "No healthy servers available",
+  "totalServers": 6
+}
+```
+
+### GET /metrics
+
+Prometheus-compatible metrics endpoint.
+
+**Auth:** None (localhost/internal IPs only in production)
+
+**Response (200):**
+
+```
+# HELP orchestrator_requests_total Total number of requests
+# TYPE orchestrator_requests_total counter
+orchestrator_requests_total{method="POST",endpoint="/api/chat"} 1234
+...
+```
+
+---
+
+## Orchestrator Monitoring Endpoints
+
+All endpoints in this section are prefixed with `/api/orchestrator` and require authentication (`requireAuth`).
+
+### Servers
+
+### GET /api/orchestrator/servers
+
+List all registered servers with status.
+
+**Auth:** Required
 
 **Query Parameters:**
 
-- `timeRange` (string, optional): Time range (1h, 24h, 7d) - default: 1h
+| Param           | Type    | Default | Description                 |
+| --------------- | ------- | ------- | --------------------------- |
+| `excludeGhosts` | boolean | false   | Exclude ghost servers       |
+| `healthyOnly`   | boolean | false   | Return only healthy servers |
 
-**Response:**
+**Response (200):**
 
 ```json
 {
   "success": true,
-  "global": {
-    "totalRequests": 15234,
-    "errorRate": 0.023,
-    "avgLatency": 1250,
-    "p95Latency": 3400,
-    "requestsPerSecond": 4.2
-  },
+  "count": 6,
+  "ghostCount": 1,
   "servers": [
     {
       "id": "server-1",
+      "url": "http://localhost:11434",
+      "maxConcurrency": 4,
       "status": "healthy",
-      "requests": 4567,
-      "errors": 45,
-      "avgLatency": 1200,
-      "p95Latency": 3200,
-      "utilization": 0.75
+      "healthy": true,
+      "draining": false,
+      "maintenance": false,
+      "models": ["llama2:13b", "codellama:7b"],
+      "tags": [],
+      "lastHealthCheck": 1735689600000,
+      "inFlightRequests": 2
     }
   ]
 }
 ```
 
-### Prometheus Metrics
+### GET /api/orchestrator/model-map
 
-**GET** `/metrics`
+Get model-to-server and server-to-model mappings.
 
-Prometheus-compatible metrics endpoint.
+**Auth:** Required
 
-### Health Check
+**Response (200):**
 
-**GET** `/api/orchestrator/health`
+```json
+{
+  "success": true,
+  "modelToServers": {
+    "llama2:13b": ["server-1", "server-2"],
+    "codellama:7b": ["server-1"]
+  },
+  "serverToModels": {
+    "server-1": ["llama2:13b", "codellama:7b"],
+    "server-2": ["llama2:13b"]
+  }
+}
+```
 
-Basic health check endpoint.
+### GET /api/orchestrator/models
 
-**Response:**
+List all models across the fleet.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "count": 12,
+  "models": [
+    {
+      "name": "llama2:13b",
+      "servers": ["server-1", "server-2"],
+      "totalServers": 2,
+      "loadedCount": 2
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/health
+
+Get orchestrator health status.
+
+**Auth:** Required
+
+**Response (200):**
 
 ```json
 {
@@ -260,251 +666,1021 @@ Basic health check endpoint.
 }
 ```
 
----
+### POST /api/orchestrator/health-check
 
-## Queue Management
+Trigger immediate health checks on all servers.
 
-### Queue Status
+**Auth:** Required
 
-**GET** `/api/orchestrator/queue`
-
-Get current queue status and statistics.
-
-**Response:**
+**Response (200):**
 
 ```json
 {
   "success": true,
-  "queue": {
-    "currentSize": 12,
-    "maxSize": 1000,
-    "processing": 3,
-    "waiting": 9,
-    "avgWaitTime": 450,
-    "oldestRequest": "2024-01-01T10:00:00Z"
-  }
-}
-```
-
-### Pause Queue
-
-**POST** `/api/orchestrator/queue/pause`
-
-Pause request queue processing.
-
-### Resume Queue
-
-**POST** `/api/orchestrator/queue/resume`
-
-Resume request queue processing.
-
----
-
-## Analytics
-
-### Analytics Summary
-
-**GET** `/api/orchestrator/analytics/summary`
-
-Get comprehensive analytics summary.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "summary": {
-    "totalRequests": 15234,
-    "totalErrors": 345,
-    "avgLatency": 1250,
-    "p95Latency": 3400,
-    "requestsPerSecond": 4.2,
-    "topModel": "llama2:13b",
-    "mostActiveServer": "server-1"
-  }
-}
-```
-
-### Top Models
-
-**GET** `/api/orchestrator/analytics/top-models`
-
-Get most used models by request count.
-
-**Query Parameters:**
-
-- `limit` (number, optional): Number of models to return (default: 10)
-- `timeRange` (string, optional): Analysis time range (default: 24h)
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "timeRange": "24h",
-  "models": [
-    {
-      "model": "llama2:13b",
-      "requests": 5678,
-      "percentage": 37.2,
-      "avgLatency": 1200,
-      "errorRate": 0.015
-    }
-  ]
-}
-```
-
-### Server Performance
-
-**GET** `/api/orchestrator/analytics/server-performance`
-
-Compare performance across all servers.
-
-**Query Parameters:**
-
-- `timeRange` (string, optional): Analysis time range (default: 1h)
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "timeRange": "1h",
   "servers": [
     {
       "id": "server-1",
-      "requests": 1234,
-      "avgLatency": 1100,
-      "p95Latency": 2800,
-      "p99Latency": 4500,
-      "errorRate": 0.012,
-      "throughput": 0.34,
-      "utilization": 0.72,
-      "score": 0.85
+      "status": "healthy",
+      "latencyMs": 45
     }
   ]
 }
 ```
 
-### Error Analysis
+### GET /api/orchestrator/stats
 
-**GET** `/api/orchestrator/analytics/errors`
+Get comprehensive orchestrator statistics.
 
-Analyze errors by type, server, and model.
+**Auth:** Required
 
-**Query Parameters:**
-
-- `timeRange` (string, optional): Analysis time range (default: 24h)
-- `includeRecent` (boolean, optional): Include recent error details (default: true)
-
-**Response:**
+**Response (200):**
 
 ```json
 {
   "success": true,
-  "timeRange": "24h",
-  "totalErrors": 345,
-  "byType": {
-    "timeout": 156,
-    "server_error": 89,
-    "network_error": 100
-  },
-  "byServer": {
-    "server-1": 123,
-    "server-2": 222
-  },
-  "byModel": {
-    "llama2:13b": 234,
-    "codellama:7b": 111
-  },
-  "recentErrors": [
+  "stats": {
+    "totalServers": 6,
+    "healthyServers": 5,
+    "inFlightRequests": 12,
+    "totalRequests": 5432,
+    "averageLatencyMs": 250,
+    "errorRate": 0.02
+  }
+}
+```
+
+### Events Stream
+
+### GET /api/orchestrator/events
+
+Server-Sent Events stream of real-time metrics.
+
+**Auth:** Required
+
+**Content-Type:** `text/event-stream`
+
+**Response (200):**
+
+```
+data: {"type":"metrics","totalRequests":5432,"inFlightRequests":12,"healthyServers":5}
+
+data: {"type":"decision","serverId":"server-1","model":"llama2:13b","latencyMs":245}
+
+data: {"type":"circuit_breaker","serverId":"server-2","model":"codellama:7b","state":"OPEN"}
+```
+
+### Circuit Breakers (Read)
+
+### GET /api/orchestrator/circuit-breakers
+
+Get all circuit breakers and summary by state.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "circuitBreakers": [
     {
-      "timestamp": "2024-01-01T10:30:00Z",
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "state": "CLOSED",
+      "failureCount": 0,
+      "lastFailure": null,
+      "lastStateChange": 1735689000000
+    }
+  ],
+  "byState": {
+    "CLOSED": 24,
+    "HALF_OPEN": 1,
+    "OPEN": 0
+  }
+}
+```
+
+### GET /api/orchestrator/servers/:serverId/models/:model/circuit-breaker
+
+Get circuit breaker details for a specific server:model.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "circuitBreaker": {
+    "serverId": "server-1",
+    "model": "llama2:13b",
+    "state": "CLOSED",
+    "failureCount": 0,
+    "lastFailure": null,
+    "lastStateChange": 1735689000000,
+    "recoveryAttempts": 0,
+    "totalRequests": 150,
+    "successfulRequests": 148,
+    "failedRequests": 2
+  }
+}
+```
+
+### Metrics
+
+### GET /api/orchestrator/metrics
+
+Get detailed metrics for all servers and global statistics.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "timestamp": "2026-01-01T12:00:00.000Z",
+  "global": {
+    "totalRequests": 5432,
+    "errorRate": 0.02,
+    "avgLatencyMs": 250,
+    "p95LatencyMs": 850,
+    "p99LatencyMs": 1200,
+    "requestsPerSecond": 1.5
+  },
+  "servers": [
+    {
+      "id": "server-1",
+      "status": "healthy",
+      "requests": 2100,
+      "errors": 42,
+      "avgLatencyMs": 245,
+      "p95LatencyMs": 820,
+      "p99LatencyMs": 1100,
+      "utilization": 0.65
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/metrics/prometheus
+
+Get Prometheus-format metrics.
+
+**Auth:** Required
+
+**Response (200):** Prometheus text format (same as `/metrics`)
+
+### GET /api/orchestrator/metrics/:serverId/:model
+
+Get metrics for a specific server:model combination.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "serverId": "server-1",
+  "model": "llama2:13b",
+  "metrics": {
+    "totalRequests": 500,
+    "errorRate": 0.02,
+    "avgLatencyMs": 240,
+    "p95LatencyMs": 800,
+    "ttftMs": { "avg": 120, "p95": 350 },
+    "successRate": 0.98
+  }
+}
+```
+
+### GET /api/orchestrator/metrics/recovery-tests
+
+Get aggregate recovery test metrics.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "aggregate": {
+    "totalTests": 45,
+    "passed": 42,
+    "failed": 3,
+    "passRate": 0.933
+  },
+  "recoveryProbabilities": {
+    "server-1/llama2:13b": 0.95,
+    "server-2/llama2:13b": 0.88
+  }
+}
+```
+
+### GET /api/orchestrator/metrics/recovery-tests/:breakerName
+
+Get recovery test history for a specific circuit breaker.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "breakerName": "server-1/llama2:13b",
+  "recoveryEvents": [
+    {
+      "timestamp": "2026-01-01T10:00:00.000Z",
+      "testResult": "SUCCESS",
+      "latencyMs": 150
+    }
+  ]
+}
+```
+
+### Recovery Tests
+
+### GET /api/orchestrator/in-flight
+
+Get all currently in-flight requests.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "total": 12,
+  "inFlight": [
+    {
+      "id": "req_abc123",
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "startTime": "2026-01-01T12:00:00.000Z",
+      "promptTokens": 50,
+      "outputTokens": 0
+    }
+  ]
+}
+```
+
+### Performance Probe
+
+### POST /api/orchestrator/performance-probe
+
+Start an async performance probe across the fleet. Returns immediately with a task ID.
+
+**Auth:** Required
+
+**Response (202):**
+
+```json
+{
+  "taskId": "probe_abc123",
+  "status": "running",
+  "probeModels": ["llama2:13b", "codellama:7b"],
+  "totalProbes": 12
+}
+```
+
+### GET /api/orchestrator/performance-probe/:taskId
+
+Get status of a performance probe task.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "taskId": "probe_abc123",
+  "status": "completed",
+  "results": [
+    {
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "ttftMs": 120,
+      "throughput": 45.2
+    }
+  ]
+}
+```
+
+### DELETE /api/orchestrator/performance-probe/:taskId
+
+Cancel a running performance probe.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "taskId": "probe_abc123",
+  "status": "cancelled"
+}
+```
+
+### GET /api/orchestrator/performance-probe/history
+
+Get historical performance probe data points.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param             | Type   | Description          |
+| ----------------- | ------ | -------------------- |
+| `serverId`        | string | Filter by server     |
+| `model`           | string | Filter by model      |
+| `startTime`       | string | ISO timestamp start  |
+| `endTime`         | string | ISO timestamp end    |
+| `intervalMinutes` | number | Aggregation interval |
+
+**Response (200):**
+
+```json
+{
+  "dataPoints": [
+    {
+      "timestamp": "2026-01-01T12:00:00.000Z",
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "ttftMs": 120,
+      "throughput": 45.2
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/performance-probe/history/export
+
+Export performance probe history as CSV or JSON.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param       | Type   | Description                    |
+| ----------- | ------ | ------------------------------ |
+| `format`    | string | `csv` or `json` (default: csv) |
+| `serverId`  | string | Filter by server               |
+| `model`     | string | Filter by model                |
+| `startTime` | string | ISO timestamp start            |
+| `endTime`   | string | ISO timestamp end              |
+
+**Response (200):** File download with `Content-Disposition: attachment`
+
+### GET /api/orchestrator/performance-probe/scheduler-status
+
+Get the performance probe scheduler status.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "enabled": true,
+  "intervalMs": 86400000,
+  "lastRun": "2026-01-01T00:00:00.000Z",
+  "nextRun": "2026-01-02T00:00:00.000Z",
+  "jitterMs": 5000,
+  "maxConcurrent": 8
+}
+```
+
+### GET /api/orchestrator/performance-probe/recent
+
+Get recent performance probe tasks.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param   | Type   | Default | Description         |
+| ------- | ------ | ------- | ------------------- |
+| `limit` | number | 10      | Max tasks to return |
+
+**Response (200):**
+
+```json
+{
+  "tasks": [
+    {
+      "taskId": "probe_abc123",
+      "status": "completed",
+      "completedAt": "2026-01-01T12:05:00.000Z"
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/performance-probe/coverage-grid
+
+Get probe coverage grid showing which server:model pairs have been tested.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param      | Type   | Default | Description         |
+| ---------- | ------ | ------- | ------------------- |
+| `days`     | number | 7       | Time window in days |
+| `serverId` | string | —       | Filter by server    |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "grid": [
+    {
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "lastProbed": "2026-01-01T12:00:00.000Z",
+      "probeCount": 24
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/performance-probe/scheduled-probes
+
+Get scheduled probes for new server:model pairs.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "newServerProbes": [
+    {
+      "serverId": "server-3",
+      "model": "llama2:13b",
+      "scheduledAt": "2026-01-01T12:10:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /api/orchestrator/performance-probe/server/:serverId
+
+Run performance probe for a specific server.
+
+**Auth:** Required
+
+**Response (202):**
+
+```json
+{
+  "success": true,
+  "taskId": "probe_xyz789"
+}
+```
+
+### Errors
+
+### GET /api/orchestrator/errors
+
+Get recent error events.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param       | Type   | Description               |
+| ----------- | ------ | ------------------------- |
+| `startTime` | string | ISO timestamp start       |
+| `endTime`   | string | ISO timestamp end         |
+| `errorType` | string | Filter by error type      |
+| `limit`     | number | Max results (default 100) |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "errors": [
+    {
+      "id": "err_abc123",
+      "timestamp": "2026-01-01T12:00:00.000Z",
       "serverId": "server-1",
       "model": "llama2:13b",
       "errorType": "timeout",
-      "message": "Request timed out after 30000ms"
+      "message": "Request timed out after 30000ms",
+      "recoverable": true
     }
-  ]
+  ],
+  "count": 1,
+  "total": 45
 }
 ```
 
-### Capacity Analysis
+### GET /api/orchestrator/errors/:serverId
 
-**GET** `/api/orchestrator/analytics/capacity`
+Get errors for a specific server.
 
-Get capacity planning data and forecasts.
+**Auth:** Required
 
-**Query Parameters:**
+**Query Parameters:** Same as `/errors`
 
-- `timeRange` (string, optional): Forecast time range (default: 24h)
-
-**Response:**
+**Response (200):**
 
 ```json
 {
   "success": true,
-  "current": {
-    "queueSize": 12,
-    "avgWaitTime": 450,
-    "saturationLevel": 0.75
-  },
-  "forecast": {
-    "predictedLoad": 1.2,
-    "recommendedServers": 2,
-    "bottleneckServer": "server-1"
-  },
-  "recommendations": [
-    "Add 1 more server to handle peak load",
-    "Consider increasing queue timeout for high-traffic periods"
-  ]
+  "errors": [...]
 }
 ```
 
-### Trend Analysis
+### GET /api/orchestrator/errors/:serverId/:circuitId
 
-**GET** `/api/orchestrator/analytics/trends/:metric`
+Get errors for a specific circuit (server:model).
 
-Analyze trends for specific metrics.
+**Auth:** Required
 
-**Path Parameters:**
+**Query Parameters:** Same as `/errors`
 
-- `metric` (string, required): Metric to analyze (latency, errors, throughput)
-
-**Query Parameters:**
-
-- `serverId` (string, optional): Filter by server
-- `model` (string, optional): Filter by model
-- `timeRange` (string, optional): Analysis time range (default: 24h)
-
-**Response:**
+**Response (200):**
 
 ```json
 {
   "success": true,
-  "metric": "latency",
-  "analysis": {
-    "direction": "increasing",
-    "slope": 15.7,
-    "confidence": 0.87
-  },
-  "timeRange": "24h"
+  "errors": [...]
+}
+```
+
+### Cluster Status
+
+### GET /api/orchestrator/cluster-status
+
+Get cluster-wide status summary.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "status": "ok",
+  "data": {
+    "totalServers": 6,
+    "healthyServers": 5,
+    "degradedServers": 1,
+    "downServers": 0,
+    "averageResponseTime": 0,
+    "totalInFlight": 12,
+    "errorRate": 0.02,
+    "servers": [
+      {
+        "serverId": "server-1",
+        "status": "healthy",
+        "lastHealthCheck": 0,
+        "responseTime": 0,
+        "inFlight": 2,
+        "errorRate": 0
+      }
+    ]
+  }
 }
 ```
 
 ---
 
-## Model Management
+## Orchestrator Admin Endpoints
 
-### Warmup Model
+All endpoints in this section are prefixed with `/api/orchestrator` and require admin authentication (`requireAdmin`) unless noted.
 
-**POST** `/api/orchestrator/models/:model/warmup`
+### Server Management
 
-Warmup a model on specified or all servers.
+### POST /api/orchestrator/servers/add
 
-**Path Parameters:**
+Add a new server to the fleet.
 
-- `model` (string, required): Model name to warmup
+**Auth:** Admin required
+
+**Request Body:**
+
+```json
+{
+  "id": "server-1",
+  "url": "http://localhost:11434",
+  "type": "ollama",
+  "maxConcurrency": 4,
+  "apiKey": "optional-api-key"
+}
+```
+
+| Field            | Type   | Required | Description                                     |
+| ---------------- | ------ | -------- | ----------------------------------------------- |
+| `id`             | string | No       | Unique identifier (auto-generated if omitted)   |
+| `url`            | string | Yes      | Server URL                                      |
+| `type`           | string | No       | `ollama`, `openai`, or `auto` (default: `auto`) |
+| `maxConcurrency` | number | No       | Max concurrent requests (default: 4)            |
+| `apiKey`         | string | No       | API key for the server                          |
+
+**Response (201):**
+
+```json
+{
+  "success": true,
+  "id": "server-1",
+  "url": "http://localhost:11434",
+  "maxConcurrency": 4
+}
+```
+
+### DELETE /api/orchestrator/servers/:id
+
+Remove a server from the fleet.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "id": "server-1"
+}
+```
+
+### PATCH /api/orchestrator/servers/:id
+
+Update server configuration.
+
+**Auth:** Required (not admin-level — any authenticated user)
+
+**Request Body:**
+
+```json
+{
+  "maxConcurrency": 8
+}
+```
+
+| Field            | Type   | Required | Description                 |
+| ---------------- | ------ | -------- | --------------------------- |
+| `maxConcurrency` | number | No       | New max concurrent requests |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "id": "server-1",
+  "maxConcurrency": 8
+}
+```
+
+### POST /api/orchestrator/servers/:id/capability-probe
+
+Probe server capabilities.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "confirmed": ["supportsOllama", "supportsV1"],
+  "revoked": [],
+  "rateLimited": false
+}
+```
+
+### GET /api/orchestrator/anthropic/servers/:serverId/capabilities
+
+Get Anthropic-specific capabilities for a server.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "serverId": "server-1",
+  "type": "openai",
+  "supportsAnthropic": true,
+  "endpointOverrides": {
+    "anthropic_messages": "/v1/messages"
+  }
+}
+```
+
+### POST /api/orchestrator/servers/test-connection
+
+Test connection to a server without adding it.
+
+**Auth:** Admin required
+
+**Request Body:**
+
+```json
+{
+  "url": "http://localhost:11434",
+  "apiKey": "optional-key",
+  "name": "test-server"
+}
+```
+
+**Response (202):**
+
+```json
+{
+  "success": true,
+  "testId": "test_abc123",
+  "status": "pending"
+}
+```
+
+### GET /api/orchestrator/servers/test-connection/:testId
+
+Get result of a connection test.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "testId": "test_abc123",
+  "status": "completed",
+  "progress": 100,
+  "result": {
+    "url": "http://localhost:11434",
+    "reachable": true,
+    "version": "0.5.0"
+  }
+}
+```
+
+### POST /api/orchestrator/servers/:id/test
+
+Test an existing server.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "status": "healthy",
+  "capabilities": {
+    "supportsOllama": true,
+    "supportsV1": true,
+    "supportsAnthropic": false
+  },
+  "models": ["llama2:13b", "codellama:7b"]
+}
+```
+
+### GET /api/orchestrator/servers/ghost-stats
+
+Get ghost server statistics.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param           | Type    | Default | Description                |
+| --------------- | ------- | ------- | -------------------------- |
+| `limit`         | number  | 10      | Max results                |
+| `onlyRemovable` | boolean | false   | Only show removable ghosts |
+
+**Response (200):**
+
+```json
+{
+  "thresholdMs": 300000,
+  "summary": {
+    "totalGhosts": 2,
+    "removableGhosts": 1
+  },
+  "servers": [...]
+}
+```
+
+### Server Configuration
+
+### PATCH /api/orchestrator/servers/:id/config
+
+Update advanced server configuration.
+
+**Auth:** Required
+
+**Request Body:**
+
+```json
+{
+  "type": "openai",
+  "v1Models": ["gpt-4", "gpt-3.5-turbo"],
+  "forcedCapabilities": {
+    "supportsOllama": false,
+    "supportsV1": true,
+    "supportsAnthropic": false
+  },
+  "endpointOverrides": {
+    "anthropic_messages": "/v1/messages",
+    "anthropic_auth": {
+      "headerName": "x-api-key",
+      "headerPrefix": ""
+    },
+    "modelPrefix": "anthropic/"
+  }
+}
+```
+
+| Field                | Type     | Required | Description                          |
+| -------------------- | -------- | -------- | ------------------------------------ |
+| `type`               | string   | No       | `ollama`, `openai`, or `auto`        |
+| `v1Models`           | string[] | No       | Models supporting OpenAI v1 protocol |
+| `forcedCapabilities` | object   | No       | Override capability detection        |
+| `endpointOverrides`  | object   | No       | Custom endpoint configuration        |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "id": "server-1",
+  "type": "openai",
+  "v1Models": ["gpt-4"],
+  "forcedCapabilities": {...},
+  "endpointOverrides": {...}
+}
+```
+
+### POST /api/orchestrator/servers/:id/refresh-v1-models
+
+Refresh the list of v1-compatible models from a server.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "discoveredV1Models": ["gpt-4", "gpt-3.5-turbo"]
+}
+```
+
+### Server Maintenance
+
+### POST /api/orchestrator/servers/:id/drain
+
+Gracefully drain a server (stop accepting new requests, wait for existing to complete).
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "id": "server-1",
+  "draining": true,
+  "drainStartedAt": "2026-01-01T12:00:00.000Z"
+}
+```
+
+### POST /api/orchestrator/servers/:id/undrain
+
+Remove server from drained state.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "id": "server-1",
+  "draining": false
+}
+```
+
+### POST /api/orchestrator/servers/:id/maintenance
+
+Enable or disable maintenance mode.
+
+**Auth:** Admin required
+
+**Request Body:**
+
+```json
+{
+  "enabled": true
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "id": "server-1",
+  "maintenance": {
+    "enabled": true,
+    "startedAt": "2026-01-01T12:00:00.000Z"
+  }
+}
+```
+
+### Per-Server Model Management
+
+### GET /api/orchestrator/servers/:id/models
+
+List models available on a specific server.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "serverId": "server-1",
+  "models": ["llama2:13b", "codellama:7b", "mistral:7b"]
+}
+```
+
+### POST /api/orchestrator/servers/:id/models/pull
+
+Pull a model to a specific server. Streams progress events.
+
+**Auth:** Admin required
+
+**Request Body:**
+
+```json
+{
+  "model": "llama2:13b"
+}
+```
+
+**Response (200):** SSE stream of progress events:
+
+```
+data: {"status":"pulling manifest","digest":"sha256:..."}
+data: {"status":"pulling分层","digested":"sha256:...","size":"10MB"}
+data: {"status":"success"}
+```
+
+### DELETE /api/orchestrator/servers/:id/models/:model
+
+Delete a model from a specific server.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Model 'llama2:13b' deleted from server-1"
+}
+```
+
+### POST /api/orchestrator/servers/:id/models/copy
+
+Copy/pull a model to a specific server. Streams progress events.
+
+**Auth:** Admin required
+
+**Request Body:**
+
+```json
+{
+  "model": "llama2:13b",
+  "sourceServerId": "server-1"
+}
+```
+
+| Field            | Type   | Required | Description                                         |
+| ---------------- | ------ | -------- | --------------------------------------------------- |
+| `model`          | string | Yes      | Model name                                          |
+| `sourceServerId` | string | No       | Source server (if not specified, pulls from origin) |
+
+**Response (200):** SSE stream (same format as `/models/pull`)
+
+### Model Actions
+
+### POST /api/orchestrator/models/:model/warmup
+
+Warmup a model on specified servers or all servers.
+
+**Auth:** Admin required
 
 **Request Body:**
 
@@ -515,23 +1691,21 @@ Warmup a model on specified or all servers.
 }
 ```
 
-**Parameters:**
+| Field      | Type     | Required | Description                                |
+| ---------- | -------- | -------- | ------------------------------------------ |
+| `servers`  | string[] | No       | Target server IDs (all servers if omitted) |
+| `priority` | string   | No       | `low`, `normal`, `high`                    |
 
-- `servers` (array, optional): Target server IDs (default: all servers)
-- `priority` (string, optional): Warmup priority (low, normal, high)
-
-**Response:**
+**Response (200):**
 
 ```json
 {
   "success": true,
-  "model": "llama2:13b",
   "jobs": [
     {
       "serverId": "server-1",
       "status": "loading",
-      "estimatedTime": 15000,
-      "loadTime": 0
+      "estimatedTime": 15000
     }
   ],
   "summary": {
@@ -543,13 +1717,152 @@ Warmup a model on specified or all servers.
 }
 ```
 
-### Model Status
+### POST /api/orchestrator/models/:model/unload
 
-**GET** `/api/orchestrator/models/:model/status`
+Unload a model from servers to free memory.
 
-Get warmup status for a specific model.
+**Auth:** Admin required
 
-**Response:**
+**Request Body:**
+
+```json
+{
+  "serverId": "server-1"
+}
+```
+
+| Field      | Type   | Required | Description                              |
+| ---------- | ------ | -------- | ---------------------------------------- |
+| `serverId` | string | No       | Specific server (all servers if omitted) |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "results": [
+    {
+      "serverId": "server-1",
+      "status": "unloaded"
+    }
+  ],
+  "summary": {
+    "totalServers": 3,
+    "unloaded": 2,
+    "failed": 0
+  }
+}
+```
+
+### POST /api/orchestrator/models/:model/cancel
+
+Cancel a pending warmup operation.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "cancelled": true
+}
+```
+
+### GET /api/orchestrator/models/status
+
+Get warmup status for all models.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "summary": {
+    "totalModels": 5,
+    "totalServers": 6,
+    "loadedModels": 10,
+    "loadingModels": 2
+  },
+  "models": [
+    {
+      "model": "llama2:13b",
+      "status": {
+        "totalServers": 3,
+        "loadedOn": 2,
+        "loadingOn": 1,
+        "notLoadedOn": 0
+      },
+      "servers": [
+        {
+          "serverId": "server-1",
+          "status": "loaded",
+          "loadTime": 12345
+        }
+      ]
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/models/recommendations
+
+Get warmup recommendations based on usage patterns.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "recommendations": [
+    {
+      "model": "codellama:13b",
+      "reason": "High usage pattern detected in last 24h",
+      "priority": "high"
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/models/idle
+
+List models that have not been used recently.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param       | Type   | Default | Description                            |
+| ----------- | ------ | ------- | -------------------------------------- |
+| `threshold` | number | 1800000 | Idle threshold in ms (default: 30 min) |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "threshold": 1800000,
+  "models": [
+    {
+      "model": "llama2:7b",
+      "lastUsed": "2026-01-01T10:00:00.000Z",
+      "idleTimeMs": 7200000
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/models/:model/status
+
+Get status for a specific model.
+
+**Auth:** Required
+
+**Response (200):**
 
 ```json
 {
@@ -562,130 +1875,133 @@ Get warmup status for a specific model.
     "notLoadedOn": 0,
     "failedOn": 0
   },
-  "servers": [
+  "servers": [...]
+}
+```
+
+### GET /api/orchestrator/models/fleet-stats
+
+Get fleet-wide model statistics.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "totalServers": 6,
+  "popularModels": [
     {
-      "serverId": "server-1",
-      "status": "loaded",
-      "loadTime": 12345,
-      "lastUsed": "2024-01-01T10:00:00Z"
+      "model": "llama2:13b",
+      "serverCount": 6,
+      "avgLoadTime": 15000
     }
   ]
 }
 ```
 
-### All Models Status
+### Configuration
 
-**GET** `/api/orchestrator/models/status`
-
-Get loading status for all models.
-
-### Warmup Recommendations
-
-**GET** `/api/orchestrator/models/recommendations`
-
-Get recommended models to warmup based on usage patterns.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "recommendations": [
-    {
-      "model": "codellama:13b",
-      "reason": "High usage pattern detected"
-    }
-  ],
-  "count": 3
-}
-```
-
-### Unload Model
-
-**POST** `/api/orchestrator/models/:model/unload`
-
-Unload a model from servers to free memory.
-
-**Request Body:**
-
-```json
-{
-  "serverId": "server-1"
-}
-```
-
-### Idle Models
-
-**GET** `/api/orchestrator/models/idle`
-
-List models that haven't been used recently.
-
-**Query Parameters:**
-
-- `threshold` (number, optional): Idle time threshold in ms (default: 30 minutes)
-
----
-
-## Configuration
-
-### Get Configuration
-
-**GET** `/api/orchestrator/config`
+### GET /api/orchestrator/config
 
 Get current orchestrator configuration.
 
-**Response:**
+**Auth:** Admin required
+
+**Response (200):**
 
 ```json
 {
   "success": true,
   "config": {
     "port": 5100,
-    "enableQueue": true,
-    "circuitBreaker": {
-      "baseFailureThreshold": 3,
-      "openTimeout": 120000,
-      "halfOpenTimeout": 300000,
-      "halfOpenMaxRequests": 3,
-      "recoverySuccessThreshold": 5,
-      "activeTestTimeout": 300000,
-      "errorRateThreshold": 0.3
-    }
+    "loadBalancer": {
+      "algorithm": "fastest-response",
+      "weights": {...}
+    },
+    "circuitBreaker": {...},
+    "security": {...}
   },
   "source": "config.yaml"
 }
 ```
 
-### Update Configuration
+### GET /api/orchestrator/config/schema
 
-**POST** `/api/orchestrator/config`
+Get JSON schema for configuration validation.
 
-Update full configuration.
+**Auth:** Admin required
 
-**Request Body:**
+**Response (200):**
 
 ```json
 {
-  "port": 5101,
-  "enableCircuitBreaker": false
+  "success": true,
+  "schema": {...}
 }
 ```
 
-### Update Configuration Section
+### GET /api/orchestrator/config/export
 
-**PATCH** `/api/orchestrator/config/:section`
+Export current configuration.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "exportedAt": "2026-01-01T12:00:00.000Z",
+  "version": "1.0.0",
+  "config": {...}
+}
+```
+
+### POST /api/orchestrator/config
+
+Update full configuration.
+
+**Auth:** Admin required
+
+**Request Body:** Partial or full configuration object
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "config": {...}
+}
+```
+
+### PATCH /api/orchestrator/config/:section
 
 Update a specific configuration section.
 
+**Auth:** Admin required
+
 **Path Parameters:**
 
-- `section` (string, required): Config section (queue, loadBalancer, circuitBreaker, etc.)
+- `section` — Config section name (e.g., `loadBalancer`, `circuitBreaker`, `security`)
 
-### Reload Configuration
+**Request Body:** Partial configuration for that section
 
-**POST** `/api/orchestrator/config/reload`
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "section": "loadBalancer",
+  "config": {...}
+}
+```
+
+### POST /api/orchestrator/config/reload
 
 Reload configuration from file.
+
+**Auth:** Admin required
 
 **Request Body:**
 
@@ -695,68 +2011,1676 @@ Reload configuration from file.
 }
 ```
 
-### Save Configuration
+| Field        | Type   | Required | Description                                   |
+| ------------ | ------ | -------- | --------------------------------------------- |
+| `configPath` | string | No       | Path to config file (uses default if omitted) |
 
-**POST** `/api/orchestrator/config/save`
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "config": {...}
+}
+```
+
+### POST /api/orchestrator/config/reload-from-env
+
+Reload configuration from environment variables.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "config": {...}
+}
+```
+
+### POST /api/orchestrator/config/save
 
 Save current configuration to file.
 
-### Configuration Schema
+**Auth:** Admin required
 
-**GET** `/api/orchestrator/config/schema`
+**Request Body:**
 
-Get JSON schema for configuration validation.
+```json
+{
+  "configPath": "/path/to/save.yaml"
+}
+```
+
+| Field        | Type   | Required | Description                               |
+| ------------ | ------ | -------- | ----------------------------------------- |
+| `configPath` | string | No       | Path to save to (uses default if omitted) |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "path": "/path/to/save.yaml"
+}
+```
+
+### POST /api/orchestrator/config/import
+
+Import configuration from a JSON object.
+
+**Auth:** Admin required (CSRF required)
+
+**Request Body:**
+
+```json
+{
+  "config": {...},
+  "version": "1.0.0"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "mode": "replace",
+  "config": {...}
+}
+```
+
+### Ban Management
+
+### GET /api/orchestrator/bans
+
+Get all active bans.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "bans": [
+    {
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "bannedAt": "2026-01-01T12:00:00.000Z",
+      "reason": "excessive_errors"
+    }
+  ]
+}
+```
+
+### DELETE /api/orchestrator/bans
+
+Clear all bans.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "removed": 5
+}
+```
+
+### DELETE /api/orchestrator/bans/server/:serverId
+
+Clear all bans for a specific server.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "removed": 2
+}
+```
+
+### DELETE /api/orchestrator/bans/model/:model
+
+Clear all bans for a specific model.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "removed": 3
+}
+```
+
+### DELETE /api/orchestrator/bans/:serverId/:model
+
+Remove a specific ban.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Ban removed for server-1/llama2:13b"
+}
+```
+
+### Circuit Breaker Management (Write)
+
+### GET /api/orchestrator/circuit-breakers/:serverId/:model
+
+Get circuit breaker state for a server:model.
+
+**Auth:** Admin required
+
+**Response (200):** StateProjection object with fields like `state`, `failureCount`, `lastFailure`, etc.
+
+### POST /api/orchestrator/circuit-breakers/:serverId/:model/reset
+
+Reset circuit breaker to closed state.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "message": "Circuit breaker reset",
+  "previousState": "HALF_OPEN",
+  "currentState": "CLOSED"
+}
+```
+
+### POST /api/orchestrator/circuit-breakers/:serverId/:model/open
+
+Force circuit breaker to open state.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Circuit breaker forced open",
+  "circuitBreaker": {...}
+}
+```
+
+### POST /api/orchestrator/circuit-breakers/:serverId/:model/close
+
+Force circuit breaker to closed state.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Circuit breaker forced closed",
+  "circuitBreaker": {...}
+}
+```
+
+### POST /api/orchestrator/circuit-breakers/:serverId/:model/half-open
+
+Force circuit breaker to half-open state.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Circuit breaker forced to half-open",
+  "circuitBreaker": {...}
+}
+```
+
+### GET /api/orchestrator/circuit-breakers/:serverId
+
+Get all circuit breakers for a server.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "state": "HALF_OPEN",
+  "uiState": {...},
+  "breakers": [...]
+}
+```
+
+### POST /api/orchestrator/circuit-breakers/:serverId/reset
+
+Reset all circuit breakers for a server.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "resetCount": 5
+}
+```
+
+### POST /api/orchestrator/circuit-breakers/server/:serverId/reset-all
+
+Reset all circuit breakers for a server (alternate path).
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "resetCount": 5
+}
+```
+
+### DELETE /api/orchestrator/circuit-breakers/server/:serverId
+
+Delete all circuit breakers for a server.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "deletedCount": 5
+}
+```
+
+### GET /api/orchestrator/servers/circuit-breakers
+
+Get circuit breakers for all servers.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "circuitBreakers": [...]
+}
+```
+
+### GET /api/orchestrator/models/circuit-breakers
+
+Get circuit breakers grouped by model.
+
+**Auth:** Required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "models": {
+    "llama2:13b": [...],
+    "codellama:7b": [...]
+  }
+}
+```
+
+### POST /api/orchestrator/servers/:serverId/models/:model/recovery-test
+
+Manually trigger a recovery test for a server:model.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "breakerState": "HALF_OPEN"
+}
+```
+
+### Recovery Failure Tracking
+
+### GET /api/orchestrator/recovery-failures
+
+Get recovery failures summary.
+
+**Auth:** Admin required
+
+**Query Parameters:**
+
+| Param      | Type   | Default | Description       |
+| ---------- | ------ | ------- | ----------------- |
+| `windowMs` | number | 3600000 | Time window in ms |
+
+**Response (200):** Summary object with failure statistics
+
+### GET /api/orchestrator/recovery-failures/stats/all
+
+Get recovery statistics for all servers.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "servers": [
+    {
+      "serverId": "server-1",
+      "totalFailures": 5,
+      "recoveryAttempts": 10,
+      "successfulRecoveries": 8
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/recovery-failures/recent
+
+Get recent failure records.
+
+**Auth:** Admin required
+
+**Query Parameters:**
+
+| Param   | Type   | Default | Description |
+| ------- | ------ | ------- | ----------- |
+| `limit` | number | 50      | Max records |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "records": [
+    {
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "failureTime": "2026-01-01T12:00:00.000Z",
+      "failureType": "timeout"
+    }
+  ]
+}
+```
+
+### GET /api/orchestrator/recovery-failures/:serverId
+
+Get recovery statistics for a specific server.
+
+**Auth:** Admin required
+
+**Response (200):** Server recovery stats object
+
+### GET /api/orchestrator/recovery-failures/:serverId/history
+
+Get failure history for a server.
+
+**Auth:** Admin required
+
+**Query Parameters:**
+
+| Param    | Type   | Default | Description       |
+| -------- | ------ | ------- | ----------------- |
+| `limit`  | number | 100     | Max records       |
+| `offset` | number | 0       | Pagination offset |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "history": [...]
+}
+```
+
+### GET /api/orchestrator/recovery-failures/:serverId/analysis
+
+Analyze failures for a specific server.
+
+**Auth:** Admin required
+
+**Query Parameters:**
+
+| Param      | Type   | Default | Description          |
+| ---------- | ------ | ------- | -------------------- |
+| `windowMs` | number | 3600000 | Analysis time window |
+
+**Response (200):** Analysis object with patterns and recommendations
+
+### GET /api/orchestrator/recovery-failures/:serverId/circuit-breaker-impact
+
+Get circuit breaker impact analysis for a server.
+
+**Auth:** Admin required
+
+**Response (200):** Impact analysis object
+
+### GET /api/orchestrator/recovery-failures/:serverId/circuit-breaker-transitions
+
+Get circuit breaker state transitions for a server.
+
+**Auth:** Admin required
+
+**Query Parameters:**
+
+| Param   | Type   | Default | Description     |
+| ------- | ------ | ------- | --------------- |
+| `model` | string | —       | Filter by model |
+| `limit` | number | 100     | Max transitions |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "transitions": [
+    {
+      "model": "llama2:13b",
+      "fromState": "CLOSED",
+      "toState": "OPEN",
+      "timestamp": "2026-01-01T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /api/orchestrator/recovery-failures/:serverId/reset
+
+Reset recovery statistics for a server.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "message": "Recovery stats reset for server-1"
+}
+```
+
+### Logging
+
+### GET /api/orchestrator/logs
+
+Get application logs.
+
+**Auth:** Required
+
+**Query Parameters:**
+
+| Param   | Type   | Default | Description                                        |
+| ------- | ------ | ------- | -------------------------------------------------- |
+| `limit` | number | 100     | Max log entries                                    |
+| `level` | string | —       | Filter by level (`debug`, `info`, `warn`, `error`) |
+| `since` | string | —       | ISO timestamp — return logs after this time        |
+
+**Response (200):**
+
+```json
+{
+  "logs": [
+    {
+      "timestamp": "2026-01-01T12:00:00.000Z",
+      "level": "info",
+      "message": "Server added: server-1",
+      "requestId": "req_abc123"
+    }
+  ],
+  "count": 1,
+  "total": 150
+}
+```
+
+### POST /api/orchestrator/logs/clear
+
+Clear application logs.
+
+**Auth:** Admin required
+
+**Response (200):**
+
+```json
+{
+  "message": "Logs cleared"
+}
+```
+
+### POST /api/orchestrator/logs/client-error
+
+Report a client-side error.
+
+**Auth:** Admin required
+
+**Request Body:**
+
+```json
+{
+  "message": "Uncaught error",
+  "stack": "Error: ... at ...",
+  "componentStack": "Component stack...",
+  "timestamp": "2026-01-01T12:00:00.000Z"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "success": true
+}
+```
+
+---
+
+## User Management Endpoints
+
+All endpoints are prefixed with `/api/orchestrator` and require authentication. Admin-only endpoints are marked.
+
+### GET /api/orchestrator/users
+
+List all users.
+
+**Auth:** Admin only
+
+**Response (200):**
+
+```json
+{
+  "users": [
+    {
+      "id": "usr_abc123",
+      "username": "admin",
+      "email": "admin@local",
+      "role": "admin",
+      "isActive": true,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /api/orchestrator/users
+
+Create a new user.
+
+**Auth:** Admin only (CSRF required)
+
+**Request Body:**
+
+```json
+{
+  "username": "newuser",
+  "email": "user@example.com",
+  "password": "password123",
+  "role": "user"
+}
+```
+
+| Field      | Type   | Required | Description                 |
+| ---------- | ------ | -------- | --------------------------- |
+| `username` | string | Yes      | 1-50 characters             |
+| `email`    | string | Yes      | Valid email format          |
+| `password` | string | Yes      | Minimum 8 characters        |
+| `role`     | string | No       | `user` (default) or `admin` |
+
+**Response (201):**
+
+```json
+{
+  "user": {
+    "id": "usr_xyz789",
+    "username": "newuser",
+    "email": "user@example.com",
+    "role": "user",
+    "isActive": true,
+    "createdAt": "2026-01-01T12:00:00.000Z",
+    "updatedAt": "2026-01-01T12:00:00.000Z"
+  }
+}
+```
+
+### GET /api/orchestrator/users/:id
+
+Get a specific user.
+
+**Auth:** Self or Admin
+
+**Response (200):**
+
+```json
+{
+  "user": {
+    "id": "usr_abc123",
+    "username": "admin",
+    "email": "admin@local",
+    "role": "admin",
+    "isActive": true,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+}
+```
+
+### PUT /api/orchestrator/users/:id
+
+Update a user.
+
+**Auth:** Self or Admin (CSRF required)
+
+**Request Body:**
+
+```json
+{
+  "username": "newname",
+  "email": "newemail@example.com",
+  "password": "newpassword123",
+  "role": "user"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "user": {
+    "id": "usr_abc123",
+    "username": "newname",
+    "email": "newemail@example.com",
+    "role": "user",
+    "isActive": true,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T12:00:00.000Z"
+  }
+}
+```
+
+### DELETE /api/orchestrator/users/:id
+
+Delete a user.
+
+**Auth:** Admin only (CSRF required)
+
+**Response (200):**
+
+```json
+{
+  "message": "User deactivated successfully"
+}
+```
+
+### GET /api/orchestrator/users/:id/access
+
+Get server and model access for a user.
+
+**Auth:** Self or Admin
+
+**Response (200):**
+
+```json
+{
+  "serverAccess": [
+    {
+      "serverId": "server-1",
+      "grantedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "modelAccess": [
+    {
+      "serverId": "server-1",
+      "model": "llama2:13b",
+      "grantedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /api/orchestrator/users/:id/access/server
+
+Grant server access to a user.
+
+**Auth:** Self or Admin (CSRF required)
+
+**Request Body:**
+
+```json
+{
+  "serverId": "server-1"
+}
+```
+
+**Response (201):**
+
+```json
+{
+  "message": "Server access granted"
+}
+```
+
+### DELETE /api/orchestrator/users/:id/access/server/:serverId
+
+Revoke server access.
+
+**Auth:** Self or Admin (CSRF required)
+
+**Response (200):**
+
+```json
+{
+  "message": "Server access revoked"
+}
+```
+
+### POST /api/orchestrator/users/:id/access/model
+
+Grant model access to a user.
+
+**Auth:** Self or Admin (CSRF required)
+
+**Request Body:**
+
+```json
+{
+  "serverId": "server-1",
+  "model": "llama2:13b"
+}
+```
+
+**Response (201):**
+
+```json
+{
+  "message": "Model access granted"
+}
+```
+
+### DELETE /api/orchestrator/users/:id/access/model/:serverId/:model
+
+Revoke model access.
+
+**Auth:** Self or Admin (CSRF required)
+
+**Response (200):**
+
+```json
+{
+  "message": "Model access revoked"
+}
+```
+
+### POST /api/orchestrator/users/:id/rotate-api-key
+
+Rotate a user's API key.
+
+**Auth:** Self or Admin (CSRF required)
+
+**Response (200):**
+
+```json
+{
+  "apiKey": "new-api-key-value",
+  "message": "API key rotated successfully. Store this key securely - it will not be shown again."
+}
+```
+
+---
+
+## Ollama-Compatible Inference Endpoints
+
+All endpoints are prefixed with `/api` and use the inference rate limiter.
+
+### GET /api/tags
+
+List all available models across servers (aggregated).
+
+**Auth:** Optional (`optionalAuth`)
+
+**Response (200):**
+
+```json
+{
+  "models": [
+    {
+      "name": "llama2:13b",
+      "size": 7365960934,
+      "modified_at": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+### POST /api/generate
+
+Generate text using a model.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "llama2:13b",
+  "prompt": "Hello, world!",
+  "stream": false,
+  "context": [1, 2, 3],
+  "options": {
+    "num_predict": 100,
+    "temperature": 0.7
+  },
+  "keep_alive": "5m"
+}
+```
+
+| Field        | Type     | Required | Description                       |
+| ------------ | -------- | -------- | --------------------------------- |
+| `model`      | string   | Yes      | Model name                        |
+| `prompt`     | string   | Yes      | Input prompt                      |
+| `stream`     | boolean  | No       | Enable streaming (default: false) |
+| `context`    | number[] | No       | Context tokens from previous call |
+| `options`    | object   | No       | Model-specific options            |
+| `keep_alive` | string   | No       | How long to keep model loaded     |
+
+**Response (200) — non-streaming:**
+
+```json
+{
+  "model": "llama2:13b",
+  "response": "Hello! How can I help you today?",
+  "done": true,
+  "total_duration": 5000000000,
+  "context": [1, 2, 3],
+  "eval_count": 42
+}
+```
+
+**Response (200) — streaming:** `Content-Type: application/x-ndjson`
+
+```
+{"model":"llama2:13b","response":"Hello","done":false}
+{"model":"llama2:13b","response":"!","done":false}
+{"model":"llama2:13b","response":"","done":true}
+```
+
+### POST /api/chat
+
+Chat completion.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "llama2:13b",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Hello!" }
+  ],
+  "stream": false,
+  "options": {
+    "temperature": 0.7
+  },
+  "keep_alive": "5m"
+}
+```
+
+| Field        | Type    | Required | Description                       |
+| ------------ | ------- | -------- | --------------------------------- |
+| `model`      | string  | Yes      | Model name                        |
+| `messages`   | array   | Yes      | Message history                   |
+| `stream`     | boolean | No       | Enable streaming (default: false) |
+| `options`    | object  | No       | Model-specific options            |
+| `keep_alive` | string  | No       | How long to keep model loaded     |
+
+**Response (200) — non-streaming:**
+
+```json
+{
+  "model": "llama2:13b",
+  "message": {
+    "role": "assistant",
+    "content": "Hello! How can I help you?"
+  },
+  "done": true,
+  "total_duration": 5000000000
+}
+```
+
+**Response (200) — streaming:** `Content-Type: application/x-ndjson`
+
+```
+{"model":"llama2:13b","message":{"role":"assistant","content":"Hello"},"done":false}
+{"model":"llama2:13b","message":{"role":"assistant","content":"!"},"done":false}
+{"model":"llama2:13b","message":{"role":"assistant","content":""},"done":true}
+```
+
+### POST /api/embeddings
+
+Generate embeddings.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "nomic-embed-text",
+  "prompt": "Hello, world!"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "model": "nomic-embed-text",
+  "embeddings": [[0.1, 0.2, 0.3, ...]]
+}
+```
+
+### GET /api/ps
+
+List running models.
+
+**Auth:** Optional (`optionalAuth`)
+
+**Response (200):**
+
+```json
+{
+  "models": [
+    {
+      "name": "llama2:13b",
+      "model": "llama2:13b",
+      "size": 7365960934,
+      "duration": 3600,
+      "evaluating": false,
+      "slots": 4
+    }
+  ]
+}
+```
+
+### GET /api/version
+
+Get Ollama version.
+
+**Auth:** Optional (`optionalAuth`)
+
+**Response (200):**
+
+```json
+{
+  "version": "0.5.0"
+}
+```
+
+### POST /api/show
+
+Show model information.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "llama2:13b"
+}
+```
+
+**Response (200):** Model details including system prompt, parameters, etc.
+
+### POST /api/embed
+
+Generate embeddings using the embed endpoint.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "nomic-embed-text",
+  "input": "Text to embed",
+  "truncate": true,
+  "dimensions": 768,
+  "options": {},
+  "keep_alive": "5m"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "model": "nomic-embed-text",
+  "embeddings": [[0.1, 0.2, ...]],
+  "total_duration": 500000000
+}
+```
+
+### POST /api/pull
+
+Not supported in multi-node mode.
+
+**Response (400):**
+
+```json
+{
+  "error": "pull is not supported in multi-node mode"
+}
+```
+
+### POST /api/delete
+
+Not supported in multi-node mode.
+
+**Response (400):**
+
+```json
+{
+  "error": "delete is not supported in multi-node mode"
+}
+```
+
+### POST /api/copy
+
+Not supported in multi-node mode.
+
+**Response (400):**
+
+```json
+{
+  "error": "copy is not supported in multi-node mode"
+}
+```
+
+### POST /api/create
+
+Not supported in multi-node mode.
+
+**Response (400):**
+
+```json
+{
+  "error": "create is not supported in multi-node mode"
+}
+```
+
+### POST /api/push
+
+Not supported in multi-node mode.
+
+**Response (400):**
+
+```json
+{
+  "error": "push is not supported in multi-node mode"
+}
+```
+
+### HEAD /api/blobs/:digest
+
+Not supported.
+
+**Response (400):**
+
+```json
+{
+  "error": "blobs is not supported"
+}
+```
+
+### POST /api/blobs/:digest
+
+Not supported.
+
+**Response (400):**
+
+```json
+{
+  "error": "blobs is not supported"
+}
+```
+
+---
+
+## OpenAI-Compatible Endpoints
+
+All endpoints are prefixed with `/v1` and use the inference rate limiter.
+
+### POST /v1/chat/completions
+
+OpenAI-compatible chat completions.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "llama2:13b",
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Hello!" }
+  ],
+  "temperature": 0.7,
+  "max_tokens": 100,
+  "stream": false
+}
+```
+
+**Response (200) — non-streaming:**
+
+```json
+{
+  "id": "chatcmpl_abc123",
+  "object": "chat.completion",
+  "created": 1735689600,
+  "model": "llama2:13b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! How can I help you?"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 20,
+    "completion_tokens": 15,
+    "total_tokens": 35
+  }
+}
+```
+
+**Response (200) — streaming:** `Content-Type: text/event-stream`
+
+```
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+```
+
+### POST /v1/completions
+
+OpenAI-compatible text completions.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "llama2:13b",
+  "prompt": "Hello, world!",
+  "temperature": 0.7,
+  "max_tokens": 100,
+  "stream": false
+}
+```
+
+**Response (200):** OpenAI completion object (streaming uses SSE)
+
+### POST /v1/embeddings
+
+OpenAI-compatible embeddings.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "nomic-embed-text",
+  "input": "Hello, world!"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [0.1, 0.2, ...],
+      "index": 0
+    }
+  ],
+  "model": "nomic-embed-text",
+  "usage": {
+    "prompt_tokens": 10,
+    "total_tokens": 10
+  }
+}
+```
+
+### GET /v1/models
+
+List available models.
+
+**Auth:** Optional (`optionalAuth`)
+
+**Response (200):**
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "llama2:13b",
+      "object": "model",
+      "created": 1700000000,
+      "owned_by": "ollama"
+    }
+  ]
+}
+```
+
+### GET /v1/models/:model
+
+Get information about a specific model.
+
+**Auth:** Optional (`optionalAuth`)
+
+**Response (200):**
+
+```json
+{
+  "id": "llama2:13b",
+  "object": "model",
+  "created": 1700000000,
+  "owned_by": "ollama"
+}
+```
+
+---
+
+## Anthropic-Compatible Endpoints
+
+All endpoints are prefixed with `/v1`.
+
+### POST /v1/messages
+
+Anthropic messages API.
+
+**Auth:** Required (`requireAuth`)
+
+**Headers:**
+
+| Header              | Required | Description                   |
+| ------------------- | -------- | ----------------------------- |
+| `anthropic-version` | Yes      | Must be `2023-06-01` or later |
+| `anthropic-beta`    | No       | Beta header for beta features |
+
+**Request Body:**
+
+```json
+{
+  "model": "claude-sonnet-4-20250514",
+  "messages": [{ "role": "user", "content": "Hello!" }],
+  "max_tokens": 1024,
+  "stream": false
+}
+```
+
+**Response (200) — non-streaming:**
+
+```json
+{
+  "id": "msg_abc123",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello! How can I help you?"
+    }
+  ],
+  "model": "claude-sonnet-4-20250514",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 10,
+    "output_tokens": 15
+  }
+}
+```
+
+**Response (200) — streaming:** `Content-Type: text/event-stream`
+
+```
+data: {"type":"message_start","message":{"id":"msg_abc123","type":"message"}}
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"!"}}
+data: {"type":"content_block_stop","index":0}
+data: {"type":"message_stop"}
+```
+
+### GET /v1/models
+
+List available Anthropic models.
+
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "claude-sonnet-4-20250514",
+      "display_name": "Claude Sonnet 4",
+      "version": "20250514",
+      "context_window_tokens": 200000
+    }
+  ]
+}
+```
+
+### GET /v1/models/:model
+
+Get information about a specific Anthropic model.
+
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "id": "claude-sonnet-4-20250514",
+  "display_name": "Claude Sonnet 4",
+  "version": "20250514",
+  "context_window_tokens": 200000
+}
+```
+
+### GET /v1/idle
+
+Get idle models across the fleet.
+
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "models": [
+    {
+      "model": "llama2:7b",
+      "idleTimeMs": 7200000
+    }
+  ]
+}
+```
+
+### GET /v1/recommendations
+
+Get model recommendations.
+
+**Auth:** None
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "recommendations": [
+    {
+      "model": "codellama:13b",
+      "reason": "High usage detected"
+    }
+  ]
+}
+```
+
+### POST /v1/:model/warmup
+
+Warmup a model.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "servers": ["server-1", "server-2"]
+}
+```
+
+| Field     | Type     | Required | Description                     |
+| --------- | -------- | -------- | ------------------------------- |
+| `servers` | string[] | No       | Target servers (all if omitted) |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "results": [
+    {
+      "serverId": "server-1",
+      "status": "loading"
+    }
+  ],
+  "summary": {
+    "totalServers": 3,
+    "loadedOn": 1,
+    "loadingOn": 2
+  }
+}
+```
+
+### POST /v1/:model/unload
+
+Unload a model.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "servers": ["server-1"]
+}
+```
+
+| Field     | Type     | Required | Description                     |
+| --------- | -------- | -------- | ------------------------------- |
+| `servers` | string[] | No       | Target servers (all if omitted) |
+
+**Response (200):**
+
+```json
+{
+  "success": true,
+  "results": [...],
+  "summary": {...}
+}
+```
+
+---
+
+## Cohere Endpoints
+
+### POST /chat/chat
+
+Cohere chat API.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "command-r-plus",
+  "message": "Hello!",
+  "stream": false
+}
+```
+
+**Response (200):** Cohere chat response (streaming uses SSE)
+
+### POST /chat/chat--:serverId
+
+Cohere chat to a specific server.
+
+**Auth:** Required (`requireAuth`)
+
+Same as `/chat/chat` but routes to a specific server using the `--:serverId` bypass pattern.
+
+---
+
+## AWS Bedrock Endpoints
+
+### POST /model/:modelId/invoke
+
+Invoke a Bedrock model.
+
+**Auth:** None
+
+**Request Body:** Bedrock-compatible request body (model-specific)
+
+**Response (200):** Model response (varies by provider)
+
+### POST /model/:modelId/invoke-with-response-stream
+
+Invoke a Bedrock model with streaming response.
+
+**Auth:** None
+
+**Request Body:** Bedrock-compatible request body
+
+**Response (200):** Streaming response (content-type varies by model/provider)
+
+---
+
+## Batches Endpoints
+
+All endpoints are prefixed with `/v1`.
+
+### POST /v1/messages/batches
+
+Create a batch request.
+
+**Auth:** Required (`requireAuth`)
+
+**Request Body:**
+
+```json
+{
+  "model": "claude-sonnet-4-20250514",
+  "messages": [{ "role": "user", "content": "Hello!" }]
+}
+```
+
+**Response (201):** Batch object with `id`, `status`, `createdAt`
+
+### GET /v1/messages/batches
+
+List batches.
+
+**Auth:** None
+
+**Response (200):** List of batch objects
+
+### GET /v1/messages/batches/:id
+
+Get a specific batch.
+
+**Auth:** None
+
+**Response (200):** Batch object
+
+### POST /v1/messages/batches/:id/cancel
+
+Cancel a batch.
+
+**Auth:** Required (`requireAuth`)
+
+**Response (200):** Updated batch object with `status: "cancelled"`
+
+### GET /v1/messages/batches/:id/results
+
+Get batch results as JSONL stream.
+
+**Auth:** None
+
+**Content-Type:** `application/jsonl`
+
+**Response (200):**
+
+```
+{"index":0,"result":{"id":"msg_abc","content":[{"type":"text","text":"Hello!"}]}}
+{"index":1,"result":{"id":"msg_def","content":[{"type":"text","text":"Hi there!"}]}}
+```
 
 ---
 
 ## Provider Configuration
 
-This section documents how to configure servers for different AI providers and use endpoint overrides for custom configurations.
+This section documents how to configure servers for different AI providers.
 
 ### Provider Types
 
-The orchestrator supports multiple AI providers through server type configuration:
+| Type     | Description                                        |
+| -------- | -------------------------------------------------- |
+| `ollama` | Standard Ollama server (default)                   |
+| `openai` | OpenAI-compatible server                           |
+| `auto`   | Auto-detect capabilities based on server responses |
 
-- `ollama` - Standard Ollama server (default)
-- `openai` - OpenAI-compatible server
-- `auto` - Auto-detect capabilities based on server responses
+### Configuring MiniMax
 
-### Configuring MiniMax Server
-
-MiniMax is an OpenAI-compatible provider with a different endpoint structure. To configure a MiniMax server:
-
-**1. Add the server with type `openai`:**
+MiniMax is OpenAI-compatible with a different endpoint structure.
 
 ```json
 {
   "id": "minimax-1",
   "url": "https://api.minimax.io",
   "type": "openai",
-  "apiKey": "your-minimax-api-key"
-}
-```
-
-**2. Configure endpoint overrides:**
-
-```json
-{
-  "type": "openai",
+  "apiKey": "your-minimax-api-key",
   "v1Models": ["MiniMax-01-MiniChat", "abab6.5s-chat"],
   "forcedCapabilities": {
     "supportsOllama": false,
     "supportsV1": true,
     "supportsAnthropic": true
   },
-  "endpointOverrides": {
-    "anthropic_messages": "/anthropic/v1/messages"
-  }
-}
-```
-
-**3. Configure for Anthropic API access (MiniMax supports Anthropic):**
-
-```json
-{
   "endpointOverrides": {
     "anthropic_messages": "/anthropic/v1/messages",
     "anthropic_auth": {
@@ -767,9 +3691,7 @@ MiniMax is an OpenAI-compatible provider with a different endpoint structure. To
 }
 ```
 
-### Configuring Other Providers
-
-#### OpenAI
+### Configuring OpenAI
 
 ```json
 {
@@ -780,7 +3702,7 @@ MiniMax is an OpenAI-compatible provider with a different endpoint structure. To
 }
 ```
 
-#### Anthropic
+### Configuring Anthropic
 
 ```json
 {
@@ -798,7 +3720,7 @@ MiniMax is an OpenAI-compatible provider with a different endpoint structure. To
 }
 ```
 
-#### Azure OpenAI
+### Configuring Azure OpenAI
 
 ```json
 {
@@ -809,630 +3731,29 @@ MiniMax is an OpenAI-compatible provider with a different endpoint structure. To
 }
 ```
 
-#### AWS Bedrock
+### Configuring AWS Bedrock
 
-```json
-{
-  "id": "bedrock-1",
-  "url": "https://bedrock-runtime.us-east-1.amazonaws.com",
-  "type": "openai"
-}
-```
+Bedrock uses separate routes (`/model/:modelId/invoke`) and does not use the standard inference routes.
 
-### Using endpointOverrides
+### endpointOverrides Reference
 
-The `endpointOverrides` field allows you to customize how the orchestrator communicates with a server:
+| Field                         | Type   | Description                                 |
+| ----------------------------- | ------ | ------------------------------------------- |
+| `anthropic_messages`          | string | Custom path for Anthropic messages endpoint |
+| `anthropic_auth.headerName`   | string | Custom auth header name                     |
+| `anthropic_auth.headerPrefix` | string | Auth prefix (e.g., "Bearer")                |
+| `modelPrefix`                 | string | Prefix prepended to model names             |
 
-| Field                         | Description                                 | Example                  |
-| ----------------------------- | ------------------------------------------- | ------------------------ |
-| `anthropic_messages`          | Custom path for Anthropic messages endpoint | `/anthropic/v1/messages` |
-| `anthropic_auth.headerName`   | Custom auth header name                     | `x-api-key`              |
-| `anthropic_auth.headerPrefix` | Auth prefix before token                    | `Bearer`                 |
-| `modelPrefix`                 | Prefix to prepend to model names            | `anthropic/`             |
+### Provider Comparison
 
-### Provider Comparison Table
-
-| Provider         | Base URL                                 | Auth      | Chat Endpoint                                       | Anthropic Endpoint       |
-| ---------------- | ---------------------------------------- | --------- | --------------------------------------------------- | ------------------------ |
-| OpenAI           | `api.openai.com/v1`                      | Bearer    | `/v1/chat/completions`                              | N/A                      |
-| Anthropic        | `api.anthropic.com`                      | x-api-key | N/A                                                 | `/v1/messages`           |
-| MiniMax          | `api.minimax.io`                         | Bearer    | `/v1/text/chatcompletion_v2`                        | `/anthropic/v1/messages` |
-| Azure OpenAI     | `{resource}.openai.azure.com/openai/v1`  | api-key   | `/chat/completions`                                 | N/A                      |
-| AWS Bedrock      | `bedrock-runtime.{region}.amazonaws.com` | AWS SigV4 | Varies by model                                     | N/A                      |
-| Google Vertex AI | `{region}-aiplatform.googleapis.com/v1`  | Bearer    | `/publishers/google/models/{model}:generateContent` | N/A                      |
-
-**Notes:**
-
-- MiniMax uses Bearer authentication like OpenAI but has different endpoint paths
-- MiniMax provides Anthropic API compatibility at `/anthropic/v1/messages`
-- AWS Bedrock uses AWS Signature Version 4 authentication
-- Google Vertex AI uses OAuth 2.0 authentication
+| Provider     | Base URL                                 | Auth      | Chat Endpoint                | Anthropic Endpoint       |
+| ------------ | ---------------------------------------- | --------- | ---------------------------- | ------------------------ |
+| OpenAI       | `api.openai.com/v1`                      | Bearer    | `/v1/chat/completions`       | N/A                      |
+| Anthropic    | `api.anthropic.com`                      | x-api-key | N/A                          | `/v1/messages`           |
+| MiniMax      | `api.minimax.io`                         | Bearer    | `/v1/text/chatcompletion_v2` | `/anthropic/v1/messages` |
+| Azure OpenAI | `{resource}.openai.azure.com/openai/v1`  | api-key   | `/chat/completions`          | N/A                      |
+| AWS Bedrock  | `bedrock-runtime.{region}.amazonaws.com` | AWS SigV4 | Varies by model              | N/A                      |
 
 ---
 
-## Ollama-Compatible Endpoints
-
-These endpoints proxy requests to Ollama servers with load balancing and circuit breaking.
-
-### List Models
-
-**GET** `/api/tags`
-
-List all available models across servers.
-
-### Generate Text
-
-**POST** `/api/generate`
-
-Generate text using specified model.
-
-**Request Body:**
-
-```json
-{
-  "model": "llama2:13b",
-  "prompt": "Hello, world!",
-  "stream": true
-}
-```
-
-### Chat Completion
-
-**POST** `/api/chat`
-
-Generate chat completion.
-
-**Request Body:**
-
-```json
-{
-  "model": "llama2:13b",
-  "messages": [{ "role": "user", "content": "Hello!" }]
-}
-```
-
-### Generate Embeddings
-
-**POST** `/api/embeddings`
-
-Generate text embeddings.
-
-**Request Body:**
-
-```json
-{
-  "model": "nomic-embed-text",
-  "prompt": "Hello, world!"
-}
-```
-
-### Running Models
-
-**GET** `/api/ps`
-
-List currently running models on all servers.
-
-### Version
-
-**GET** `/api/version`
-
-Get Ollama version information.
-
-### Show Model
-
-**POST** `/api/show`
-
-Get detailed model information.
-
-**Request Body:**
-
-```json
-{
-  "model": "llama2:13b"
-}
-```
-
-### Generate Embeddings (embed)
-
-**POST** `/api/embed`
-
-Generate embeddings using the embed endpoint.
-
----
-
-## OpenAI-Compatible Endpoints
-
-These endpoints provide OpenAI-compatible API for integration with existing tools.
-
-### Chat Completions
-
-**POST** `/v1/chat/completions`
-
-OpenAI-compatible chat completions endpoint.
-
-**Request Body:**
-
-```json
-{
-  "model": "llama2:13b",
-  "messages": [{ "role": "user", "content": "Hello!" }],
-  "stream": false
-}
-```
-
-### Completions
-
-**POST** `/v1/completions`
-
-OpenAI-compatible text completions endpoint.
-
-### Embeddings
-
-**POST** `/v1/embeddings`
-
-OpenAI-compatible embeddings endpoint.
-
-**Request Body:**
-
-```json
-{
-  "model": "nomic-embed-text",
-  "input": "Hello, world!"
-}
-```
-
-### List Models
-
-**GET** `/v1/models`
-
-List available models (OpenAI-compatible).
-
-### Get Model
-
-**GET** `/v1/models/:model`
-
-Get information about a specific model.
-
----
-
-## Server-Specific Endpoints
-
-Route requests directly to a specific server (bypasses load balancer for debugging/testing).
-
-### Generate to Server
-
-**POST** `/api/generate--:serverId`
-
-Generate text on a specific server.
-
-**Example:** `/api/generate--server-1`
-
-### Chat to Server
-
-**POST** `/api/chat--:serverId`
-
-Chat on a specific server.
-
-### Embeddings to Server
-
-**POST** `/api/embeddings--:serverId`
-
-Generate embeddings on a specific server.
-
-### Chat Completions to Server
-
-**POST** `/v1/chat/completions--:serverId`
-
-Chat completions on a specific server.
-
-### Completions to Server
-
-**POST** `/v1/completions--:serverId`
-
-Completions on a specific server.
-
-### Embeddings to Server
-
-**POST** `/v1/embeddings--:serverId`
-
-Embeddings on a specific server.
-
----
-
-## Server Management Extended
-
-### List Servers
-
-**GET** `/api/orchestrator/servers`
-
-Get all registered servers with status.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "servers": [
-    {
-      "id": "server-1",
-      "url": "http://localhost:11434",
-      "maxConcurrency": 4,
-      "status": "healthy",
-      "healthy": true,
-      "models": ["llama2:13b", "codellama:7b"]
-    }
-  ]
-}
-```
-
-### Model Map
-
-**GET** `/api/orchestrator/model-map`
-
-Get model-to-server mapping.
-
-### List All Models
-
-**GET** `/api/orchestrator/models`
-
-Get all models across the fleet.
-
-### Comprehensive Stats
-
-**GET** `/api/orchestrator/stats`
-
-Get comprehensive statistics.
-
-### Undrain Server
-
-**POST** `/api/orchestrator/servers/:id/undrain`
-
-Remove server from drained state.
-
-### Server Maintenance Mode
-
-**POST** `/api/orchestrator/servers/:id/maintenance`
-
-Set server maintenance mode.
-
-### Per-Server Model List
-
-**GET** `/api/orchestrator/servers/:id/models`
-
-List models available on a specific server.
-
-### Pull Model to Server
-
-**POST** `/api/orchestrator/servers/:id/models/pull`
-
-Pull a model to a specific server.
-
-**Request Body:**
-
-```json
-{
-  "model": "llama2:13b"
-}
-```
-
-### Delete Model from Server
-
-**DELETE** `/api/orchestrator/servers/:id/models/:model`
-
-Delete a model from a specific server.
-
-### Copy Model to Server
-
-**POST** `/api/orchestrator/servers/:id/models/copy`
-
-Copy/pull a model to a specific server.
-
----
-
-## Circuit Breaker Management
-
-### Get All Circuit Breakers
-
-**GET** `/api/orchestrator/circuit-breakers`
-
-Get status of all circuit breakers.
-
-### Get Circuit Breaker Details
-
-**GET** `/api/orchestrator/circuit-breakers/:serverId/:model`
-
-Get circuit breaker details for a specific server:model.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "breaker": {
-    "serverId": "server-1",
-    "model": "llama2:13b",
-    "state": "closed",
-    "failureCount": 0,
-    "lastFailure": null
-  }
-}
-```
-
-### Get Server Circuit Breakers
-
-**GET** `/api/orchestrator/circuit-breakers/:serverId`
-
-Get all circuit breakers for a server.
-
-### Reset Circuit Breaker
-
-**POST** `/api/orchestrator/circuit-breakers/:serverId/:model/reset`
-
-Reset a circuit breaker to closed state.
-
-### Force Open Circuit Breaker
-
-**POST** `/api/orchestrator/circuit-breakers/:serverId/:model/open`
-
-Force a circuit breaker to open state.
-
-### Force Close Circuit Breaker
-
-**POST** `/api/orchestrator/circuit-breakers/:serverId/:model/close`
-
-Force a circuit breaker to closed state.
-
-### Force Half-Open Circuit Breaker
-
-**POST** `/api/orchestrator/circuit-breakers/:serverId/:model/half-open`
-
-Force a circuit breaker to half-open state.
-
-### Reset Server Circuit Breakers
-
-**POST** `/api/orchestrator/circuit-breakers/:serverId/reset`
-
-Reset all circuit breakers for a server.
-
-### Get Server Model Circuit Breaker
-
-**GET** `/api/orchestrator/servers/:serverId/models/:model/circuit-breaker`
-
-Get circuit breaker info for a server:model.
-
----
-
-## Recovery Failure Tracking
-
-### Get Recovery Failures Summary
-
-**GET** `/api/orchestrator/recovery-failures`
-
-Get summary of recovery failures.
-
-### Get All Server Recovery Stats
-
-**GET** `/api/orchestrator/recovery-failures/stats/all`
-
-Get recovery statistics for all servers.
-
-### Get Recent Failure Records
-
-**GET** `/api/orchestrator/recovery-failures/recent`
-
-Get recent failure records.
-
-### Get Server Recovery Stats
-
-**GET** `/api/orchestrator/recovery-failures/:serverId`
-
-Get recovery statistics for a specific server.
-
-### Get Server Failure History
-
-**GET** `/api/orchestrator/recovery-failures/:serverId/history`
-
-Get failure history for a server.
-
-### Analyze Server Failures
-
-**GET** `/api/orchestrator/recovery-failures/:serverId/analysis`
-
-Analyze failures for a specific server.
-
-### Get Circuit Breaker Impact
-
-**GET** `/api/orchestrator/recovery-failures/:serverId/circuit-breaker-impact`
-
-Get circuit breaker impact analysis for a server.
-
-### Get Circuit Breaker Transitions
-
-**GET** `/api/orchestrator/recovery-failures/:serverId/circuit-breaker-transitions`
-
-Get circuit breaker state transitions for a server.
-
-### Reset Server Recovery Stats
-
-**POST** `/api/orchestrator/recovery-failures/:serverId/reset`
-
-Reset recovery statistics for a server.
-
----
-
-## Manual Recovery Test
-
-### Trigger Recovery Test
-
-**POST** `/api/orchestrator/servers/:serverId/models/:model/recovery-test`
-
-Manually trigger a recovery test for a server:model.
-
----
-
-## Ban Management
-
-### Get All Bans
-
-**GET** `/api/orchestrator/bans`
-
-Get all active bans.
-
-### Clear All Bans
-
-**DELETE** `/api/orchestrator/bans`
-
-Clear all bans.
-
-### Clear Server Bans
-
-**DELETE** `/api/orchestrator/bans/server/:serverId`
-
-Clear all bans for a specific server.
-
-### Clear Model Bans
-
-**DELETE** `/api/orchestrator/bans/model/:model`
-
-Clear all bans for a specific model.
-
-### Remove Specific Ban
-
-**DELETE** `/api/orchestrator/bans/:serverId/:model`
-
-Remove a specific ban.
-
----
-
-## Request Tracking
-
-### Get In-Flight Requests
-
-**GET** `/api/orchestrator/in-flight`
-
-Get in-flight requests by server.
-
-### Server Model Metrics
-
-**GET** `/api/orchestrator/metrics/:serverId/:model`
-
-Get metrics for a specific server:model.
-
-### Fleet Model Stats
-
-**GET** `/api/orchestrator/models/fleet-stats`
-
-Get fleet-wide model statistics.
-
----
-
-## Decision History
-
-### Get Decision History
-
-**GET** `/api/orchestrator/analytics/decisions`
-
-Get load balancer decision history.
-
-### Get Decision Trends
-
-**GET** `/api/orchestrator/analytics/decisions/trends/:serverId/:model`
-
-Get decision trends for a specific server:model.
-
-### Get Selection Stats
-
-**GET** `/api/orchestrator/analytics/selection-stats`
-
-Get load balancer selection statistics.
-
-### Get Algorithm Stats
-
-**GET** `/api/orchestrator/analytics/algorithms`
-
-Get algorithm performance statistics.
-
-### Get Score Timeline
-
-**GET** `/api/orchestrator/analytics/score-timeline`
-
-Get score timeline data.
-
-### Get Metrics Impact
-
-**GET** `/api/orchestrator/analytics/metrics-impact`
-
-Get metrics impact analysis.
-
----
-
-## Request History
-
-### Get Servers With History
-
-**GET** `/api/orchestrator/analytics/servers-with-history`
-
-Get servers that have request history.
-
-### Get Server Request History
-
-**GET** `/api/orchestrator/analytics/requests/:serverId`
-
-Get request history for a specific server.
-
-### Get Server Request Stats
-
-**GET** `/api/orchestrator/analytics/request-stats/:serverId`
-
-Get request statistics for a specific server.
-
-### Get Request Timeline
-
-**GET** `/api/orchestrator/analytics/request-timeline`
-
-Get request timeline data.
-
-### Search Requests
-
-**GET** `/api/orchestrator/analytics/requests/search`
-
-Search request history.
-
-**Query Parameters:**
-
-- `serverId` (string, optional): Filter by server
-- `model` (string, optional): Filter by model
-- `status` (string, optional): Filter by status
-- `limit` (number, optional): Limit results
-
----
-
-## Logging
-
-### Get Logs
-
-**GET** `/api/orchestrator/logs`
-
-Get application logs.
-
-### Clear Logs
-
-**POST** `/api/orchestrator/logs/clear`
-
-Clear application logs.
-
----
-
-## Model Management Extended
-
-### Cancel Model Warmup
-
-**POST** `/api/orchestrator/models/:model/cancel`
-
-Cancel a pending warmup operation.
-
-### All Models Status
-
-**GET** `/api/orchestrator/models/status`
-
-Get loading status for all models across the fleet.
+_Last updated: 2026-01-01_

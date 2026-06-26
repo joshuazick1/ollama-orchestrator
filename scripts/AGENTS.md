@@ -34,6 +34,8 @@ Files of record (grouped by concern):
 **Load & chaos tests (TS)**
 
 - [unified-load-test.ts](unified-load-test.ts) — The canonical load test (`npm run test:load`).
+- [stress/preflight.sh](stress/preflight.sh) — Pre-flight checks for stress testing. Runs 8 checks: service health, auth disabled, rate limit >= 10000, model availability, server capacity (vs target concurrency), streaming support, connection limits (ulimit -n >= 4096), fleet backup. Exit 0 if all pass, 1 otherwise.
+- [stress/k6-base.js](stress/k6-base.js) — Parameterized K6 load test for all stress phases (B1-B4, C1-C3, C5). Run via `k6 run --vus N --duration Ts scripts/stress/k6-base.js`. Supports env vars: `BASE_URL`, `MODEL`, `ENDPOINT`, `API_KEY`, `STAGES`, `PHASE`, `MAX_TOKENS`, `SLEEP_MIN`, `SLEEP_MAX`.
 - [quick-load-test.sh](quick-load-test.sh) — Thin wrapper around the unified load test.
 - [circuit-breaker-load-test.ts](circuit-breaker-load-test.ts) — Circuit-breaker dedicated load test (`npm run test:circuit-breaker`).
 - [enhanced-circuit-breaker-load-test.ts](enhanced-circuit-breaker-load-test.ts) — Enhanced variant of the circuit-breaker load test.

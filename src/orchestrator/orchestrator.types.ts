@@ -82,6 +82,7 @@ export interface AIServer {
 
   // NEW: Optional API key for authentication
   apiKey?: string;
+  deploymentName?: string;
   // Operational state
   draining?: boolean;
   maintenance?: boolean;

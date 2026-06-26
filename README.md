@@ -17,6 +17,10 @@ The Ollama Orchestrator is a production-ready Express.js-based API gateway in Ty
 - **Model Management** - Proactive warmup, unload idle models, fleet-wide control
 - **Comprehensive Metrics** - Prometheus export, analytics dashboard, trend analysis
 - **OpenAI-Compatible API** - Drop-in replacement for OpenAI client libraries
+- **Anthropic-Compatible API** - Drop-in replacement for Anthropic client libraries
+- **Multi-Protocol Support** - Cohere and AWS Bedrock proxy support
+- **Authentication & User Management** - JWT + API key auth with role-based access control, first-run setup wizard
+- **Performance Probing** - Automated fleet-wide latency benchmarking with scheduling
 - **React Dashboard** - Web UI for monitoring and management
 - **Docker Support** - Production-ready containerized deployment
 
@@ -41,7 +45,7 @@ The Ollama Orchestrator is a production-ready Express.js-based API gateway in Ty
 └───────────────┘  └───────────────┘  └───────────────┘
 ```
 
-The orchestrator sits between clients and multiple Ollama servers, automatically selecting the best server based on real-time metrics, handling failures gracefully, and distributing load evenly.
+The orchestrator sits between clients and multiple Ollama servers (and proxies to OpenAI-compatible, Anthropic-compatible, Cohere, and Bedrock upstreams), automatically selecting the best server based on real-time metrics, handling failures gracefully, and distributing load evenly.
 
 ## Getting Started
 
@@ -73,14 +77,20 @@ The orchestrator sits between clients and multiple Ollama servers, automatically
 ollama-orchestrator/
 ├── src/                      # Main application source
 │   ├── controllers/          # Request handlers
-│   │   ├── analytics-controller.ts
+│   │   ├── anthropic-controller.ts
+│   │   ├── anthropic-models-controller.ts
+│   │   ├── batches-controller.ts
+│   │   ├── bedrock-controller.ts
 │   │   ├── circuit-breaker-controller.ts
+│   │   ├── cohere-controller.ts
 │   │   ├── config-controller.ts
+│   │   ├── error-events-controller.ts
 │   │   ├── logs-controller.ts
 │   │   ├── metrics-controller.ts
 │   │   ├── model-controller.ts
 │   │   ├── ollama-controller.ts
 │   │   ├── openai-controller.ts
+│   │   ├── perf-probe-controller.ts
 │   │   ├── recovery-failure-controller.ts
 │   │   ├── server-models-controller.ts
 │   │   └── servers-controller.ts
@@ -119,11 +129,24 @@ ollama-orchestrator/
 │   ├── routes/               # Express route definitions
 │   │   ├── orchestrator.ts   # Barrel file
 │   │   ├── admin.routes.ts
+│   │   ├── anthropic.routes.ts
+│   │   ├── auth.routes.ts
+│   │   ├── batches.routes.ts
+│   │   ├── bedrock.routes.ts
+│   │   ├── cohere.routes.ts
 │   │   ├── inference.routes.ts
 │   │   ├── monitoring.routes.ts
+│   │   ├── setup.routes.ts
+│   │   ├── user.routes.ts
 │   │   └── v1.routes.ts
 │   ├── types/                # Shared TypeScript types
-│   │   └── api-request.types.ts
+│   │   ├── anthropic.types.ts
+│   │   ├── api-request.types.ts
+│   │   ├── batch.types.ts
+│   │   ├── bedrock.types.ts
+│   │   ├── cohere.types.ts
+│   │   ├── error-event.ts
+│   │   └── perf-probe.types.ts
 │   ├── constants/            # Application constants
 │   │   ├── api-endpoints.ts
 │   │   ├── error-messages.ts
@@ -377,6 +400,51 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 - **GET /api/orchestrator/logs** - Application logs
 - **POST /api/orchestrator/logs/clear** - Clear logs
 
+### Authentication
+
+- **POST /api/orchestrator/setup** - First-run setup wizard
+- **GET /api/orchestrator/auth/csrf-token** - Get CSRF token
+- **POST /api/orchestrator/auth/login** - Login with credentials
+- **POST /api/orchestrator/auth/logout** - Logout and invalidate session
+- **GET /api/orchestrator/auth/me** - Get current user info
+
+### User Management
+
+- **GET /api/orchestrator/users** - List all users
+- **POST /api/orchestrator/users** - Create new user
+- **GET /api/orchestrator/users/:id** - Get user by ID
+- **PUT /api/orchestrator/users/:id** - Update user
+- **DELETE /api/orchestrator/users/:id** - Delete user
+- **GET /api/orchestrator/users/:id/access** - Get user access info
+- **PUT /api/orchestrator/users/:id/access** - Update user access
+
+### Anthropic-Compatible Inference
+
+- **POST /v1/messages** - Chat completion (Anthropic API compatible)
+- **GET /v1/models** - List available models
+- **GET /v1/idle** - Get idle models
+- **POST /v1/:model/warmup** - Warmup a model
+
+### Batches
+
+- **POST /v1/messages/batches** - Create batch request
+- **GET /v1/messages/batches** - List batch requests
+- **GET /v1/messages/batches/:id/results** - Get batch results
+
+### Cohere
+
+- **POST /chat/chat** - Cohere chat completion
+
+### AWS Bedrock
+
+- **POST /model/:modelId/invoke** - Bedrock model invocation
+- **POST /model/:modelId/invoke-with-response-stream** - Bedrock streaming invocation
+
+### Performance Probe
+
+- **POST /api/orchestrator/performance-probe** - Trigger performance probe
+- **GET /api/orchestrator/performance-probe/scheduler-status** - Get scheduler status
+
 ### Root-Level
 
 - **GET /health** - Health check
@@ -481,14 +549,14 @@ Route requests directly to a specific server (bypasses load balancer for debuggi
 
 ### Circuit Breaker
 
-- Base failure threshold: 3 (adaptive range 2-8)
+- Base failure threshold: 5 (adaptive range 3-10)
 - Open timeout: 120s (2 minutes)
-- Half-open timeout: 300s (5 minutes)
+- Half-open timeout: 60s (1 minute)
 - Half-open max requests: 3
-- Recovery success threshold: 5
+- Recovery success threshold: 3
 - Active test timeout: 300s (5 minutes)
 - Error window: 60s
-- Error rate threshold: 30%
+- Error rate threshold: 50%
 - Error rate smoothing: 30%
 - Adaptive thresholds: enabled
 

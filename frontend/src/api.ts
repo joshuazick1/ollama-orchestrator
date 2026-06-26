@@ -110,7 +110,8 @@ export {
   exportConfig,
   importConfig,
 } from './api/config';
-export { getLogs, clearLogs } from './api/logs';
+export { getLogs, clearLogs, logClientError } from './api/logs';
+export type { ClientErrorPayload } from './api/logs';
 export {
   getUsers,
   createUser,

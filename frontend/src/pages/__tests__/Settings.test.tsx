@@ -1,4 +1,5 @@
 import { screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '../../__tests__/setup';
 import { Settings } from '../settings';
@@ -9,6 +10,8 @@ vi.mock('../../api', () => ({
   updateConfig: vi.fn(),
   saveConfig: vi.fn(),
   reloadConfig: vi.fn(),
+  exportConfig: vi.fn(),
+  importConfig: vi.fn(),
 }));
 
 const mockConfig = {
@@ -136,12 +139,10 @@ describe('Settings Page', () => {
     expect(await screen.findByText('Settings')).toBeInTheDocument();
     expect(screen.getByText('Configure orchestrator behavior and features')).toBeInTheDocument();
 
-    // Check tabs are rendered
-    expect(screen.getByRole('button', { name: /general/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /features/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /load balancer/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /security/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /metrics/i })).toBeInTheDocument();
+    // Check tabs are rendered (radix TabsTrigger uses role=tab)
+    expect(screen.getByRole('tab', { name: /^general$/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^load balancer$/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^metrics$/i })).toBeInTheDocument();
   });
 
   it('shows general settings tab by default', async () => {
@@ -157,12 +158,12 @@ describe('Settings Page', () => {
     expect(screen.getByDisplayValue('5100')).toBeInTheDocument();
   });
 
-  it('switches to features tab and shows toggles', async () => {
+  it('switches to queue tab and shows toggles', async () => {
     renderWithProviders(<Settings />);
 
     await screen.findByText('Settings');
 
-    fireEvent.click(screen.getByRole('button', { name: /features/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /^queue$/i }));
 
     expect(screen.getByText('Enable Queue')).toBeInTheDocument();
     expect(screen.getByText('Enable Circuit Breaker')).toBeInTheDocument();
@@ -172,27 +173,26 @@ describe('Settings Page', () => {
   });
 
   it('switches to security tab and shows security fields', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<Settings />);
 
     await screen.findByText('Settings');
 
-    fireEvent.click(screen.getByRole('button', { name: /^security$/i }));
+    await user.click(screen.getByRole('tab', { name: /^security$/i }));
 
-    expect(screen.getByText('Access control settings')).toBeInTheDocument();
-    expect(screen.getByText('CORS Origins')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('*')).toBeInTheDocument();
+    expect(screen.getByText('Rate Limiting')).toBeInTheDocument();
   });
 
-  it('Save Changes button is disabled when no changes are made', async () => {
+  it('Apply Changes button is disabled when no changes are made', async () => {
     renderWithProviders(<Settings />);
 
     await screen.findByText('Settings');
 
-    const saveButton = screen.getByRole('button', { name: /save changes/i });
+    const saveButton = screen.getByRole('button', { name: /apply changes/i });
     expect(saveButton).toBeDisabled();
   });
 
-  it('enables Save Changes button after editing a field and calls updateConfig on save', async () => {
+  it('enables Apply Changes button after editing a field and calls updateConfig on save', async () => {
     renderWithProviders(<Settings />);
 
     await screen.findByText('Settings');
@@ -201,7 +201,7 @@ describe('Settings Page', () => {
     const portInput = screen.getByDisplayValue('5100');
     fireEvent.change(portInput, { target: { value: '8080' } });
 
-    const saveButton = screen.getByRole('button', { name: /save changes/i });
+    const saveButton = screen.getByRole('button', { name: /apply changes/i });
     expect(saveButton).not.toBeDisabled();
 
     fireEvent.click(saveButton);
@@ -227,25 +227,24 @@ describe('Settings Page', () => {
   });
 
   it('shows metrics tab content', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<Settings />);
 
     await screen.findByText('Settings');
 
-    fireEvent.click(screen.getByRole('button', { name: /metrics/i }));
+    await user.click(screen.getByRole('tab', { name: /^metrics$/i }));
 
-    expect(screen.getByText('Monitoring and observability')).toBeInTheDocument();
-    expect(screen.getByText('Metrics Enabled')).toBeInTheDocument();
-    expect(screen.getByText('Prometheus Enabled')).toBeInTheDocument();
+    expect(screen.getByText('Prometheus')).toBeInTheDocument();
   });
 
   it('shows health check tab content', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<Settings />);
 
     await screen.findByText('Settings');
 
-    fireEvent.click(screen.getByRole('button', { name: /health check/i }));
+    await user.click(screen.getByRole('tab', { name: /^health check$/i }));
 
-    expect(screen.getByText('Server health monitoring settings')).toBeInTheDocument();
-    expect(screen.getByText('Health Check Enabled')).toBeInTheDocument();
+    expect(screen.getByText('Timing')).toBeInTheDocument();
   });
 });

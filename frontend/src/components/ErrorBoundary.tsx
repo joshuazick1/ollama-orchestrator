@@ -4,6 +4,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Alert, AlertTitle, AlertDescription } from './ui/alert';
 import { Button } from './Button';
 import { toastError } from '../utils/toast';
+import { logClientError } from '../api';
 
 interface Props {
   children: ReactNode;
@@ -29,15 +30,11 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     toastError('Something went wrong. Please try refreshing the page.');
 
-    fetch('/api/orchestrator/logs/client-error', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: error.message,
-        stack: error.stack,
-        componentStack: errorInfo.componentStack,
-        timestamp: Date.now(),
-      }),
+    logClientError({
+      message: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack ?? undefined,
+      timestamp: Date.now(),
     }).catch(() => undefined);
   }
 

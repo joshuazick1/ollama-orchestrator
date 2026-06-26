@@ -13,7 +13,7 @@ Files of record (non-exhaustive):
 - [ProtectedRoute.tsx](ProtectedRoute.tsx) — Auth gate.
 - [Toaster.tsx](Toaster.tsx) — Global toast host.
 - [Modal.tsx](Modal.tsx), [ConfirmationModal.tsx](ConfirmationModal.tsx) — Modal primitives.
-- [Button.tsx](Button.tsx), [Card.tsx](Card.tsx), [Badge.tsx](Badge.tsx), [StatCard.tsx](StatCard.tsx) — Atomic UI.
+- [Button.tsx](Button.tsx), [Card.tsx](Card.tsx), [Badge.tsx](Badge.tsx), [StatCard.tsx](StatCard.tsx), [ProgressBar.tsx](ProgressBar.tsx) — Atomic UI.
 - [EmptyState.tsx](EmptyState.tsx) — Empty list state.
 - [DataToolbar.tsx](DataToolbar.tsx) — Search + filter toolbar.
 - [GlobalSearch.tsx](GlobalSearch.tsx), [SearchResultGroup.tsx](SearchResultGroup.tsx) — Global search.
@@ -34,10 +34,12 @@ Files of record (non-exhaustive):
 ## Local Contracts
 
 - Styling uses Tailwind CSS via `clsx` + `tailwind-merge`. Do not introduce inline styles or CSS-in-JS.
+- Dynamic widths: when a progress bar's fill percentage is computed at runtime, use the `ProgressBar` primitive (which sets a CSS custom property and reads it via Tailwind arbitrary-value syntax). Inline `style={{ width: '...' }}` is forbidden.
 - Colors come from [frontend/src/constants/colors.ts](../constants/colors.ts) (or Tailwind theme). Hardcoded color values are not allowed.
 - Icons come from `lucide-react` (already a dependency).
 - Focus management: [Modal.tsx](Modal.tsx) uses `focus-trap-react`. Other overlays must trap focus too if they capture keyboard input.
 - Accessibility: every interactive component must have an accessible name (`aria-label` or visible text) and must be reachable by keyboard.
+- Error reporting: `ErrorBoundary` posts client errors through `apiClient.logClientError(...)` so CSRF, 401-logout, and ApiError normalization apply. Do not raw-fetch in error handlers.
 
 ## Work Guidance
 

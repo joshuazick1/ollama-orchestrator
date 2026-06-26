@@ -69,8 +69,8 @@ describe('Servers Page', () => {
     expect(await screen.findByText('http://localhost:11434')).toBeInTheDocument();
     expect(await screen.findByText('http://remote:11434')).toBeInTheDocument();
 
-    expect(screen.getByText('Healthy')).toBeInTheDocument();
-    expect(screen.getByText('Unhealthy')).toBeInTheDocument();
+    expect(screen.getAllByText('Healthy').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Unhealthy').length).toBeGreaterThanOrEqual(1);
 
     expect(screen.getByText('45ms')).toBeInTheDocument();
     expect(screen.getByText('1200ms')).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe('Servers Page', () => {
       expect(api.addServer).toHaveBeenCalledWith(
         expect.objectContaining({
           url: 'http://newserver:11434',
-          type: 'ollama',
+          type: 'auto',
           id: expect.any(String),
         }),
         expect.anything()

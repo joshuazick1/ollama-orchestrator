@@ -4,7 +4,7 @@ This guide covers deploying the Ollama Orchestrator in production environments w
 
 ## Prerequisites
 
-- **Node.js**: v18 or higher
+- **Node.js**: v20 or higher
 - **Docker and Docker Compose** (optional, for containerized deployment)
 - At least 4GB RAM per Ollama server
 - Network connectivity to Ollama servers
@@ -88,74 +88,72 @@ This guide covers deploying the Ollama Orchestrator in production environments w
 The orchestrator supports many environment variables. Here are the most common:
 
 ```bash
-# Server settings
+# Server
+NODE_ENV=production
+PORT=5100
 ORCHESTRATOR_PORT=5100
 ORCHESTRATOR_HOST=0.0.0.0
-ORCHESTRATOR_LOG_LEVEL=info
+ORCHESTRATOR_LOG_LEVEL=info          # debug | info | warn | error
 
-# Feature toggles
-ORCHESTRATOR_ENABLE_QUEUE=true
+# Authentication (new — was missing entirely)
+ORCHESTRATOR_ENABLE_AUTH=true        # default: true — set false to disable all auth
+ORCHESTRATOR_API_KEYS=               # comma-separated user API keys
+ORCHESTRATOR_ADMIN_API_KEYS=         # comma-separated admin API keys
+
+# CORS & Rate Limiting
+ORCHESTRATOR_CORS_ORIGINS=           # comma-separated origins
+ORCHESTRATOR_RATE_LIMIT_WINDOW=900000
+ORCHESTRATOR_RATE_LIMIT_MAX=100
+
+# Feature Toggles
 ORCHESTRATOR_ENABLE_CIRCUIT_BREAKER=true
 ORCHESTRATOR_ENABLE_METRICS=true
 ORCHESTRATOR_ENABLE_STREAMING=true
 ORCHESTRATOR_ENABLE_PERSISTENCE=true
 
-# Queue settings
-ORCHESTRATOR_QUEUE_MAX_SIZE=1000
-ORCHESTRATOR_QUEUE_TIMEOUT=300000
-ORCHESTRATOR_QUEUE_PRIORITY_BOOST_INTERVAL=5000
-ORCHESTRATOR_QUEUE_MAX_PRIORITY=100
-
-# Load balancer weights (must sum to 1.0)
+# Load Balancer Weights (must sum to 1.0)
 ORCHESTRATOR_LB_WEIGHT_LATENCY=0.35
 ORCHESTRATOR_LB_WEIGHT_SUCCESS_RATE=0.30
 ORCHESTRATOR_LB_WEIGHT_LOAD=0.20
 ORCHESTRATOR_LB_WEIGHT_CAPACITY=0.15
 
-# Circuit breaker settings
-ORCHESTRATOR_CB_FAILURE_THRESHOLD=3
-ORCHESTRATOR_CB_MAX_FAILURE_THRESHOLD=8
-ORCHESTRATOR_CB_MIN_FAILURE_THRESHOLD=2
+# Circuit Breaker
+ORCHESTRATOR_CB_FAILURE_THRESHOLD=5         # default: 5
+ORCHESTRATOR_CB_MAX_FAILURE_THRESHOLD=10    # default: 10
+ORCHESTRATOR_CB_MIN_FAILURE_THRESHOLD=3     # default: 3
 ORCHESTRATOR_CB_OPEN_TIMEOUT=120000
-ORCHESTRATOR_CB_HALF_OPEN_TIMEOUT=300000
-ORCHESTRATOR_CB_HALF_OPEN_MAX_REQUESTS=3
-ORCHESTRATOR_CB_RECOVERY_SUCCESS_THRESHOLD=5
-ORCHESTRATOR_CB_ACTIVE_TEST_TIMEOUT=300000
-ORCHESTRATOR_CB_ERROR_RATE_THRESHOLD=0.3
+ORCHESTRATOR_CB_HALF_OPEN_TIMEOUT=60000     # default: 60000 (1 min)
+ORCHESTRATOR_CB_RECOVERY_SUCCESS_THRESHOLD=3
+ORCHESTRATOR_CB_ERROR_RATE_THRESHOLD=0.5    # default: 0.5
 ORCHESTRATOR_CB_ADAPTIVE_THRESHOLDS=true
 
-# Security settings
-ORCHESTRATOR_CORS_ORIGINS=*
-ORCHESTRATOR_RATE_LIMIT_WINDOW=900000
-ORCHESTRATOR_RATE_LIMIT_MAX=100
-ORCHESTRATOR_API_KEYS=key1,key2
-ORCHESTRATOR_ADMIN_API_KEYS=admin-key
-
-# Metrics settings
-ORCHESTRATOR_METRICS_ENABLED=true
-ORCHESTRATOR_METRICS_PROMETHEUS_ENABLED=true
-ORCHESTRATOR_METRICS_PROMETHEUS_PORT=9090
-ORCHESTRATOR_METRICS_HISTORY_WINDOW=60
-
-# Streaming settings
-ORCHESTRATOR_STREAMING_ENABLED=true
-ORCHESTRATOR_STREAMING_MAX_CONCURRENT=100
-ORCHESTRATOR_STREAMING_TIMEOUT=300000
-ORCHESTRATOR_STREAMING_TTFT_WEIGHT=0.6
-ORCHESTRATOR_STREAMING_DURATION_WEIGHT=0.4
-
-# Health check settings
+# Health Checks
 ORCHESTRATOR_HC_ENABLED=true
 ORCHESTRATOR_HC_INTERVAL=30000
 ORCHESTRATOR_HC_TIMEOUT=5000
 ORCHESTRATOR_HC_MAX_CONCURRENT=10
 ORCHESTRATOR_HC_FAILURE_THRESHOLD=3
 
-# Retry settings
+# Retry & Timeout
 ORCHESTRATOR_RETRY_MAX_RETRIES=2
 ORCHESTRATOR_RETRY_DELAY=500
 ORCHESTRATOR_RETRY_BACKOFF_MULTIPLIER=2
 ORCHESTRATOR_RETRY_MAX_DELAY=5000
+ORCHESTRATOR_INFERENCE_TIMEOUT_MS=90000     # total failover budget (new — was missing)
+
+# Metrics & Monitoring
+ORCHESTRATOR_METRICS_ENABLED=true
+ORCHESTRATOR_METRICS_PROMETHEUS_ENABLED=true
+ORCHESTRATOR_METRICS_PROMETHEUS_PORT=9090
+
+# Streaming
+ORCHESTRATOR_STREAMING_ENABLED=true
+ORCHESTRATOR_STREAMING_MAX_CONCURRENT=100
+ORCHESTRATOR_STREAMING_TIMEOUT=300000
+ORCHESTRATOR_STREAMING_STALL_THRESHOLD_MS=300000
+
+# Persistence
+ORCHESTRATOR_PERSISTENCE_PATH=./data
 ```
 
 ### Config File
@@ -167,14 +165,6 @@ server:
   port: 5100
   host: '0.0.0.0'
   logLevel: 'info'
-
-queue:
-  enabled: true
-  maxSize: 1000
-  timeout: 300000
-  priorityBoostInterval: 5000
-  priorityBoostAmount: 5
-  maxPriority: 100
 
 loadBalancer:
   weights:
@@ -188,15 +178,13 @@ loadBalancer:
 
 circuitBreaker:
   enabled: true
-  baseFailureThreshold: 3
-  maxFailureThreshold: 8
-  minFailureThreshold: 2
+  failureThreshold: 5
+  maxFailureThreshold: 10
+  minFailureThreshold: 3
   openTimeout: 120000
-  halfOpenTimeout: 300000
-  halfOpenMaxRequests: 3
-  recoverySuccessThreshold: 5
-  activeTestTimeout: 300000
-  errorRateThreshold: 0.3
+  halfOpenTimeout: 60000
+  recoverySuccessThreshold: 3
+  errorRateThreshold: 0.5
   adaptiveThresholds: true
 
 healthCheck:
@@ -264,9 +252,6 @@ curl http://localhost:5100/api/orchestrator/health
 
 # Server status
 curl http://localhost:5100/api/orchestrator/servers
-
-# Queue status
-curl http://localhost:5100/api/orchestrator/queue
 ```
 
 ## Monitoring Setup
@@ -288,7 +273,6 @@ Pre-built dashboards are included for:
 
 - **Orchestrator Overview**: Request rates, latencies, error rates
 - **Server Performance**: Per-server metrics and load balancing
-- **Queue Management**: Queue depth, processing rates
 - **Circuit Breaker Status**: Breaker states and recovery metrics
 
 Access Grafana at `http://localhost:3000` (Docker) and import dashboards.
@@ -298,7 +282,6 @@ Access Grafana at `http://localhost:3000` (Docker) and import dashboards.
 - `orchestrator_requests_total`: Total requests processed
 - `orchestrator_requests_duration_seconds`: Request latency percentiles
 - `orchestrator_requests_errors_total`: Error counts by type
-- `orchestrator_queue_size`: Current queue depth
 - `orchestrator_circuit_breaker_state`: Breaker status (0=closed, 1=open, 2=half-open)
 - `orchestrator_servers_active`: Number of healthy servers
 

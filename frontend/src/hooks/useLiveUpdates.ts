@@ -79,11 +79,11 @@ export function useLiveUpdates(options?: UseLiveUpdatesOptions): UseLiveUpdatesR
 
   useEffect(() => {
     if (!enabled) {
-      setStatus('disconnected');
+      queueMicrotask(() => setStatus('disconnected'));
       return;
     }
 
-    setStatus('connecting');
+    queueMicrotask(() => setStatus('connecting'));
 
     const eventSource = new EventSource('/api/orchestrator/events');
     eventSourceRef.current = eventSource;
@@ -103,7 +103,7 @@ export function useLiveUpdates(options?: UseLiveUpdatesOptions): UseLiveUpdatesR
     return () => {
       eventSource.close();
       eventSourceRef.current = null;
-      setStatus('disconnected');
+      queueMicrotask(() => setStatus('disconnected'));
     };
   }, [enabled, handleMessage]);
 
