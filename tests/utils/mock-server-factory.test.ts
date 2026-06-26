@@ -14,7 +14,7 @@ import {
   mockServerFactory,
 } from './mock-server-factory.js';
 
-const TEST_PORT_BASE = 45000;
+const TEST_PORT_BASE = 19000;
 
 async function fetchJson(
   url: string,
@@ -367,8 +367,8 @@ describe('mock-server-factory negative probe variants', () => {
     });
 
     it('modelListingOllama is exported via mockServerFactory', async () => {
-      const server = await mockServerFactory.modelListingOllama(TEST_PORT_BASE + 51);
-      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 51}/api/tags`);
+      const server = await mockServerFactory.modelListingOllama(TEST_PORT_BASE + 90);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 90}/api/tags`);
       expect(result.status).toBe(200);
       expect(result.body.models).toHaveLength(3);
       return new Promise<void>(resolve => {
@@ -377,8 +377,8 @@ describe('mock-server-factory negative probe variants', () => {
     });
 
     it('modelListingOpenAI is exported via mockServerFactory', async () => {
-      const server = await mockServerFactory.modelListingOpenAI(TEST_PORT_BASE + 62);
-      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 62}/v1/models`);
+      const server = await mockServerFactory.modelListingOpenAI(TEST_PORT_BASE + 91);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 91}/v1/models`);
       expect(result.status).toBe(200);
       expect(result.body.data).toHaveLength(3);
       return new Promise<void>(resolve => {
@@ -387,8 +387,8 @@ describe('mock-server-factory negative probe variants', () => {
     });
 
     it('modelListingBoth is exported via mockServerFactory', async () => {
-      const server = await mockServerFactory.modelListingBoth(TEST_PORT_BASE + 71);
-      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 71}/api/tags`);
+      const server = await mockServerFactory.modelListingBoth(TEST_PORT_BASE + 92);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 92}/api/tags`);
       expect(result.status).toBe(200);
       expect(result.body.models).toHaveLength(2);
       return new Promise<void>(resolve => {
@@ -397,8 +397,8 @@ describe('mock-server-factory negative probe variants', () => {
     });
 
     it('noModelListing is exported via mockServerFactory', async () => {
-      const server = await mockServerFactory.noModelListing(TEST_PORT_BASE + 81);
-      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 81}/api/tags`);
+      const server = await mockServerFactory.noModelListing(TEST_PORT_BASE + 93);
+      const result = await fetchJson(`http://localhost:${TEST_PORT_BASE + 93}/api/tags`);
       expect(result.status).toBe(500);
       return new Promise<void>(resolve => {
         server.close(() => resolve());

@@ -86,7 +86,7 @@ export function createDiverseMockServer(config: MockServerConfig): Promise<Serve
     failurePattern: generateFailurePattern(type, failureRate),
   };
 
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       state.requestCount++;
 
@@ -124,6 +124,7 @@ export function createDiverseMockServer(config: MockServerConfig): Promise<Serve
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -728,7 +729,7 @@ export async function waitForServer(
  * Admin/listing endpoints return success.
  */
 export function modelNotFound(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || '';
 
@@ -768,6 +769,7 @@ export function modelNotFound(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -778,7 +780,7 @@ export function modelNotFound(port: number): Promise<Server> {
  * Admin/listing endpoints return success.
  */
 export function notSupported(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || '';
 
@@ -813,6 +815,7 @@ export function notSupported(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -822,7 +825,7 @@ export function notSupported(port: number): Promise<Server> {
  * Admin/listing endpoints return success.
  */
 export function rateLimitedOnInvalid(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || '';
 
@@ -857,6 +860,7 @@ export function rateLimitedOnInvalid(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -866,7 +870,7 @@ export function rateLimitedOnInvalid(port: number): Promise<Server> {
  * Tests the "every endpoint is broken" scenario.
  */
 export function html404(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((_req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(404, { 'Content-Type': 'text/html' });
       res.end('404 page not found');
@@ -879,6 +883,7 @@ export function html404(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -889,7 +894,7 @@ export function html404(port: number): Promise<Server> {
  * Admin endpoints return success.
  */
 export function modelListingOllama(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || '';
 
@@ -930,6 +935,7 @@ export function modelListingOllama(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -939,7 +945,7 @@ export function modelListingOllama(port: number): Promise<Server> {
  * /v1/models returns 200 with 3 models; /api/tags returns 404.
  */
 export function modelListingOpenAI(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || '';
 
@@ -975,6 +981,7 @@ export function modelListingOpenAI(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -984,7 +991,7 @@ export function modelListingOpenAI(port: number): Promise<Server> {
  * /api/tags returns 2 Ollama models; /v1/models returns 2 OpenAI models.
  */
 export function modelListingBoth(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || '';
 
@@ -1031,6 +1038,7 @@ export function modelListingBoth(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
@@ -1040,7 +1048,7 @@ export function modelListingBoth(port: number): Promise<Server> {
  * Tests the "no model listing available" scenario.
  */
 export function noModelListing(port: number): Promise<Server> {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = req.url || '';
 
@@ -1061,6 +1069,7 @@ export function noModelListing(port: number): Promise<Server> {
 
     server.on('error', err => {
       logger.error(`Mock server error on port ${port}`, { error: err });
+      reject(err);
     });
   });
 }
