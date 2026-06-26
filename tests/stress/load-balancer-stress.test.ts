@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { LoadBalancer } from '../../src/load-balancer/load-balancer.js';
 import type { AIServer, ServerModelMetrics } from '../../src/orchestrator/orchestrator.types.js';
+import { logger } from '../../src/utils/logger.js';
 import {
   createServer,
   createServerBatch,
@@ -150,9 +151,10 @@ describe('Load Balancer Stress Tests', () => {
       const selectedServers = new Set(results.filter(r => r !== undefined).map(r => r.id));
       expect(selectedServers.size).toBeGreaterThan(1);
 
-      console.log(
-        `100 concurrent requests completed in ${duration}ms, distributed across ${selectedServers.size} servers`
-      );
+      logger.info('100 concurrent requests completed', {
+        duration,
+        serverCount: selectedServers.size,
+      });
     },
     STRESS_TIMEOUT
   );
@@ -239,9 +241,10 @@ describe('Load Balancer Stress Tests', () => {
       // Should complete roughly within the expected duration
       expect(elapsed).toBeLessThan(durationMs * 1.5); // Allow 50% tolerance
 
-      console.log(
-        `500 requests completed in ${elapsed}ms, memory increase: ${memoryIncreaseMB.toFixed(2)}MB`
-      );
+      logger.info('500 requests completed', {
+        duration: elapsed,
+        memoryIncreaseMB: Number(memoryIncreaseMB.toFixed(2)),
+      });
     },
     STRESS_TIMEOUT
   );
@@ -314,7 +317,7 @@ describe('Load Balancer Stress Tests', () => {
         expect(modelCounts.get(model)).toBeGreaterThan(0);
       }
 
-      console.log(`1000 mixed-model requests completed in ${duration}ms`);
+      logger.info('1000 mixed-model requests completed', { duration });
     },
     STRESS_TIMEOUT
   );
@@ -372,9 +375,10 @@ describe('Load Balancer Stress Tests', () => {
       const selectedServers = new Set(results.filter(r => r !== undefined).map(r => r.id));
       expect(selectedServers.size).toBeGreaterThan(1);
 
-      console.log(
-        `50 streaming requests completed in ${duration}ms, distributed across ${selectedServers.size} servers`
-      );
+      logger.info('50 streaming requests completed', {
+        duration,
+        serverCount: selectedServers.size,
+      });
     },
     STRESS_TIMEOUT
   );
@@ -406,9 +410,11 @@ describe('Load Balancer Stress Tests', () => {
       // Should be able to do at least 1000 selections per second
       expect(selectionsPerSecond).toBeGreaterThan(1000);
 
-      console.log(
-        `${iterations} sequential selections completed in ${duration}ms (${selectionsPerSecond.toFixed(0)} selections/sec)`
-      );
+      logger.info('Sequential selections completed', {
+        iterations,
+        duration,
+        selectionsPerSecond: Number(selectionsPerSecond.toFixed(0)),
+      });
     },
     STRESS_TIMEOUT
   );
@@ -459,7 +465,10 @@ describe('Load Balancer Stress Tests', () => {
 
       expect(totalCompleted).toBeGreaterThan(0);
 
-      console.log(`Variable load test completed: ${totalCompleted} selections over ${duration}ms`);
+      logger.info('Variable load test completed', {
+        totalCompleted,
+        duration,
+      });
     },
     STRESS_TIMEOUT
   );

@@ -3,6 +3,8 @@ import * as path from 'path';
 
 import { test, expect, APIRequestContext } from '@playwright/test';
 
+import { logger } from '../../src/utils/logger.js';
+
 // Test configuration
 const TEST_CONFIG = {
   ORCHESTRATOR_URL: 'http://localhost:5100',
@@ -46,7 +48,7 @@ function loadServerConfigs(): ServerConfig[] {
   const filePath = path.join(process.cwd(), 'orchestrator-servers');
 
   if (!fs.existsSync(filePath)) {
-    console.log('orchestrator-servers file not found, using empty server list');
+    logger.info('orchestrator-servers file not found, using empty server list');
     return [];
   }
 
@@ -56,7 +58,7 @@ function loadServerConfigs(): ServerConfig[] {
     const cleanContent = content.replace(/^\s*\/\/.*$/gm, '');
     return JSON.parse(cleanContent);
   } catch (error) {
-    console.error('Failed to parse orchestrator-servers file:', error);
+    logger.error('Failed to parse orchestrator-servers file', { error });
     return [];
   }
 }
@@ -69,11 +71,11 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
   const serverTestResults: ServerTestResult[] = [];
 
   test.beforeAll(async ({ playwright }) => {
-    console.log('\n🚀 Starting Exhaustive E2E Evaluation...\n');
+    logger.info('\n🚀 Starting Exhaustive E2E Evaluation...\n');
 
     // Load server configurations
     serverConfigs = loadServerConfigs();
-    console.log(
+    logger.info(
       `📋 Loaded ${serverConfigs.length} server configurations from orchestrator-servers`
     );
 
@@ -89,10 +91,10 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       if (!healthResponse.ok()) {
         throw new Error(`Orchestrator health check failed: ${healthResponse.status()}`);
       }
-      console.log('✅ Orchestrator is running and healthy\n');
+      logger.info('✅ Orchestrator is running and healthy\n');
     } catch (error) {
-      console.error('❌ Orchestrator is not running. Please start it first:');
-      console.error('   npm run dev');
+      logger.error('❌ Orchestrator is not running. Please start it first:');
+      logger.error('   npm run dev');
       throw error;
     }
   });
@@ -121,9 +123,9 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
     testResults.push(result);
 
     if (passed) {
-      console.log(`✅ ${testName}`);
+      logger.info(`✅ ${testName}`);
     } else {
-      console.log(`❌ ${testName}${error ? `: ${error}` : ''}`);
+      logger.info(`❌ ${testName}${error ? `: ${error}` : ''}`);
     }
 
     return result;
@@ -151,7 +153,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
     test('Test 1.2: Register all servers from orchestrator-servers', async () => {
       if (serverConfigs.length === 0) {
-        console.log('⚠️ No servers to register');
+        logger.info('⚠️ No servers to register');
         return;
       }
 
@@ -203,9 +205,9 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
         }
       }
 
-      console.log(`\n📊 Server Registration Results:`);
-      console.log(`   Registered: ${registered}`);
-      console.log(`   Failed: ${failed}`);
+      logger.info(`📊 Server Registration Results:`);
+      logger.info(`   Registered: ${registered}`);
+      logger.info(`   Failed: ${failed}`);
 
       recordResult(
         'Bulk Server Registration',
@@ -228,7 +230,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const serversData = await serversResponse.json();
       const servers = serversData.servers || [];
 
-      console.log(`\n🏥 Health Checking ${servers.length} registered servers...`);
+      logger.info(`🏥 Health Checking ${servers.length} registered servers...`);
 
       let healthy = 0;
       let unhealthy = 0;
@@ -257,8 +259,8 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
         });
       }
 
-      console.log(`   Healthy: ${healthy}`);
-      console.log(`   Unhealthy: ${unhealthy}`);
+      logger.info(`   Healthy: ${healthy}`);
+      logger.info(`   Unhealthy: ${unhealthy}`);
 
       recordResult('Server Health Check', true, {
         total: servers.length,
@@ -288,16 +290,16 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
       const uniqueModels = Object.keys(modelDistribution).length;
 
-      console.log(`\n📦 Model Discovery Results:`);
-      console.log(`   Total model instances: ${totalModels}`);
-      console.log(`   Unique models: ${uniqueModels}`);
-      console.log(`   Top 10 models by availability:`);
+      logger.info(`📦 Model Discovery Results:`);
+      logger.info(`   Total model instances: ${totalModels}`);
+      logger.info(`   Unique models: ${uniqueModels}`);
+      logger.info(`   Top 10 models by availability:`);
 
       Object.entries(modelDistribution)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 10)
         .forEach(([model, count]) => {
-          console.log(`     ${model}: ${count} servers`);
+          logger.info(`     ${model}: ${count} servers`);
         });
 
       recordResult('Model Discovery', true, {
@@ -377,7 +379,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const requests: Promise<any>[] = [];
       const startTime = Date.now();
 
-      console.log(`\n⚖️ Testing load distribution with ${numRequests} concurrent requests...`);
+      logger.info(`⚖️ Testing load distribution with ${numRequests} concurrent requests...`);
 
       for (let i = 0; i < numRequests; i++) {
         requests.push(
@@ -403,10 +405,10 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const successful = responses.filter(r => r.ok && r.ok()).length;
       const failed = responses.filter(r => !r.ok || !r.ok()).length;
 
-      console.log(`   Successful: ${successful}/${numRequests}`);
-      console.log(`   Failed: ${failed}/${numRequests}`);
-      console.log(`   Total duration: ${duration}ms`);
-      console.log(`   Average per request: ${(duration / numRequests).toFixed(2)}ms`);
+      logger.info(`   Successful: ${successful}/${numRequests}`);
+      logger.info(`   Failed: ${failed}/${numRequests}`);
+      logger.info(`   Total duration: ${duration}ms`);
+      logger.info(`   Average per request: ${(duration / numRequests).toFixed(2)}ms`);
 
       recordResult(
         'Load Distribution Test',
@@ -429,7 +431,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const modelsData = await modelsResponse.json();
       const models = modelsData.models || [];
 
-      console.log(`\n🎯 Found ${models.length} models in orchestrator`);
+      logger.info(`🎯 Found ${models.length} models in orchestrator`);
 
       // Test a few common models
       const testModels = ['llama2:7b', 'llama3:latest', 'mistral:latest'].filter(m =>
@@ -466,9 +468,9 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
         }
       }
 
-      console.log(`   Model availability results:`);
+      logger.info(`   Model availability results:`);
       modelResults.forEach(r => {
-        console.log(
+        logger.info(
           `     ${r.model}: ${r.available ? '✅' : '❌'} ${r.duration ? `(${r.duration}ms)` : ''}`
         );
       });
@@ -501,11 +503,11 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const closed = breakers.filter((b: any) => b.state === 'CLOSED').length;
       const halfOpen = breakers.filter((b: any) => b.state === 'HALF_OPEN').length;
 
-      console.log(`\n🔒 Circuit Breaker Status:`);
-      console.log(`   Total: ${breakers.length}`);
-      console.log(`   Closed: ${closed}`);
-      console.log(`   Half-Open: ${halfOpen}`);
-      console.log(`   Open: ${open}`);
+      logger.info(`\n🔒 Circuit Breaker Status:`);
+      logger.info(`   Total: ${breakers.length}`);
+      logger.info(`   Closed: ${closed}`);
+      logger.info(`   Half-Open: ${halfOpen}`);
+      logger.info(`   Open: ${open}`);
 
       recordResult('Circuit Breaker Status', true, {
         total: breakers.length,
@@ -524,7 +526,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       // This test creates a scenario where some servers are unavailable
       // and verifies that the orchestrator retries with other servers
 
-      console.log(`\n🔄 Testing retry mechanism...`);
+      logger.info(`\n🔄 Testing retry mechanism...`);
 
       // Make multiple requests and check if they succeed despite potential failures
       const attempts = 5;
@@ -552,9 +554,9 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
         }
       }
 
-      console.log(`   Attempts: ${attempts}`);
-      console.log(`   Success: ${successCount}`);
-      console.log(`   Failure: ${failureCount}`);
+      logger.info(`   Attempts: ${attempts}`);
+      logger.info(`   Success: ${successCount}`);
+      logger.info(`   Failure: ${failureCount}`);
 
       recordResult(
         'Retry Mechanism',
@@ -582,11 +584,11 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
       const queue = data.queue;
 
-      console.log(`\n📮 Queue Status:`);
-      console.log(`   Size: ${queue.size || 0}`);
-      console.log(`   Max Size: ${queue.maxSize || 'N/A'}`);
-      console.log(`   Processing: ${queue.processing || 0}`);
-      console.log(`   Pending: ${queue.pending || 0}`);
+      logger.info(`\n📮 Queue Status:`);
+      logger.info(`   Size: ${queue.size || 0}`);
+      logger.info(`   Max Size: ${queue.maxSize || 'N/A'}`);
+      logger.info(`   Processing: ${queue.processing || 0}`);
+      logger.info(`   Pending: ${queue.pending || 0}`);
 
       recordResult('Queue Status', true, {
         size: queue.size,
@@ -601,7 +603,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const concurrency = TEST_CONFIG.LOAD_TEST_CONCURRENCY;
       const totalRequests = TEST_CONFIG.LOAD_TEST_REQUESTS;
 
-      console.log(`\n📊 Queue Load Test: ${totalRequests} requests @ ${concurrency} concurrency`);
+      logger.info(`\n📊 Queue Load Test: ${totalRequests} requests @ ${concurrency} concurrency`);
 
       const startTime = Date.now();
       let completed = 0;
@@ -649,10 +651,10 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
       const duration = Date.now() - startTime;
 
-      console.log(`   Completed: ${completed}/${totalRequests}`);
-      console.log(`   Failed: ${failed}/${totalRequests}`);
-      console.log(`   Duration: ${duration}ms`);
-      console.log(`   Throughput: ${(completed / (duration / 1000)).toFixed(2)} req/s`);
+      logger.info(`   Completed: ${completed}/${totalRequests}`);
+      logger.info(`   Failed: ${failed}/${totalRequests}`);
+      logger.info(`   Duration: ${duration}ms`);
+      logger.info(`   Throughput: ${(completed / (duration / 1000)).toFixed(2)} req/s`);
 
       recordResult(
         'Queue Load Test',
@@ -710,13 +712,13 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const global = data.global;
       const servers = data.servers || [];
 
-      console.log(`\n📈 Global Metrics:`);
-      console.log(`   Total Requests: ${global.totalRequests || 0}`);
-      console.log(`   Successful: ${global.successfulRequests || 0}`);
-      console.log(`   Failed: ${global.failedRequests || 0}`);
-      console.log(`   Error Rate: ${global.errorRate || '0.00%'}`);
-      console.log(`   Average Response Time: ${global.averageResponseTime || 0}ms`);
-      console.log(`   Servers tracked: ${servers.length}`);
+      logger.info(`\n📈 Global Metrics:`);
+      logger.info(`   Total Requests: ${global.totalRequests || 0}`);
+      logger.info(`   Successful: ${global.successfulRequests || 0}`);
+      logger.info(`   Failed: ${global.failedRequests || 0}`);
+      logger.info(`   Error Rate: ${global.errorRate || '0.00%'}`);
+      logger.info(`   Average Response Time: ${global.averageResponseTime || 0}ms`);
+      logger.info(`   Servers tracked: ${servers.length}`);
 
       recordResult('Metrics Endpoint', true, {
         totalRequests: global.totalRequests,
@@ -786,9 +788,9 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
       const available = results.filter(r => r.available).length;
 
-      console.log(`\n📊 Analytics Endpoints:`);
+      logger.info(`\n📊 Analytics Endpoints:`);
       results.forEach(r => {
-        console.log(`   ${r.endpoint.split('/').pop()}: ${r.available ? '✅' : '❌'}`);
+        logger.info(`   ${r.endpoint.split('/').pop()}: ${r.available ? '✅' : '❌'}`);
       });
 
       recordResult('Analytics Endpoints', available > 0, {
@@ -850,12 +852,12 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
       const config = data.config;
 
-      console.log(`\n⚙️ Configuration:`);
-      console.log(`   Version: ${config.version || 'N/A'}`);
-      console.log(`   Load Balancer Strategy: ${config.loadBalancer?.strategy || 'N/A'}`);
-      console.log(`   Queue Max Size: ${config.queue?.maxSize || 'N/A'}`);
-      console.log(`   Queue Timeout: ${config.queue?.timeout || 'N/A'}ms`);
-      console.log(
+      logger.info(`\n⚙️ Configuration:`);
+      logger.info(`   Version: ${config.version || 'N/A'}`);
+      logger.info(`   Load Balancer Strategy: ${config.loadBalancer?.strategy || 'N/A'}`);
+      logger.info(`   Queue Max Size: ${config.queue?.maxSize || 'N/A'}`);
+      logger.info(`   Queue Timeout: ${config.queue?.timeout || 'N/A'}ms`);
+      logger.info(
         `   Circuit Breaker Threshold: ${config.circuitBreaker?.failureThreshold || 'N/A'}`
       );
 
@@ -918,7 +920,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const targetRps = 5;
       const interval = 1000 / targetRps;
 
-      console.log(`\n🔥 Stress Test: ${targetRps} req/s for ${duration / 1000}s`);
+      logger.info(`\n🔥 Stress Test: ${targetRps} req/s for ${duration / 1000}s`);
 
       let requests = 0;
       let successes = 0;
@@ -969,13 +971,13 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
       const p95 = latencies[Math.floor(latencies.length * 0.95)] || 0;
       const p99 = latencies[Math.floor(latencies.length * 0.99)] || 0;
 
-      console.log(`   Total Requests: ${requests}`);
-      console.log(`   Successes: ${successes}`);
-      console.log(`   Failures: ${failures}`);
-      console.log(`   Actual RPS: ${actualRps}`);
-      console.log(`   Latency P50: ${p50}ms`);
-      console.log(`   Latency P95: ${p95}ms`);
-      console.log(`   Latency P99: ${p99}ms`);
+      logger.info(`   Total Requests: ${requests}`);
+      logger.info(`   Successes: ${successes}`);
+      logger.info(`   Failures: ${failures}`);
+      logger.info(`   Actual RPS: ${actualRps}`);
+      logger.info(`   Latency P50: ${p50}ms`);
+      logger.info(`   Latency P95: ${p95}ms`);
+      logger.info(`   Latency P99: ${p99}ms`);
 
       recordResult(
         'Stress Test',
@@ -999,7 +1001,7 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
     test('Test 8.2: Burst test - rapid sequential requests', async () => {
       const burstSize = 100;
 
-      console.log(`\n💥 Burst Test: ${burstSize} rapid sequential requests`);
+      logger.info(`\n💥 Burst Test: ${burstSize} rapid sequential requests`);
 
       let completed = 0;
       let failed = 0;
@@ -1028,10 +1030,10 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
       const duration = Date.now() - startTime;
 
-      console.log(`   Completed: ${completed}/${burstSize}`);
-      console.log(`   Failed: ${failed}/${burstSize}`);
-      console.log(`   Duration: ${duration}ms`);
-      console.log(`   Average: ${(duration / burstSize).toFixed(2)}ms/request`);
+      logger.info(`   Completed: ${completed}/${burstSize}`);
+      logger.info(`   Failed: ${failed}/${burstSize}`);
+      logger.info(`   Duration: ${duration}ms`);
+      logger.info(`   Average: ${(duration / burstSize).toFixed(2)}ms/request`);
 
       recordResult('Burst Test', completed > burstSize * 0.8, {
         burstSize,
@@ -1045,51 +1047,51 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
 
   // ==================== REPORT GENERATION ====================
   function generateEvaluationReport() {
-    console.log('\n' + '='.repeat(80));
-    console.log('📊 EXHAUSTIVE E2E EVALUATION REPORT');
-    console.log('='.repeat(80));
+    logger.info('\n' + '='.repeat(80));
+    logger.info('📊 EXHAUSTIVE E2E EVALUATION REPORT');
+    logger.info('='.repeat(80));
 
     const passed = testResults.filter(r => r.passed).length;
     const failed = testResults.filter(r => !r.passed).length;
     const total = testResults.length;
 
-    console.log(
+    logger.info(
       `\n🏆 Overall Results: ${passed}/${total} tests passed (${((passed / total) * 100).toFixed(1)}%)`
     );
 
     if (failed > 0) {
-      console.log(`\n❌ Failed Tests:`);
+      logger.info(`\n❌ Failed Tests:`);
       testResults
         .filter(r => !r.passed)
         .forEach(r => {
-          console.log(`   • ${r.testName}`);
+          logger.info(`   • ${r.testName}`);
           if (r.error) {
-            console.log(`     Error: ${r.error}`);
+            logger.info(`     Error: ${r.error}`);
           }
         });
     }
 
-    console.log(`\n✅ Passed Tests:`);
+    logger.info(`\n✅ Passed Tests:`);
     testResults
       .filter(r => r.passed)
       .forEach(r => {
-        console.log(`   • ${r.testName}`);
+        logger.info(`   • ${r.testName}`);
       });
 
-    console.log(`\n📋 Server Summary:`);
-    console.log(`   Total servers in config: ${serverConfigs.length}`);
-    console.log(`   Servers registered: ${serverTestResults.length}`);
-    console.log(`   Healthy servers: ${serverTestResults.filter(s => s.healthy).length}`);
-    console.log(`   Unhealthy servers: ${serverTestResults.filter(s => !s.healthy).length}`);
+    logger.info(`\n📋 Server Summary:`);
+    logger.info(`   Total servers in config: ${serverConfigs.length}`);
+    logger.info(`   Servers registered: ${serverTestResults.length}`);
+    logger.info(`   Healthy servers: ${serverTestResults.filter(s => s.healthy).length}`);
+    logger.info(`   Unhealthy servers: ${serverTestResults.filter(s => !s.healthy).length}`);
 
     // Unique models
     const allModels = new Set<string>();
     serverTestResults.forEach(s => s.modelsAvailable.forEach(m => allModels.add(m)));
-    console.log(`   Unique models available: ${allModels.size}`);
+    logger.info(`   Unique models available: ${allModels.size}`);
 
-    console.log('\n' + '='.repeat(80));
-    console.log('✨ Evaluation Complete!');
-    console.log('='.repeat(80) + '\n');
+    logger.info('\n' + '='.repeat(80));
+    logger.info('✨ Evaluation Complete!');
+    logger.info('='.repeat(80) + '\n');
 
     // Write detailed report to file
     const reportPath = path.join(process.cwd(), 'e2e-evaluation-report.json');
@@ -1119,6 +1121,6 @@ test.describe('🔍 Exhaustive Real-World E2E Evaluation', () => {
     };
 
     fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-    console.log(`📝 Detailed report saved to: ${reportPath}\n`);
+    logger.info(`📝 Detailed report saved to: ${reportPath}\n`);
   }
 });

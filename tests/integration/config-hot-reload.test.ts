@@ -5,6 +5,8 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
+import { logger } from '../../src/utils/logger.js';
+
 const BASE_URL = process.env.ORCHESTRATOR_URL ?? 'http://localhost:5100';
 
 describe('Config Hot-Reload', () => {
@@ -19,7 +21,7 @@ describe('Config Hot-Reload', () => {
       serviceReachable = false;
     }
     if (!serviceReachable) {
-      console.warn(`Orchestrator not reachable at ${BASE_URL} - skipping integration tests`);
+      logger.warn(`Orchestrator not reachable at ${BASE_URL} - skipping integration tests`);
     }
 
     if (serviceReachable) {

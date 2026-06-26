@@ -18,6 +18,7 @@ import {
   resetOrchestratorInstance,
 } from '../../src/orchestrator/orchestrator-instance.js';
 import router from '../../src/routes/orchestrator.js';
+import { logger } from '../../src/utils/logger.js';
 
 // Test server instance
 let server: ReturnType<typeof createServer>;
@@ -125,7 +126,7 @@ export async function setupIntegrationTest() {
 
   // Add error handling middleware
   app.use((err: any, _req: any, res: any, _next: any) => {
-    console.error('Integration test error:', err);
+    logger.error('Integration test error', { error: err });
     if (err?.type === 'entity.parse.failed') {
       res.status(400).json({ error: 'Invalid JSON payload' });
       return;

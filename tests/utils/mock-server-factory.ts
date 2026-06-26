@@ -7,6 +7,7 @@
 
 import { createServer, Server, IncomingMessage, ServerResponse } from 'http';
 
+import { logger } from '../../src/utils/logger.js';
 import {
   realApiTagsResponse,
   realApiGenerateResponse,
@@ -122,7 +123,7 @@ export function createDiverseMockServer(config: MockServerConfig): Promise<Serve
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -491,7 +492,7 @@ export function createChaosServer(port: number): Promise<Server> {
         ];
         currentBehavior = behaviors[Math.floor(Math.random() * behaviors.length)];
         lastBehaviorChange = Date.now();
-        console.log(`Chaos server on port ${port} switched to: ${currentBehavior}`);
+        logger.info('Chaos server switched', { port, behavior: currentBehavior });
       },
       10000 + Math.random() * 20000
     );
@@ -527,7 +528,7 @@ export function createDegradingServer(
     const checkInterval = setInterval(() => {
       if (!isDegrading && requestCount >= healthyForRequests) {
         isDegrading = true;
-        console.log(`Degrading server on port ${port} starting degradation phase`);
+        logger.info('Degrading server starting degradation phase', { port });
       }
     }, 1000);
 
@@ -766,7 +767,7 @@ export function modelNotFound(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -811,7 +812,7 @@ export function notSupported(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -855,7 +856,7 @@ export function rateLimitedOnInvalid(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -877,7 +878,7 @@ export function html404(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -928,7 +929,7 @@ export function modelListingOllama(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -973,7 +974,7 @@ export function modelListingOpenAI(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -1029,7 +1030,7 @@ export function modelListingBoth(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }
@@ -1059,7 +1060,7 @@ export function noModelListing(port: number): Promise<Server> {
     });
 
     server.on('error', err => {
-      console.error(`Mock server error on port ${port}:`, err);
+      logger.error(`Mock server error on port ${port}`, { error: err });
     });
   });
 }

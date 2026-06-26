@@ -1,6 +1,8 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 
+import { logger } from '../../src/utils/logger.js';
+
 export class MockOllamaServer {
   private app: express.Application;
   private server: any;
@@ -154,7 +156,7 @@ export class MockOllamaServer {
   async start(): Promise<void> {
     return new Promise(resolve => {
       this.server = this.app.listen(this.port, () => {
-        console.log(`Mock Ollama server started on port ${this.port}`);
+        logger.info('Mock Ollama server started', { port: this.port });
         resolve();
       });
     });
@@ -164,7 +166,7 @@ export class MockOllamaServer {
     return new Promise(resolve => {
       if (this.server) {
         this.server.close(() => {
-          console.log(`Mock Ollama server stopped`);
+          logger.info('Mock Ollama server stopped');
           resolve();
         });
       } else {
