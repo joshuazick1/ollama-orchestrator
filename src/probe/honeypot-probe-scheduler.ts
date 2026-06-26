@@ -1,14 +1,15 @@
-import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-import { getPsPollCoordinator } from './ps-poll-coordinator-instance.js';
 import { getConfigManager } from '../config/config.js';
-import { logger } from '../utils/logger.js';
-import { getQuarantinePool } from '../utils/quarantine-pool.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import {
   HoneypotProbeRunner,
   type HoneypotProbeResult,
   type IpAsnEvidence,
   type RecursiveCallbackEvidence,
 } from '../utils/honeypot-probes.js';
+import { logger } from '../utils/logger.js';
+import { getQuarantinePool } from '../utils/quarantine-pool.js';
+
+import { getPsPollCoordinator } from './ps-poll-coordinator-instance.js';
 
 let schedulerInstance: HoneypotProbeScheduler | null = null;
 

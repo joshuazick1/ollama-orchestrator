@@ -14,6 +14,22 @@ export interface TupleSnapshotState {
   recoveryAttempts: number;
 }
 
+export interface TupleFullState {
+  tupleKey: string;
+  serverId: string;
+  model: string;
+  endpoint: string;
+  state: string;
+  consecutiveSuccesses: number;
+  consecutiveFailures: number;
+  errorWindow: number[];
+  lastTransition: number;
+  lastProbeAt: number;
+  nextProbeAt: number;
+  recoveryAttempts: number;
+  lastErrorKind: string | undefined;
+}
+
 export interface Snapshot {
   id: number;
   createdAt: number;
@@ -178,6 +194,69 @@ export class WALStore {
       .all(serverId, '%') as WalRow[];
 
     return rows.map(r => this.rowToEvent(r));
+  }
+
+  saveProbeTupleState(state: TupleFullState): void {
+    this.store.saveProbeTupleState(state.tupleKey, state.serverId, state.model, state.endpoint, {
+      state: state.state,
+      consecutiveSuccesses: state.consecutiveSuccesses,
+      consecutiveFailures: state.consecutiveFailures,
+      errorWindow: state.errorWindow,
+      lastTransition: state.lastTransition,
+      lastProbeAt: state.lastProbeAt,
+      nextProbeAt: state.nextProbeAt,
+      recoveryAttempts: state.recoveryAttempts,
+      lastErrorKind: state.lastErrorKind,
+    });
+  }
+
+  getProbeTupleState(tupleKey: string): TupleFullState | undefined {
+    const row = this.store.getProbeTupleState(tupleKey);
+    if (!row) {
+      return undefined;
+    }
+    return {
+      tupleKey: row.tupleKey,
+      serverId: row.serverId,
+      model: row.model,
+      endpoint: row.endpoint,
+      state: row.state,
+      consecutiveSuccesses: row.consecutiveSuccesses,
+      consecutiveFailures: row.consecutiveFailures,
+      errorWindow: row.errorWindow,
+      lastTransition: row.lastTransition ?? 0,
+      lastProbeAt: row.lastProbeAt ?? 0,
+      nextProbeAt: row.nextProbeAt ?? 0,
+      recoveryAttempts: row.recoveryAttempts,
+      lastErrorKind: row.lastErrorKind ?? undefined,
+    };
+  }
+
+  getAllProbeStates(): TupleFullState[] {
+    const rows = this.store.getAllProbeStates();
+    return rows.map(r => ({
+      tupleKey: r.tupleKey,
+      serverId: r.serverId,
+      model: r.model,
+      endpoint: r.endpoint,
+      state: r.state,
+      consecutiveSuccesses: r.consecutiveSuccesses,
+      consecutiveFailures: r.consecutiveFailures,
+      errorWindow: r.errorWindow,
+      lastTransition: r.lastTransition ?? 0,
+      lastProbeAt: r.lastProbeAt ?? 0,
+      nextProbeAt: r.nextProbeAt ?? 0,
+      recoveryAttempts: r.recoveryAttempts,
+      lastErrorKind: r.lastErrorKind ?? undefined,
+    }));
+  }
+
+  deleteProbeTupleState(tupleKey: string): void {
+    this.store.deleteProbeTupleState(tupleKey);
+  }
+
+  deleteAllProbeStatesForServer(serverId: string): number {
+    return this.store.deleteAllProbeStatesForServer(serverId);
   }
 
   private rowToEvent(row: WalRow): ProbeEvent {

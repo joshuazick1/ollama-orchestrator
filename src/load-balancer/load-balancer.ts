@@ -9,8 +9,8 @@ import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import { getUserStore } from '../storage/user-store.js';
 import { BoundedMap } from '../utils/bounded-map.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
-import { getQuarantinePool } from '../utils/quarantine-pool.js';
 import { logger } from '../utils/logger.js';
+import { getQuarantinePool } from '../utils/quarantine-pool.js';
 
 import { PrefixCacheRouter } from './prefix-cache-router.js';
 import { SLOFallbackMonitor } from './slo-fallback.js';

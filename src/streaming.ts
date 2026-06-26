@@ -13,8 +13,8 @@ import { calculateBackoff } from './utils/backoff/index.js';
 import { getInFlightManager } from './utils/in-flight-manager.js';
 import { safeJsonParse } from './utils/json-utils.js';
 import { logger } from './utils/logger.js';
-import { forwardStreamingResponseHeaders } from './utils/response-header-forwarder.js';
 import { classifyOrchestratorRoutingError } from './utils/orchestrator-error-classifier.js';
+import { forwardStreamingResponseHeaders } from './utils/response-header-forwarder.js';
 import { recordStallDetected, recordStreamingChunkGap } from './utils/timeout-telemetry.js';
 
 /**
@@ -30,13 +30,23 @@ export function getStatusFromStreamingError(error: Error): number {
 
   // Use orchestrator error classification
   const classification = classifyOrchestratorRoutingError(msg);
-  if (classification.isNoServersError) return 503;
-  if (classification.isConcurrencySaturated) return 503;
-  if (classification.isAccessDenied) return 403;
-  if (classification.isModelNotFound) return 404;
+  if (classification.isNoServersError) {
+    return 503;
+  }
+  if (classification.isConcurrencySaturated) {
+    return 503;
+  }
+  if (classification.isAccessDenied) {
+    return 403;
+  }
+  if (classification.isModelNotFound) {
+    return 404;
+  }
 
   // Common patterns
-  if (msg.includes('abort')) return 499; // Client closed request
+  if (msg.includes('abort')) {
+    return 499;
+  } // Client closed request
 
   return 500;
 }

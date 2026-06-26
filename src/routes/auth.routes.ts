@@ -7,8 +7,8 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod';
 
 import { requireAuth, isAuthEnabled, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
-import { createAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf.js';
+import { createAuthRateLimiter } from '../middleware/rate-limiter.js';
 import { getUserStore } from '../storage/user-store.js';
 import {
   signToken,

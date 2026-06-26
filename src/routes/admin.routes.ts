@@ -8,16 +8,6 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 
 import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
 import {
-  getHoneypotStats,
-  getHoneypotSummary,
-  getTopFlagged,
-} from '../controllers/honeypot-stats-controller.js';
-import {
-  listQuarantined,
-  quarantineServer,
-  unquarantineServer,
-} from '../controllers/quarantine-controller.js';
-import {
   resetBreaker,
   getBreakerDetails,
   forceOpenBreaker,
@@ -37,8 +27,18 @@ import {
   exportConfig,
   importConfig,
 } from '../controllers/config-controller.js';
+import {
+  getHoneypotStats,
+  getHoneypotSummary,
+  getTopFlagged,
+} from '../controllers/honeypot-stats-controller.js';
 import { getLogs, clearLogs, logClientError } from '../controllers/logs-controller.js';
 import { warmupModel, unloadModel, cancelWarmup } from '../controllers/model-controller.js';
+import {
+  listQuarantined,
+  quarantineServer,
+  unquarantineServer,
+} from '../controllers/quarantine-controller.js';
 import {
   getRecoveryFailuresSummary,
   getServerRecoveryStats,

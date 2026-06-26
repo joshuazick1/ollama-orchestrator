@@ -180,6 +180,45 @@ export const DEFAULT_ERROR_PATTERNS: ErrorPatternConfig = {
 };
 
 /**
+ * Provider-specific error patterns keyed by provider type
+ * These are error codes/messages specific to each provider's API
+ *
+ * Usage: When classifying errors for a specific provider, first check if the
+ * error matches any of these provider-specific patterns before falling back to
+ * the default classification.
+ *
+ * @example
+ * const classifier = getErrorClassifier();
+ * const result = classifier.classifyForProvider(error, 'anthropic');
+ */
+export interface ProviderErrorPatterns {
+  anthropic: {
+    overloaded_error: string[];
+    rate_limit_error: string[];
+    invalid_request_error: string[];
+  };
+  openai: {
+    context_length_exceeded: string[];
+    rate_limit_reached: string[];
+  };
+}
+
+/**
+ * Default provider-specific error patterns
+ */
+export const DEFAULT_PROVIDER_ERROR_PATTERNS: ProviderErrorPatterns = {
+  anthropic: {
+    overloaded_error: ['overloaded_error', 'anthropic overload', 'server overloaded'],
+    rate_limit_error: ['rate_limit_error', 'rate limit exceeded', 'request rate limit'],
+    invalid_request_error: ['invalid_request_error', 'invalid request', 'bad request'],
+  },
+  openai: {
+    context_length_exceeded: ['context_length_exceeded', 'maximum context length exceeded'],
+    rate_limit_reached: ['rate_limit_reached', 'rate limit reached', 'requests rate limit'],
+  },
+};
+
+/**
  * Default retry strategies by error category
  */
 const DEFAULT_RETRY_STRATEGIES: Record<ErrorCategory, RetryStrategy> = {
@@ -280,7 +319,7 @@ const HTTP_STATUS_PATTERNS = {
   serverError: /^5\d{2}$|http 5\d{2}/i,
   retryableServerErrors: [502, 503, 504], // Bad Gateway, Service Unavailable, Gateway Timeout
   nonRetryableClientErrors: [400, 401, 403, 404, 405, 406, 410, 422], // Permanent client errors
-  rateLimitCodes: [429], // Rate limit (Too Many Requests)
+  rateLimitCodes: [429, 529], // Rate limit (Too Many Requests, Bandwidth Limit Exceeded)
 };
 
 /**
@@ -439,7 +478,15 @@ export class ErrorClassifier {
     }
 
     // Check for rate limit patterns first (before general transient)
-    const rateLimitPatterns = ['rate limit', 'too many requests', 'throttled', '429'];
+    const rateLimitPatterns = [
+      'rate limit',
+      'too many requests',
+      'throttled',
+      '429',
+      'bandwidth limit',
+      'bandwidth limit exceeded',
+      '529',
+    ];
     for (const pattern of rateLimitPatterns) {
       if (errorLower.includes(pattern)) {
         const result = {
@@ -620,7 +667,7 @@ export class ErrorClassifier {
     }
 
     // HTTP 429 Rate Limit - retryable with extended backoff
-    if (statusCode === 429) {
+    if (statusCode === 429 || statusCode === 529) {
       return {
         type: 'rateLimited',
         isRetryable: true,

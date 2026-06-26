@@ -3,13 +3,13 @@ import type { Request, Response } from 'express';
 import { isInternalAdmin } from '../middleware/auth.js';
 import { getQuarantinePool } from '../utils/quarantine-pool.js';
 
-export async function listQuarantined(_req: Request, res: Response): Promise<void> {
+export function listQuarantined(_req: Request, res: Response): void {
   const pool = getQuarantinePool();
   const entries = pool.getAll();
   res.json({ quarantined: entries, count: entries.length });
 }
 
-export async function quarantineServer(req: Request, res: Response): Promise<void> {
+export function quarantineServer(req: Request, res: Response): void {
   if (!isInternalAdmin(req)) {
     res.status(403).json({ error: 'Admin required' });
     return;
@@ -26,7 +26,7 @@ export async function quarantineServer(req: Request, res: Response): Promise<voi
   res.json({ success: true, serverId });
 }
 
-export async function unquarantineServer(req: Request, res: Response): Promise<void> {
+export function unquarantineServer(req: Request, res: Response): void {
   if (!isInternalAdmin(req)) {
     res.status(403).json({ error: 'Admin required' });
     return;

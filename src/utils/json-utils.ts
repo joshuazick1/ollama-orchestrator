@@ -58,7 +58,11 @@ export const safeJsonStringify = (
  * so we convert it to Uint8Array which is a valid BodyInit.
  */
 export function toBodyInit(body: Buffer | string | undefined): BodyInit | undefined {
-  if (body === undefined) {return undefined;}
-  if (typeof body === 'string') {return body;}
+  if (body === undefined) {
+    return undefined;
+  }
+  if (typeof body === 'string') {
+    return body;
+  }
   return new Uint8Array(body);
 }

@@ -1,15 +1,9 @@
 import type { Request, Response } from 'express';
 
-import {
-  HONEYPOT_STATS,
-  HONEYPOT_STATS_SUMMARY,
-  HONEYPOT_STATS_TOP,
-} from '../constants/api-endpoints.js';
 import { getConfigManager } from '../config/config.js';
-import { logger } from '../utils/logger.js';
-
-import type { HoneypotProbeResult } from '../utils/honeypot-probes.js';
 import { getHoneypotProbeScheduler } from '../probe/honeypot-probe-scheduler.js';
+import type { HoneypotProbeResult } from '../utils/honeypot-probes.js';
+import { logger } from '../utils/logger.js';
 import { getQuarantinePool } from '../utils/quarantine-pool.js';
 
 interface HoneypotSummaryResponse {
@@ -121,19 +115,27 @@ export function getHoneypotStats(req: Request, res: Response): void {
       clean++;
     } else if (result.verdict === 'suspicious') {
       suspicious++;
-      if (result.tier1Score && result.tier1Score >= 30) tier1Signals++;
+      if (result.tier1Score && result.tier1Score >= 30) {
+        tier1Signals++;
+      }
     } else if (result.verdict === 'flagged') {
       flagged++;
-      if (result.tier1Score && result.tier1Score >= 30) tier1Signals++;
+      if (result.tier1Score && result.tier1Score >= 30) {
+        tier1Signals++;
+      }
     }
   }
 
   for (const result of tier2Results.values()) {
-    if (result.tier2Score && result.tier2Score >= 30) tier2Signals++;
+    if (result.tier2Score && result.tier2Score >= 30) {
+      tier2Signals++;
+    }
   }
 
   for (const result of tier3Results.values()) {
-    if (result.tier3Score && result.tier3Score >= 30) tier3Signals++;
+    if (result.tier3Score && result.tier3Score >= 30) {
+      tier3Signals++;
+    }
   }
 
   const serverResults: HoneypotServerResult[] = [];
@@ -233,23 +235,39 @@ export function getHoneypotSummary(_req: Request, res: Response): void {
       clean++;
     } else if (result.verdict === 'suspicious') {
       suspicious++;
-      if (result.tier1Score && result.tier1Score >= 30) tier1Signals++;
+      if (result.tier1Score && result.tier1Score >= 30) {
+        tier1Signals++;
+      }
     } else if (result.verdict === 'flagged') {
       flagged++;
-      if (result.tier1Score && result.tier1Score >= 30) tier1Signals++;
+      if (result.tier1Score && result.tier1Score >= 30) {
+        tier1Signals++;
+      }
     }
-    if (result.tier1Score !== undefined) totalTier1Score += result.tier1Score;
-    if (result.compositeScore !== undefined) totalCompositeScore += result.compositeScore;
+    if (result.tier1Score !== undefined) {
+      totalTier1Score += result.tier1Score;
+    }
+    if (result.compositeScore !== undefined) {
+      totalCompositeScore += result.compositeScore;
+    }
   }
 
   for (const result of tier2Results.values()) {
-    if (result.tier2Score && result.tier2Score >= 30) tier2Signals++;
-    if (result.tier2Score !== undefined) totalTier2Score += result.tier2Score;
+    if (result.tier2Score && result.tier2Score >= 30) {
+      tier2Signals++;
+    }
+    if (result.tier2Score !== undefined) {
+      totalTier2Score += result.tier2Score;
+    }
   }
 
   for (const result of tier3Results.values()) {
-    if (result.tier3Score && result.tier3Score >= 30) tier3Signals++;
-    if (result.tier3Score !== undefined) totalTier3Score += result.tier3Score;
+    if (result.tier3Score && result.tier3Score >= 30) {
+      tier3Signals++;
+    }
+    if (result.tier3Score !== undefined) {
+      totalTier3Score += result.tier3Score;
+    }
   }
 
   const scored = results.size;

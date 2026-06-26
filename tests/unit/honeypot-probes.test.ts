@@ -10,6 +10,7 @@ vi.mock('../../../src/utils/logger.js', () => ({
   },
 }));
 
+import { fetchWithTimeout } from '../../../src/utils/fetch-with-timeout.js';
 import {
   SchemaConformanceProbe,
   ColdStartTimingProbe,
@@ -19,7 +20,6 @@ import {
   RecursiveCallbackProbe,
   Tier3Evidence,
 } from '../../../src/utils/honeypot-probes.js';
-import { fetchWithTimeout } from '../../../src/utils/fetch-with-timeout.js';
 
 function mockResponse(status = 200, body?: unknown) {
   return Promise.resolve({

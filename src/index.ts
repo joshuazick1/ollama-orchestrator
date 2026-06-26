@@ -33,6 +33,7 @@ import {
 } from './middleware/rate-limiter.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { getOrchestratorInstance } from './orchestrator/orchestrator-instance.js';
+import { getHoneypotProbeScheduler } from './probe/honeypot-probe-scheduler.js';
 import {
   monitoringRouter,
   adminRouter,
@@ -51,10 +52,6 @@ import { getUserStore } from './storage/user-store.js';
 import { isOrchestratorError } from './utils/domain-errors.js';
 import { initLoggerConfigSubscription, logger } from './utils/logger.js';
 import { WarmupScheduler } from './utils/warmup-scheduler.js';
-import {
-  getHoneypotProbeScheduler,
-  resetHoneypotProbeScheduler,
-} from './probe/honeypot-probe-scheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

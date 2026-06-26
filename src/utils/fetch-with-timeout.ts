@@ -3,9 +3,9 @@
  * Wrapper around fetch with configurable timeout support
  */
 
+import { TimeoutError } from './domain-errors.js';
 import { logger } from './logger.js';
 import { recordTimeoutFired } from './timeout-telemetry.js';
-import { TimeoutError } from './domain-errors.js';
 
 export interface FetchWithTimeoutOptions extends RequestInit {
   timeout?: number;

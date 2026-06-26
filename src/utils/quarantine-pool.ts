@@ -1,5 +1,6 @@
-import { logger } from './logger.js';
 import { getOperationalStore } from '../storage/operational-store.js';
+
+import { logger } from './logger.js';
 
 export type QuarantineReason = 'honeypot-flagged' | 'manual' | 'auto-low-confidence';
 
@@ -17,8 +18,10 @@ class QuarantinePool {
   private entries = new Map<string, QuarantineEntry>();
   private initialized = false;
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
+  initialize(): void {
+    if (this.initialized) {
+      return;
+    }
     const stored = getOperationalStore().getQuarantinedServers();
     for (const entry of stored) {
       this.entries.set(entry.serverId, {
@@ -76,7 +79,9 @@ class QuarantinePool {
 
   recordCleanCycle(serverId: string): number {
     const entry = this.entries.get(serverId);
-    if (!entry) return 0;
+    if (!entry) {
+      return 0;
+    }
     entry.consecutiveCleanCycles += 1;
     getOperationalStore().updateQuarantineCleanCycles(serverId, entry.consecutiveCleanCycles);
     return entry.consecutiveCleanCycles;
@@ -84,7 +89,9 @@ class QuarantinePool {
 
   resetCleanCycles(serverId: string): void {
     const entry = this.entries.get(serverId);
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
     entry.consecutiveCleanCycles = 0;
     getOperationalStore().updateQuarantineCleanCycles(serverId, 0);
   }

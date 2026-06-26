@@ -6,6 +6,8 @@
  * Task 9: WAL integration for crash-safe state persistence.
  */
 
+import { logger } from '../utils/logger.js';
+
 import type {
   ProbeState,
   Tuple,
@@ -16,7 +18,6 @@ import type {
 } from './types.js';
 import { tupleKey, parseTupleKey, DEFAULT_PROBE_CONFIG } from './types.js';
 import type { WALStore, TupleSnapshotState } from './wal-store.js';
-import { logger } from '../utils/logger.js';
 
 /**
  * Pattern for test fixture server IDs that should be cleaned up on startup.

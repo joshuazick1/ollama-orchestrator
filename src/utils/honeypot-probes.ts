@@ -20,9 +20,12 @@
  * without running a real Ollama server.
  */
 
-import * as tls from 'node:tls';
-import * as net from 'node:net';
 import * as http from 'node:http';
+import * as net from 'node:net';
+import * as tls from 'node:tls';
+
+import { API_ENDPOINTS } from '../constants/api-endpoints.js';
+
 import { fetchWithTimeout } from './fetch-with-timeout.js';
 import { logger } from './logger.js';
 
@@ -150,11 +153,15 @@ export class SchemaConformanceProbe {
 
   /** The 7 endpoints every real Ollama server must implement */
   private static readonly ENDPOINTS = [
-    { method: 'GET', path: '/api/tags', body: null },
-    { method: 'GET', path: '/api/ps', body: null },
-    { method: 'POST', path: '/api/show', body: { model: 'nonexistent-model-for-probe' } },
-    { method: 'GET', path: '/api/version', body: null },
-    { method: 'POST', path: '/api/embed', body: { prompt: 'probe' } },
+    { method: 'GET', path: API_ENDPOINTS.OLLAMA.TAGS, body: null },
+    { method: 'GET', path: API_ENDPOINTS.OLLAMA.PS, body: null },
+    {
+      method: 'POST',
+      path: API_ENDPOINTS.OLLAMA.SHOW,
+      body: { model: 'nonexistent-model-for-probe' },
+    },
+    { method: 'GET', path: API_ENDPOINTS.OLLAMA.VERSION, body: null },
+    { method: 'POST', path: API_ENDPOINTS.OLLAMA.EMBED, body: { prompt: 'probe' } },
     {
       method: 'POST',
       path: '/api/create',
@@ -162,7 +169,7 @@ export class SchemaConformanceProbe {
     },
     {
       method: 'POST',
-      path: '/api/chat',
+      path: API_ENDPOINTS.OLLAMA.CHAT,
       body: { model: 'nonexistent', messages: [{ role: 'user', content: 'ping' }] },
     },
   ] as const;
@@ -345,11 +352,11 @@ export class ColdStartTimingProbe {
       }
 
       try {
-        const { value } = await reader.read();
+        await reader.read();
         const ttftMs = Date.now() - startTime;
 
         // Cancel the stream — we only needed TTFT
-        reader.cancel();
+        void reader.cancel();
 
         let score = 0;
         if (ttftMs < 1000) {
@@ -570,7 +577,7 @@ export class HttpHeaderConsistencyProbe {
     let serverHeader: string | null = null;
     let isParseable = false;
 
-    const endpoints = ['/api/version', '/api/tags'];
+    const endpoints = [API_ENDPOINTS.OLLAMA.VERSION, API_ENDPOINTS.OLLAMA.TAGS];
 
     for (const endpoint of endpoints) {
       try {
@@ -607,7 +614,9 @@ export class HttpHeaderConsistencyProbe {
         issues.push(`Failed to probe ${endpoint}`);
       }
 
-      if (contentType !== null) break;
+      if (contentType !== null) {
+        break;
+      }
     }
 
     let score = 0;
@@ -759,7 +768,9 @@ export class OutputEntropyProbe {
   }
 
   private jaccardDistance(a: string, b: string): number {
-    if (a === b) return 0;
+    if (a === b) {
+      return 0;
+    }
     const tokensA = new Set(a.split(/\s+/));
     const tokensB = new Set(b.split(/\s+/));
     const intersection = new Set([...tokensA].filter(x => tokensB.has(x)));
@@ -980,15 +991,31 @@ const SERVER_FIRST_SEEN = new Map<string, number>();
 
 function isPrivateOrReservedIp(ip: string): boolean {
   const parts = ip.split('.').map(Number);
-  if (parts.length !== 4) return true;
+  if (parts.length !== 4) {
+    return true;
+  }
   const [a, b] = parts;
-  if (a === 10) return true;
-  if (a === 127) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 0) return true;
-  if (a >= 224) return true;
+  if (a === 10) {
+    return true;
+  }
+  if (a === 127) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  if (a === 0) {
+    return true;
+  }
+  if (a >= 224) {
+    return true;
+  }
   return false;
 }
 
@@ -1114,8 +1141,12 @@ export class IpAsnReputationProbe {
   }
 
   private scoreFromAge(ageDays: number | null, serverId: string, trafficLast24h: number): number {
-    if (ageDays === null) return 5;
-    if (ageDays < 30) return 30;
+    if (ageDays === null) {
+      return 5;
+    }
+    if (ageDays < 30) {
+      return 30;
+    }
     const serverAgeHours = this.getServerAgeInFleetHours(serverId);
     if (serverAgeHours !== null && serverAgeHours < 24 && trafficLast24h > 100) {
       return Math.max(30, 50);
@@ -1125,7 +1156,9 @@ export class IpAsnReputationProbe {
 
   private getServerAgeInFleetHours(serverId: string): number | null {
     const firstSeen = SERVER_FIRST_SEEN.get(serverId);
-    if (!firstSeen) return null;
+    if (!firstSeen) {
+      return null;
+    }
     return Math.floor((Date.now() - firstSeen) / (1000 * 60 * 60));
   }
 
@@ -1192,7 +1225,7 @@ export class RecursiveCallbackProbe {
     callbackMutex = true;
 
     const server = await this.createListener();
-    let cleanup = () => {
+    const cleanup = () => {
       server.close();
       callbackMutex = false;
     };

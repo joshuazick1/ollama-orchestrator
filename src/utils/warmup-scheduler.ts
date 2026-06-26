@@ -133,7 +133,7 @@ export class WarmupScheduler {
             logger.info(`[WarmupScheduler] ✓ ${model.name} (${subset.length} servers)`);
           }
         } catch (err) {
-          logger.warn(`[WarmupScheduler] Failed to warm ${model.name}: ${err}`);
+          logger.warn(`[WarmupScheduler] Failed to warm ${model.name}: ${String(err)}`);
         }
       }
 
