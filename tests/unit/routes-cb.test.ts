@@ -39,6 +39,7 @@ describe('Circuit Breaker Routes - Controller Methods', () => {
 
     mockOrchestrator = {
       getProbeOrchestrator: vi.fn().mockReturnValue(mockProbeOrchestrator),
+      getServers: vi.fn().mockReturnValue([]),
       getLBScoreForServerModel: vi.fn().mockReturnValue(null),
       getEndpointRegistry: vi.fn().mockReturnValue({
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),

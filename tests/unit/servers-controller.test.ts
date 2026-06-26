@@ -42,7 +42,8 @@ describe('Servers Controller', () => {
       addServer: vi.fn(),
       removeServer: vi.fn(),
       updateServer: vi.fn(),
-      getServers: vi.fn(),
+      getServers: vi.fn().mockReturnValue([]),
+      getServer: vi.fn(),
       getModelMap: vi.fn(),
       getAllModels: vi.fn(),
       getGlobalMetrics: vi.fn(),
@@ -59,9 +60,20 @@ describe('Servers Controller', () => {
       getProbeOrchestrator: vi.fn().mockReturnValue({
         getAllStates: vi.fn().mockReturnValue(new Map()),
         setStateForTesting: vi.fn(),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'HEALTHY',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
+        }),
+        resetTuple: vi.fn(),
       }),
       getEndpointRegistry: vi.fn().mockReturnValue({
-        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
       }),
       getModelCircuitBreakerPublic: vi.fn(),
@@ -69,7 +81,9 @@ describe('Servers Controller', () => {
         triggerRecoveryTest: vi.fn(),
         start: vi.fn(),
         stop: vi.fn(),
+        tick: vi.fn(),
       }),
+      persistServers: vi.fn(),
     };
 
     (getOrchestratorInstance as any).mockReturnValue(mockOrchestrator);
@@ -312,26 +326,8 @@ describe('Servers Controller', () => {
 
   describe('getHealth', () => {
     it('should return health status', () => {
-      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1', healthy: true }]);
       mockOrchestrator.getGlobalMetrics.mockReturnValue({ requestsPerSecond: 10.5 });
-
-      // Set up probe mock with HEALTHY tuple
-      const mockStates = new Map([
-        [
-          'server-1:model-a',
-          {
-            state: 'HEALTHY',
-            consecutiveFailures: 0,
-            consecutiveSuccesses: 10,
-            errorWindow: [],
-            nextProbeAt: null,
-            lastTransition: null,
-            recoveryAttempts: 0,
-            lastErrorKind: null,
-          },
-        ],
-      ]);
-      mockOrchestrator.getProbeOrchestrator().getAllStates.mockReturnValue(mockStates);
 
       // Mock process.uptime
       const originalUptime = process.uptime;
@@ -408,6 +404,7 @@ describe('Servers Controller', () => {
 
   describe('getCircuitBreakers', () => {
     it('should return circuit breaker stats', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       const mockEndpointRegistry = {
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
@@ -445,6 +442,7 @@ describe('Servers Controller', () => {
     });
 
     it('should handle empty circuit breaker stats', () => {
+      mockOrchestrator.getServers.mockReturnValue([]);
       mockOrchestrator.getCircuitBreakerStats.mockReturnValue({});
 
       getCircuitBreakers(mockReq as Request, mockRes as Response);
@@ -472,6 +470,7 @@ describe('Servers Controller', () => {
     });
 
     it('should handle circuit breaker with probe states', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       const mockEndpointRegistry = {
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
@@ -870,6 +869,7 @@ describe('Servers Controller', () => {
 
   describe('getCircuitBreakerDetails', () => {
     it('should return circuit breaker details', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       const mockEndpointRegistry = {
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
@@ -917,6 +917,7 @@ describe('Servers Controller', () => {
     });
 
     it('should return 404 when circuit breaker not found', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(undefined);
       mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
 
@@ -951,6 +952,7 @@ describe('Servers Controller', () => {
     });
 
     it('should decode URL-encoded model names', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       const mockEndpointRegistry = {
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
@@ -995,6 +997,7 @@ describe('Servers Controller', () => {
 
   describe('forceOpenBreaker', () => {
     it('should force open a circuit breaker', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       const mockEndpointRegistry = {
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
@@ -1026,7 +1029,11 @@ describe('Servers Controller', () => {
     });
 
     it('should return 404 when circuit breaker not found', () => {
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(undefined);
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      });
       mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
 
       forceOpenBreaker(mockReq as Request, mockRes as Response);
@@ -1053,6 +1060,7 @@ describe('Servers Controller', () => {
 
   describe('forceCloseBreaker', () => {
     it('should force close a circuit breaker', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       const mockEndpointRegistry = {
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
@@ -1084,7 +1092,11 @@ describe('Servers Controller', () => {
     });
 
     it('should return 404 when circuit breaker not found', () => {
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(undefined);
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      });
       mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
 
       forceCloseBreaker(mockReq as Request, mockRes as Response);
@@ -1111,6 +1123,7 @@ describe('Servers Controller', () => {
 
   describe('forceHalfOpenBreaker', () => {
     it('should force half-open a circuit breaker', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
       const mockEndpointRegistry = {
         getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
         isEmbeddingModel: vi.fn().mockReturnValue(false),
@@ -1142,7 +1155,11 @@ describe('Servers Controller', () => {
     });
 
     it('should return 404 when circuit breaker not found', () => {
-      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(undefined);
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      });
       mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
 
       forceHalfOpenBreaker(mockReq as Request, mockRes as Response);

@@ -31,6 +31,7 @@ describe('getCircuitBreakers byState aggregation', () => {
 
     mockOrchestrator = {
       getProbeOrchestrator: vi.fn().mockReturnValue(mockProbeOrchestrator),
+      getServers: vi.fn().mockReturnValue([]),
       getEndpointRegistry: vi.fn().mockReturnValue(mockEndpointRegistry),
       getLBScoreForServerModel: vi.fn().mockReturnValue(null),
     };

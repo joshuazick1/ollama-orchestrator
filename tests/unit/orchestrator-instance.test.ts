@@ -34,6 +34,7 @@ describe('Orchestrator Instance', () => {
         queue: { maxSize: 1000, timeout: 30000 },
         circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
         healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
+        metrics: { pruneIntervalMs: 300000 },
         timeout: {
           defaultTimeoutMs: 120000,
           minTimeoutMs: 15000,
@@ -85,6 +86,7 @@ describe('Orchestrator Instance', () => {
         queue: { maxSize: 1000, timeout: 30000 },
         circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
         healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
+        metrics: { pruneIntervalMs: 300000 },
         timeout: {
           defaultTimeoutMs: 120000,
           minTimeoutMs: 15000,
@@ -119,6 +121,7 @@ describe('Orchestrator Instance', () => {
         queue: { maxSize: 1000, timeout: 30000 },
         circuitBreaker: { failureThreshold: 5, resetTimeout: 60000 },
         healthCheck: { enabled: true, interval: 30000, timeout: 5000 },
+        metrics: { pruneIntervalMs: 300000 },
         timeout: {
           defaultTimeoutMs: 120000,
           minTimeoutMs: 15000,

@@ -22,6 +22,18 @@ vi.mock('../../src/config/config.js', () => ({
 
 vi.mock('../../src/streaming.js', () => ({
   streamResponse: vi.fn().mockResolvedValue(undefined),
+  getStreamingConfig: vi.fn(() => ({
+    enabled: true,
+    maxConcurrentStreams: 100,
+    timeoutMs: 300000,
+    bufferSize: 1024,
+    ttftWeight: 0.6,
+    durationWeight: 0.4,
+    activityTimeoutMs: 60000,
+    stallThresholdMs: 300000,
+    stallCheckIntervalMs: 10000,
+    maxHandoffAttempts: 2,
+  })),
 }));
 
 vi.mock('../../src/utils/logger.js', () => ({

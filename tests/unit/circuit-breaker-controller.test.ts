@@ -155,6 +155,7 @@ describe('circuitBreakerController', () => {
         previousState: 'UNHEALTHY',
         currentState: 'HEALTHY',
         uiState: 'CLOSED',
+        success: true,
       });
     });
 
