@@ -12,7 +12,8 @@ Files of record (grouped by concern):
 
 - [install.sh](install.sh) — Install the orchestrator as a systemd service. Used by production deployment.
 - [uninstall.sh](uninstall.sh) — Remove the systemd service.
-- [ollama-orchestrator.service](ollama-orchestrator.service) — systemd unit file installed by `install.sh`.
+- [ollama-orchestrator.service](ollama-orchestrator.service) — systemd unit file installed by `install.sh`. Production unit (runs as `orchestrator` user, paths under `/opt`, `/usr/bin/node`).
+- [ollama-orchestrator.service.dev](ollama-orchestrator.service.dev) — dev variant of the systemd unit for working directly from this repo path. Runs as `root`, `WorkingDirectory=/root/project/ollama-orchestrator`, uses nvm Node 22 (`/root/.nvm/versions/node/v22.23.1/bin/node`), no `PrivateTmp`/`ProtectHome` so nvm is reachable. Drop-in replacement when iterating locally — copy it over the production unit, `systemctl daemon-reload && systemctl restart ollama-orchestrator`. The dev unit loosens `SystemCallFilter` (no deny list) because V8 + `@privileged @resources` blocklist triggers SIGSYS under Node 22.
 - [logrotate-ollama-orchestrator](logrotate-ollama-orchestrator) — logrotate config installed by `install.sh`.
 - [verify-env.sh](verify-env.sh) — Validate the runtime environment (Node version, dependencies, env vars).
 - [deploy-orchestrator-stability.sh](deploy-orchestrator-stability.sh) — Deploy / rollback script for the orchestrator-stability-release. Supports `--rollback` (full revert), `--soft-kill-switch` (toggle kill switch via API), `--status`. Idempotent; automatic rollback on health-check timeout.
@@ -23,7 +24,7 @@ Files of record (grouped by concern):
 
 - [sync-types.sh](sync-types.sh) — Regenerates the frontend type mirror from the backend's `src/shared-types.ts`. Run by `prebuild`.
   - **Workflow**: after every type change in `src/orchestrator/orchestrator.types.ts`, run `bash scripts/sync-types.sh` (or `npm run prebuild`).
-  - The script copies `src/orchestrator/orchestrator.types.ts` → `frontend/src/types/generated/orchestrator.types.ts`, stripping backend-only imports.
+  - The script copies `src/orchestrator/orchestrator.types.ts` → `frontend/src/types/generated/orchestrator.types.ts`, stripping relative (`./`/`../`) imports and **inlining any types those imports referenced** at the top of the generated file (currently `ProbeEndpoint`). When you add a new type to the backend source that comes from a sibling file, mirror its definition into the heredoc block in `sync-types.sh`.
   - Generated files in `frontend/src/types/generated/` must never be edited manually — always run the script.
   - See also `npm run validate-types` which checks for drift between frontend and backend types.
 

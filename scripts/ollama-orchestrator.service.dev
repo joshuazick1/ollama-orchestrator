@@ -1,0 +1,49 @@
+[Unit]
+Description=Ollama Orchestrator (dev install at /root/project/ollama-orchestrator)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/project/ollama-orchestrator
+EnvironmentFile=/root/project/ollama-orchestrator/.env
+Environment=NODE_ENV=production
+Environment=DISABLE_FILE_LOGGING=false
+Environment=HOME=/root
+Environment=NVM_DIR=/root/.nvm
+ExecStart=/root/.nvm/versions/node/v22.23.1/bin/node /root/project/ollama-orchestrator/dist/index.js
+Restart=on-failure
+RestartSec=10
+
+ExecStartPost=/usr/bin/bash -c 'for i in {1..30}; do if curl -fsS http://localhost:5100/health/ready > /dev/null 2>&1; then exit 0; fi; sleep 1; done; echo "Service did not become ready in 30s"; exit 1'
+RestartPreventExitStatus=1
+
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=30
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+ProtectSystem=full
+ReadWritePaths=/root/project/ollama-orchestrator/data /root/project/ollama-orchestrator/logs /root/project/ollama-orchestrator/.sisyphus /root/.nvm
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+RestrictNamespaces=true
+
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+SystemCallFilter=@system-service
+
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

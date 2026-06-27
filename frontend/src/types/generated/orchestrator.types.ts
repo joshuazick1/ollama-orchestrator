@@ -1,6 +1,19 @@
 // AUTO-GENERATED — do not edit. Run scripts/sync-types.sh to update.
 
 /**
+ * Frontend-side mirror of backend-only types referenced by orchestrator.types.ts.
+ * Keep these aligned with the source-of-truth in src/**\/*.ts.
+ */
+export type ProbeEndpoint =
+  | 'ollama_chat'
+  | 'ollama_generate'
+  | 'ollama_embeddings'
+  | 'openai_chat'
+  | 'openai_completions'
+  | 'openai_embeddings'
+  | 'anthropic_messages';
+
+/**
  * orchestrator.types.ts
  * Type definitions for AI orchestrator
  */
@@ -284,7 +297,7 @@ export interface RequestContext {
   startTime: number;
   serverId?: string;
   model: string;
-  endpoint: 'generate' | 'chat' | 'embeddings';
+  endpoint: ProbeEndpoint;
   streaming: boolean;
   /** Parent request ID linking retries/failovers to the original user request */
   parentRequestId?: string;
