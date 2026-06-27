@@ -48,6 +48,7 @@ export interface CircuitBreakerTransitionRecord {
   timestamp: number;
   serverId: string;
   model?: string;
+  endpoint?: string;
   previousState: 'open' | 'closed' | 'half-open';
   newState: 'open' | 'closed' | 'half-open';
   reason: string;
@@ -195,6 +196,7 @@ export class RecoveryFailureTracker {
           timestamp: event.createdAt,
           serverId: parsed.serverId,
           model: parsed.model,
+          endpoint: parsed.endpoint,
           previousState: this.probeStateToCBState(event.fromState),
           newState: this.probeStateToCBState(event.toState),
           reason: event.reason ?? '',

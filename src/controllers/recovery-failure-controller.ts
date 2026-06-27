@@ -8,7 +8,14 @@ import type { Request, Response } from 'express';
 import { getRecoveryFailureTracker } from '../analytics/recovery-failure-tracker.js';
 import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-import { parseTupleKey } from '../probe/types.js';
+import {
+  KNOWN_PROBE_ENDPOINTS,
+  parseTupleKey,
+  probeStateToUIState,
+  type ProbeEndpoint,
+  type ProbeState,
+  type UIState,
+} from '../probe/types.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -265,22 +272,61 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
     const allStates = probeOrchestrator.getAllStates();
 
-    const serverStates: Array<{ tupleKey: string; state: string }> = [];
-    for (const [tupleKey, state] of allStates.entries()) {
+    // Group by (serverId, model) — key is "serverId:model"
+    const modelMap = new Map<
+      string,
+      {
+        serverId: string;
+        model: string;
+        endpoints: Array<{ endpoint: ProbeEndpoint; state: ProbeState; uiState: UIState }>;
+      }
+    >();
+
+    for (const [tupleKey, tupleState] of allStates.entries()) {
       const parsed = parseTupleKey(tupleKey);
-      if (parsed.serverId === serverId) {
-        serverStates.push({ tupleKey, state: state.state });
+      if (parsed.serverId !== serverId) {
+        continue;
+      }
+      const groupKey = `${parsed.serverId}:${parsed.model}`;
+      if (!modelMap.has(groupKey)) {
+        modelMap.set(groupKey, {
+          serverId: parsed.serverId,
+          model: parsed.model,
+          endpoints: [],
+        });
+      }
+      const group = modelMap.get(groupKey)!;
+      group.endpoints.push({
+        endpoint: parsed.endpoint,
+        state: tupleState.state,
+        uiState: probeStateToUIState(tupleState.state),
+      });
+    }
+
+    // For each (server, model) group, fill in missing endpoints with HEALTHY default
+    for (const group of modelMap.values()) {
+      const seenEndpoints = new Set(group.endpoints.map(e => e.endpoint));
+      for (const endpoint of KNOWN_PROBE_ENDPOINTS) {
+        if (!seenEndpoints.has(endpoint)) {
+          group.endpoints.push({
+            endpoint,
+            state: 'HEALTHY' as ProbeState,
+            uiState: probeStateToUIState('HEALTHY'),
+          });
+        }
       }
     }
 
-    if (serverStates.length === 0) {
+    const serverModels = Array.from(modelMap.values());
+
+    if (serverModels.length === 0) {
       res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND_SERVER(serverId) });
       return;
     }
 
     res.json({
       serverId,
-      states: serverStates,
+      models: serverModels,
     });
   } catch (error) {
     logger.error('Error getting server circuit breaker:', error);
