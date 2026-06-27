@@ -261,33 +261,32 @@ adminRouter.get('/models/circuit-breakers', requireAuth(), asyncHandler(getCircu
 
 // Per-endpoint circuit breaker routes (must register /endpoints literal BEFORE /:endpoint param)
 adminRouter.get(
-  CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINTS(':serverId', ':model') as any,
+  '/circuit-breakers/:serverId/:model/endpoints',
   requireAdmin(),
   asyncHandler(getEndpointStates)
 );
 adminRouter.get(
-  CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') as any,
+  '/circuit-breakers/:serverId/:model/:endpoint',
   requireAdmin(),
   asyncHandler(getBreakerDetails)
 );
 adminRouter.post(
-  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') + '/reset') as any,
+  '/circuit-breakers/:serverId/:model/:endpoint/reset',
   requireAdmin(),
   asyncHandler(resetBreaker)
 );
 adminRouter.post(
-  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') + '/open') as any,
+  '/circuit-breakers/:serverId/:model/:endpoint/open',
   requireAdmin(),
   asyncHandler(forceOpenBreaker)
 );
 adminRouter.post(
-  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') + '/close') as any,
+  '/circuit-breakers/:serverId/:model/:endpoint/close',
   requireAdmin(),
   asyncHandler(forceCloseBreaker)
 );
 adminRouter.post(
-  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') +
-    '/half-open') as any,
+  '/circuit-breakers/:serverId/:model/:endpoint/half-open',
   requireAdmin(),
   asyncHandler(forceHalfOpenBreaker)
 );

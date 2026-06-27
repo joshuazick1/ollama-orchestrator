@@ -73,15 +73,23 @@ export const HONEYPOT_STATS = '/api/orchestrator/honeypot-stats';
 export const HONEYPOT_STATS_SUMMARY = '/api/orchestrator/honeypot-stats/summary';
 export const HONEYPOT_STATS_TOP = '/api/orchestrator/honeypot-stats/top';
 
+/**
+ * Encode a path segment, but NOT if it's an Express route parameter (starts with :).
+ * Route params like :serverId should be passed through as-is; actual values should be encoded.
+ */
+function encodeSegment(segment: string): string {
+  return segment.startsWith(':') ? segment : encodeURIComponent(segment);
+}
+
 export const CIRCUIT_BREAKERS = {
   ROOT: '/api/orchestrator/circuit-breakers',
   BY_SERVER_MODEL: (serverId: string, model: string) =>
-    `${CIRCUIT_BREAKERS.ROOT}/${encodeURIComponent(serverId)}/${encodeURIComponent(model)}`,
+    `${CIRCUIT_BREAKERS.ROOT}/${encodeSegment(serverId)}/${encodeSegment(model)}`,
   BY_SERVER_MODEL_ENDPOINT: (serverId: string, model: string, endpoint: string) =>
     `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/${endpoint}`,
   BY_SERVER_MODEL_ENDPOINTS: (serverId: string, model: string) =>
     `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/endpoints`,
-  BY_SERVER: (serverId: string) => `${CIRCUIT_BREAKERS.ROOT}/${encodeURIComponent(serverId)}`,
+  BY_SERVER: (serverId: string) => `${CIRCUIT_BREAKERS.ROOT}/${encodeSegment(serverId)}`,
   RESET: (serverId: string, model?: string) =>
     model
       ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/reset`
@@ -99,7 +107,7 @@ export const CIRCUIT_BREAKERS = {
       ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/half-open`
       : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/half-open`,
   RESET_ALL_FOR_SERVER: (serverId: string) =>
-    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeURIComponent(serverId)}/reset-all`,
+    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeSegment(serverId)}/reset-all`,
   DELETE_ALL_FOR_SERVER: (serverId: string) =>
-    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeURIComponent(serverId)}`,
+    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeSegment(serverId)}`,
 } as const;

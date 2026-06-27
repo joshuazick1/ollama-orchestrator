@@ -178,7 +178,9 @@ describe('Admin API Integration Tests', () => {
       await makeRequest('DELETE', `/api/orchestrator/servers/${cbServerId}`);
     });
 
-    it('should force open a circuit breaker', async () => {
+    // --- Legacy aggregate tests (no endpoint param - returns all 7 endpoints) ---
+
+    it('should force open ALL circuit breakers for a server:model (all 7 endpoints)', async () => {
       const loggerInfoSpy = vi.spyOn(logger, 'info');
       const encodedModel = encodeURIComponent(cbModel);
       const response = await makeRequest(
@@ -187,8 +189,12 @@ describe('Admin API Integration Tests', () => {
       );
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('success', true);
-      expect(response.data.circuitBreaker).toBeDefined();
-      expect(response.data.circuitBreaker.state).toBe('OPEN');
+      expect(response.data).toHaveProperty('currentState', 'UNHEALTHY');
+      expect(response.data).toHaveProperty('uiState', 'OPEN');
+      // All 7 endpoints should be affected
+      expect(response.data.results).toBeDefined();
+      expect(Array.isArray(response.data.results)).toBe(true);
+      expect(response.data.results.length).toBe(7);
       expect(loggerInfoSpy).toHaveBeenCalledWith(
         'admin_force_breaker',
         expect.objectContaining({
@@ -200,19 +206,42 @@ describe('Admin API Integration Tests', () => {
       loggerInfoSpy.mockRestore();
     });
 
-    it('should get circuit breaker details', async () => {
+    it('should get all 7 endpoint states via /endpoints route', async () => {
       const encodedModel = encodeURIComponent(cbModel);
       const response = await makeRequest(
         'GET',
-        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}`
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/endpoints`
       );
       expect(response.status).toBe(200);
-      expect(response.data).toHaveProperty('key');
-      expect(response.data.key).toBe(`${cbServerId}:${cbModel}`);
-      expect(response.data).toHaveProperty('stats');
+      expect(response.data).toHaveProperty('serverId', cbServerId);
+      expect(response.data).toHaveProperty('model', cbModel);
+      expect(response.data.endpoints).toBeDefined();
+      expect(Array.isArray(response.data.endpoints)).toBe(true);
+      expect(response.data.endpoints.length).toBe(7);
+      // Each endpoint should have state and uiState
+      response.data.endpoints.forEach((ep: any) => {
+        expect(ep).toHaveProperty('endpoint');
+        expect(ep).toHaveProperty('state');
+        expect(ep).toHaveProperty('uiState');
+      });
     });
 
-    it('should force close a circuit breaker', async () => {
+    it('should get circuit breaker details for specific endpoint (ollama_chat)', async () => {
+      const encodedModel = encodeURIComponent(cbModel);
+      const response = await makeRequest(
+        'GET',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/ollama_chat`
+      );
+      expect(response.status).toBe(200);
+      // Single endpoint returns StateProjection directly
+      expect(response.data).toHaveProperty('serverId', cbServerId);
+      expect(response.data).toHaveProperty('model', cbModel);
+      expect(response.data).toHaveProperty('endpoint', 'ollama_chat');
+      expect(response.data).toHaveProperty('state');
+      expect(response.data).toHaveProperty('uiState');
+    });
+
+    it('should force close ALL circuit breakers for a server:model', async () => {
       const loggerInfoSpy = vi.spyOn(logger, 'info');
       const encodedModel = encodeURIComponent(cbModel);
       const response = await makeRequest(
@@ -221,7 +250,9 @@ describe('Admin API Integration Tests', () => {
       );
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('success', true);
-      expect(response.data.circuitBreaker.state).toBe('CLOSED');
+      expect(response.data).toHaveProperty('currentState', 'HEALTHY');
+      expect(response.data).toHaveProperty('uiState', 'CLOSED');
+      expect(response.data.results.length).toBe(7);
       expect(loggerInfoSpy).toHaveBeenCalledWith(
         'admin_force_breaker',
         expect.objectContaining({
@@ -233,23 +264,25 @@ describe('Admin API Integration Tests', () => {
       loggerInfoSpy.mockRestore();
     });
 
-    it('should force half-open a circuit breaker', async () => {
+    it('should force half-open ALL circuit breakers for a server:model', async () => {
       const loggerInfoSpy = vi.spyOn(logger, 'info');
       const encodedModel = encodeURIComponent(cbModel);
-      // First force open
+      // First force open all
       await makeRequest(
         'POST',
         `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/open`
       );
 
-      // Then force half-open
+      // Then force half-open all
       const response = await makeRequest(
         'POST',
         `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/half-open`
       );
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('success', true);
-      expect(response.data.circuitBreaker.state).toBe('HALF_OPEN');
+      expect(response.data).toHaveProperty('currentState', 'RECOVERING');
+      expect(response.data).toHaveProperty('uiState', 'HALF-OPEN');
+      expect(response.data.results.length).toBe(7);
       expect(loggerInfoSpy).toHaveBeenCalledWith(
         'admin_force_breaker',
         expect.objectContaining({
@@ -261,21 +294,110 @@ describe('Admin API Integration Tests', () => {
       loggerInfoSpy.mockRestore();
     });
 
-    it('should reset a circuit breaker', async () => {
+    it('should reset ALL circuit breakers for a server:model', async () => {
       const encodedModel = encodeURIComponent(cbModel);
-      // First force open
+      // First force open all
       await makeRequest(
         'POST',
         `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/open`
       );
 
-      // Then reset
+      // Then reset all
       const response = await makeRequest(
         'POST',
         `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/reset`
       );
       expect(response.status).toBe(200);
-      expect(response.data).toHaveProperty('currentState', 'closed');
+      expect(response.data).toHaveProperty('success', true);
+      expect(response.data).toHaveProperty('currentState', 'HEALTHY');
+      expect(response.data).toHaveProperty('uiState', 'CLOSED');
+      // Reset should affect all 7 endpoints
+      expect(response.data.results.length).toBe(7);
+    });
+
+    // --- Per-endpoint mutation tests ---
+
+    it('should force open ONLY ollama_chat endpoint (per-endpoint)', async () => {
+      const encodedModel = encodeURIComponent(cbModel);
+      const response = await makeRequest(
+        'POST',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/ollama_chat/open`
+      );
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('success', true);
+      expect(response.data).toHaveProperty('currentState', 'UNHEALTHY');
+      expect(response.data).toHaveProperty('uiState', 'OPEN');
+      // Per-endpoint: single result
+      expect(response.data.results).toBeDefined();
+      expect(Array.isArray(response.data.results)).toBe(true);
+      expect(response.data.results.length).toBe(1);
+      expect(response.data.results[0]).toHaveProperty('endpoint', 'ollama_chat');
+    });
+
+    it('should force close ONLY ollama_generate endpoint (per-endpoint)', async () => {
+      const encodedModel = encodeURIComponent(cbModel);
+      const response = await makeRequest(
+        'POST',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/ollama_generate/close`
+      );
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('success', true);
+      expect(response.data).toHaveProperty('currentState', 'HEALTHY');
+      expect(response.data).toHaveProperty('uiState', 'CLOSED');
+      expect(response.data.results.length).toBe(1);
+      expect(response.data.results[0]).toHaveProperty('endpoint', 'ollama_generate');
+    });
+
+    it('should reset ONLY ollama_embeddings endpoint (per-endpoint)', async () => {
+      const encodedModel = encodeURIComponent(cbModel);
+      // First force open
+      await makeRequest(
+        'POST',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/ollama_embeddings/open`
+      );
+
+      // Then reset just ollama_embeddings
+      const response = await makeRequest(
+        'POST',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/ollama_embeddings/reset`
+      );
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('success', true);
+      expect(response.data).toHaveProperty('currentState', 'HEALTHY');
+      expect(response.data.results.length).toBe(1);
+      expect(response.data.results[0]).toHaveProperty('endpoint', 'ollama_embeddings');
+    });
+
+    it('should force half-open ONLY openai_chat endpoint (per-endpoint)', async () => {
+      const encodedModel = encodeURIComponent(cbModel);
+      // First force open
+      await makeRequest(
+        'POST',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/openai_chat/open`
+      );
+
+      // Then half-open
+      const response = await makeRequest(
+        'POST',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/openai_chat/half-open`
+      );
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('success', true);
+      expect(response.data).toHaveProperty('currentState', 'RECOVERING');
+      expect(response.data).toHaveProperty('uiState', 'HALF-OPEN');
+      expect(response.data.results.length).toBe(1);
+      expect(response.data.results[0]).toHaveProperty('endpoint', 'openai_chat');
+    });
+
+    it('should return 400 for invalid endpoint value', async () => {
+      const encodedModel = encodeURIComponent(cbModel);
+      const response = await makeRequest(
+        'POST',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}/bogus_endpoint/reset`
+      );
+      expect(response.status).toBe(400);
+      expect(response.data).toHaveProperty('error');
+      expect(response.data.error).toContain('Invalid endpoint');
     });
 
     it('should get all circuit breakers for a server', async () => {
@@ -321,6 +443,23 @@ describe('Admin API Integration Tests', () => {
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('circuitBreakers');
       expect(Array.isArray(response.data.circuitBreakers)).toBe(true);
+    });
+
+    // --- Aggregate details (no endpoint param) ---
+
+    it('should get aggregate circuit breaker details (no endpoint - all 7)', async () => {
+      const encodedModel = encodeURIComponent(cbModel);
+      const response = await makeRequest(
+        'GET',
+        `/api/orchestrator/circuit-breakers/${cbServerId}/${encodedModel}`
+      );
+      expect(response.status).toBe(200);
+      // No endpoint param = aggregated view with endpoints array
+      expect(response.data).toHaveProperty('serverId', cbServerId);
+      expect(response.data).toHaveProperty('model', cbModel);
+      expect(response.data.endpoints).toBeDefined();
+      expect(Array.isArray(response.data.endpoints)).toBe(true);
+      expect(response.data.endpoints.length).toBe(7);
     });
   });
 
