@@ -15,6 +15,7 @@ import {
   forceHalfOpenBreaker,
   resetAllBreakersForServer,
   deleteAllBreakersForServer,
+  getEndpointStates,
 } from '../controllers/circuit-breaker-controller.js';
 import {
   getConfig,
@@ -83,6 +84,7 @@ import {
 } from '../controllers/servers-controller.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
+import { CIRCUIT_BREAKERS } from '../constants/api-endpoints.js';
 import {
   validateRequest,
   addServerSchema,
@@ -256,6 +258,39 @@ adminRouter.get(
   asyncHandler(getServersCircuitBreakers)
 );
 adminRouter.get('/models/circuit-breakers', requireAuth(), asyncHandler(getCircuitBreakersByModel));
+
+// Per-endpoint circuit breaker routes (must register /endpoints literal BEFORE /:endpoint param)
+adminRouter.get(
+  CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINTS(':serverId', ':model') as any,
+  requireAdmin(),
+  asyncHandler(getEndpointStates)
+);
+adminRouter.get(
+  CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') as any,
+  requireAdmin(),
+  asyncHandler(getBreakerDetails)
+);
+adminRouter.post(
+  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') + '/reset') as any,
+  requireAdmin(),
+  asyncHandler(resetBreaker)
+);
+adminRouter.post(
+  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') + '/open') as any,
+  requireAdmin(),
+  asyncHandler(forceOpenBreaker)
+);
+adminRouter.post(
+  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') + '/close') as any,
+  requireAdmin(),
+  asyncHandler(forceCloseBreaker)
+);
+adminRouter.post(
+  (CIRCUIT_BREAKERS.BY_SERVER_MODEL_ENDPOINT(':serverId', ':model', ':endpoint') +
+    '/half-open') as any,
+  requireAdmin(),
+  asyncHandler(forceHalfOpenBreaker)
+);
 
 // Manual recovery test for debugging (admin)
 adminRouter.post(
