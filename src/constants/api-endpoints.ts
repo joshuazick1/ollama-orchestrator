@@ -72,3 +72,34 @@ export const SERVERS_GHOST_STATS = '/api/orchestrator/servers/ghost-stats';
 export const HONEYPOT_STATS = '/api/orchestrator/honeypot-stats';
 export const HONEYPOT_STATS_SUMMARY = '/api/orchestrator/honeypot-stats/summary';
 export const HONEYPOT_STATS_TOP = '/api/orchestrator/honeypot-stats/top';
+
+export const CIRCUIT_BREAKERS = {
+  ROOT: '/api/orchestrator/circuit-breakers',
+  BY_SERVER_MODEL: (serverId: string, model: string) =>
+    `${CIRCUIT_BREAKERS.ROOT}/${encodeURIComponent(serverId)}/${encodeURIComponent(model)}`,
+  BY_SERVER_MODEL_ENDPOINT: (serverId: string, model: string, endpoint: string) =>
+    `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/${endpoint}`,
+  BY_SERVER_MODEL_ENDPOINTS: (serverId: string, model: string) =>
+    `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/endpoints`,
+  BY_SERVER: (serverId: string) => `${CIRCUIT_BREAKERS.ROOT}/${encodeURIComponent(serverId)}`,
+  RESET: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/reset`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/reset`,
+  OPEN: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/open`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/open`,
+  CLOSE: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/close`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/close`,
+  HALF_OPEN: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/half-open`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/half-open`,
+  RESET_ALL_FOR_SERVER: (serverId: string) =>
+    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeURIComponent(serverId)}/reset-all`,
+  DELETE_ALL_FOR_SERVER: (serverId: string) =>
+    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeURIComponent(serverId)}`,
+} as const;
