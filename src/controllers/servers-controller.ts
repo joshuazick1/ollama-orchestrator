@@ -17,7 +17,14 @@ import { testServerCapabilities } from '../orchestrator/test-server-capabilities
 import { getTestStore } from '../orchestrator/test-store-instance.js';
 import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
 import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
-import { parseTupleKey, probeStateToUIState, type ProbeState } from '../probe/types.js';
+import {
+  KNOWN_PROBE_ENDPOINTS,
+  parseTupleKey,
+  probeStateToUIState,
+  type ProbeEndpoint,
+  type ProbeState,
+  type Tuple,
+} from '../probe/types.js';
 import { getErrorMessage } from '../utils/error-helpers.js';
 import { logger } from '../utils/logger.js';
 import { isBlockedUrl } from '../utils/url-safety.js';
@@ -926,10 +933,12 @@ export function manualRecoveryTest(req: Request, res: Response): void {
 /**
  * Get circuit breaker details for a specific server:model
  * GET /api/orchestrator/servers/:serverId/models/:model/circuit-breaker
+ * Optional query param ?endpoint=<ProbeEndpoint> to filter to a single endpoint
  */
 export function getCircuitBreakerDetails(req: Request, res: Response): void {
   const serverId = req.params.serverId as string;
   const model = req.params.model as string;
+  const endpointFilter = req.query.endpoint as string | undefined;
 
   if (!serverId || !model) {
     res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
@@ -964,26 +973,24 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
     return;
   }
 
-  const { tupleKey, tupleState } = matchingTuples[0];
-  const { endpoint } = parseTupleKey(tupleKey);
-  const lbScore = orchestrator.getLBScoreForServerModel(serverId, decodedModel);
-  const errorRate =
-    tupleState.errorWindow.length > 0
-      ? tupleState.errorWindow.length /
-        Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
-      : 0;
-
-  res.status(200).json({
-    success: true,
-    serverId: normalizedServerId,
-    model: decodedModel,
-    circuitBreaker: {
-      name: tupleKey,
+  // Helper to build the structured circuit breaker projection for a single tuple
+  const buildTupleProjection = (
+    tupleKey: string,
+    tupleState: ReturnType<typeof probeOrchestrator.getAllStates> extends Map<string, infer T>
+      ? T
+      : never
+  ) => {
+    const { endpoint } = parseTupleKey(tupleKey);
+    const lbScore = orchestrator.getLBScoreForServerModel(serverId, decodedModel);
+    const errorRate =
+      tupleState.errorWindow.length > 0
+        ? tupleState.errorWindow.length /
+          Math.max(1, tupleState.consecutiveSuccesses + tupleState.errorWindow.length)
+        : 0;
+    return {
       serverId: normalizedServerId,
-      serverIdOnly: normalizedServerId,
       model: decodedModel,
       endpoint,
-      tupleKey,
       state: tupleState.state,
       uiState: probeStateToUIState(tupleState.state),
       failureCount: tupleState.consecutiveFailures,
@@ -1020,7 +1027,35 @@ export function getCircuitBreakerDetails(req: Request, res: Response): void {
             timeoutScore: lbScore.breakdown.timeoutScore,
           }
         : null,
-    },
+    };
+  };
+
+  // When endpoint filter is provided, return the single matching tuple or 404
+  if (endpointFilter) {
+    const matched = matchingTuples.find(({ tupleKey }) => {
+      const { endpoint } = parseTupleKey(tupleKey);
+      return endpoint === endpointFilter;
+    });
+    if (!matched) {
+      res.status(404).json({ error: ERROR_MESSAGES.CIRCUIT_BREAKER_NOT_FOUND(serverId, model) });
+      return;
+    }
+    res.status(200).json({
+      success: true,
+      ...buildTupleProjection(matched.tupleKey, matched.tupleState),
+    });
+    return;
+  }
+
+  // No endpoint filter — return aggregated view with all matching tuples
+  const endpoints = matchingTuples.map(({ tupleKey, tupleState }) =>
+    buildTupleProjection(tupleKey, tupleState)
+  );
+  res.status(200).json({
+    success: true,
+    serverId: normalizedServerId,
+    model: decodedModel,
+    endpoints,
   });
 }
 
@@ -1252,7 +1287,7 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
     HEALTHY: 1,
   };
 
-  let worstState = 'HEALTHY';
+  let worstState: ProbeState = 'HEALTHY';
   let worstPriority = 1;
   let totalFailureCount = 0;
   let totalSuccessCount = 0;
@@ -1277,11 +1312,70 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
   const avgErrorRate = serverTuples.length > 0 ? totalErrorRate / serverTuples.length : 0;
   const lbScore = orchestrator.getLBScoreForServerModel(serverId, '');
 
+  // Group tuples by model for per-model breakdown
+  const modelMap = new Map<string, typeof serverTuples>();
+  for (const entry of serverTuples) {
+    const { model } = parseTupleKey(entry.tupleKey);
+    if (!modelMap.has(model)) {
+      modelMap.set(model, []);
+    }
+    modelMap.get(model)!.push(entry);
+  }
+
+  const models: Array<{
+    model: string;
+    state: ProbeState;
+    uiState: 'OPEN' | 'CLOSED' | 'HALF-OPEN' | 'UNKNOWN';
+    endpoints: Array<{
+      endpoint: ProbeEndpoint;
+      state: ProbeState;
+      uiState: 'OPEN' | 'CLOSED' | 'HALF-OPEN' | 'UNKNOWN';
+    }>;
+  }> = [];
+
+  for (const [model, tuples] of modelMap.entries()) {
+    let modelWorstState: ProbeState = 'HEALTHY';
+    let modelWorstPriority = 1;
+    for (const { tupleState } of tuples) {
+      const priority = statePriority[tupleState.state] || 0;
+      if (priority > modelWorstPriority) {
+        modelWorstPriority = priority;
+        modelWorstState = tupleState.state;
+      }
+    }
+
+    const endpoints: Array<{
+      endpoint: ProbeEndpoint;
+      state: ProbeState;
+      uiState: 'OPEN' | 'CLOSED' | 'HALF-OPEN' | 'UNKNOWN';
+    }> = [];
+    for (const ep of KNOWN_PROBE_ENDPOINTS) {
+      const tupleState = probeOrchestrator.getTupleState({
+        serverId: normalizedServerId,
+        model,
+        endpoint: ep,
+      });
+      const state: ProbeState = tupleState?.state ?? 'HEALTHY';
+      endpoints.push({
+        endpoint: ep,
+        state,
+        uiState: probeStateToUIState(state),
+      });
+    }
+
+    models.push({
+      model,
+      state: modelWorstState,
+      uiState: probeStateToUIState(modelWorstState),
+      endpoints,
+    });
+  }
+
   res.status(200).json({
     success: true,
     serverId: normalizedServerId,
     state: worstState,
-    uiState: probeStateToUIState(worstState as ProbeState),
+    uiState: probeStateToUIState(worstState),
     tupleCount: serverTuples.length,
     failureCount: totalFailureCount,
     successCount: totalSuccessCount,
@@ -1307,6 +1401,7 @@ export function getServerCircuitBreaker(req: Request, res: Response): void {
           timeoutScore: lbScore.breakdown.timeoutScore,
         }
       : null,
+    models,
   });
 }
 
