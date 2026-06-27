@@ -1,0 +1,44 @@
+import {
+  LayoutDashboard,
+  Server,
+  Database,
+  Zap,
+  BarChart2,
+  Shield,
+  ShieldAlert,
+  ShieldOff,
+  Settings,
+  FileText,
+  AlertTriangle,
+  Activity,
+  Network,
+  Sparkles,
+  History,
+  Gauge,
+  type LucideIcon,
+} from 'lucide-react';
+
+export interface NavItem {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/servers', icon: Server, label: 'Servers' },
+  { to: '/models', icon: Database, label: 'Models' },
+  { to: '/in-flight', icon: Zap, label: 'In-Flight' },
+  { to: '/analytics', icon: BarChart2, label: 'Analytics' },
+  { to: '/circuit-breakers', icon: Shield, label: 'Circuit Breakers' },
+  { to: '/honeypot', icon: ShieldAlert, label: 'Honeypot' },
+  { to: '/quarantine', icon: ShieldOff, label: 'Quarantine' },
+  { to: '/logs', icon: FileText, label: 'Logs' },
+  { to: '/errors', icon: AlertTriangle, label: 'Error Events' },
+  { to: '/probe', icon: Activity, label: 'Probe' },
+  { to: '/perf-probe', icon: Gauge, label: 'Performance Probe' },
+  { to: '/perf-probe/history', icon: History, label: 'Probe History' },
+  { to: '/cluster', icon: Network, label: 'Cluster' },
+  { to: '/playground', icon: Sparkles, label: 'Playground' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
+];

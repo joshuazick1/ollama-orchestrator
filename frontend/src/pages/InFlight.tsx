@@ -1,0 +1,296 @@
+import { useQuery } from '@tanstack/react-query';
+import { getInFlightByServer, type StreamingRequestProgress } from '../api';
+import { Zap, Radio, AlertTriangle, RefreshCw } from 'lucide-react';
+import { StatCard } from '../components/StatCard';
+import { formatDuration } from '../utils/formatting';
+import { SkeletonStatCard } from '../components/skeletons';
+import { useDataTable } from '../hooks/useDataTable';
+import { DataToolbar } from '../components/DataToolbar';
+import { useMemo } from 'react';
+import {
+  PROVIDER_BADGE_COLORS,
+  type ProviderBadgeColorKey,
+  type ProviderName,
+} from '../constants/colors';
+
+interface InFlightServer {
+  serverId: string;
+  serverUrl?: string;
+  healthy?: boolean;
+  total: number;
+  byModel: Record<string, { regular: number; bypass: number }>;
+  streamingRequests?: StreamingRequestProgress[];
+  provider?: ProviderName;
+}
+
+export const InFlight = () => {
+  const {
+    data: inFlightData,
+    isLoading: inFlightLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ['in-flight'],
+    queryFn: getInFlightByServer,
+    refetchInterval: 2000,
+  });
+
+  const inFlight = useMemo(
+    () => (inFlightData?.inFlight || []) as InFlightServer[],
+    [inFlightData]
+  );
+  const totalInFlight = inFlightData?.total || 0;
+
+  // Prepare data for search/sort
+  const searchableData = useMemo(() => {
+    return inFlight.map(server => ({
+      ...server,
+      // Create a composite string for searching
+      searchableText: [
+        server.serverId,
+        server.serverUrl,
+        ...Object.keys(server.byModel || {}),
+        ...(server.streamingRequests?.map(r => r.model) || []),
+        ...(server.streamingRequests?.map(r => r.id) || []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase(),
+    }));
+  }, [inFlight]);
+
+  const {
+    searchQuery,
+    setSearchQuery,
+    processedData: filteredServers,
+    sortConfig,
+    handleSort,
+  } = useDataTable({
+    data: searchableData,
+    searchKeys: ['searchableText'],
+    initialSort: { key: 'total', direction: 'desc' },
+  });
+
+  // Calculate streaming stats (global)
+  const allStreamingRequests: StreamingRequestProgress[] = [];
+  inFlight.forEach(server => {
+    if (server.streamingRequests) {
+      allStreamingRequests.push(...server.streamingRequests);
+    }
+  });
+  const streamingCount = allStreamingRequests.length;
+  const nonStreamingCount = totalInFlight - streamingCount;
+  const stalledCount = allStreamingRequests.filter(r => r.isStalled).length;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-text-base">In-Flight Requests</h2>
+          <p className="text-text-muted">Monitor active in-flight operations by server</p>
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="p-2 bg-surface hover:bg-surface text-text-muted hover:text-text-base rounded-lg transition-colors"
+          title="Refresh Data"
+          aria-label="Refresh Data"
+        >
+          <RefreshCw className={`w-5 h-5 ${inFlightLoading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6" aria-live="polite">
+        <StatCard
+          title="Total In-Flight"
+          value={totalInFlight}
+          subtext="Active requests"
+          icon={Zap}
+          color="text-blue-400"
+        />
+        <StatCard
+          title="Streaming Requests"
+          value={streamingCount}
+          subtext={`${nonStreamingCount} non-streaming`}
+          icon={Radio}
+          color="text-cyan-400"
+        />
+        {stalledCount > 0 ? (
+          <StatCard
+            title="Stalled Streams"
+            value={stalledCount}
+            subtext="Needs attention"
+            icon={AlertTriangle}
+            color="text-red-400"
+          />
+        ) : (
+          <StatCard
+            title="Non-Streaming"
+            value={nonStreamingCount}
+            subtext="Standard requests"
+            icon={Zap}
+            color="text-teal-400"
+          />
+        )}
+      </div>
+
+      <DataToolbar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search servers, models, or request IDs..."
+        sortConfig={sortConfig}
+        onSortChange={handleSort}
+        sortOptions={[
+          { key: 'total', label: 'Total Requests' },
+          { key: 'serverId', label: 'Server ID' },
+        ]}
+      />
+
+      {/* In-Flight by Server */}
+      <div className="space-y-6">
+        {inFlightLoading && inFlight.length === 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => (
+              <SkeletonStatCard key={i} />
+            ))}
+          </div>
+        ) : filteredServers.length > 0 ? (
+          filteredServers.map(server => (
+            <div
+              key={server.serverId}
+              className="bg-surface rounded-xl border border-surface-border overflow-hidden"
+            >
+              <div className="p-6 border-b border-surface-border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-3 h-3 rounded-full ${server.healthy ? 'bg-green-400' : 'bg-red-400'}`}
+                    />
+                    <h3 className="text-lg font-semibold text-text-base">{server.serverId}</h3>
+                    {server.provider && (
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-medium border ${PROVIDER_BADGE_COLORS[server.provider as ProviderBadgeColorKey]?.bg || 'bg-gray-500/20'} ${PROVIDER_BADGE_COLORS[server.provider as ProviderBadgeColorKey]?.text || 'text-gray-400'} ${PROVIDER_BADGE_COLORS[server.provider as ProviderBadgeColorKey]?.border || 'border-gray-500/50'}`}
+                      >
+                        {server.provider}
+                      </span>
+                    )}
+                    <span className="text-sm text-text-muted">{server.serverUrl}</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-2xl font-bold text-text-base">{server.total}</span>
+                    <span className="text-sm text-text-muted">in-flight</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Streaming Requests */}
+              {server.streamingRequests && server.streamingRequests.length > 0 && (
+                <div className="p-6 border-b border-surface-border bg-cyan-900/10">
+                  <h4 className="text-sm font-medium text-cyan-400 mb-4 flex items-center gap-2">
+                    <Radio className="w-4 h-4" />
+                    Streaming Requests
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {server.streamingRequests.map((req: StreamingRequestProgress) => {
+                      const duration = Date.now() - req.startTime;
+                      const chunksPerSec =
+                        req.chunkCount > 0 ? (req.chunkCount / (duration / 1000)).toFixed(1) : '0';
+                      return (
+                        <div
+                          key={req.id}
+                          className={`rounded-lg p-3 ${req.isStalled ? 'bg-red-900/30 border border-red-500/50' : 'bg-surface-raised'}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div
+                              className="text-sm text-text-base truncate font-mono"
+                              title={req.id}
+                            >
+                              {req.id.slice(0, 8)}...
+                            </div>
+                            {req.isStalled && (
+                              <span className="text-xs px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                Stalled
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-text-muted mt-1">{req.model}</div>
+                          <div className="flex items-center gap-4 mt-2">
+                            <div>
+                              <span className="text-lg font-bold text-cyan-400">
+                                {req.chunkCount}
+                              </span>
+                              <span className="text-xs text-gray-500 ml-1">chunks</span>
+                            </div>
+                            <div>
+                              <span className="text-lg font-bold text-teal-400">
+                                {chunksPerSec}
+                              </span>
+                              <span className="text-xs text-gray-500 ml-1">ch/s</span>
+                            </div>
+                            <div>
+                              <span className="text-lg font-bold text-purple-400">
+                                {formatDuration(duration)}
+                              </span>
+                              <span className="text-xs text-gray-500 ml-1">duration</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {server.byModel && Object.entries(server.byModel).length > 0 && (
+                <div className="p-6">
+                  <h4 className="text-sm font-medium text-text-muted mb-4">Requests by Model</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {(
+                      Object.entries(server.byModel) as [
+                        string,
+                        { regular: number; bypass: number },
+                      ][]
+                    ).map(([model, counts]) => {
+                      const hasBypass = counts.bypass > 0;
+                      return (
+                        <div
+                          key={model}
+                          className={`rounded-lg p-4 ${hasBypass ? 'bg-surface-raised border-2 border-purple-500/50' : 'bg-surface-raised'}`}
+                        >
+                          <div className="text-sm text-text-muted truncate" title={model}>
+                            {model}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="text-xl font-bold text-text-base">
+                              {counts.regular + counts.bypass}
+                            </div>
+                            {hasBypass && (
+                              <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">
+                                {counts.bypass} recovery
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {hasBypass
+                              ? `${counts.regular} regular / ${counts.bypass} recovery test`
+                              : 'requests'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        ) : (
+          <div className="flex flex-col items-center justify-center h-64 bg-surface rounded-xl border border-surface-border text-gray-500">
+            <Zap className="w-12 h-12 mb-4 opacity-50" />
+            <p>No in-flight requests found</p>
+            {searchQuery && <p className="text-sm mt-2">Try adjusting your search query</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

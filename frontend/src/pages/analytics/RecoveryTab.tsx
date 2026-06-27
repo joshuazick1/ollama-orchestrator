@@ -1,0 +1,141 @@
+import { Server, AlertTriangle, Minus, TrendingUp, Activity } from 'lucide-react';
+import { formatTimeAgo } from '../../utils/formatting';
+
+interface RecoveryTabProps {
+  recoverySummary?: {
+    totalServers?: number;
+    serversWithFailures?: number;
+    totalFailures?: number;
+    recentFailures?: number;
+  };
+  recoveryStats?: Array<{
+    serverId: string;
+    failureCount: number;
+    lastFailure: number;
+    recoveryAttempts: number;
+    successfulRecoveries: number;
+  }>;
+}
+
+export const RecoveryTab = ({ recoverySummary, recoveryStats }: RecoveryTabProps) => {
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-surface rounded-xl border border-surface-border p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-text-muted text-sm">Total Servers</p>
+              <p className="text-3xl font-bold text-text-base">
+                {recoverySummary?.totalServers || 0}
+              </p>
+            </div>
+            <Server className="w-10 h-10 text-blue-500/50" />
+          </div>
+        </div>
+        <div className="bg-surface rounded-xl border border-red-500/30 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-text-muted text-sm">Servers with Failures</p>
+              <p className="text-3xl font-bold text-red-400">
+                {recoverySummary?.serversWithFailures || 0}
+              </p>
+            </div>
+            <AlertTriangle className="w-10 h-10 text-red-500/50" />
+          </div>
+        </div>
+        <div className="bg-surface rounded-xl border border-surface-border p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-text-muted text-sm">Total Failures</p>
+              <p className="text-3xl font-bold text-text-base">
+                {recoverySummary?.totalFailures || 0}
+              </p>
+            </div>
+            <Minus className="w-10 h-10 text-text-subtle/50" />
+          </div>
+        </div>
+        <div className="bg-surface rounded-xl border border-yellow-500/30 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-text-muted text-sm">Recent Failures</p>
+              <p className="text-3xl font-bold text-yellow-400">
+                {recoverySummary?.recentFailures || 0}
+              </p>
+            </div>
+            <TrendingUp className="w-10 h-10 text-yellow-500/50" />
+          </div>
+        </div>
+      </div>
+
+      {/* Server Recovery Stats Table */}
+      <div className="bg-surface rounded-xl border border-surface-border overflow-hidden">
+        <div className="p-6 border-b border-surface-border">
+          <h3 className="text-lg font-semibold text-text-base">Server Recovery Statistics</h3>
+          <p className="text-sm text-text-muted mt-1">Failure and recovery metrics per server</p>
+        </div>
+        {recoveryStats && recoveryStats.length > 0 ? (
+          <table className="w-full">
+            <thead className="bg-surface-raised">
+              <tr>
+                <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
+                  Server
+                </th>
+                <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
+                  Failures
+                </th>
+                <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
+                  Last Failure
+                </th>
+                <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
+                  Recovery Attempts
+                </th>
+                <th className="text-left text-text-muted text-xs font-medium uppercase tracking-wider px-6 py-3">
+                  Successful Recoveries
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-700">
+              {recoveryStats.map(server => (
+                <tr key={server.serverId} className="hover:bg-gray-700">
+                  <td className="px-6 py-4 text-sm text-text-base font-mono">{server.serverId}</td>
+                  <td className="px-6 py-4 text-sm">
+                    <span
+                      className={`px-2 py-1 rounded text-xs font-medium ${
+                        server.failureCount > 0
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-green-500/20 text-green-400'
+                      }`}
+                    >
+                      {server.failureCount}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-text-muted">
+                    {server.lastFailure > 0 ? formatTimeAgo(server.lastFailure) : 'Never'}
+                  </td>
+                  <td className="px-6 py-4 text-sm text-text-base">{server.recoveryAttempts}</td>
+                  <td className="px-6 py-4 text-sm">
+                    <span
+                      className={`${
+                        server.successfulRecoveries > 0 ? 'text-green-400' : 'text-text-muted'
+                      }`}
+                    >
+                      {server.successfulRecoveries}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="p-12 text-center text-text-subtle">
+            <Activity className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <p>No recovery data available</p>
+            <p className="text-sm mt-1">
+              Recovery statistics will appear here when servers experience failures
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

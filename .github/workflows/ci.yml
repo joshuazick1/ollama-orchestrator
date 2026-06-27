@@ -1,0 +1,305 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Quality checks (lint, format, typecheck) — run in parallel
+  # ──────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run backend linter (src + tests)
+        run: npm run lint
+
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Check Prettier formatting
+        run: npm run format:check
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Run typecheck (backend + frontend)
+        run: npm run typecheck:all
+
+  # ──────────────────────────────────────────────
+  # Frontend checks (lint + tests) — parallel with backend
+  # ──────────────────────────────────────────────
+  frontend:
+    name: Frontend Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Run frontend linter
+        run: npm run lint
+        working-directory: frontend
+      - name: Run frontend tests
+        run: npx vitest run
+        working-directory: frontend
+
+  # ──────────────────────────────────────────────
+  # Tier 1: Unit tests (<2 min) — runs on every push
+  # Smoke tests for fast feedback
+  # ──────────────────────────────────────────────
+  test-tier1:
+    name: Tier 1 - Unit Tests
+    needs: [lint, format, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Create test results directory
+        run: mkdir -p test-results/tier1
+      - name: Run unit tests
+        run: npm run test:unit -- --reporter json --outputFile=test-results/tier1/results.json
+      - name: Upload Tier 1 test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier1
+          path: test-results/tier1/
+          retention-days: 14
+      - name: Run unit tests with coverage
+        run: npm run test:unit -- --coverage
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  flaky-test:
+    name: Flaky Test Isolation
+    needs: [lint, format, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run flaky test in isolation
+        run: npm test -- tests/unit/orchestrator.test.ts -t "should try all servers in phase 1"
+
+  # ──────────────────────────────────────────────
+  # Build — run after quality checks pass
+  # ──────────────────────────────────────────────
+  build:
+    name: Build
+    needs: [lint, format, typecheck]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Build (backend + frontend)
+        run: npm run build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: dist/
+          retention-days: 7
+
+  # ──────────────────────────────────────────────
+  # Security audit — npm audit fails the build, Snyk stays soft
+  # ──────────────────────────────────────────────
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run npm security audit (production dependencies)
+        run: npm audit --audit-level=moderate --omit=dev
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+  # ──────────────────────────────────────────────
+  # Docker build — PR-only check
+  # ──────────────────────────────────────────────
+  docker:
+    name: Docker Build
+    if: github.event_name == 'pull_request'
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: ollama-orchestrator:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Test Docker image
+        run: |
+          docker run -d --name test-container -p 5100:5100 ollama-orchestrator:test
+          sleep 10
+          curl -f http://localhost:5100/health || exit 1
+          docker stop test-container
+          docker rm test-container
+
+  # ──────────────────────────────────────────────
+  # Tier 2: Integration + E2E smoke tests (<10 min) — PR-only
+  # ──────────────────────────────────────────────
+  test-tier2:
+    name: Tier 2 - Integration + E2E
+    if: github.event_name == 'pull_request'
+    needs: [test-tier1, build]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Create test results directory
+        run: mkdir -p test-results/tier2
+      - name: Run integration tests
+        run: npm run test:integration -- --reporter json --outputFile=test-results/tier2/integration-results.json
+      - name: Upload Tier 2 integration results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier2-integration
+          path: test-results/tier2/
+          retention-days: 14
+      - name: Build for E2E tests
+        run: npm run build
+      - name: Create E2E results directory
+        run: mkdir -p test-results/tier2/e2e
+      - name: Run E2E tests
+        run: npm run test:e2e
+      - name: Upload Tier 2 E2E results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier2-e2e
+          path: test-results/tier2/e2e/
+          retention-days: 14
+
+  # ──────────────────────────────────────────────
+  # Tier 3: Chaos + Performance tests (<45 min) — release/nightly
+  # ──────────────────────────────────────────────
+  test-tier3:
+    name: Tier 3 - Chaos + Performance
+    if: github.event_name == 'release' || (github.event_name == 'schedule' && github.schedule == '0 2 * * *')
+    needs: [test-tier1, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Create test results directory
+        run: mkdir -p test-results/tier3
+      - name: Run chaos tests
+        run: npm run test:chaos -- --reporter json --outputFile=test-results/tier3/chaos-results.json
+      - name: Upload Tier 3 chaos results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier3-chaos
+          path: test-results/tier3/
+          retention-days: 30
+      - name: Build for performance tests
+        run: npm run build
+      - name: Run performance tests
+        run: npm run test:performance
+      - name: Run load tests
+        run: npm run test:load
+      - name: Upload Tier 3 performance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-tier3-performance
+          path: test-results/tier3/
+          retention-days: 30
+
+  # ──────────────────────────────────────────────
+  # Validate commits — PR-only
+  # ──────────────────────────────────────────────
+  validate-commits:
+    name: Validate Commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Validate commit messages
+        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose

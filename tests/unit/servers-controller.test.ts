@@ -1,0 +1,1186 @@
+/**
+ * serversController.test.ts
+ * Tests for server management controllers
+ */
+
+import type { Request, Response } from 'express';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../../src/orchestrator/orchestrator-instance.js');
+
+import {
+  addServer,
+  removeServer,
+  updateServer,
+  getServers,
+  getModelMap,
+  getModels,
+  getHealth,
+  healthCheck,
+  getStats,
+  getCircuitBreakers,
+  getBans,
+  removeBan,
+  removeBansByServer,
+  removeBansByModel,
+  clearAllBans,
+  manualRecoveryTest,
+  getCircuitBreakerDetails,
+  forceOpenBreaker,
+  forceCloseBreaker,
+  forceHalfOpenBreaker,
+} from '../../src/controllers/servers-controller.js';
+import { getOrchestratorInstance } from '../../src/orchestrator/orchestrator-instance.js';
+
+describe('Servers Controller', () => {
+  let mockOrchestrator: any;
+  let mockReq: Partial<Request>;
+  let mockRes: Partial<Response>;
+
+  beforeEach(() => {
+    mockOrchestrator = {
+      addServer: vi.fn(),
+      removeServer: vi.fn(),
+      updateServer: vi.fn(),
+      getServers: vi.fn().mockReturnValue([]),
+      getServer: vi.fn(),
+      getModelMap: vi.fn(),
+      getAllModels: vi.fn(),
+      getGlobalMetrics: vi.fn(),
+      updateAllStatus: vi.fn(),
+      getStats: vi.fn(),
+      getCircuitBreakerStats: vi.fn(),
+      getLBScoreForServerModel: vi.fn().mockReturnValue(undefined),
+      getBanDetails: vi.fn(),
+      unban: vi.fn(),
+      unbanServer: vi.fn(),
+      unbanModel: vi.fn(),
+      clearAllBans: vi.fn(),
+      manualTriggerRecoveryTest: vi.fn(),
+      getProbeOrchestrator: vi.fn().mockReturnValue({
+        getAllStates: vi.fn().mockReturnValue(new Map()),
+        setStateForTesting: vi.fn(),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'HEALTHY',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
+        }),
+        resetTuple: vi.fn(),
+      }),
+      getEndpointRegistry: vi.fn().mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      }),
+      getModelCircuitBreakerPublic: vi.fn(),
+      getRecoveryDriver: vi.fn().mockReturnValue({
+        triggerRecoveryTest: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+        tick: vi.fn(),
+      }),
+      persistServers: vi.fn(),
+    };
+
+    (getOrchestratorInstance as any).mockReturnValue(mockOrchestrator);
+
+    mockReq = {
+      query: {},
+    };
+    mockRes = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn(),
+    };
+  });
+
+  describe('addServer', () => {
+    it('should add a server successfully', () => {
+      mockReq.body = { id: 'server-1', url: 'http://localhost:11434' };
+      mockOrchestrator.getServers.mockReturnValue([]);
+
+      addServer(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.addServer).toHaveBeenCalledWith({
+        id: 'server-1',
+        url: 'http://localhost:11434',
+        type: 'auto',
+        maxConcurrency: 4,
+        apiKey: undefined,
+      });
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        id: 'server-1',
+        url: 'http://localhost:11434',
+        maxConcurrency: 4,
+      });
+    });
+
+    it('should add a server with maxConcurrency', () => {
+      mockReq.body = { id: 'server-1', url: 'http://localhost:11434', maxConcurrency: 8 };
+      mockOrchestrator.getServers.mockReturnValue([]);
+
+      addServer(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.addServer).toHaveBeenCalledWith({
+        id: 'server-1',
+        url: 'http://localhost:11434',
+        type: 'auto',
+        maxConcurrency: 8,
+        apiKey: undefined,
+      });
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        id: 'server-1',
+        url: 'http://localhost:11434',
+        maxConcurrency: 8,
+      });
+    });
+
+    it('should return 400 if id is missing', () => {
+      mockReq.body = { url: 'http://localhost:11434' };
+
+      addServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('id') })
+      );
+    });
+
+    it('should return 400 if url is missing', () => {
+      mockReq.body = { id: 'server-1' };
+
+      addServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('url') })
+      );
+    });
+
+    it('should return 400 if id is invalid format', () => {
+      mockReq.body = { id: 'invalid id!', url: 'http://localhost:11434' };
+
+      addServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('id') })
+      );
+    });
+
+    it('should return 400 if url is invalid', () => {
+      mockReq.body = { id: 'server-1', url: 'not-a-url' };
+
+      addServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining('url') })
+      );
+    });
+  });
+
+  describe('removeServer', () => {
+    it('should remove a server successfully', () => {
+      mockReq.params = { id: 'server-1' };
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+
+      removeServer(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.removeServer).toHaveBeenCalledWith('server-1');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({ success: true, id: 'server-1' });
+    });
+
+    it('should return 404 if server not found', () => {
+      mockReq.params = { id: 'server-1' };
+      mockOrchestrator.getServers.mockReturnValue([]);
+
+      removeServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: "Server 'server-1' not found" });
+    });
+  });
+
+  describe('updateServer', () => {
+    it('should update server successfully', () => {
+      mockReq.params = { id: 'server-1' };
+      mockReq.body = { maxConcurrency: 8 };
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1', maxConcurrency: 4 }]);
+      mockOrchestrator.updateServer.mockReturnValue(true);
+
+      updateServer(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.updateServer).toHaveBeenCalledWith('server-1', { maxConcurrency: 8 });
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        id: 'server-1',
+        maxConcurrency: 8,
+      });
+    });
+
+    it('should return 404 if server not found', () => {
+      mockReq.params = { id: 'server-1' };
+      mockReq.body = { maxConcurrency: 8 };
+      mockOrchestrator.getServers.mockReturnValue([]);
+
+      updateServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: "Server 'server-1' not found" });
+    });
+
+    it('should return 500 if update fails', () => {
+      mockReq.params = { id: 'server-1' };
+      mockReq.body = { maxConcurrency: 8 };
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1', maxConcurrency: 4 }]);
+      mockOrchestrator.updateServer.mockReturnValue(false);
+
+      updateServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Failed to update server' });
+    });
+  });
+
+  describe('getServers', () => {
+    it('should return servers list', () => {
+      const mockServers = [
+        {
+          id: 'server-1',
+          url: 'http://localhost:11434',
+          healthy: true,
+          lastResponseTime: 100,
+          models: ['llama2'],
+          maxConcurrency: 4,
+        },
+      ];
+      mockOrchestrator.getServers.mockReturnValue(mockServers);
+
+      getServers(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.count).toBe(1);
+      expect(jsonCall.servers).toHaveLength(1);
+      expect(jsonCall.servers[0].id).toBe('server-1');
+      expect(jsonCall.servers[0].healthy).toBe(true);
+    });
+  });
+
+  describe('getModelMap', () => {
+    it('should return model map', () => {
+      const mockServers = [
+        { id: 'server-1', models: new Set(['llama2', 'mistral']) },
+        { id: 'server-2', models: new Set(['llama2']) },
+      ];
+      mockOrchestrator.getServers.mockReturnValue(mockServers);
+      mockOrchestrator.getModelMap.mockReturnValue({
+        llama2: ['server-1', 'server-2'],
+        mistral: ['server-1'],
+      });
+
+      getModelMap(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        modelToServers: {
+          llama2: ['server-1', 'server-2'],
+          mistral: ['server-1'],
+        },
+        serverToModels: {
+          'server-1': ['llama2', 'mistral'],
+          'server-2': ['llama2'],
+        },
+        totalModels: 2,
+        totalServers: 2,
+      });
+    });
+  });
+
+  describe('getModels', () => {
+    it('should return all models', () => {
+      mockOrchestrator.getAllModels.mockReturnValue(['mistral', 'llama2', 'codellama']);
+
+      getModels(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        count: 3,
+        models: ['codellama', 'llama2', 'mistral'], // sorted
+      });
+    });
+  });
+
+  describe('getHealth', () => {
+    it('should return health status', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1', healthy: true }]);
+      mockOrchestrator.getGlobalMetrics.mockReturnValue({ requestsPerSecond: 10.5 });
+
+      // Mock process.uptime
+      const originalUptime = process.uptime;
+      process.uptime = vi.fn().mockReturnValue(3600);
+
+      getHealth(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.status).toBe('healthy');
+      expect(jsonCall.servers).toBe(1);
+      expect(jsonCall.healthy).toBe(1);
+      expect(jsonCall.total).toBe(1);
+
+      // Restore original uptime
+      process.uptime = originalUptime;
+    });
+  });
+
+  describe('healthCheck', () => {
+    it('should trigger health check successfully', async () => {
+      const mockServers = [
+        { id: 'server-1', healthy: true, lastResponseTime: 100, models: ['llama2'] },
+      ];
+      mockOrchestrator.updateAllStatus.mockResolvedValue(undefined);
+      mockOrchestrator.getServers.mockReturnValue(mockServers);
+
+      await healthCheck(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.updateAllStatus).toHaveBeenCalledTimes(1);
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        servers: [
+          {
+            id: 'server-1',
+            healthy: true,
+            lastResponseTime: 100,
+            models: 1,
+          },
+        ],
+      });
+    });
+
+    it('should handle health check errors', async () => {
+      const error = new Error('Health check failed');
+      mockOrchestrator.updateAllStatus.mockRejectedValue(error);
+
+      await healthCheck(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Health check failed',
+        details: 'Health check failed',
+      });
+    });
+  });
+
+  describe('getStats', () => {
+    it('should return orchestrator stats', () => {
+      const mockStats = { totalServers: 2, healthyServers: 2, inFlightRequests: 0 };
+      mockOrchestrator.getStats.mockReturnValue(mockStats);
+
+      getStats(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        stats: mockStats,
+      });
+    });
+  });
+
+  describe('getCircuitBreakers', () => {
+    it('should return circuit breaker stats', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockStates = new Map([
+        [
+          'server-1:model-a:ollama_chat',
+          {
+            state: 'HEALTHY',
+            consecutiveFailures: 0,
+            consecutiveSuccesses: 10,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: null,
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
+
+      getCircuitBreakers(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.circuitBreakers).toHaveLength(1);
+      expect(jsonCall.circuitBreakers[0].serverId).toBe('server-1');
+      expect(jsonCall.circuitBreakers[0].tupleKey).toBe('server-1:model-a:ollama_chat');
+      expect(jsonCall.circuitBreakers[0].state).toBe('HEALTHY');
+    });
+
+    it('should handle empty circuit breaker stats', () => {
+      mockOrchestrator.getServers.mockReturnValue([]);
+      mockOrchestrator.getCircuitBreakerStats.mockReturnValue({});
+
+      getCircuitBreakers(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        circuitBreakers: [],
+        byState: { OPEN: 0, CLOSED: 0, HALF_OPEN: 0, UNKNOWN: 0 },
+      });
+    });
+
+    it('should return 500 when getProbeOrchestrator throws', () => {
+      mockOrchestrator.getProbeOrchestrator.mockImplementation(() => {
+        throw new Error('Probe error');
+      });
+
+      getCircuitBreakers(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Failed to get circuit breaker status',
+        details: 'Probe error',
+      });
+    });
+
+    it('should handle circuit breaker with probe states', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockStates = new Map([
+        [
+          'server-1:model-a:ollama_chat',
+          {
+            state: 'UNHEALTHY',
+            consecutiveFailures: 5,
+            consecutiveSuccesses: 2,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: 'timeout',
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
+
+      getCircuitBreakers(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.circuitBreakers[0].totalRequestCount).toBe(0);
+      expect(jsonCall.circuitBreakers[0].blockedRequestCount).toBe(0);
+    });
+  });
+
+  describe('getBans', () => {
+    it('should return all bans', () => {
+      const mockBans = [
+        { serverId: 'server-1', model: 'model-a', reason: 'unhealthy' },
+        { serverId: 'server-2', model: 'model-b', reason: 'timeout' },
+      ];
+      mockOrchestrator.getBanDetails.mockReturnValue(mockBans);
+
+      getBans(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        count: 2,
+        bans: mockBans,
+      });
+    });
+
+    it('should handle empty bans list', () => {
+      mockOrchestrator.getBanDetails.mockReturnValue([]);
+
+      getBans(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        count: 0,
+        bans: [],
+      });
+    });
+  });
+
+  describe('removeBan', () => {
+    it('should remove a specific ban successfully', () => {
+      mockOrchestrator.unban.mockReturnValue(true);
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      removeBan(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.unban).toHaveBeenCalledWith('server-1', 'model-a');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Ban removed for server-1:model-a',
+      });
+    });
+
+    it('should return 404 when ban not found', () => {
+      mockOrchestrator.unban.mockReturnValue(false);
+      mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
+
+      removeBan(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'No ban found for server-1:unknown-model',
+      });
+    });
+
+    it('should return 400 when serverId is missing', () => {
+      mockReq.params = { model: 'model-a' };
+
+      removeBan(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'serverId and model are required',
+      });
+    });
+
+    it('should return 400 when model is missing', () => {
+      mockReq.params = { serverId: 'server-1' };
+
+      removeBan(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'serverId and model are required',
+      });
+    });
+
+    it('should decode URL-encoded model names', () => {
+      mockOrchestrator.unban.mockReturnValue(true);
+      mockReq.params = { serverId: 'server-1', model: 'model%2Fname%2Ftest' };
+
+      removeBan(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.unban).toHaveBeenCalledWith('server-1', 'model/name/test');
+    });
+  });
+
+  describe('removeBansByServer', () => {
+    it('should remove all bans for a server', () => {
+      mockOrchestrator.unbanServer.mockReturnValue(3);
+      mockReq.params = { serverId: 'server-1' };
+
+      removeBansByServer(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.unbanServer).toHaveBeenCalledWith('server-1');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        removed: 3,
+        message: 'Removed 3 bans for server server-1',
+      });
+    });
+
+    it('should handle server with no bans', () => {
+      mockOrchestrator.unbanServer.mockReturnValue(0);
+      mockReq.params = { serverId: 'server-1' };
+
+      removeBansByServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        removed: 0,
+        message: 'No bans found for server',
+      });
+    });
+
+    it('should return 400 when serverId is missing', () => {
+      mockReq.params = {};
+
+      removeBansByServer(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'serverId is required',
+      });
+    });
+  });
+
+  describe('removeBansByModel', () => {
+    it('should remove all bans for a model', () => {
+      mockOrchestrator.unbanModel.mockReturnValue(2);
+      mockReq.params = { model: 'model-a' };
+
+      removeBansByModel(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.unbanModel).toHaveBeenCalledWith('model-a');
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        removed: 2,
+        message: 'Removed 2 bans for model model-a',
+      });
+    });
+
+    it('should handle model with no bans', () => {
+      mockOrchestrator.unbanModel.mockReturnValue(0);
+      mockReq.params = { model: 'unknown-model' };
+
+      removeBansByModel(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        removed: 0,
+        message: 'No bans found for model',
+      });
+    });
+
+    it('should return 400 when model is missing', () => {
+      mockReq.params = {};
+
+      removeBansByModel(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'model is required',
+      });
+    });
+
+    it('should decode URL-encoded model names', () => {
+      mockOrchestrator.unbanModel.mockReturnValue(1);
+      mockReq.params = { model: 'model%2Fname' };
+
+      removeBansByModel(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.unbanModel).toHaveBeenCalledWith('model/name');
+    });
+  });
+
+  describe('clearAllBans', () => {
+    it('should clear all bans', () => {
+      mockOrchestrator.clearAllBans.mockReturnValue(5);
+
+      clearAllBans(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        removed: 5,
+        message: 'Cleared 5 bans',
+      });
+    });
+
+    it('should handle no bans to clear', () => {
+      mockOrchestrator.clearAllBans.mockReturnValue(0);
+
+      clearAllBans(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        removed: 0,
+        message: 'No bans to clear',
+      });
+    });
+  });
+
+  describe('manualRecoveryTest', () => {
+    it('should trigger recovery test successfully', async () => {
+      const mockEndpoints = [
+        { serverId: 'server-1', model: 'model-a', endpoint: 'http://localhost:11434' },
+      ];
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(
+          new Map([
+            [
+              'server-1:model-a:ollama_chat',
+              {
+                state: 'UNHEALTHY',
+                consecutiveFailures: 5,
+                consecutiveSuccesses: 0,
+                errorWindow: [],
+                nextProbeAt: null,
+                lastTransition: null,
+                recoveryAttempts: 0,
+                lastErrorKind: 'timeout',
+              },
+            ],
+          ])
+        ),
+        getState: vi.fn().mockReturnValue('UNHEALTHY'),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'RECOVERING',
+          consecutiveFailures: 5,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: 'timeout',
+        }),
+        setStateForTesting: vi.fn(),
+      };
+      const mockRecoveryDriver = {
+        tick: vi.fn(),
+      };
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockReturnValue(mockEndpoints);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getRecoveryDriver.mockReturnValue(mockRecoveryDriver);
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      await manualRecoveryTest(mockReq as Request, mockRes as Response);
+
+      expect(mockRecoveryDriver.tick).toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Recovery test initiated for server-1:model-a',
+        breakerState: 'RECOVERING',
+      });
+    });
+
+    it('should handle when no active endpoints found', async () => {
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockReturnValue([]);
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      await manualRecoveryTest(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        success: false,
+        error: 'No active endpoints found for server-1:model-a',
+      });
+    });
+
+    it('should return 400 when serverId is missing', async () => {
+      mockReq.params = { model: 'model-a' };
+
+      await manualRecoveryTest(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'serverId and model are required',
+      });
+    });
+
+    it('should return 400 when model is missing', async () => {
+      mockReq.params = { serverId: 'server-1' };
+
+      await manualRecoveryTest(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'serverId and model are required',
+      });
+    });
+
+    it('should decode URL-encoded model names', async () => {
+      const mockEndpoints = [
+        { serverId: 'server-1', model: 'model/name', endpoint: 'http://localhost:11434' },
+      ];
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(
+          new Map([
+            [
+              'server-1:model/name:ollama_chat',
+              {
+                state: 'UNHEALTHY',
+                consecutiveFailures: 5,
+                consecutiveSuccesses: 0,
+                errorWindow: [],
+                nextProbeAt: null,
+                lastTransition: null,
+                recoveryAttempts: 0,
+                lastErrorKind: 'timeout',
+              },
+            ],
+          ])
+        ),
+        getState: vi.fn().mockReturnValue('UNHEALTHY'),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'RECOVERING',
+          consecutiveFailures: 5,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: 'timeout',
+        }),
+        setStateForTesting: vi.fn(),
+      };
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockReturnValue(mockEndpoints);
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockReq.params = { serverId: 'server-1', model: 'model%2Fname' };
+
+      await manualRecoveryTest(mockReq as Request, mockRes as Response);
+
+      expect(mockOrchestrator.getEndpointRegistry().getActiveEndpoints).toHaveBeenCalledWith(
+        'server-1',
+        'model/name'
+      );
+    });
+
+    it('should return 500 on error', async () => {
+      mockOrchestrator.getEndpointRegistry().getActiveEndpoints.mockImplementation(() => {
+        throw new Error('Test error');
+      });
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      await manualRecoveryTest(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Manual recovery test failed',
+        details: 'Test error',
+      });
+    });
+  });
+
+  describe('getCircuitBreakerDetails', () => {
+    it('should return circuit breaker details', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockStates = new Map([
+        [
+          'server-1:model-a:ollama_chat',
+          {
+            state: 'CLOSED',
+            consecutiveFailures: 0,
+            consecutiveSuccesses: 10,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: null,
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'CLOSED',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 10,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
+        }),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      getCircuitBreakerDetails(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.serverId).toBe('server-1');
+      expect(jsonCall.model).toBe('model-a');
+      expect(jsonCall.circuitBreaker.state).toBe('CLOSED');
+    });
+
+    it('should return 404 when circuit breaker not found', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getModelCircuitBreakerPublic.mockReturnValue(undefined);
+      mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
+
+      getCircuitBreakerDetails(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'Circuit breaker not found for server-1:unknown-model',
+      });
+    });
+
+    it('should return 400 when serverId is missing', () => {
+      mockReq.params = { model: 'model-a' };
+
+      getCircuitBreakerDetails(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'serverId and model are required',
+      });
+    });
+
+    it('should return 400 when model is missing', () => {
+      mockReq.params = { serverId: 'server-1' };
+
+      getCircuitBreakerDetails(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+      expect(mockRes.json).toHaveBeenCalledWith({
+        error: 'serverId and model are required',
+      });
+    });
+
+    it('should decode URL-encoded model names', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockStates = new Map([
+        [
+          'server-1:model/name:ollama_chat',
+          {
+            state: 'CLOSED',
+            consecutiveFailures: 0,
+            consecutiveSuccesses: 10,
+            errorWindow: [],
+            nextProbeAt: null,
+            lastTransition: null,
+            recoveryAttempts: 0,
+            lastErrorKind: null,
+          },
+        ],
+      ]);
+      const mockProbeOrch = {
+        getAllStates: vi.fn().mockReturnValue(mockStates),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'CLOSED',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 10,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
+        }),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
+      mockReq.params = { serverId: 'server-1', model: 'model%2Fname' };
+
+      getCircuitBreakerDetails(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+    });
+  });
+
+  describe('forceOpenBreaker', () => {
+    it('should force open a circuit breaker', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockProbeOrch = {
+        setStateForTesting: vi.fn(),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'UNHEALTHY',
+          consecutiveFailures: 5,
+          consecutiveSuccesses: 0,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: 'timeout',
+        }),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      forceOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.circuitBreaker.state).toBe('UNHEALTHY');
+    });
+
+    it('should return 404 when circuit breaker not found', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      });
+      mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
+
+      forceOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+    });
+
+    it('should return 400 when serverId is missing', () => {
+      mockReq.params = { model: 'model-a' };
+
+      forceOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should return 400 when model is missing', () => {
+      mockReq.params = { serverId: 'server-1' };
+
+      forceOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('forceCloseBreaker', () => {
+    it('should force close a circuit breaker', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockProbeOrch = {
+        setStateForTesting: vi.fn(),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'HEALTHY',
+          consecutiveFailures: 0,
+          consecutiveSuccesses: 10,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 0,
+          lastErrorKind: null,
+        }),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      forceCloseBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.circuitBreaker.state).toBe('HEALTHY');
+    });
+
+    it('should return 404 when circuit breaker not found', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      });
+      mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
+
+      forceCloseBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+    });
+
+    it('should return 400 when serverId is missing', () => {
+      mockReq.params = { model: 'model-a' };
+
+      forceCloseBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should return 400 when model is missing', () => {
+      mockReq.params = { serverId: 'server-1' };
+
+      forceCloseBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe('forceHalfOpenBreaker', () => {
+    it('should force half-open a circuit breaker', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      const mockEndpointRegistry = {
+        getActiveEndpoints: vi.fn().mockReturnValue(['ollama_chat']),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      };
+      const mockProbeOrch = {
+        setStateForTesting: vi.fn(),
+        getTupleState: vi.fn().mockReturnValue({
+          state: 'RECOVERING',
+          consecutiveFailures: 3,
+          consecutiveSuccesses: 2,
+          errorWindow: [],
+          nextProbeAt: null,
+          lastTransition: null,
+          recoveryAttempts: 1,
+          lastErrorKind: 'error',
+        }),
+      };
+      mockOrchestrator.getProbeOrchestrator.mockReturnValue(mockProbeOrch);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue(mockEndpointRegistry);
+      mockReq.params = { serverId: 'server-1', model: 'model-a' };
+
+      forceHalfOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockProbeOrch.setStateForTesting).toHaveBeenCalled();
+      expect(mockRes.status).toHaveBeenCalledWith(200);
+      const jsonCall = (mockRes.json as any).mock.calls[0][0];
+      expect(jsonCall.success).toBe(true);
+      expect(jsonCall.circuitBreaker.state).toBe('RECOVERING');
+    });
+
+    it('should return 404 when circuit breaker not found', () => {
+      mockOrchestrator.getServers.mockReturnValue([{ id: 'server-1' }]);
+      mockOrchestrator.getEndpointRegistry.mockReturnValue({
+        getActiveEndpoints: vi.fn().mockReturnValue([]),
+        isEmbeddingModel: vi.fn().mockReturnValue(false),
+      });
+      mockReq.params = { serverId: 'server-1', model: 'unknown-model' };
+
+      forceHalfOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(404);
+    });
+
+    it('should return 400 when serverId is missing', () => {
+      mockReq.params = { model: 'model-a' };
+
+      forceHalfOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+
+    it('should return 400 when model is missing', () => {
+      mockReq.params = { serverId: 'server-1' };
+
+      forceHalfOpenBreaker(mockReq as Request, mockRes as Response);
+
+      expect(mockRes.status).toHaveBeenCalledWith(400);
+    });
+  });
+});

@@ -1,0 +1,75 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+dist/
+frontend/dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime data
+data/
+!data/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+test-results/
+tmp/
+playwright-report/
+reports/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Misc
+*.bak
+*.tmp
+
+# Server runtime data
+orchestrator-servers
+orchestrator-servers-backup*.json
+*.save
+*.save.*
+
+# Test and dev scripts
+test.ts
+test-*.mjs
+test-*.cjs
+load-servers.mjs
+load-servers-fixed.mjs
+verify-setup.sh
+load-test.sh
+
+# Design documents (not for commit)
+docs/DESIGN-*.md
+
+# Sisyphus orchestration state (boulder, evidence, drafts, plans)
+.sisyphus/
+.sisyphus/drafts/
+!.sisyphus/plans/
+.sisyphus/evidence/
+.sisyphus/notepads/
+
+# Plan files containing PII (real server URLs / credentials)
+# Use placeholder examples in these files instead
+.sisyphus/plans/minimax-server-config.md
+.sisyphus/plans/server-model-management.md
+
+# Playwright browser state
+.playwright-mcp/

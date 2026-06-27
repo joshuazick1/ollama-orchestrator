@@ -1,0 +1,1512 @@
+/**
+ * metrics-aggregator.ts
+ * Historical metrics tracking with sliding windows
+ */
+
+import type { MetricsDecayConfig } from '../config/config.js';
+import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
+import type {
+  MetricsWindow,
+  ServerModelMetrics,
+  RequestContext,
+  TimeWindow,
+  LatencyPercentiles,
+  GlobalMetrics,
+  MetricsExport,
+  StreamingMetricsSummary,
+  CacheMetrics,
+  ThinkingMetrics,
+  ToolUseMetrics,
+  ImageMetrics,
+} from '../orchestrator/orchestrator.types.js';
+import { logger } from '../utils/logger.js';
+import { Statistics } from '../utils/statistics.js';
+import { TDigest } from '../utils/tdigest.js';
+
+import { MetricsPersistence, type MetricsData } from './metrics-persistence.js';
+
+const PROMPT_SIZE_BUCKETS: { key: string; min: number; max: number }[] = [
+  { key: '0-100', min: 0, max: 100 },
+  { key: '100-500', min: 100, max: 500 },
+  { key: '500-1000', min: 500, max: 1000 },
+  { key: '1000-5000', min: 1000, max: 5000 },
+  { key: '5000+', min: 5000, max: Infinity },
+];
+
+function getPromptSizeBucket(promptTokens: number): string | undefined {
+  for (const b of PROMPT_SIZE_BUCKETS) {
+    if (promptTokens >= b.min && promptTokens < b.max) {
+      return b.key;
+    }
+  }
+  return undefined;
+}
+
+export const DEFAULT_METRICS_DECAY_CONFIG: MetricsDecayConfig = {
+  enabled: true,
+  halfLifeMs: 5 * 60 * 1000, // 5 minutes
+  minDecayFactor: 0.1, // 10% minimum influence
+  staleThresholdMs: 2 * 60 * 1000, // 2 minutes
+};
+
+/**
+ * load_duration threshold (nanoseconds) above which a request is considered a cold start.
+ * 100 ms = 100_000_000 ns — any model load taking > 100 ms indicates a cold start.
+ */
+const COLD_START_THRESHOLD_NS = 100_000_000;
+
+/**
+ * Aggregates metrics across multiple time windows
+ */
+export class MetricsAggregator {
+  private metrics: Map<string, ServerModelMetrics> = new Map();
+  // Index for cross-model inference: parameterSize -> serverId -> metrics
+  private metricsByParameterSize: Map<string, Map<string, ServerModelMetrics>> = new Map();
+  private windowSizes: Record<TimeWindow, number> = {
+    '1m': 60 * 1000,
+    '5m': 5 * 60 * 1000,
+    '15m': 15 * 60 * 1000,
+    '1h': 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+  };
+  private maxRecentLatencies = 1000; // Keep last 1000 latencies for percentile calc
+  private maxRecentTTFTs = 500; // Keep last 500 TTFT measurements for percentile calc
+  private maxRecentStreamingDurations = 500; // Keep last 500 streaming durations
+  private persistence: MetricsPersistence;
+  private decayConfig: MetricsDecayConfig;
+  private pruneIntervalId?: NodeJS.Timeout;
+  // Anthropic cache metrics (global, not per-server-model)
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  private cacheSavings = 0;
+  // Anthropic thinking metrics (global, not per-server-model)
+  private thinkingAutoDisabledCount = 0;
+  private totalThinkingTokens = 0;
+  // Anthropic image metrics (global, not per-server-model)
+  private imageCount = 0;
+  private imageBytes = 0;
+  // Anthropic system prompt metrics (global, not per-server-model)
+  private totalSystemPromptTokens = 0;
+  // Anthropic tool use metrics (global, not per-server-model)
+  private toolUseCount = 0;
+  private toolResultCount = 0;
+  private toolNames = new Set<string>();
+  private parallelCompletionsCount = 0;
+
+  constructor(decayConfig: Partial<MetricsDecayConfig> = {}) {
+    this.persistence = new MetricsPersistence();
+    this.decayConfig = { ...DEFAULT_METRICS_DECAY_CONFIG, ...decayConfig };
+  }
+
+  /**
+   * Initialize the aggregator - load persisted data
+   */
+  async initialize(): Promise<void> {
+    await this.persistence.initialize();
+    const persistedData = await this.persistence.load();
+    if (persistedData) {
+      // Load persisted metrics into the map, ensuring all required windows exist
+      for (const [key, metrics] of Object.entries(persistedData.servers)) {
+        // Ensure all time windows exist in persisted metrics
+        for (const windowSize of Object.keys(this.windowSizes) as TimeWindow[]) {
+          if (!metrics.windows[windowSize]) {
+            metrics.windows[windowSize] = this.createEmptyWindow(metrics.lastUpdated);
+          }
+        }
+        this.metrics.set(key, metrics);
+      }
+      logger.info(
+        `MetricsAggregator: Loaded ${this.metrics.size} server:model metrics from persistence`
+      );
+      // Rebuild parameter size index after loading persisted data
+      this.rebuildParameterIndex();
+    } else {
+      logger.debug('MetricsAggregator: No persisted metrics found, starting fresh');
+    }
+  }
+
+  /**
+   * Record a request completion
+   */
+  recordRequest(context: RequestContext): void {
+    // Skip sliding window updates for probe requests - they should still be recorded to SQLite
+    // but should not affect analytics metrics
+    if (context.isProbe) {
+      // Still schedule persistence save to persist any non-probe metrics changes
+      this.persistence.scheduleSave(this.getMetricsData());
+      return;
+    }
+
+    const key = `${context.serverId}:${context.model}`;
+    const now = Date.now();
+
+    let metrics = this.metrics.get(key);
+    if (!metrics) {
+      metrics = this.createEmptyMetrics(context.serverId!, context.model);
+      this.metrics.set(key, metrics);
+    }
+
+    // Update windows
+    const duration = context.duration ?? 0;
+    const success = context.success;
+    const tokensGenerated = context.tokensGenerated ?? 0;
+    const tokensPrompt = context.tokensPrompt ?? 0;
+
+    // REC-26: Compute token throughput (tokens/sec) from Ollama duration fields
+    if (
+      context.tokensGenerated !== undefined &&
+      context.evalDuration !== undefined &&
+      context.evalDuration > 0
+    ) {
+      const tps = context.tokensGenerated / (context.evalDuration / 1e9);
+      context.tokensPerSecond = tps;
+      // Update running average with simple exponential moving average (alpha = 0.2)
+      if (metrics.avgTokensPerSecond === 0) {
+        metrics.avgTokensPerSecond = tps;
+      } else {
+        metrics.avgTokensPerSecond = metrics.avgTokensPerSecond * 0.8 + tps * 0.2;
+      }
+    }
+
+    // REC-27: Detect cold start via load_duration
+    if (context.loadDuration !== undefined && context.loadDuration > COLD_START_THRESHOLD_NS) {
+      context.isColdStart = true;
+      metrics.coldStartCount++;
+      logger.debug('Cold start detected', {
+        serverId: context.serverId,
+        model: context.model,
+        loadDurationMs: Math.round(context.loadDuration / 1e6),
+        coldStartCount: metrics.coldStartCount,
+      });
+    }
+
+    const loadDurationMs = context.loadDuration !== undefined ? context.loadDuration / 1e6 : 0;
+    if (loadDurationMs > 1000) {
+      metrics.coldStartEventCount = (metrics.coldStartEventCount ?? 0) + 1;
+      metrics.lastColdStartTime = now;
+      if (metrics.coldStartMagnitudeMs === undefined || metrics.coldStartMagnitudeMs === 0) {
+        metrics.coldStartMagnitudeMs = loadDurationMs;
+        metrics.avgColdStartMagnitudeMs = loadDurationMs;
+      } else {
+        metrics.avgColdStartMagnitudeMs =
+          (metrics.avgColdStartMagnitudeMs ?? loadDurationMs) * 0.8 + loadDurationMs * 0.2;
+        metrics.coldStartMagnitudeMs = loadDurationMs;
+      }
+    }
+
+    // REC-35: Compute network overhead = client latency - server total_duration
+    if (
+      context.duration !== undefined &&
+      context.totalDuration !== undefined &&
+      context.totalDuration > 0
+    ) {
+      const networkOverheadMs = context.duration - context.totalDuration / 1e6;
+      if (metrics.avgNetworkOverheadMs === undefined || metrics.avgNetworkOverheadMs === 0) {
+        metrics.avgNetworkOverheadMs = networkOverheadMs;
+      } else {
+        metrics.avgNetworkOverheadMs = metrics.avgNetworkOverheadMs * 0.8 + networkOverheadMs * 0.2;
+      }
+    }
+
+    // B.4: Aggregate queue/routing wait time into metrics (EMA, alpha=0.2)
+    if (context.queueWaitTime !== undefined && context.queueWaitTime >= 0) {
+      if (metrics.avgQueueWaitTimeMs === undefined || metrics.avgQueueWaitTimeMs === 0) {
+        metrics.avgQueueWaitTimeMs = context.queueWaitTime;
+      } else {
+        metrics.avgQueueWaitTimeMs = metrics.avgQueueWaitTimeMs * 0.8 + context.queueWaitTime * 0.2;
+      }
+    }
+
+    if (!success && context.errorType) {
+      const etKey = context.errorType;
+      if (!metrics.errorTypeHistogram) {
+        metrics.errorTypeHistogram = new Map([[etKey, 1]]);
+      } else {
+        metrics.errorTypeHistogram.set(etKey, (metrics.errorTypeHistogram.get(etKey) ?? 0) + 1);
+      }
+    }
+
+    if (context.promptEvalDuration !== undefined && context.promptEvalDuration > 0) {
+      const promptEvalMs = context.promptEvalDuration / 1e6;
+      const sampleCount = (metrics.promptEvalSampleCount ?? 0) + 1;
+      metrics.promptEvalSampleCount = sampleCount;
+      if (sampleCount <= 20) {
+        if (metrics.baselinePromptEvalMs === undefined || metrics.baselinePromptEvalMs === 0) {
+          metrics.baselinePromptEvalMs = promptEvalMs;
+        } else {
+          metrics.baselinePromptEvalMs =
+            (metrics.baselinePromptEvalMs * (sampleCount - 1) + promptEvalMs) / sampleCount;
+        }
+      }
+      if (metrics.avgPromptEvalDurationMs === undefined || metrics.avgPromptEvalDurationMs === 0) {
+        metrics.avgPromptEvalDurationMs = promptEvalMs;
+      } else {
+        metrics.avgPromptEvalDurationMs =
+          metrics.avgPromptEvalDurationMs * 0.8 + promptEvalMs * 0.2;
+      }
+      if (
+        metrics.baselinePromptEvalMs !== undefined &&
+        metrics.baselinePromptEvalMs > 0 &&
+        sampleCount >= 20
+      ) {
+        metrics.cacheHitRate = Math.max(
+          0,
+          Math.min(1, 1 - metrics.avgPromptEvalDurationMs / metrics.baselinePromptEvalMs)
+        );
+      }
+    }
+
+    // Update all time windows
+    const isRetry = context.isRetry ?? false;
+    (Object.keys(this.windowSizes) as TimeWindow[]).forEach(windowName => {
+      this.updateWindow(
+        metrics.windows[windowName],
+        duration,
+        success,
+        tokensGenerated,
+        tokensPrompt,
+        now,
+        this.windowSizes[windowName],
+        isRetry
+      );
+    });
+
+    // Update recent latencies for percentile calculation
+    metrics.recentLatencies.push(duration);
+    if (metrics.recentLatencies.length > this.maxRecentLatencies) {
+      metrics.recentLatencies.shift();
+    }
+
+    // Recalculate percentiles
+    metrics.percentiles = this.calculatePercentiles(metrics.recentLatencies);
+
+    // Track streaming metrics if applicable
+    if (context.streaming && metrics.streamingMetrics) {
+      if (context.ttft !== undefined && context.ttft !== null && context.ttft > 0) {
+        metrics.streamingMetrics.recentTTFTs.push(context.ttft);
+        if (metrics.streamingMetrics.recentTTFTs.length > this.maxRecentTTFTs) {
+          metrics.streamingMetrics.recentTTFTs.shift();
+        }
+        metrics.streamingMetrics.ttftPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentTTFTs
+        );
+        metrics.streamingMetrics.avgTTFT = this.calculateAvgTTFT(
+          metrics.streamingMetrics.recentTTFTs
+        );
+
+        if (context.tokensPrompt !== undefined && context.tokensPrompt > 0) {
+          const bucketKey = getPromptSizeBucket(context.tokensPrompt);
+          if (bucketKey) {
+            if (!metrics.promptSizeTTFTBuckets) {
+              metrics.promptSizeTTFTBuckets = {};
+            }
+            const now = Date.now();
+            const bucket = metrics.promptSizeTTFTBuckets[bucketKey];
+            if (bucket) {
+              bucket.tdigest.add(context.ttft);
+              bucket.sampleCount++;
+              bucket.lastUpdated = now;
+            } else {
+              const td = new TDigest();
+              td.add(context.ttft);
+              const bucketRange = PROMPT_SIZE_BUCKETS.find(b => b.key === bucketKey);
+              metrics.promptSizeTTFTBuckets[bucketKey] = {
+                rangeMin: bucketRange?.min ?? 0,
+                rangeMax: bucketRange?.max ?? Infinity,
+                tdigest: td,
+                sampleCount: 1,
+                lastUpdated: now,
+              };
+            }
+          }
+        }
+      }
+
+      // Track total streaming duration
+      if (context.streamingDuration && context.streamingDuration > 0) {
+        metrics.streamingMetrics.recentStreamingDurations.push(context.streamingDuration);
+        if (
+          metrics.streamingMetrics.recentStreamingDurations.length >
+          this.maxRecentStreamingDurations
+        ) {
+          metrics.streamingMetrics.recentStreamingDurations.shift();
+        }
+        metrics.streamingMetrics.streamingDurationPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentStreamingDurations
+        );
+        metrics.streamingMetrics.avgStreamingDuration = this.calculateAverage(
+          metrics.streamingMetrics.recentStreamingDurations
+        );
+      }
+
+      // Track chunk metrics
+      if (context.chunkCount && context.chunkCount > 0) {
+        metrics.streamingMetrics.recentChunkCounts.push(context.chunkCount);
+        if (metrics.streamingMetrics.recentChunkCounts.length > this.maxRecentTTFTs) {
+          metrics.streamingMetrics.recentChunkCounts.shift();
+        }
+        metrics.streamingMetrics.chunkCountPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentChunkCounts
+        );
+        metrics.streamingMetrics.avgChunkCount = this.calculateAverage(
+          metrics.streamingMetrics.recentChunkCounts
+        );
+      }
+
+      // Track max chunk gap
+      if (context.maxChunkGapMs !== undefined && context.maxChunkGapMs > 0) {
+        metrics.streamingMetrics.recentMaxChunkGaps.push(context.maxChunkGapMs);
+        if (metrics.streamingMetrics.recentMaxChunkGaps.length > this.maxRecentTTFTs) {
+          metrics.streamingMetrics.recentMaxChunkGaps.shift();
+        }
+        metrics.streamingMetrics.maxChunkGapPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentMaxChunkGaps
+        );
+      }
+
+      if (context.chunkGaps && context.chunkGaps.length > 0) {
+        for (const gap of context.chunkGaps) {
+          metrics.streamingMetrics.recentChunkGaps.push(gap);
+          if (metrics.streamingMetrics.recentChunkGaps.length > this.maxRecentTTFTs) {
+            metrics.streamingMetrics.recentChunkGaps.shift();
+          }
+        }
+        metrics.streamingMetrics.chunkGapPercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentChunkGaps
+        );
+        metrics.streamingMetrics.avgChunkGapMs = this.calculateAverage(
+          metrics.streamingMetrics.recentChunkGaps
+        );
+      }
+
+      // Track chunk sizes
+      if (context.avgChunkSizeBytes && context.avgChunkSizeBytes > 0) {
+        metrics.streamingMetrics.recentChunkSizes.push(context.avgChunkSizeBytes);
+        if (metrics.streamingMetrics.recentChunkSizes.length > this.maxRecentTTFTs) {
+          metrics.streamingMetrics.recentChunkSizes.shift();
+        }
+        metrics.streamingMetrics.chunkSizePercentiles = this.calculatePercentiles(
+          metrics.streamingMetrics.recentChunkSizes
+        );
+        metrics.streamingMetrics.avgChunkSizeBytes = this.calculateAverage(
+          metrics.streamingMetrics.recentChunkSizes
+        );
+      }
+    }
+
+    // Update derived metrics
+    metrics.successRate = this.calculateSuccessRate(metrics.windows['5m']);
+    metrics.throughput = this.calculateThroughput(metrics.windows['5m']);
+    metrics.avgTokensPerRequest = this.calculateAvgTokens(metrics.windows['5m']);
+    metrics.avgPromptTokens = this.calculateAvgPromptTokens(metrics.windows['5m']);
+    metrics.jitterMs = this.calculateBlendedJitter(metrics);
+    metrics.lastUpdated = now;
+
+    // Schedule persistence save
+    this.persistence.scheduleSave(this.getMetricsData());
+  }
+
+  /**
+   * Track in-flight request count
+   */
+  incrementInFlight(serverId: string, model: string): void {
+    const key = `${serverId}:${model}`;
+    let metrics = this.metrics.get(key);
+    if (!metrics) {
+      metrics = this.createEmptyMetrics(serverId, model);
+      this.metrics.set(key, metrics);
+    }
+    metrics.inFlight++;
+  }
+
+  /**
+   * Decrement in-flight request count
+   */
+  decrementInFlight(serverId: string, model: string): void {
+    const key = `${serverId}:${model}`;
+    const metrics = this.metrics.get(key);
+    if (metrics) {
+      metrics.inFlight = Math.max(0, metrics.inFlight - 1);
+    }
+  }
+
+  /**
+   * Get metrics for a specific server:model
+   * Applies decay to stale metrics if enabled
+   */
+  getMetrics(serverId: string, model: string): ServerModelMetrics | undefined {
+    const metrics = this.metrics.get(`${serverId}:${model}`);
+    if (!metrics) {
+      return undefined;
+    }
+
+    // Apply decay if enabled
+    if (this.decayConfig.enabled) {
+      return this.applyDecay(metrics);
+    }
+
+    return metrics;
+  }
+
+  /**
+   * Get raw metrics without decay applied (for internal use)
+   */
+  getRawMetrics(serverId: string, model: string): ServerModelMetrics | undefined {
+    return this.metrics.get(`${serverId}:${model}`);
+  }
+
+  /**
+   * Update model metadata (parameter size, quantization, family, etc.)
+   * This enables cross-model inference fallback
+   */
+  updateModelMetadata(
+    serverId: string,
+    model: string,
+    metadata: {
+      parameterSize?: string;
+      quantization?: string;
+      family?: string;
+      parameterCount?: number;
+      embeddingLength?: number;
+    }
+  ): void {
+    const key = `${serverId}:${model}`;
+    const metrics = this.metrics.get(key);
+
+    if (metrics) {
+      if (metadata.parameterSize) {
+        metrics.parameterSize = metadata.parameterSize;
+      }
+      if (metadata.parameterCount !== undefined) {
+        metrics.parameterCount = metadata.parameterCount;
+      }
+      if (metadata.quantization) {
+        metrics.quantization = metadata.quantization;
+      }
+      if (metadata.family) {
+        metrics.family = metadata.family;
+      }
+      if (metadata.embeddingLength !== undefined) {
+        metrics.embeddingLength = metadata.embeddingLength;
+      }
+      this.rebuildParameterIndex();
+    }
+  }
+
+  /**
+   * Get metrics for a model with same parameter size on same server
+   * Used for cross-model inference when exact model metrics unavailable
+   */
+  getMetricsByParameterSize(
+    serverId: string,
+    parameterSize: string
+  ): ServerModelMetrics | undefined {
+    const serverMetrics = this.metricsByParameterSize.get(parameterSize);
+    if (!serverMetrics) {
+      return undefined;
+    }
+    const metrics = serverMetrics.get(serverId);
+    if (!metrics) {
+      return undefined;
+    }
+
+    // Apply decay if enabled
+    if (this.decayConfig.enabled) {
+      return this.applyDecay(metrics);
+    }
+    return metrics;
+  }
+
+  getColdStartStatus(
+    serverId: string,
+    model: string
+  ): { magnitudeMs: number; eventCount: number; secondsSinceLast: number } | undefined {
+    const metrics = this.metrics.get(`${serverId}:${model}`);
+    if (!metrics) {
+      return undefined;
+    }
+    const now = Date.now();
+    const secondsSinceLast = metrics.lastColdStartTime
+      ? (now - metrics.lastColdStartTime) / 1000
+      : -1;
+    return {
+      magnitudeMs: metrics.avgColdStartMagnitudeMs ?? 0,
+      eventCount: metrics.coldStartEventCount ?? 0,
+      secondsSinceLast,
+    };
+  }
+
+  getErrorTypeDistribution(serverId: string, model: string): Record<string, number> | undefined {
+    const metrics = this.metrics.get(`${serverId}:${model}`);
+    if (!metrics) {
+      return undefined;
+    }
+    if (!metrics.errorTypeHistogram) {
+      return undefined;
+    }
+    return Object.fromEntries(metrics.errorTypeHistogram);
+  }
+
+  getPromptSizeTTFTPercentiles(
+    serverId: string,
+    model: string,
+    promptTokens: number
+  ): { p50: number; p95: number; p99: number } | undefined {
+    const metrics = this.metrics.get(`${serverId}:${model}`);
+    if (!metrics?.promptSizeTTFTBuckets) {
+      return undefined;
+    }
+    const bucketKey = getPromptSizeBucket(promptTokens);
+    if (!bucketKey) {
+      return undefined;
+    }
+    const bucket = metrics.promptSizeTTFTBuckets[bucketKey];
+    if (!bucket || bucket.sampleCount < 5) {
+      return undefined;
+    }
+    return {
+      p50: bucket.tdigest.percentile(0.5),
+      p95: bucket.tdigest.percentile(0.95),
+      p99: bucket.tdigest.percentile(0.99),
+    };
+  }
+
+  /**
+   * Get aggregate capability score for a server across all models
+   * Returns 0-100 score based on average performance
+   * Used as fallback when no exact or parameter-size-matched metrics exist
+   */
+  getServerCapabilityScore(serverId: string): number {
+    const allMetrics: ServerModelMetrics[] = [];
+
+    for (const [key, metrics] of this.metrics.entries()) {
+      if (key.startsWith(`${serverId}:`)) {
+        allMetrics.push(metrics);
+      }
+    }
+
+    if (allMetrics.length === 0) {
+      return 0;
+    }
+
+    // Calculate weighted capability score based on:
+    // - Average latency (lower is better)
+    // - Success rate (higher is better)
+    // - Throughput (higher is better)
+
+    let totalLatencyScore = 0;
+    let totalSuccessScore = 0;
+    let totalThroughputScore = 0;
+
+    for (const m of allMetrics) {
+      // Latency score: 100 - (avg latency / 100), normalized
+      const avgLatency = m.percentiles.p50 || 1000;
+      totalLatencyScore += Math.max(0, 100 - avgLatency / 100);
+
+      // Success rate score: direct percentage
+      totalSuccessScore += m.successRate * 100;
+
+      // Throughput score: normalize to 0-100
+      totalThroughputScore += Math.min(100, m.throughput * 10);
+    }
+
+    const avgLatencyScore = totalLatencyScore / allMetrics.length;
+    const avgSuccessScore = totalSuccessScore / allMetrics.length;
+    const avgThroughputScore = totalThroughputScore / allMetrics.length;
+
+    // Weighted average: latency 40%, success 40%, throughput 20%
+    return avgLatencyScore * 0.4 + avgSuccessScore * 0.4 + avgThroughputScore * 0.2;
+  }
+
+  /**
+   * Rebuild the parameter size index for fast lookups
+   */
+  private rebuildParameterIndex(): void {
+    this.metricsByParameterSize.clear();
+
+    for (const metrics of this.metrics.values()) {
+      if (metrics.parameterSize) {
+        if (!this.metricsByParameterSize.has(metrics.parameterSize)) {
+          this.metricsByParameterSize.set(metrics.parameterSize, new Map());
+        }
+        this.metricsByParameterSize.get(metrics.parameterSize)!.set(metrics.serverId, metrics);
+      }
+    }
+
+    logger.debug('Rebuilt parameter size index', {
+      parameterSizes: Array.from(this.metricsByParameterSize.keys()),
+    });
+  }
+
+  /**
+   * Look up the parameter size for a model from any server's metrics.
+   * Used to auto-resolve parameterSize when not explicitly provided.
+   */
+  private getModelParameterSize(model: string): string | undefined {
+    for (const [key, metrics] of this.metrics.entries()) {
+      if (key.endsWith(`:${model}`) && metrics.parameterSize) {
+        return metrics.parameterSize;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get all metrics for a specific server
+   */
+  getAllMetricsForServer(serverId: string): ServerModelMetrics[] {
+    const result: ServerModelMetrics[] = [];
+    for (const [key, metrics] of this.metrics.entries()) {
+      if (key.startsWith(`${serverId}:`)) {
+        result.push(metrics);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Get metrics with cross-model inference fallback
+   * Priority: exact match > same parameter size > server capability > undefined
+   *
+   * @param serverId - The server ID
+   * @param model - The model name
+   * @param parameterSize - Optional parameter size for fallback lookup
+   * @returns Metrics or undefined if no fallback available
+   */
+  getMetricsWithFallback(
+    serverId: string,
+    model: string,
+    parameterSize?: string
+  ): ServerModelMetrics | undefined {
+    const crossModelConfig = this.config.crossModelInference;
+
+    // 1. Try exact model match first
+    const exactMetrics = this.getMetrics(serverId, model);
+
+    // 2. Resolve parameter size for potential fallback lookup
+    const resolvedParamSize = parameterSize ?? this.getModelParameterSize(model);
+
+    // 3. Get cross-model fallback if available
+    let fallbackMetrics: ServerModelMetrics | undefined;
+    if (resolvedParamSize && crossModelConfig?.enabled && crossModelConfig.useParameterSize) {
+      const sizeMetrics = this.getMetricsByParameterSize(serverId, resolvedParamSize);
+      if (sizeMetrics && sizeMetrics.model !== model) {
+        fallbackMetrics = sizeMetrics;
+      }
+    }
+
+    // 4. If exact metrics exist with sufficient samples, return them
+    if (exactMetrics) {
+      const sampleCount = exactMetrics.recentLatencies.length;
+      if (sampleCount >= (crossModelConfig?.minSamplesForExact ?? 5) || !fallbackMetrics) {
+        return exactMetrics;
+      }
+
+      // Low sample exact + fallback available: blend them
+      const minSamples = crossModelConfig?.minSamplesForExact ?? 5;
+      const exactWeight = sampleCount / minSamples;
+      const fallbackW = (1 - exactWeight) * (crossModelConfig?.fallbackWeight ?? 0.5);
+      const totalWeight = exactWeight + fallbackW;
+
+      logger.debug(
+        `Blending exact (${sampleCount} samples) with cross-model fallback for ${serverId}:${model}`,
+        {
+          exactWeight: exactWeight / totalWeight,
+          fallbackWeight: fallbackW / totalWeight,
+          fallbackModel: fallbackMetrics.model,
+        }
+      );
+
+      return {
+        ...exactMetrics,
+        successRate:
+          (exactMetrics.successRate * exactWeight + fallbackMetrics.successRate * fallbackW) /
+          totalWeight,
+        throughput:
+          (exactMetrics.throughput * exactWeight + fallbackMetrics.throughput * fallbackW) /
+          totalWeight,
+      };
+    }
+
+    // 5. No exact metrics — return discounted fallback
+    if (fallbackMetrics) {
+      const weight = crossModelConfig?.fallbackWeight ?? 0.5;
+      logger.debug(
+        `Using parameter_size fallback for ${serverId}:${model} from ${fallbackMetrics.model}`,
+        { parameterSize: resolvedParamSize, fallbackWeight: weight }
+      );
+      return {
+        ...fallbackMetrics,
+        model: `${model} (inferred from ${fallbackMetrics.model})`,
+        successRate: 0.5 + (fallbackMetrics.successRate - 0.5) * weight,
+        throughput: fallbackMetrics.throughput * weight,
+      };
+    }
+
+    // 6. No fallback available
+    return undefined;
+  }
+
+  /**
+   * Set the cross-model inference config
+   * This is called from load balancer config
+   */
+  setCrossModelInferenceConfig(config: {
+    enabled?: boolean;
+    useParameterSize?: boolean;
+    minSamplesForExact?: number;
+    fallbackWeight?: number;
+  }): void {
+    if (!this.config.crossModelInference) {
+      this.config.crossModelInference = {
+        enabled: true,
+        useParameterSize: true,
+        minSamplesForExact: 5,
+        fallbackWeight: 0.5,
+      };
+    }
+    if (config.enabled !== undefined) {
+      this.config.crossModelInference.enabled = config.enabled;
+    }
+    if (config.useParameterSize !== undefined) {
+      this.config.crossModelInference.useParameterSize = config.useParameterSize;
+    }
+    if (config.minSamplesForExact !== undefined) {
+      this.config.crossModelInference.minSamplesForExact = config.minSamplesForExact;
+    }
+    if (config.fallbackWeight !== undefined) {
+      this.config.crossModelInference.fallbackWeight = config.fallbackWeight;
+    }
+  }
+
+  private config: {
+    crossModelInference: {
+      enabled: boolean;
+      useParameterSize: boolean;
+      minSamplesForExact: number;
+      fallbackWeight: number;
+    };
+  } = {
+    crossModelInference: {
+      enabled: true,
+      useParameterSize: true,
+      minSamplesForExact: 5,
+      fallbackWeight: 0.5,
+    },
+  };
+
+  /**
+   * Apply time-based decay to stale metrics
+   * Uses exponential decay based on half-life
+   */
+  private applyDecay(metrics: ServerModelMetrics): ServerModelMetrics {
+    const now = Date.now();
+    const age = now - metrics.lastUpdated;
+
+    // If metrics are fresh, return as-is
+    if (age < this.decayConfig.staleThresholdMs) {
+      return metrics;
+    }
+
+    // Calculate decay factor using exponential decay formula: factor = 2^(-age/halfLife)
+    const decayFactor = Math.max(
+      this.decayConfig.minDecayFactor,
+      Math.pow(2, -age / this.decayConfig.halfLifeMs)
+    );
+
+    // Create a copy with decayed values
+    // Decay affects confidence in historical data, so we blend towards conservative defaults
+    const decayedWindows = Object.fromEntries(
+      (Object.keys(this.windowSizes) as TimeWindow[]).map(key => {
+        const w = metrics.windows[key];
+        return [
+          key,
+          {
+            startTime: w.startTime,
+            endTime: w.endTime,
+            count: Math.round(w.count * decayFactor),
+            userRequests: Math.round(w.userRequests * decayFactor),
+            latencySum: w.latencySum * decayFactor,
+            latencySquaredSum: w.latencySquaredSum * decayFactor,
+            minLatency: w.minLatency,
+            maxLatency: w.maxLatency,
+            errors: Math.round(w.errors * decayFactor),
+            tokensGenerated: Math.round(w.tokensGenerated * decayFactor),
+            tokensPrompt: Math.round(w.tokensPrompt * decayFactor),
+          },
+        ];
+      })
+    ) as Record<TimeWindow, MetricsWindow>;
+    const decayedMetrics: ServerModelMetrics = {
+      ...metrics,
+      windows: decayedWindows,
+      // Success rate decays towards 0.5 (conservative neutral) — stale metrics should not
+      // make servers appear artificially reliable after extended idle periods
+      successRate: this.decayTowards(metrics.successRate, 0.5, decayFactor),
+      // Throughput decays towards 0 since old throughput data is less relevant
+      throughput: metrics.throughput * decayFactor,
+      // Percentiles decay towards higher values (more conservative estimates)
+      percentiles: {
+        p50: this.decayTowards(
+          metrics.percentiles.p50,
+          metrics.percentiles.p50 * 1.5,
+          1 - decayFactor
+        ),
+        p95: this.decayTowards(
+          metrics.percentiles.p95,
+          metrics.percentiles.p95 * 1.5,
+          1 - decayFactor
+        ),
+        p99: this.decayTowards(
+          metrics.percentiles.p99,
+          metrics.percentiles.p99 * 1.5,
+          1 - decayFactor
+        ),
+      },
+      // Streaming metrics decay similarly
+      streamingMetrics: metrics.streamingMetrics
+        ? {
+            ...metrics.streamingMetrics,
+            avgTTFT: this.decayTowards(
+              metrics.streamingMetrics.avgTTFT,
+              metrics.streamingMetrics.avgTTFT * 1.5,
+              1 - decayFactor
+            ),
+            ttftPercentiles: {
+              p50: this.decayTowards(
+                metrics.streamingMetrics.ttftPercentiles.p50,
+                metrics.streamingMetrics.ttftPercentiles.p50 * 1.5,
+                1 - decayFactor
+              ),
+              p95: this.decayTowards(
+                metrics.streamingMetrics.ttftPercentiles.p95,
+                metrics.streamingMetrics.ttftPercentiles.p95 * 1.5,
+                1 - decayFactor
+              ),
+              p99: this.decayTowards(
+                metrics.streamingMetrics.ttftPercentiles.p99,
+                metrics.streamingMetrics.ttftPercentiles.p99 * 1.5,
+                1 - decayFactor
+              ),
+            },
+            streamingDurationPercentiles: {
+              p50: this.decayTowards(
+                metrics.streamingMetrics.streamingDurationPercentiles.p50,
+                metrics.streamingMetrics.streamingDurationPercentiles.p50 * 1.5,
+                1 - decayFactor
+              ),
+              p95: this.decayTowards(
+                metrics.streamingMetrics.streamingDurationPercentiles.p95,
+                metrics.streamingMetrics.streamingDurationPercentiles.p95 * 1.5,
+                1 - decayFactor
+              ),
+              p99: this.decayTowards(
+                metrics.streamingMetrics.streamingDurationPercentiles.p99,
+                metrics.streamingMetrics.streamingDurationPercentiles.p99 * 1.5,
+                1 - decayFactor
+              ),
+            },
+          }
+        : undefined,
+      // Mark as decayed with decay factor for transparency
+      _decayFactor: decayFactor,
+    } as ServerModelMetrics & { _decayFactor?: number };
+
+    return decayedMetrics;
+  }
+
+  /**
+   * Blend a value towards a target based on decay factor
+   */
+  private decayTowards(current: number, target: number, blendFactor: number): number {
+    return current + (target - current) * blendFactor;
+  }
+
+  /**
+   * Get the current decay configuration
+   */
+  getDecayConfig(): MetricsDecayConfig {
+    return { ...this.decayConfig };
+  }
+
+  /**
+   * Record Anthropic cache metrics from a response
+   */
+  recordCacheMetrics(
+    cacheReadInputTokens: number,
+    cacheCreationInputTokens: number,
+    savingsRatePerToken: number
+  ): void {
+    if (cacheReadInputTokens > 0) {
+      this.cacheHits++;
+      this.cacheSavings += cacheReadInputTokens * savingsRatePerToken;
+    } else if (cacheCreationInputTokens > 0) {
+      this.cacheMisses++;
+    }
+  }
+
+  /**
+   * Get cache metrics summary
+   */
+  getCacheMetrics(): CacheMetrics {
+    return {
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      cacheSavings: this.cacheSavings,
+    };
+  }
+
+  /**
+   * Record that thinking was auto-disabled due to upstream rejection
+   */
+  recordThinkingAutoDisabled(): void {
+    this.thinkingAutoDisabledCount++;
+  }
+
+  /**
+   * Record thinking tokens from a response
+   */
+  recordThinkingTokens(tokens: number): void {
+    this.totalThinkingTokens += tokens;
+  }
+
+  /**
+   * Record system prompt tokens from a request
+   */
+  recordSystemPromptTokens(tokens: number): void {
+    this.totalSystemPromptTokens += tokens;
+  }
+
+  /**
+   * Record a tool_use block from streaming response
+   */
+  recordToolUse(toolName: string): void {
+    this.toolUseCount++;
+    this.toolNames.add(toolName);
+  }
+
+  /**
+   * Record a tool_result block from request message
+   */
+  recordToolResult(): void {
+    this.toolResultCount++;
+  }
+
+  /**
+   * Get tool use metrics summary
+   */
+  getToolUseMetrics(): ToolUseMetrics {
+    return {
+      toolUseCount: this.toolUseCount,
+      toolResultCount: this.toolResultCount,
+      toolNames: Array.from(this.toolNames),
+    };
+  }
+
+  /**
+   * Get thinking metrics summary
+   */
+  getThinkingMetrics(): ThinkingMetrics {
+    return {
+      thinkingAutoDisabledCount: this.thinkingAutoDisabledCount,
+      totalThinkingTokens: this.totalThinkingTokens,
+    };
+  }
+
+  /**
+   * Record image metrics from a request
+   */
+  recordImageMetrics(imageCount: number, imageBytes: number): void {
+    this.imageCount += imageCount;
+    this.imageBytes += imageBytes;
+  }
+
+  /**
+   * Get image metrics summary
+   */
+  getImageMetrics(): ImageMetrics {
+    return {
+      imageCount: this.imageCount,
+      imageBytes: this.imageBytes,
+    };
+  }
+
+  recordParallelCompletions(count: number): void {
+    this.parallelCompletionsCount += count;
+  }
+
+  getParallelCompletionsCount(): number {
+    return this.parallelCompletionsCount;
+  }
+
+  /**
+   * Update decay configuration
+   */
+  setDecayConfig(config: Partial<MetricsDecayConfig>): void {
+    this.decayConfig = { ...this.decayConfig, ...config };
+  }
+
+  /**
+   * Get all metrics
+   */
+  getAllMetrics(): Map<string, ServerModelMetrics> {
+    return new Map(this.metrics);
+  }
+
+  /**
+   * Get global aggregated metrics
+   */
+  getGlobalMetrics(): GlobalMetrics {
+    let totalRequests = 0;
+    let totalUserRequests = 0;
+    let totalErrors = 0;
+    let totalTokens = 0;
+    let latencySum = 0;
+    let latencyCount = 0;
+
+    for (const metrics of this.metrics.values()) {
+      const window = metrics.windows['5m'];
+      const age = Date.now() - metrics.lastUpdated;
+      const isStale = this.decayConfig.enabled && age > this.decayConfig.staleThresholdMs;
+      const decayFactor = isStale
+        ? Math.max(this.decayConfig.minDecayFactor, Math.pow(2, -age / this.decayConfig.halfLifeMs))
+        : 1;
+      totalRequests += Math.round(window.count * decayFactor);
+      totalUserRequests += Math.round(window.userRequests * decayFactor);
+      totalErrors += Math.round(window.errors * decayFactor);
+      totalTokens += Math.round(window.tokensGenerated * decayFactor);
+      latencySum += window.latencySum * decayFactor;
+      latencyCount += Math.round(window.count * decayFactor);
+    }
+
+    const avgLatency = latencyCount > 0 ? latencySum / latencyCount : 0;
+    const errorRate = totalRequests > 0 ? totalErrors / totalRequests : 0;
+    const requestsPerSecond = totalRequests / 300; // 5 minutes
+
+    return {
+      totalRequests,
+      totalUserRequests,
+      totalErrors,
+      totalTokens,
+      requestsPerSecond,
+      avgLatency,
+      errorRate,
+      streaming: this.getStreamingMetricsSummary(totalRequests),
+      cache: this.getCacheMetrics(),
+      thinking: this.getThinkingMetrics(),
+      images: this.getImageMetrics(),
+      tool: this.getToolUseMetrics(),
+      parallelCompletionsCount: this.getParallelCompletionsCount(),
+    };
+  }
+
+  /**
+   * Get aggregated streaming metrics summary across all server:model combinations
+   */
+  getStreamingMetricsSummary(totalRequests: number = 0): StreamingMetricsSummary | undefined {
+    let totalStreaming = 0;
+    let totalChunks = 0;
+    let totalTTFT = 0;
+    let ttftCount = 0;
+    let totalDuration = 0;
+    let durationCount = 0;
+    let totalChunkSize = 0;
+    let chunkSizeCount = 0;
+    let maxP95ChunkGap = 0;
+
+    for (const metrics of this.metrics.values()) {
+      const sm = metrics.streamingMetrics;
+      if (!sm) {
+        continue;
+      }
+
+      // Count streaming requests (from recentTTFTs which tracks each streaming request)
+      totalStreaming += sm.recentTTFTs.length;
+      totalChunks += sm.recentChunkCounts.reduce((a, b) => a + b, 0);
+
+      // Aggregate TTFT
+      if (sm.recentTTFTs.length > 0) {
+        totalTTFT += sm.recentTTFTs.reduce((a, b) => a + b, 0);
+        ttftCount += sm.recentTTFTs.length;
+      }
+
+      // Aggregate streaming duration
+      if (sm.recentStreamingDurations.length > 0) {
+        totalDuration += sm.recentStreamingDurations.reduce((a, b) => a + b, 0);
+        durationCount += sm.recentStreamingDurations.length;
+      }
+
+      // Aggregate chunk sizes
+      if (sm.recentChunkSizes.length > 0) {
+        totalChunkSize += sm.recentChunkSizes.reduce((a, b) => a + b, 0);
+        chunkSizeCount += sm.recentChunkSizes.length;
+      }
+
+      // Track max P95 chunk gap
+      if (sm.maxChunkGapPercentiles.p95 > maxP95ChunkGap) {
+        maxP95ChunkGap = sm.maxChunkGapPercentiles.p95;
+      }
+    }
+
+    if (totalStreaming === 0) {
+      return undefined;
+    }
+
+    return {
+      totalStreamingRequests: totalStreaming,
+      avgChunkCount: totalChunks / totalStreaming,
+      avgTTFT: ttftCount > 0 ? totalTTFT / ttftCount : 0,
+      avgStreamingDuration: durationCount > 0 ? totalDuration / durationCount : 0,
+      avgChunkSizeBytes: chunkSizeCount > 0 ? totalChunkSize / chunkSizeCount : 0,
+      p95ChunkGap: maxP95ChunkGap,
+      streamingPercentage: totalRequests > 0 ? (totalStreaming / totalRequests) * 100 : 0,
+    };
+  }
+
+  /**
+   * Export metrics in structured format
+   */
+  exportMetrics(): MetricsExport {
+    const servers: MetricsExport['servers'] = {};
+
+    for (const [key, metrics] of this.metrics.entries()) {
+      const colonIdx = key.indexOf(':');
+      const serverId = key.slice(0, colonIdx);
+      const model = key.slice(colonIdx + 1);
+      if (!servers[serverId]) {
+        servers[serverId] = {
+          healthy: true, // This will be updated by orchestrator
+          inFlight: 0,
+          queued: 0,
+          models: {},
+        };
+      }
+
+      servers[serverId].inFlight += metrics.inFlight;
+      servers[serverId].models[model] = {
+        windows: metrics.windows,
+        percentiles: metrics.percentiles,
+        successRate: metrics.successRate,
+        throughput: metrics.throughput,
+        avgTokensPerRequest: metrics.avgTokensPerRequest,
+        avgPromptTokens: metrics.avgPromptTokens,
+        avgTokensPerSecond: metrics.avgTokensPerSecond,
+        coldStartCount: metrics.coldStartCount,
+        avgNetworkOverheadMs: metrics.avgNetworkOverheadMs,
+        streamingMetrics: metrics.streamingMetrics,
+      };
+    }
+
+    return {
+      timestamp: Date.now(),
+      global: this.getGlobalMetrics(),
+      servers,
+    };
+  }
+
+  /**
+   * Clean up old metrics data
+   */
+  pruneOldMetrics(maxAge = 24 * 60 * 60 * 1000): void {
+    const now = Date.now();
+    let pruned = 0;
+    for (const [key, metrics] of this.metrics.entries()) {
+      if (now - metrics.lastUpdated > maxAge && metrics.inFlight === 0) {
+        this.metrics.delete(key);
+        pruned++;
+      }
+    }
+    if (pruned > 0) {
+      logger.debug(`MetricsAggregator: Pruned ${pruned} stale metrics entries`);
+    }
+  }
+
+  /**
+   * Start a periodic scheduler that calls pruneOldMetrics at the given interval.
+   * If intervalMs <= 0, the scheduler is disabled (no-op). Idempotent: calling
+   * this method twice stops the previous interval before starting a new one.
+   * The underlying Node.js.Timeout is .unref()ed so it does not keep the
+   * process alive on shutdown.
+   */
+  public startPruneScheduler(intervalMs: number, maxAgeMs: number = 24 * 60 * 60 * 1000): void {
+    // Idempotent: stop any previous interval first
+    this.stopPruneScheduler();
+
+    if (intervalMs <= 0) {
+      logger.debug('MetricsAggregator: prune scheduler disabled (intervalMs <= 0)');
+      return;
+    }
+
+    const id = setInterval(() => this.pruneOldMetrics(maxAgeMs), intervalMs);
+    // unref so the interval does not prevent process exit
+    if (typeof id.unref === 'function') {
+      id.unref();
+    }
+    this.pruneIntervalId = id;
+    logger.debug(
+      `MetricsAggregator: prune scheduler started (intervalMs=${intervalMs}, maxAgeMs=${maxAgeMs})`
+    );
+  }
+
+  /**
+   * Stop the prune scheduler (if running). Safe to call when not started.
+   */
+  public stopPruneScheduler(): void {
+    if (this.pruneIntervalId) {
+      clearInterval(this.pruneIntervalId);
+      this.pruneIntervalId = undefined;
+    }
+  }
+
+  /**
+   * Get metrics data for persistence
+   */
+  private getMetricsData(): MetricsData {
+    const servers: Record<string, ServerModelMetrics> = {};
+    for (const [key, metrics] of this.metrics.entries()) {
+      servers[key] = metrics;
+    }
+    return {
+      timestamp: Date.now(),
+      servers,
+    };
+  }
+
+  /**
+   * Create empty metrics structure
+   */
+  private createEmptyMetrics(serverId: string, model: string): ServerModelMetrics {
+    const now = Date.now();
+    return {
+      serverId,
+      model,
+      inFlight: 0,
+      queued: 0,
+      windows: {
+        '1m': this.createEmptyWindow(now),
+        '5m': this.createEmptyWindow(now),
+        '15m': this.createEmptyWindow(now),
+        '1h': this.createEmptyWindow(now),
+        '24h': this.createEmptyWindow(now),
+      },
+      percentiles: { p50: 0, p95: 0, p99: 0 },
+      successRate: 1,
+      throughput: 0,
+      avgTokensPerRequest: 0,
+      avgPromptTokens: 0,
+      avgTokensPerSecond: 0,
+      coldStartCount: 0,
+      avgNetworkOverheadMs: 0,
+      avgQueueWaitTimeMs: 0,
+      parameterCount: undefined,
+      embeddingLength: undefined,
+      streamingMetrics: {
+        recentTTFTs: [],
+        ttftPercentiles: { p50: 0, p95: 0, p99: 0 },
+        avgTTFT: 0,
+        recentStreamingDurations: [],
+        streamingDurationPercentiles: { p50: 0, p95: 0, p99: 0 },
+        avgStreamingDuration: 0,
+        recentChunkCounts: [],
+        chunkCountPercentiles: { p50: 0, p95: 0, p99: 0 },
+        avgChunkCount: 0,
+        recentMaxChunkGaps: [],
+        maxChunkGapPercentiles: { p50: 0, p95: 0, p99: 0 },
+        avgChunkSizeBytes: 0,
+        recentChunkSizes: [],
+        chunkSizePercentiles: { p50: 0, p95: 0, p99: 0 },
+        recentChunkGaps: [],
+        avgChunkGapMs: 0,
+        chunkGapPercentiles: { p50: 0, p95: 0, p99: 0 },
+      },
+      promptSizeTTFTBuckets: {},
+      lastUpdated: now,
+      recentLatencies: [],
+    };
+  }
+
+  /**
+   * Create empty window
+   */
+  private createEmptyWindow(now: number): MetricsWindow {
+    return {
+      startTime: now,
+      endTime: now,
+      count: 0,
+      userRequests: 0,
+      latencySum: 0,
+      latencySquaredSum: 0,
+      minLatency: Infinity,
+      maxLatency: 0,
+      errors: 0,
+      tokensGenerated: 0,
+      tokensPrompt: 0,
+    };
+  }
+
+  /**
+   * Update a time window with new data
+   */
+  private updateWindow(
+    window: MetricsWindow,
+    duration: number,
+    success: boolean,
+    tokensGenerated: number,
+    tokensPrompt: number,
+    now: number,
+    windowSizeMs: number,
+    isRetry: boolean = false
+  ): void {
+    // Roll window if needed
+    if (now > window.endTime) {
+      // Check if we should reset or slide
+      if (now - window.startTime > windowSizeMs) {
+        // Reset window
+        window.startTime = now - windowSizeMs;
+        window.count = 0;
+        window.userRequests = 0;
+        window.latencySum = 0;
+        window.latencySquaredSum = 0;
+        window.minLatency = Infinity;
+        window.maxLatency = 0;
+        window.errors = 0;
+        window.tokensGenerated = 0;
+        window.tokensPrompt = 0;
+      }
+    }
+
+    window.endTime = now;
+    window.count++;
+    if (!isRetry) {
+      window.userRequests++;
+    }
+    window.latencySum += duration;
+    window.latencySquaredSum += duration * duration;
+    window.minLatency = Math.min(window.minLatency, duration);
+    window.maxLatency = Math.max(window.maxLatency, duration);
+
+    if (!success) {
+      window.errors++;
+    }
+
+    window.tokensGenerated += tokensGenerated;
+    window.tokensPrompt += tokensPrompt;
+  }
+
+  /**
+   * Calculate percentiles from latency array
+   */
+  private calculatePercentiles(latencies: number[]): LatencyPercentiles {
+    const result = Statistics.calculatePercentiles(latencies);
+    return {
+      p50: result.p50,
+      p95: result.p95,
+      p99: result.p99,
+    };
+  }
+
+  /**
+   * Get percentile value from sorted array
+   */
+  private getPercentile(sorted: number[], len: number, percentile: number): number {
+    return Statistics.calculatePercentile(sorted, percentile);
+  }
+
+  /**
+   * Calculate success rate from window
+   */
+  private calculateSuccessRate(window: MetricsWindow): number {
+    if (window.count === 0) {
+      return 1;
+    }
+    return (window.count - window.errors) / window.count;
+  }
+
+  /**
+   * Calculate throughput (requests per minute)
+   */
+  private calculateThroughput(window: MetricsWindow): number {
+    const duration = window.endTime - window.startTime;
+    if (duration === 0) {
+      return 0;
+    }
+    return (window.count / duration) * 60 * 1000;
+  }
+
+  /**
+   * Calculate average tokens per request
+   */
+  private calculateAvgTokens(window: MetricsWindow): number {
+    if (window.count === 0) {
+      return 0;
+    }
+    return window.tokensGenerated / window.count;
+  }
+
+  private calculateAvgPromptTokens(window: MetricsWindow): number {
+    if (window.count === 0) {
+      return 0;
+    }
+    return window.tokensPrompt / window.count;
+  }
+
+  private calculateBlendedJitter(metrics: ServerModelMetrics): number {
+    const windowNames: TimeWindow[] = ['1m', '5m', '15m'];
+    const weights = [0.5, 0.3, 0.2];
+    let totalWeight = 0;
+    let blendedStddev = 0;
+    for (let i = 0; i < windowNames.length; i++) {
+      const w = metrics.windows[windowNames[i]];
+      if (w.count >= 10) {
+        const mean = w.latencySum / w.count;
+        const variance = w.latencySquaredSum / w.count - mean * mean;
+        const stddev = Math.sqrt(Math.max(0, variance));
+        blendedStddev += stddev * weights[i];
+        totalWeight += weights[i];
+      }
+    }
+    if (totalWeight === 0) {
+      return 0;
+    }
+    return blendedStddev / totalWeight;
+  }
+
+  /**
+   * Calculate average TTFT from array
+   */
+  private calculateAvgTTFT(ttfts: number[]): number {
+    if (ttfts.length === 0) {
+      return 0;
+    }
+    return ttfts.reduce((sum, ttft) => sum + ttft, 0) / ttfts.length;
+  }
+
+  /**
+   * Calculate average from array
+   */
+  private calculateAverage(values: number[]): number {
+    if (values.length === 0) {
+      return 0;
+    }
+    return values.reduce((sum, val) => sum + val, 0) / values.length;
+  }
+
+  /**
+   * Shutdown the aggregator - flush persistence
+   */
+  async shutdown(): Promise<void> {
+    const data = this.getMetricsData();
+    await this.persistence.shutdown(data);
+    logger.info('MetricsAggregator: Shutdown complete');
+  }
+
+  /**
+   * Reset all metrics - useful for testing or manual reset
+   */
+  reset(): void {
+    const count = this.metrics.size;
+    this.metrics.clear();
+    getTemporalScorer().clearCache();
+    logger.info(`MetricsAggregator: Reset complete, cleared ${count} server:model metrics`);
+  }
+}

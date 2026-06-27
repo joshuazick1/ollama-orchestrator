@@ -1,0 +1,866 @@
+/**
+ * errorClassifier.ts
+ * Centralized error classification for consistent handling across the system
+ */
+
+import crypto from 'crypto';
+
+import { getErrorEventStore } from '../storage/error-event-store.js';
+import type { ErrorEvent } from '../types/error-event.js';
+
+import { logger } from './logger.js';
+
+/**
+ * Error classification types
+ */
+export type ErrorType = 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
+
+/**
+ * Enhanced error categories for more detailed classification
+ */
+export enum ErrorCategory {
+  RESOURCE = 'resource', // Memory, disk, CPU
+  COMPATIBILITY = 'compatibility', // Model/endpoint mismatch
+  NETWORK = 'network', // Connection, timeout
+  AUTHENTICATION = 'auth', // Credentials, permissions
+  CONFIGURATION = 'config', // Setup, parameters
+  UNKNOWN = 'unknown',
+}
+
+/**
+ * Error severity levels
+ */
+export enum ErrorSeverity {
+  LOW = 'low', // Retry immediately
+  MEDIUM = 'medium', // Backoff retry
+  HIGH = 'high', // Extended backoff
+  CRITICAL = 'critical', // Permanent failure
+}
+
+/**
+ * Retry strategy configuration
+ */
+export interface RetryStrategy {
+  initialDelay: number;
+  backoffMultiplier: number;
+  maxAttempts: number;
+  testType: 'lightweight' | 'full' | 'resource-aware';
+  successThreshold: number; // Consecutive successes needed
+}
+
+/**
+ * Detailed error classification result
+ */
+export interface ErrorClassification {
+  type: ErrorType;
+  isRetryable: boolean;
+  isTransient: boolean;
+  isPermanent: boolean;
+  shouldCircuitBreak: boolean;
+  category: ErrorCategory;
+  severity: ErrorSeverity;
+  retryStrategy: RetryStrategy;
+  matchedPattern?: string;
+}
+
+/**
+ * Configurable error patterns for classification
+ */
+export interface ErrorPatternConfig {
+  // Non-retryable errors - permanent failures, don't retry
+  nonRetryable: string[];
+  // Transient errors - temporary issues, safe to retry
+  transient: string[];
+  // Network errors - connection issues, usually retryable
+  network: string[];
+  // Resource errors - server resource issues, may retry after delay
+  resource: string[];
+  // Ignore errors - these should not trigger circuit breakers (e.g., wrong model type)
+  ignore: string[];
+}
+
+/**
+ * Default error patterns
+ */
+export const DEFAULT_ERROR_PATTERNS: ErrorPatternConfig = {
+  nonRetryable: [
+    // Client errors - user/request issues
+    'not found',
+    'invalid',
+    'unauthorized',
+    'forbidden',
+    'authentication failed',
+    'bad request',
+    'validation failed',
+    'malformed',
+    // Model/capability errors
+    'model.*not found',
+    'invalid model',
+    'model not supported',
+    'unknown model',
+    'not enough ram',
+    'out of memory',
+    'oom',
+    'requires more system memory',
+    'not enough memory',
+    'insufficient memory',
+    'memory limit exceeded',
+    // Context/token limit errors - these won't succeed on retry
+    'context length',
+    'context_window',
+    'too many tokens',
+    'token limit',
+    'maximum context',
+    'context overflow',
+    'context exceeded',
+    // Fatal server errors
+    'runner process has terminated',
+    'fatal model server error',
+    'internal server error',
+    'llama runner',
+    'runner process',
+    'process has terminated',
+  ],
+  transient: [
+    // Timeout errors
+    'timeout',
+    'timed out',
+    'deadline exceeded',
+    // Availability errors
+    'temporarily unavailable',
+    'service unavailable',
+    'try again',
+    // Rate limiting
+    'rate limit',
+    'too many requests',
+    'throttled',
+    // Gateway errors
+    'gateway timeout',
+    'bad gateway',
+  ],
+  network: [
+    // Connection errors
+    'econnrefused',
+    'econnreset',
+    'etimedout',
+    'enotfound',
+    'ehostunreach',
+    'enetunreach',
+    'epipe',
+    // Generic network
+    'network',
+    'connection',
+    'socket',
+    'dns',
+    'unreachable',
+    'abort',
+    'fetch failed',
+  ],
+  resource: [
+    // Server overload
+    'busy',
+    'overloaded',
+    'capacity',
+    'queue full',
+    // Memory/GPU issues that might resolve
+    'no available slots',
+    'all slots busy',
+    'gpu memory',
+    'vram',
+  ],
+  ignore: [
+    // Embedding/wrong model type errors - these shouldn't open circuit breakers
+    'does not support generate',
+    'embedding model.*not support',
+    'cannot generate.*embedding',
+    'embed.*model.*only',
+    'this model only supports embeddings',
+    'unsupported model format',
+  ],
+};
+
+/**
+ * Provider-specific error patterns keyed by provider type
+ * These are error codes/messages specific to each provider's API
+ *
+ * Usage: When classifying errors for a specific provider, first check if the
+ * error matches any of these provider-specific patterns before falling back to
+ * the default classification.
+ *
+ * @example
+ * const classifier = getErrorClassifier();
+ * const result = classifier.classifyForProvider(error, 'anthropic');
+ */
+export interface ProviderErrorPatterns {
+  anthropic: {
+    overloaded_error: string[];
+    rate_limit_error: string[];
+    invalid_request_error: string[];
+  };
+  openai: {
+    context_length_exceeded: string[];
+    rate_limit_reached: string[];
+  };
+}
+
+/**
+ * Default provider-specific error patterns
+ */
+export const DEFAULT_PROVIDER_ERROR_PATTERNS: ProviderErrorPatterns = {
+  anthropic: {
+    overloaded_error: ['overloaded_error', 'anthropic overload', 'server overloaded'],
+    rate_limit_error: ['rate_limit_error', 'rate limit exceeded', 'request rate limit'],
+    invalid_request_error: ['invalid_request_error', 'invalid request', 'bad request'],
+  },
+  openai: {
+    context_length_exceeded: ['context_length_exceeded', 'maximum context length exceeded'],
+    rate_limit_reached: ['rate_limit_reached', 'rate limit reached', 'requests rate limit'],
+  },
+};
+
+/**
+ * Default retry strategies by error category
+ */
+const DEFAULT_RETRY_STRATEGIES: Record<ErrorCategory, RetryStrategy> = {
+  [ErrorCategory.RESOURCE]: {
+    initialDelay: 300000, // 5 minutes
+    backoffMultiplier: 2,
+    maxAttempts: 3,
+    testType: 'resource-aware',
+    successThreshold: 3,
+  },
+  [ErrorCategory.NETWORK]: {
+    initialDelay: 30000, // 30 seconds
+    backoffMultiplier: 1.5,
+    maxAttempts: 5,
+    testType: 'lightweight',
+    successThreshold: 1,
+  },
+  [ErrorCategory.COMPATIBILITY]: {
+    initialDelay: 60000, // 1 minute
+    backoffMultiplier: 1.2,
+    maxAttempts: 2,
+    testType: 'full',
+    successThreshold: 1,
+  },
+  [ErrorCategory.AUTHENTICATION]: {
+    initialDelay: 120000, // 2 minutes
+    backoffMultiplier: 1.5,
+    maxAttempts: 3,
+    testType: 'lightweight',
+    successThreshold: 1,
+  },
+  [ErrorCategory.CONFIGURATION]: {
+    initialDelay: 60000, // 1 minute
+    backoffMultiplier: 1.2,
+    maxAttempts: 1,
+    testType: 'full',
+    successThreshold: 1,
+  },
+  [ErrorCategory.UNKNOWN]: {
+    initialDelay: 60000, // 1 minute
+    backoffMultiplier: 1.5,
+    maxAttempts: 3,
+    testType: 'lightweight',
+    successThreshold: 1,
+  },
+};
+
+/**
+ * Map ErrorClassifier ErrorType to ErrorEvent ErrorType
+ * ErrorClassifier uses: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited'
+ * ErrorEvent uses: 'retryable' | 'non_retryable' | 'transient' | 'permanent' | 'rate_limited'
+ */
+function mapErrorTypeToEvent(type: ErrorType): import('../types/error-event.js').ErrorType {
+  switch (type) {
+    case 'non-retryable':
+      return 'non_retryable';
+    case 'rateLimited':
+      return 'rate_limited';
+    default:
+      return type as import('../types/error-event.js').ErrorType;
+  }
+}
+
+/**
+ * Fire-and-forget error event recording
+ * Records error to ErrorEventStore without blocking classification
+ */
+function recordErrorEvent(errorMessage: string, classification: ErrorClassification): void {
+  const event: ErrorEvent = {
+    id: crypto.randomUUID(),
+    serverId: 'unknown',
+    circuitId: 'unknown',
+    errorType: mapErrorTypeToEvent(classification.type),
+    errorMessage,
+    timestamp: new Date().toISOString(),
+    category: classification.category,
+    severity: classification.severity,
+    retryable: classification.isRetryable,
+    matchedPattern: classification.matchedPattern ?? null,
+  };
+
+  // Fire-and-forget - do not await
+  getErrorEventStore()
+    .recordError(event)
+    .catch(err => {
+      logger.warn('[ErrorClassifier] Failed to record error event', {
+        error: err,
+        eventId: event.id,
+      });
+    });
+}
+
+/**
+ * HTTP status code ranges
+ */
+const HTTP_STATUS_PATTERNS = {
+  clientError: /^4\d{2}$|http 4\d{2}/i,
+  serverError: /^5\d{2}$|http 5\d{2}/i,
+  retryableServerErrors: [502, 503, 504], // Bad Gateway, Service Unavailable, Gateway Timeout
+  nonRetryableClientErrors: [400, 401, 403, 404, 405, 406, 410, 422], // Permanent client errors
+  rateLimitCodes: [429, 529], // Rate limit (Too Many Requests, Bandwidth Limit Exceeded)
+};
+
+/**
+ * Error Classifier - Centralizes error classification logic
+ */
+export class ErrorClassifier {
+  private patterns: ErrorPatternConfig;
+  private compiledPatterns: {
+    nonRetryable: RegExp[];
+    transient: RegExp[];
+    network: RegExp[];
+    resource: RegExp[];
+    ignore: RegExp[];
+  };
+
+  private static readonly MAX_PATTERN_LENGTH = 200;
+  private static readonly DANGEROUS_PATTERNS = [
+    /^\.\*/,
+    /\*\*+/,
+    /\(\.\*\)\+/,
+    /\(\+\)\+/,
+    /\(a\+\)\+/,
+    /\(a\*\)\+/,
+    /\(.*\)\+/,
+    /\(.*\)\*/,
+  ];
+
+  private static isValidRegexPattern(pattern: string): { valid: boolean; reason?: string } {
+    if (pattern.length > ErrorClassifier.MAX_PATTERN_LENGTH) {
+      return { valid: false, reason: 'Pattern too long' };
+    }
+    for (const dangerous of ErrorClassifier.DANGEROUS_PATTERNS) {
+      if (dangerous.test(pattern)) {
+        return { valid: false, reason: 'Potentially dangerous pattern detected' };
+      }
+    }
+    try {
+      new RegExp(pattern);
+      return { valid: true };
+    } catch {
+      return { valid: false, reason: 'Invalid regex syntax' };
+    }
+  }
+
+  constructor(patterns: Partial<ErrorPatternConfig> = {}) {
+    const validatedNonRetryable = (patterns.nonRetryable ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid nonRetryable pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedTransient = (patterns.transient ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid transient pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedNetwork = (patterns.network ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid network pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedResource = (patterns.resource ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid resource pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    const validatedIgnore = (patterns.ignore ?? []).filter(p => {
+      const result = ErrorClassifier.isValidRegexPattern(p);
+      if (!result.valid) {
+        logger.warn(`Skipping invalid ignore pattern: ${p} - ${result.reason}`);
+        return false;
+      }
+      return true;
+    });
+
+    this.patterns = {
+      nonRetryable: [...DEFAULT_ERROR_PATTERNS.nonRetryable, ...validatedNonRetryable],
+      transient: [...DEFAULT_ERROR_PATTERNS.transient, ...validatedTransient],
+      network: [...DEFAULT_ERROR_PATTERNS.network, ...validatedNetwork],
+      resource: [...DEFAULT_ERROR_PATTERNS.resource, ...validatedResource],
+      ignore: [...DEFAULT_ERROR_PATTERNS.ignore, ...validatedIgnore],
+    };
+
+    // Compile patterns for performance
+    this.compiledPatterns = {
+      nonRetryable: this.patterns.nonRetryable.map(p => new RegExp(p, 'i')),
+      transient: this.patterns.transient.map(p => new RegExp(p, 'i')),
+      network: this.patterns.network.map(p => new RegExp(p, 'i')),
+      resource: this.patterns.resource.map(p => new RegExp(p, 'i')),
+      ignore: this.patterns.ignore.map(p => new RegExp(p, 'i')),
+    };
+  }
+
+  /**
+   * Classify an error and return detailed classification
+   */
+  classify(error: Error | string): ErrorClassification {
+    const errorMessage = typeof error === 'string' ? error : error.message;
+    const errorLower = errorMessage.toLowerCase();
+
+    // Check for ignore patterns first - these shouldn't trigger circuit breakers
+    for (let i = 0; i < this.compiledPatterns.ignore.length; i++) {
+      if (this.compiledPatterns.ignore[i].test(errorLower)) {
+        const result = {
+          type: 'non-retryable' as const,
+          isRetryable: false,
+          isTransient: false,
+          isPermanent: true,
+          shouldCircuitBreak: false,
+          category: ErrorCategory.COMPATIBILITY,
+          severity: ErrorSeverity.LOW,
+          retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.COMPATIBILITY],
+          matchedPattern: this.patterns.ignore[i],
+        };
+        recordErrorEvent(errorMessage, result);
+        return result;
+      }
+    }
+
+    // Check for non-retryable patterns
+    for (let i = 0; i < this.compiledPatterns.nonRetryable.length; i++) {
+      if (this.compiledPatterns.nonRetryable[i].test(errorLower)) {
+        const category = this.determineCategoryFromPattern(
+          'nonRetryable',
+          this.patterns.nonRetryable[i]
+        );
+        const result = {
+          type: 'non-retryable' as const,
+          isRetryable: false,
+          isTransient: false,
+          isPermanent: true,
+          shouldCircuitBreak: true,
+          category,
+          severity: ErrorSeverity.CRITICAL,
+          retryStrategy: DEFAULT_RETRY_STRATEGIES[category],
+          matchedPattern: this.patterns.nonRetryable[i],
+        };
+        recordErrorEvent(errorMessage, result);
+        return result;
+      }
+    }
+
+    // Check for rate limit patterns first (before general transient)
+    const rateLimitPatterns = [
+      'rate limit',
+      'too many requests',
+      'throttled',
+      '429',
+      'bandwidth limit',
+      'bandwidth limit exceeded',
+      '529',
+    ];
+    for (const pattern of rateLimitPatterns) {
+      if (errorLower.includes(pattern)) {
+        const result = {
+          type: 'rateLimited' as const,
+          isRetryable: true,
+          isTransient: true,
+          isPermanent: false,
+          shouldCircuitBreak: true,
+          category: ErrorCategory.NETWORK,
+          severity: ErrorSeverity.MEDIUM,
+          retryStrategy: {
+            initialDelay: 300000,
+            backoffMultiplier: 3,
+            maxAttempts: 5,
+            testType: 'lightweight' as const,
+            successThreshold: 1,
+          },
+          matchedPattern: pattern,
+        };
+        recordErrorEvent(errorMessage, result);
+        return result;
+      }
+    }
+
+    // Check for transient patterns
+    for (let i = 0; i < this.compiledPatterns.transient.length; i++) {
+      if (this.compiledPatterns.transient[i].test(errorLower)) {
+        const result = {
+          type: 'transient' as const,
+          isRetryable: true,
+          isTransient: true,
+          isPermanent: false,
+          shouldCircuitBreak: false,
+          category: ErrorCategory.NETWORK,
+          severity: ErrorSeverity.MEDIUM,
+          retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.NETWORK],
+          matchedPattern: this.patterns.transient[i],
+        };
+        recordErrorEvent(errorMessage, result);
+        return result;
+      }
+    }
+
+    // Check for network patterns
+    for (let i = 0; i < this.compiledPatterns.network.length; i++) {
+      if (this.compiledPatterns.network[i].test(errorLower)) {
+        const result = {
+          type: 'transient' as const,
+          isRetryable: true,
+          isTransient: true,
+          isPermanent: false,
+          shouldCircuitBreak: false,
+          category: ErrorCategory.NETWORK,
+          severity: ErrorSeverity.MEDIUM,
+          retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.NETWORK],
+          matchedPattern: this.patterns.network[i],
+        };
+        recordErrorEvent(errorMessage, result);
+        return result;
+      }
+    }
+
+    // Check for resource patterns
+    for (let i = 0; i < this.compiledPatterns.resource.length; i++) {
+      if (this.compiledPatterns.resource[i].test(errorLower)) {
+        const result = {
+          type: 'retryable' as const,
+          isRetryable: true,
+          isTransient: false,
+          isPermanent: false,
+          shouldCircuitBreak: false,
+          category: ErrorCategory.RESOURCE,
+          severity: ErrorSeverity.HIGH,
+          retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.RESOURCE],
+          matchedPattern: this.patterns.resource[i],
+        };
+        recordErrorEvent(errorMessage, result);
+        return result;
+      }
+    }
+
+    // Check HTTP status codes
+    const httpClassification = this.classifyHttpStatus(errorMessage);
+    if (httpClassification) {
+      recordErrorEvent(errorMessage, httpClassification);
+      return httpClassification;
+    }
+
+    // Default: treat unknown errors as retryable but potentially circuit-breaking
+    const defaultResult = {
+      type: 'retryable' as const,
+      isRetryable: true,
+      isTransient: false,
+      isPermanent: false,
+      shouldCircuitBreak: true,
+      category: ErrorCategory.UNKNOWN,
+      severity: ErrorSeverity.HIGH,
+      retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.UNKNOWN],
+    };
+    recordErrorEvent(errorMessage, defaultResult);
+    return defaultResult;
+  }
+
+  /**
+   * Determine error category from pattern and pattern type
+   */
+  private determineCategoryFromPattern(
+    patternType: keyof ErrorPatternConfig,
+    pattern: string
+  ): ErrorCategory {
+    // For nonRetryable patterns, determine category based on content
+    if (patternType === 'nonRetryable') {
+      const lowerPattern = pattern.toLowerCase();
+      if (
+        lowerPattern.includes('ram') ||
+        lowerPattern.includes('memory') ||
+        lowerPattern.includes('out of memory')
+      ) {
+        return ErrorCategory.RESOURCE;
+      }
+      if (
+        lowerPattern.includes('auth') ||
+        lowerPattern.includes('unauthorized') ||
+        lowerPattern.includes('forbidden')
+      ) {
+        return ErrorCategory.AUTHENTICATION;
+      }
+      if (
+        lowerPattern.includes('model') &&
+        (lowerPattern.includes('not found') || lowerPattern.includes('not supported'))
+      ) {
+        return ErrorCategory.CONFIGURATION;
+      }
+    }
+    return ErrorCategory.UNKNOWN;
+  }
+
+  /**
+   * Classify based on HTTP status code if present in error message
+   */
+  private classifyHttpStatus(errorMessage: string): ErrorClassification | null {
+    // Extract status code if present
+    const statusMatch = errorMessage.match(/\b([45]\d{2})\b/);
+    if (!statusMatch) {
+      return null;
+    }
+
+    const statusCode = parseInt(statusMatch[1], 10);
+
+    // Check if it's a retryable server error
+    if (HTTP_STATUS_PATTERNS.retryableServerErrors.includes(statusCode)) {
+      return {
+        type: 'transient',
+        isRetryable: true,
+        isTransient: true,
+        isPermanent: false,
+        shouldCircuitBreak: false,
+        category: ErrorCategory.NETWORK,
+        severity: ErrorSeverity.MEDIUM,
+        retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.NETWORK],
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
+    // Check if it's a non-retryable client error
+    if (HTTP_STATUS_PATTERNS.nonRetryableClientErrors.includes(statusCode)) {
+      return {
+        type: 'non-retryable',
+        isRetryable: false,
+        isTransient: false,
+        isPermanent: true,
+        shouldCircuitBreak: true,
+        category: ErrorCategory.CONFIGURATION,
+        severity: ErrorSeverity.CRITICAL,
+        retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.CONFIGURATION],
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
+    // HTTP 429 Rate Limit - retryable with extended backoff
+    if (statusCode === 429 || statusCode === 529) {
+      return {
+        type: 'rateLimited',
+        isRetryable: true,
+        isTransient: true,
+        isPermanent: false,
+        shouldCircuitBreak: true,
+        category: ErrorCategory.NETWORK,
+        severity: ErrorSeverity.MEDIUM,
+        retryStrategy: {
+          initialDelay: 300000, // 5 minutes base
+          backoffMultiplier: 3,
+          maxAttempts: 5,
+          testType: 'lightweight' as const,
+          successThreshold: 1,
+        },
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
+    // HTTP 500 Internal Server Error - transient (retryable with short backoff)
+    // Previously classified as non-retryable which caused 48h backoff
+    if (statusCode === 500) {
+      return {
+        type: 'transient',
+        isRetryable: true,
+        isTransient: true,
+        isPermanent: false,
+        shouldCircuitBreak: true,
+        category: ErrorCategory.NETWORK,
+        severity: ErrorSeverity.MEDIUM,
+        retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.NETWORK],
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
+    // Other 5xx errors - retryable but circuit-breaking
+    if (statusCode >= 500) {
+      return {
+        type: 'retryable',
+        isRetryable: true,
+        isTransient: false,
+        isPermanent: false,
+        shouldCircuitBreak: true,
+        category: ErrorCategory.UNKNOWN,
+        severity: ErrorSeverity.HIGH,
+        retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.UNKNOWN],
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
+    // Other 4xx errors - non-retryable
+    if (statusCode >= 400) {
+      return {
+        type: 'non-retryable',
+        isRetryable: false,
+        isTransient: false,
+        isPermanent: true,
+        shouldCircuitBreak: true,
+        category: ErrorCategory.CONFIGURATION,
+        severity: ErrorSeverity.CRITICAL,
+        retryStrategy: DEFAULT_RETRY_STRATEGIES[ErrorCategory.CONFIGURATION],
+        matchedPattern: `HTTP ${statusCode}`,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Simple check if error is retryable
+   */
+  isRetryable(error: Error | string): boolean {
+    return this.classify(error).isRetryable;
+  }
+
+  /**
+   * Simple check if error is transient
+   */
+  isTransient(error: Error | string): boolean {
+    return this.classify(error).isTransient;
+  }
+
+  /**
+   * Simple check if error should trigger circuit breaker
+   */
+  shouldCircuitBreak(error: Error | string): boolean {
+    return this.classify(error).shouldCircuitBreak;
+  }
+
+  /**
+   * Get the error type for circuit breaker recording
+   */
+  getErrorType(error: Error | string): ErrorType {
+    return this.classify(error).type;
+  }
+
+  /**
+   * Update patterns at runtime
+   */
+  updatePatterns(patterns: Partial<ErrorPatternConfig>): void {
+    if (patterns.nonRetryable) {
+      const validated = patterns.nonRetryable.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid nonRetryable pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.nonRetryable = [...this.patterns.nonRetryable, ...validated];
+      this.compiledPatterns.nonRetryable = this.patterns.nonRetryable.map(p => new RegExp(p, 'i'));
+    }
+    if (patterns.transient) {
+      const validated = patterns.transient.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid transient pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.transient = [...this.patterns.transient, ...validated];
+      this.compiledPatterns.transient = this.patterns.transient.map(p => new RegExp(p, 'i'));
+    }
+    if (patterns.network) {
+      const validated = patterns.network.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid network pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.network = [...this.patterns.network, ...validated];
+      this.compiledPatterns.network = this.patterns.network.map(p => new RegExp(p, 'i'));
+    }
+    if (patterns.resource) {
+      const validated = patterns.resource.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid resource pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.resource = [...this.patterns.resource, ...validated];
+      this.compiledPatterns.resource = this.patterns.resource.map(p => new RegExp(p, 'i'));
+    }
+    if (patterns.ignore) {
+      const validated = patterns.ignore.filter(p => {
+        const result = ErrorClassifier.isValidRegexPattern(p);
+        if (!result.valid) {
+          logger.warn(`Skipping invalid ignore pattern: ${p} - ${result.reason}`);
+          return false;
+        }
+        return true;
+      });
+      this.patterns.ignore = [...this.patterns.ignore, ...validated];
+      this.compiledPatterns.ignore = this.patterns.ignore.map(p => new RegExp(p, 'i'));
+    }
+  }
+
+  /**
+   * Get current patterns
+   */
+  getPatterns(): ErrorPatternConfig {
+    return { ...this.patterns };
+  }
+}
+
+// Default singleton instance
+let defaultClassifier: ErrorClassifier | undefined;
+
+/**
+ * Get the default error classifier instance
+ */
+export function getErrorClassifier(): ErrorClassifier {
+  if (!defaultClassifier) {
+    defaultClassifier = new ErrorClassifier();
+  }
+  return defaultClassifier;
+}
+
+/**
+ * Convenience function to classify an error using the default classifier
+ */
+export function classifyError(error: Error | string): ErrorClassification {
+  return getErrorClassifier().classify(error);
+}
+
+/**
+ * Convenience function to get error type
+ */
+export function getErrorType(error: Error | string): ErrorType {
+  return getErrorClassifier().getErrorType(error);
+}

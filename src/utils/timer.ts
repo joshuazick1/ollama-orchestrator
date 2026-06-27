@@ -1,0 +1,74 @@
+/**
+ * timer.ts
+ * High-precision timer utility for consistent duration tracking
+ * Replaces scattered Date.now() calls throughout the codebase
+ */
+
+export interface TimerLap {
+  name: string;
+  elapsed: number;
+  timestamp: number;
+}
+
+export class Timer {
+  private startTime: number;
+  private laps: Map<string, TimerLap> = new Map();
+  private lastLapTime: number;
+
+  constructor() {
+    this.startTime = Date.now();
+    this.lastLapTime = this.startTime;
+  }
+
+  /**
+   * Get total elapsed time in milliseconds
+   */
+  elapsed(): number {
+    return Date.now() - this.startTime;
+  }
+
+  /**
+   * Record a named lap time
+   */
+  lap(name: string): TimerLap {
+    const now = Date.now();
+    const lap: TimerLap = {
+      name,
+      elapsed: now - this.startTime,
+      timestamp: now,
+    };
+    this.laps.set(name, lap);
+    this.lastLapTime = now;
+    return lap;
+  }
+
+  /**
+   * Get a specific lap's elapsed time
+   */
+  getLap(name: string): number | undefined {
+    return this.laps.get(name)?.elapsed;
+  }
+
+  /**
+   * Get all recorded laps
+   */
+  getAllLaps(): TimerLap[] {
+    return Array.from(this.laps.values());
+  }
+
+  /**
+   * Get time since last lap
+   */
+  sinceLastLap(): number {
+    return Date.now() - this.lastLapTime;
+  }
+
+  /**
+   * Reset the timer
+   */
+  reset(): void {
+    this.startTime = Date.now();
+    this.lastLapTime = this.startTime;
+    this.laps.clear();
+  }
+}

@@ -1,0 +1,29 @@
+# Logrotate config for Ollama Orchestrator
+
+# Rotate orchestrator app logs (written to logs/app-*.log)
+# Also handle systemd journal fallback logs
+/root/ollama-orchestrator/logs/*.log {
+  daily
+  rotate 7
+  compress
+  delaycompress
+  missingok
+  notifempty
+  create 0640 root root
+  sharedscripts
+  postrotate
+    # Send SIGUSR1 to orchestrator to reopen log files
+    # (No-op if not supported - orchestrator's appendFileSync doesn't need it)
+  endscript
+}
+
+/var/log/ollama-orchestrator/*.log {
+  daily
+  rotate 7
+  compress
+  delaycompress
+  missingok
+  notifempty
+  create 0640 root root
+  sharedscripts
+}

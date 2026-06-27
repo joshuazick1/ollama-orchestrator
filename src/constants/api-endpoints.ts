@@ -1,0 +1,113 @@
+/**
+ * api-endpoints.ts
+ * API endpoint constants for Ollama and OpenAI-compatible servers
+ */
+
+export const API_ENDPOINTS = {
+  OLLAMA: {
+    TAGS: '/api/tags',
+    GENERATE: '/api/generate',
+    CHAT: '/api/chat',
+    EMBEDDINGS: '/api/embeddings',
+    EMBED: '/api/embed',
+    PULL: '/api/pull',
+    SHOW: '/api/show',
+    PS: '/api/ps',
+    DELETE: '/api/delete',
+    VERSION: '/api/version',
+  },
+  OPENAI: {
+    CHAT_COMPLETIONS: '/v1/chat/completions',
+    COMPLETIONS: '/v1/completions',
+    EMBEDDINGS: '/v1/embeddings',
+    MODELS: '/v1/models',
+  },
+  ANTHROPIC: {
+    MESSAGES: '/v1/messages',
+    MODELS: '/v1/models',
+    MESSAGES_BATCHES: '/v1/messages/batches',
+  },
+  COHERE: {
+    CHAT: '/v1/chat',
+    MODELS: '/v1/models',
+  },
+  BEDROCK: {
+    INVOKE: '/model/{modelId}/invoke',
+    INVOKE_STREAM: '/model/{modelId}/invoke-with-response-stream',
+  },
+} as const;
+
+export const ANTHROPIC_SERVER_CAPABILITIES =
+  '/api/orchestrator/anthropic/servers/:serverId/capabilities';
+
+export type OllamaEndpoint = (typeof API_ENDPOINTS.OLLAMA)[keyof typeof API_ENDPOINTS.OLLAMA];
+export type OpenAIEndpoint = (typeof API_ENDPOINTS.OPENAI)[keyof typeof API_ENDPOINTS.OPENAI];
+export type AnthropicEndpoint =
+  (typeof API_ENDPOINTS.ANTHROPIC)[keyof typeof API_ENDPOINTS.ANTHROPIC];
+export type CohereEndpoint = (typeof API_ENDPOINTS.COHERE)[keyof typeof API_ENDPOINTS.COHERE];
+
+export const CAPABILITY_PROBE = '/api/orchestrator/servers/:id/capability-probe';
+export const TEST_CONNECTION = '/api/orchestrator/servers/test-connection';
+export const ANALYTICS_CIRCUIT_BREAKERS = '/api/orchestrator/analytics/circuit-breakers';
+
+/**
+ * Performance probe endpoints for orchestrator-managed load testing tasks.
+ * POST /api/orchestrator/performance-probe - Start a new performance probe task.
+ * GET  /api/orchestrator/performance-probe/:taskId - Get status of a running probe task.
+ * DELETE /api/orchestrator/performance-probe/:taskId - Cancel a running probe task.
+ */
+export const PERFORMANCE_PROBE = '/api/orchestrator/performance-probe';
+export const PERFORMANCE_PROBE_STATUS = '/api/orchestrator/performance-probe/:taskId';
+export const PERFORMANCE_PROBE_CANCEL = '/api/orchestrator/performance-probe/:taskId';
+export const PERFORMANCE_PROBE_HISTORY = '/api/orchestrator/performance-probe/history';
+export const PERFORMANCE_PROBE_HISTORY_EXPORT =
+  '/api/orchestrator/performance-probe/history/export';
+export const PERFORMANCE_PROBE_SCHEDULER_STATUS =
+  '/api/orchestrator/performance-probe/scheduler-status';
+export const PERFORMANCE_PROBE_RECENT = '/api/orchestrator/performance-probe/recent';
+export const PERFORMANCE_PROBE_COVERAGE_GRID = '/api/orchestrator/performance-probe/coverage-grid';
+export const PERFORMANCE_PROBE_SCHEDULED_PROBES =
+  '/api/orchestrator/performance-probe/scheduled-probes';
+export const SERVERS_GHOST_STATS = '/api/orchestrator/servers/ghost-stats';
+export const HONEYPOT_STATS = '/api/orchestrator/honeypot-stats';
+export const HONEYPOT_STATS_SUMMARY = '/api/orchestrator/honeypot-stats/summary';
+export const HONEYPOT_STATS_TOP = '/api/orchestrator/honeypot-stats/top';
+
+/**
+ * Encode a path segment, but NOT if it's an Express route parameter (starts with :).
+ * Route params like :serverId should be passed through as-is; actual values should be encoded.
+ */
+function encodeSegment(segment: string): string {
+  return segment.startsWith(':') ? segment : encodeURIComponent(segment);
+}
+
+export const CIRCUIT_BREAKERS = {
+  ROOT: '/api/orchestrator/circuit-breakers',
+  BY_SERVER_MODEL: (serverId: string, model: string) =>
+    `${CIRCUIT_BREAKERS.ROOT}/${encodeSegment(serverId)}/${encodeSegment(model)}`,
+  BY_SERVER_MODEL_ENDPOINT: (serverId: string, model: string, endpoint: string) =>
+    `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/${endpoint}`,
+  BY_SERVER_MODEL_ENDPOINTS: (serverId: string, model: string) =>
+    `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/endpoints`,
+  BY_SERVER: (serverId: string) => `${CIRCUIT_BREAKERS.ROOT}/${encodeSegment(serverId)}`,
+  RESET: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/reset`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/reset`,
+  OPEN: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/open`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/open`,
+  CLOSE: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/close`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/close`,
+  HALF_OPEN: (serverId: string, model?: string) =>
+    model
+      ? `${CIRCUIT_BREAKERS.BY_SERVER_MODEL(serverId, model)}/half-open`
+      : `${CIRCUIT_BREAKERS.BY_SERVER(serverId)}/half-open`,
+  RESET_ALL_FOR_SERVER: (serverId: string) =>
+    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeSegment(serverId)}/reset-all`,
+  DELETE_ALL_FOR_SERVER: (serverId: string) =>
+    `${CIRCUIT_BREAKERS.ROOT}/server/${encodeSegment(serverId)}`,
+} as const;

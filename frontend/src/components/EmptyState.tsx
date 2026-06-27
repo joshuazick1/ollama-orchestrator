@@ -1,0 +1,103 @@
+import type { LucideIcon } from 'lucide-react';
+import { Loader2, AlertCircle, Inbox, Server, Database, FileText } from 'lucide-react';
+import { Button } from './Button';
+
+export type EmptyStateType = 'loading' | 'empty' | 'error' | 'no-servers' | 'no-models' | 'no-logs';
+
+interface EmptyStateProps {
+  type: EmptyStateType;
+  title?: string;
+  message?: string;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+}
+
+const defaultConfigs: Record<EmptyStateType, { icon: LucideIcon; title: string; message: string }> =
+  {
+    loading: {
+      icon: Loader2,
+      title: 'Loading...',
+      message: 'Fetching data from the server.',
+    },
+    empty: {
+      icon: Inbox,
+      title: 'No data available',
+      message: 'There is nothing to display here yet.',
+    },
+    error: {
+      icon: AlertCircle,
+      title: 'Something went wrong',
+      message: 'An error occurred while loading data.',
+    },
+    'no-servers': {
+      icon: Server,
+      title: 'No servers configured',
+      message: 'Add your first AI server to get started.',
+    },
+    'no-models': {
+      icon: Database,
+      title: 'No models available',
+      message: 'No models have been loaded on any server yet.',
+    },
+    'no-logs': {
+      icon: FileText,
+      title: 'No logs available',
+      message: 'System logs will appear here once available.',
+    },
+  };
+
+export const EmptyState = ({ type, title, message, action }: EmptyStateProps) => {
+  const config = defaultConfigs[type];
+  const Icon = config.icon;
+
+  if (type === 'loading') {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 px-4">
+        <Icon className="w-12 h-12 text-primary animate-spin mb-4" />
+        <h3 className="text-lg font-medium text-text-base mb-2">{title ?? config.title}</h3>
+        <p className="text-text-muted text-center">{message ?? config.message}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-4">
+      <div className="p-4 rounded-full bg-surface mb-4">
+        <Icon className="w-12 h-12 text-text-subtle" />
+      </div>
+      <h3 className="text-lg font-medium text-white mb-2">{title ?? config.title}</h3>
+      <p className="text-text-muted text-center max-w-md mb-6">{message ?? config.message}</p>
+      {action && (
+        <Button variant="primary" onClick={action.onClick}>
+          {action.label}
+        </Button>
+      )}
+    </div>
+  );
+};
+
+export const LoadingState = ({ message = 'Loading...' }: { message?: string }) => (
+  <EmptyState type="loading" message={message} />
+);
+
+export const ErrorState = ({
+  title,
+  message,
+  action,
+}: {
+  title?: string;
+  message?: string;
+  action?: { label: string; onClick: () => void };
+}) => <EmptyState type="error" title={title} message={message} action={action} />;
+
+export const NoServersState = ({ action }: { action?: { label: string; onClick: () => void } }) => (
+  <EmptyState type="no-servers" action={action} />
+);
+
+export const NoModelsState = () => <EmptyState type="no-models" />;
+
+export const NoLogsState = () => <EmptyState type="no-logs" />;
+
+export default EmptyState;

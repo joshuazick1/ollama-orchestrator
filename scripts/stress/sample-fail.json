@@ -1,0 +1,14 @@
+{
+  "phase": "b2-spike",
+  "requests_sent": 50000,
+  "requests_completed": 46500,
+  "p50_ms": 850,
+  "p95_ms": 3200,
+  "p99_ms": 6500,
+  "error_rate": 0.07,
+  "http_5xx_count": 15,
+  "in_flight_peak": 200,
+  "memory_growth_pct": 55.0,
+  "cb_healthy_count": 18,
+  "cb_total_count": 20
+}

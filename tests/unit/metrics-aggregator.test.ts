@@ -1,0 +1,1005 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+
+import { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
+import type { RequestContext } from '../../src/orchestrator/orchestrator.types.js';
+
+describe('MetricsAggregator', () => {
+  let aggregator: MetricsAggregator;
+
+  beforeEach(() => {
+    aggregator = new MetricsAggregator();
+  });
+
+  describe('Request Recording', () => {
+    it('should record a successful request', () => {
+      const context: RequestContext = {
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      };
+
+      aggregator.recordRequest(context);
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.serverId).toBe('server-1');
+      expect(metrics?.model).toBe('llama3:latest');
+      expect(metrics?.windows['5m'].count).toBe(1);
+      expect(metrics?.windows['5m'].latencySum).toBe(100);
+    });
+
+    it('should record a failed request', () => {
+      const context: RequestContext = {
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: false,
+        duration: 100,
+      };
+
+      aggregator.recordRequest(context);
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+
+      expect(metrics?.windows['5m'].errors).toBe(1);
+    });
+
+    it('should track multiple requests', () => {
+      for (let i = 0; i < 5; i++) {
+        aggregator.recordRequest({
+          id: `req-${i}`,
+          startTime: Date.now() - 100,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: false,
+          success: i < 4, // 4 successes, 1 failure
+          duration: 100 + i * 10,
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.windows['5m'].count).toBe(5);
+      expect(metrics?.windows['5m'].errors).toBe(1);
+    });
+
+    it('should track token counts', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+        tokensGenerated: 100,
+        tokensPrompt: 50,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.windows['5m'].tokensGenerated).toBe(100);
+      expect(metrics?.windows['5m'].tokensPrompt).toBe(50);
+    });
+  });
+
+  describe('In-Flight Tracking', () => {
+    it('should track in-flight requests', () => {
+      aggregator.incrementInFlight('server-1', 'llama3:latest');
+      aggregator.incrementInFlight('server-1', 'llama3:latest');
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.inFlight).toBe(2);
+    });
+
+    it('should decrement in-flight requests', () => {
+      aggregator.incrementInFlight('server-1', 'llama3:latest');
+      aggregator.incrementInFlight('server-1', 'llama3:latest');
+      aggregator.decrementInFlight('server-1', 'llama3:latest');
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.inFlight).toBe(1);
+    });
+
+    it('should not go below zero', () => {
+      aggregator.incrementInFlight('server-1', 'llama3:latest');
+      aggregator.decrementInFlight('server-1', 'llama3:latest');
+      aggregator.decrementInFlight('server-1', 'llama3:latest');
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.inFlight).toBe(0);
+    });
+  });
+
+  describe('Percentile Calculations', () => {
+    it('should calculate P50 correctly', () => {
+      const latencies = [100, 200, 300, 400, 500];
+
+      latencies.forEach((duration, i) => {
+        aggregator.recordRequest({
+          id: `req-${i}`,
+          startTime: Date.now() - duration,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: false,
+          success: true,
+          duration,
+        });
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.percentiles.p50).toBe(300);
+    });
+
+    it('should calculate P95 correctly', () => {
+      // Create 100 requests with increasing latency
+      for (let i = 0; i < 100; i++) {
+        aggregator.recordRequest({
+          id: `req-${i}`,
+          startTime: Date.now() - i,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: false,
+          success: true,
+          duration: i * 10,
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      // P95 of 100 values should be around the 95th value (950ms)
+      expect(metrics?.percentiles.p95).toBeGreaterThan(0);
+    });
+
+    it('should handle empty metrics', () => {
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics).toBeUndefined();
+    });
+  });
+
+  describe('Derived Metrics', () => {
+    it('should calculate success rate', () => {
+      for (let i = 0; i < 10; i++) {
+        aggregator.recordRequest({
+          id: `req-${i}`,
+          startTime: Date.now() - 100,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: false,
+          success: i < 9, // 9 successes, 1 failure
+          duration: 100,
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.successRate).toBe(0.9);
+    });
+
+    it('should calculate throughput', () => {
+      const baseTime = Date.now();
+
+      // Record 60 requests spread over 60 seconds
+      for (let i = 0; i < 60; i++) {
+        aggregator.recordRequest({
+          id: `req-${i}`,
+          startTime: baseTime - i * 1000, // Spread over 60 seconds
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: false,
+          success: true,
+          duration: 100,
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      // Throughput should be approximately 60 requests per minute (or 1 per second)
+      // Note: in tests with fast execution, window duration might be very small
+      expect(metrics?.throughput).toBeDefined();
+      expect(metrics?.windows['5m'].count).toBe(60);
+    });
+
+    it('should calculate average tokens', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+        tokensGenerated: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+        tokensGenerated: 200,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.avgTokensPerRequest).toBe(150);
+    });
+  });
+
+  describe('Global Metrics', () => {
+    it('should aggregate across all server:models', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+        tokensGenerated: 50,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-2',
+        model: 'mistral:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: false,
+        duration: 200,
+        tokensGenerated: 100,
+      });
+
+      const global = aggregator.getGlobalMetrics();
+      expect(global.totalRequests).toBe(2);
+      expect(global.totalErrors).toBe(1);
+      expect(global.totalTokens).toBe(150);
+      expect(global.errorRate).toBe(0.5);
+    });
+  });
+
+  describe('Metrics Export', () => {
+    it('should export structured metrics', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const exported = aggregator.exportMetrics();
+      expect(exported.timestamp).toBeDefined();
+      expect(exported.global).toBeDefined();
+      expect(exported.global.totalRequests).toBe(1);
+    });
+
+    it('should include server metrics in export', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const allMetrics = aggregator.getAllMetrics();
+      expect(allMetrics.size).toBe(1);
+      expect(allMetrics.has('server-1:llama3:latest')).toBe(true);
+    });
+  });
+
+  describe('Reset', () => {
+    it('should clear all metrics on reset', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.reset();
+
+      const metrics = aggregator.getAllMetrics();
+      expect(metrics.size).toBe(0);
+    });
+  });
+
+  describe('Streaming Metrics', () => {
+    it('should record streaming request with TTFT', () => {
+      const context: RequestContext = {
+        id: 'stream-1',
+        startTime: Date.now() - 500,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 500,
+        ttft: 100,
+        streamingDuration: 400,
+        chunkCount: 10,
+        maxChunkGapMs: 50,
+        avgChunkSizeBytes: 100,
+      };
+
+      aggregator.recordRequest(context);
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+
+      expect(metrics?.streamingMetrics).toBeDefined();
+      expect(metrics?.streamingMetrics?.recentTTFTs).toContain(100);
+      expect(metrics?.streamingMetrics?.recentChunkCounts).toContain(10);
+      expect(metrics?.streamingMetrics?.recentStreamingDurations).toContain(400);
+      expect(metrics?.streamingMetrics?.recentMaxChunkGaps).toContain(50);
+      expect(metrics?.streamingMetrics?.recentChunkSizes).toContain(100);
+    });
+
+    it('should calculate average TTFT correctly', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        ttft: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'stream-2',
+        startTime: Date.now() - 200,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 200,
+        ttft: 200,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.avgTTFT).toBe(150);
+    });
+
+    it('should calculate TTFT percentiles', () => {
+      const ttfts = [50, 100, 150, 200, 250];
+      for (let i = 0; i < ttfts.length; i++) {
+        aggregator.recordRequest({
+          id: `stream-${i}`,
+          startTime: Date.now() - 300 + i,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: true,
+          success: true,
+          duration: 300,
+          ttft: ttfts[i],
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.ttftPercentiles.p50).toBeGreaterThan(0);
+      expect(metrics?.streamingMetrics?.ttftPercentiles.p95).toBeGreaterThan(0);
+      expect(metrics?.streamingMetrics?.ttftPercentiles.p99).toBeGreaterThan(0);
+    });
+
+    it('should not record TTFT when zero or undefined', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        ttft: 0,
+      });
+
+      aggregator.recordRequest({
+        id: 'non-stream-1',
+        startTime: Date.now() - 200,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 200,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.recentTTFTs).toHaveLength(0);
+      expect(metrics?.streamingMetrics?.avgTTFT).toBe(0);
+    });
+
+    it('should get streaming metrics summary', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        ttft: 100,
+        streamingDuration: 200,
+        chunkCount: 5,
+      });
+
+      aggregator.recordRequest({
+        id: 'stream-2',
+        startTime: Date.now() - 200,
+        serverId: 'server-2',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 200,
+        ttft: 150,
+        streamingDuration: 100,
+        chunkCount: 3,
+      });
+
+      const summary = aggregator.getStreamingMetricsSummary(2);
+      expect(summary).toBeDefined();
+      expect(summary?.totalStreamingRequests).toBe(2);
+      expect(summary?.avgTTFT).toBe(125);
+      expect(summary?.avgStreamingDuration).toBe(150);
+      expect(summary?.avgChunkCount).toBe(4);
+    });
+
+    it('should return undefined for streaming summary when no streaming requests', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const summary = aggregator.getStreamingMetricsSummary(1);
+      expect(summary).toBeUndefined();
+    });
+
+    it('should track chunk metrics correctly', () => {
+      aggregator.recordRequest({
+        id: 'stream-1',
+        startTime: Date.now() - 300,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: true,
+        success: true,
+        duration: 300,
+        chunkCount: 10,
+        maxChunkGapMs: 100,
+        avgChunkSizeBytes: 50,
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.recentChunkCounts).toContain(10);
+      expect(metrics?.streamingMetrics?.recentMaxChunkGaps).toContain(100);
+      expect(metrics?.streamingMetrics?.recentChunkSizes).toContain(50);
+      expect(metrics?.streamingMetrics?.avgChunkCount).toBe(10);
+      expect(metrics?.streamingMetrics?.avgChunkSizeBytes).toBe(50);
+    });
+
+    it('should limit recent TTFTs array size', () => {
+      for (let i = 0; i < 600; i++) {
+        aggregator.recordRequest({
+          id: `stream-${i}`,
+          startTime: Date.now() - 600 + i,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: true,
+          success: true,
+          duration: 100,
+          ttft: 100 + i,
+        });
+      }
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.streamingMetrics?.recentTTFTs.length).toBeLessThanOrEqual(500);
+    });
+  });
+
+  describe('getRawMetrics', () => {
+    it('should return raw metrics without fallback', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const rawMetrics = aggregator.getRawMetrics('server-1', 'llama3:latest');
+
+      expect(rawMetrics).toBeDefined();
+      expect(rawMetrics?.serverId).toBe('server-1');
+      expect(rawMetrics?.model).toBe('llama3:latest');
+      expect(rawMetrics?.windows['5m'].count).toBe(1);
+    });
+
+    it('should return undefined for non-existent metrics', () => {
+      const rawMetrics = aggregator.getRawMetrics('non-existent', 'model');
+
+      expect(rawMetrics).toBeUndefined();
+    });
+  });
+
+  describe('getAllMetricsForServer', () => {
+    it('should return all metrics for a specific server', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'codellama:7b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 150,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-3',
+        startTime: Date.now() - 100,
+        serverId: 'server-2',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 200,
+      });
+
+      const serverMetrics = aggregator.getAllMetricsForServer('server-1');
+
+      expect(serverMetrics).toHaveLength(2);
+      expect(serverMetrics.map(m => m.model).sort()).toEqual(['codellama:7b', 'llama3:latest']);
+    });
+
+    it('should return empty array for non-existent server', () => {
+      const serverMetrics = aggregator.getAllMetricsForServer('non-existent');
+
+      expect(serverMetrics).toHaveLength(0);
+    });
+  });
+
+  describe('getMetricsByParameterSize', () => {
+    it('should group metrics by parameter size', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:70b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 200,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:8b', { parameterSize: '8B' });
+      aggregator.updateModelMetadata('server-1', 'llama3:70b', { parameterSize: '70B' });
+
+      const sizeMetrics = aggregator.getMetricsByParameterSize('server-1', '8B');
+
+      expect(sizeMetrics).toBeDefined();
+      expect(sizeMetrics?.model).toBe('llama3:8b');
+    });
+
+    it('should return undefined for non-existent parameter size', () => {
+      const sizeMetrics = aggregator.getMetricsByParameterSize('server-1', '999b');
+
+      expect(sizeMetrics).toBeUndefined();
+    });
+  });
+
+  describe('getServerCapabilityScore', () => {
+    it('should calculate capability score based on metrics', () => {
+      for (let i = 0; i < 10; i++) {
+        aggregator.recordRequest({
+          id: `req-${i}`,
+          startTime: Date.now() - 100,
+          serverId: 'server-1',
+          model: 'llama3:latest',
+          endpoint: 'generate',
+          streaming: false,
+          success: true,
+          duration: 100,
+        });
+      }
+
+      const score = aggregator.getServerCapabilityScore('server-1');
+
+      expect(score).toBeGreaterThan(0);
+    });
+
+    it('should return 0 for non-existent server', () => {
+      const score = aggregator.getServerCapabilityScore('non-existent');
+
+      expect(score).toBe(0);
+    });
+  });
+
+  describe('getMetricsWithFallback', () => {
+    it('should return specific model metrics when available', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 150,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'llama3:latest');
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.model).toBe('llama3:latest');
+    });
+
+    it('should return undefined when model not found and no parameterSize provided', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'unknown-model');
+
+      expect(metrics).toBeUndefined();
+    });
+
+    it('should fallback to parameter size when enabled and parameterSize provided and metadata set', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', { parameterSize: '8B' });
+
+      aggregator.setCrossModelInferenceConfig({
+        enabled: true,
+        useParameterSize: true,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'llama3:8b', '8B');
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.model).toContain('llama3:latest');
+      expect(metrics?.parameterSize).toBe('8B');
+    });
+
+    it('should return undefined when no fallback available', () => {
+      const metrics = aggregator.getMetricsWithFallback('non-existent', 'unknown-model');
+
+      expect(metrics).toBeUndefined();
+    });
+
+    it('should not fallback when cross-model inference is disabled', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', { parameterSize: '8B' });
+
+      aggregator.setCrossModelInferenceConfig({
+        enabled: false,
+        useParameterSize: true,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback('server-1', 'llama3:8b', '8B');
+
+      expect(metrics).toBeUndefined();
+    });
+  });
+
+  describe('updateModelMetadata', () => {
+    it('should update parameter size and rebuild index', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', {
+        parameterSize: '8B',
+        quantization: 'Q4_K_M',
+      });
+
+      const metrics = aggregator.getMetrics('server-1', 'llama3:latest');
+      expect(metrics?.parameterSize).toBe('8B');
+      expect(metrics?.quantization).toBe('Q4_K_M');
+    });
+
+    it('should make parameter size fallback available after metadata update', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.updateModelMetadata('server-1', 'llama3:latest', { parameterSize: '8B' });
+
+      const sizeMetrics = aggregator.getMetricsByParameterSize('server-1', '8B');
+
+      expect(sizeMetrics).toBeDefined();
+      expect(sizeMetrics?.model).toBe('llama3:latest');
+    });
+  });
+
+  describe('getAllMetrics', () => {
+    it('should return all metrics as a Map', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      const allMetrics = aggregator.getAllMetrics();
+
+      expect(allMetrics).toBeInstanceOf(Map);
+      expect(allMetrics.size).toBe(1);
+      expect(allMetrics.has('server-1:llama3:latest')).toBe(true);
+    });
+
+    it('should return empty Map when no metrics', () => {
+      const allMetrics = aggregator.getAllMetrics();
+
+      expect(allMetrics).toBeInstanceOf(Map);
+      expect(allMetrics.size).toBe(0);
+    });
+  });
+
+  describe('getGlobalMetrics', () => {
+    it('should aggregate global metrics', () => {
+      aggregator.recordRequest({
+        id: 'req-1',
+        startTime: Date.now() - 100,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 100,
+      });
+
+      aggregator.recordRequest({
+        id: 'req-2',
+        startTime: Date.now() - 100,
+        serverId: 'server-2',
+        model: 'llama3:8b',
+        endpoint: 'generate',
+        streaming: false,
+        success: false,
+        duration: 200,
+      });
+
+      const global = aggregator.getGlobalMetrics();
+
+      expect(global).toBeDefined();
+      expect(global.totalRequests).toBe(2);
+      expect(global.totalErrors).toBe(1);
+    });
+  });
+
+  describe('Cross-Model Inference Config', () => {
+    it('should set and get cross-model inference config', () => {
+      aggregator.setCrossModelInferenceConfig({
+        enabled: true,
+        useParameterSize: false,
+      });
+
+      const config = (aggregator as any).config.crossModelInference;
+
+      expect(config.enabled).toBe(true);
+      expect(config.useParameterSize).toBe(false);
+    });
+  });
+
+  describe('Decay Config', () => {
+    it('should get default decay config', () => {
+      const config = aggregator.getDecayConfig();
+
+      expect(config).toBeDefined();
+      expect(config).toHaveProperty('enabled');
+      expect(config).toHaveProperty('halfLifeMs');
+    });
+
+    it('should set decay config', () => {
+      aggregator.setDecayConfig({
+        enabled: false,
+        halfLifeMs: 60000,
+      });
+
+      const config = aggregator.getDecayConfig();
+
+      expect(config.enabled).toBe(false);
+      expect(config.halfLifeMs).toBe(60000);
+    });
+  });
+
+  describe('Prune Scheduler', () => {
+    let aggregator: MetricsAggregator;
+
+    beforeEach(() => {
+      aggregator = new MetricsAggregator();
+    });
+
+    afterEach(() => {
+      aggregator.stopPruneScheduler();
+      vi.useRealTimers();
+    });
+
+    it('is a no-op when intervalMs is 0', () => {
+      aggregator.startPruneScheduler(0);
+      expect(aggregator['pruneIntervalId']).toBeUndefined();
+    });
+
+    it('is a no-op when intervalMs is negative', () => {
+      aggregator.startPruneScheduler(-1);
+      expect(aggregator['pruneIntervalId']).toBeUndefined();
+    });
+
+    it('calls pruneOldMetrics at the configured interval', () => {
+      vi.useFakeTimers();
+      const spy = vi.spyOn(aggregator, 'pruneOldMetrics');
+      aggregator.startPruneScheduler(1000);
+      expect(spy).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1000);
+      expect(spy).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1000);
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    it('is idempotent — calling start twice does not create duplicate intervals', () => {
+      vi.useFakeTimers();
+      const spy = vi.spyOn(aggregator, 'pruneOldMetrics');
+      aggregator.startPruneScheduler(1000);
+      const firstId = aggregator['pruneIntervalId'];
+      aggregator.startPruneScheduler(1000);
+      const secondId = aggregator['pruneIntervalId'];
+      expect(secondId).toBeDefined();
+      expect(firstId).not.toBe(secondId);
+      vi.advanceTimersByTime(1000);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('stopPruneScheduler clears the interval', () => {
+      vi.useFakeTimers();
+      const spy = vi.spyOn(aggregator, 'pruneOldMetrics');
+      aggregator.startPruneScheduler(1000);
+      aggregator.stopPruneScheduler();
+      expect(aggregator['pruneIntervalId']).toBeUndefined();
+      vi.advanceTimersByTime(2000);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('preserves entries with inFlight > 0 during pruning (regression)', () => {
+      // Use real timers — verify pruneOldMetrics itself skips in-flight entries
+      aggregator.stopPruneScheduler();
+      // Inject a stale entry directly into the metrics map
+      const pastTime = Date.now() - 25 * 60 * 60 * 1000; // 25h ago
+      (aggregator as any).metrics.set('server-1|model-1', {
+        serverId: 'server-1',
+        model: 'model-1',
+        inFlight: 5, // <-- must NOT be pruned
+        lastUpdated: pastTime,
+        windows: {
+          '1m': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '5m': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '15m': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '1h': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+          '24h': { count: 0, latencySum: 0, errors: 0, successSum: 0, avgLatencyMs: 0 },
+        },
+      });
+
+      // Prune with 24h maxAge — the stale entry has inFlight=5 so must survive
+      aggregator.pruneOldMetrics(24 * 60 * 60 * 1000);
+
+      expect((aggregator as any).metrics.has('server-1|model-1')).toBe(true);
+    });
+  });
+});

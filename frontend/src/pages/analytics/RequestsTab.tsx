@@ -1,0 +1,255 @@
+import { memo } from 'react';
+import { ChevronDown, ChevronRight, CheckCircle, XCircle } from 'lucide-react';
+import { formatDurationMs } from '../../utils/formatting';
+
+interface ExpandedRequest {
+  [key: string]: boolean;
+}
+
+interface RequestRowProps {
+  req: {
+    id: string;
+    model: string;
+    duration: number;
+    timestamp: string;
+    success: boolean;
+    tokensGenerated?: number;
+    tokensPrompt?: number;
+    ttft?: number;
+    errorType?: string;
+    errorMessage?: string;
+  };
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+const RequestRow = memo(({ req, isExpanded, onToggle }: RequestRowProps) => (
+  <>
+    <tr
+      className="border-b border-gray-800 hover:bg-surface/30 cursor-pointer transition-colors"
+      onClick={onToggle}
+      tabIndex={0}
+      role="button"
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      aria-expanded={isExpanded}
+    >
+      <td className="py-3 text-center">
+        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+      </td>
+      <td className="py-3 text-gray-300 font-mono text-xs">
+        {new Date(req.timestamp).toLocaleTimeString()}
+      </td>
+      <td className="py-3 text-text-base font-medium">{req.model}</td>
+      <td className="py-3 text-right text-gray-300 font-mono">{formatDurationMs(req.duration)}</td>
+      <td className="py-3 text-center">
+        {req.success ? (
+          <CheckCircle className="w-4 h-4 text-green-500 inline" />
+        ) : (
+          <XCircle className="w-4 h-4 text-red-500 inline" />
+        )}
+      </td>
+      <td className="py-3 text-right text-gray-300 font-mono">{req.tokensGenerated || '-'}</td>
+    </tr>
+    {isExpanded && (
+      <tr className="bg-surface-raised/50">
+        <td colSpan={6} className="p-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs font-mono text-text-muted">
+            <div>
+              <span className="text-gray-600 block mb-1">ID</span> {req.id}
+            </div>
+            <div>
+              <span className="text-gray-600 block mb-1">TTFT</span>{' '}
+              {req.ttft ? formatDurationMs(req.ttft) : '-'}
+            </div>
+            <div>
+              <span className="text-gray-600 block mb-1">Prompt Tokens</span>{' '}
+              {req.tokensPrompt || '-'}
+            </div>
+            {req.errorType && (
+              <div className="col-span-full mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-red-300">
+                <span className="font-bold">{req.errorType}:</span> {req.errorMessage}
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    )}
+  </>
+));
+RequestRow.displayName = 'RequestRow';
+
+interface RequestsTabProps {
+  serversWithHistory?: {
+    serverIds?: string[];
+  };
+  selectedServer: string;
+  onSelectServer: (server: string) => void;
+  serverRequestHistory?: {
+    requests: Array<{
+      id: string;
+      model: string;
+      duration: number;
+      timestamp: string;
+      success: boolean;
+      tokensGenerated?: number;
+      tokensPrompt?: number;
+      ttft?: number;
+      errorType?: string;
+      errorMessage?: string;
+    }>;
+  };
+  serverRequestStats?: {
+    stats: {
+      totalRequests: number;
+      errorRate: number;
+      avgDuration: number;
+      avgTokensGenerated?: number;
+    };
+  };
+  expandedRequests: ExpandedRequest;
+  onToggleExpansion: (id: string) => void;
+  page: number;
+  onPageChange: (page: number) => void;
+  isLoading?: boolean;
+}
+
+const ITEMS_PER_PAGE = 50;
+
+export const RequestsTab = ({
+  serversWithHistory,
+  selectedServer,
+  onSelectServer,
+  serverRequestHistory,
+  serverRequestStats,
+  expandedRequests,
+  onToggleExpansion,
+  page,
+  onPageChange,
+  isLoading,
+}: RequestsTabProps) => {
+  const requests = serverRequestHistory?.requests || [];
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="bg-surface rounded-xl border border-surface-border p-6">
+        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
+          <h3 className="text-lg font-semibold text-text-base">Detailed Request Logs</h3>
+          <select
+            value={selectedServer}
+            onChange={e => {
+              onSelectServer(e.target.value);
+              onPageChange(0);
+            }}
+            className="bg-surface-raised border border-gray-600 rounded-lg px-4 py-2 text-text-base min-w-[200px]"
+            aria-label="Select a server to view request logs"
+          >
+            <option value="">Select a server...</option>
+            {serversWithHistory?.serverIds?.map(serverId => (
+              <option key={serverId} value={serverId}>
+                {serverId}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Server Request Stats Summary */}
+        {selectedServer && serverRequestStats?.stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Total Requests</div>
+              <div className="text-xl font-bold text-text-base">
+                {serverRequestStats.stats.totalRequests}
+              </div>
+            </div>
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Success Rate</div>
+              <div
+                className={`text-xl font-bold ${serverRequestStats.stats.errorRate > 0.05 ? 'text-red-400' : 'text-green-400'}`}
+              >
+                {((1 - serverRequestStats.stats.errorRate) * 100).toFixed(1)}%
+              </div>
+            </div>
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Avg Latency</div>
+              <div className="text-xl font-bold text-blue-400">
+                {formatDurationMs(serverRequestStats.stats.avgDuration)}
+              </div>
+            </div>
+            <div className="bg-surface-raised/50 p-3 rounded border border-surface-border/50">
+              <div className="text-xs text-text-subtle uppercase">Avg Tokens</div>
+              <div className="text-xl font-bold text-purple-400">
+                {Math.round(serverRequestStats.stats.avgTokensGenerated || 0)}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedServer && requests.length > 0 ? (
+          <div className="space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-surface-border text-text-muted">
+                    <th className="w-8 py-3">
+                      <span className="sr-only">Expand row</span>
+                    </th>
+                    <th className="text-left py-3">Time</th>
+                    <th className="text-left py-3">Model</th>
+                    <th className="text-right py-3">Duration</th>
+                    <th className="text-center py-3">Status</th>
+                    <th className="text-right py-3">Tokens</th>
+                  </tr>
+                </thead>
+                <tbody className={isLoading ? 'opacity-50 pointer-events-none' : ''}>
+                  {requests.map(req => (
+                    <RequestRow
+                      key={req.id}
+                      req={req}
+                      isExpanded={expandedRequests[req.id] ?? false}
+                      onToggle={() => onToggleExpansion(req.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex justify-between items-center border-t border-surface-border pt-4">
+              <div className="text-sm text-text-muted">
+                Showing {page * ITEMS_PER_PAGE + 1}-{page * ITEMS_PER_PAGE + requests.length} of{' '}
+                {serverRequestStats?.stats.totalRequests || requests.length} requests
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onPageChange(Math.max(0, page - 1))}
+                  disabled={page === 0 || isLoading}
+                  className="px-3 py-1 bg-surface hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-text-base transition-colors"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => onPageChange(page + 1)}
+                  disabled={requests.length < ITEMS_PER_PAGE || isLoading}
+                  className="px-3 py-1 bg-surface hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded text-sm text-text-base transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-12 text-text-subtle">
+            {selectedServer
+              ? 'No requests found for this server.'
+              : 'Please select a server to view logs.'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

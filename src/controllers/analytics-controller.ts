@@ -1,0 +1,950 @@
+/**
+ * analyticsController.ts
+ * Analytics API endpoints for reporting and insights
+ */
+
+import type { Request, Response } from 'express';
+
+import type { AnalyticsTimeRange } from '../analytics/analytics-engine.js';
+import { getAnalyticsEngine } from '../analytics/analytics-engine.js';
+import { ERROR_MESSAGES } from '../constants/index.js';
+import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
+import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
+import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
+import { getMetricsStore } from '../storage/metrics-store.js';
+
+/**
+ * Get top models by usage
+ * GET /api/orchestrator/analytics/top-models
+ */
+export function getTopModels(req: Request, res: Response): void {
+  const { limit = '10', timeRange = '24h' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+  const orchestrator = getOrchestratorInstance();
+
+  // Update analytics with current metrics
+  analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
+
+  try {
+    const topModels = analytics.getTopModels(
+      parseInt(limit as string, 10) || 10,
+      timeRange as AnalyticsTimeRange
+    );
+
+    res.status(200).json({
+      success: true,
+      timeRange: timeRange as string,
+      models: topModels.map(model => ({
+        model: model.model,
+        requests: model.requests,
+        percentage: Math.round(model.percentage * 100) / 100,
+        avgLatency: model.avgLatency,
+        errorRate: model.errorRate,
+      })),
+      count: topModels.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get top models',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get server performance comparison
+ * GET /api/orchestrator/analytics/server-performance
+ */
+export function getServerPerformance(req: Request, res: Response): void {
+  const { timeRange = '1h' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+  const orchestrator = getOrchestratorInstance();
+
+  // Update analytics with current metrics
+  analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
+
+  try {
+    const performance = analytics.getServerPerformance(timeRange as AnalyticsTimeRange);
+
+    res.status(200).json({
+      success: true,
+      timeRange: timeRange as string,
+      servers: performance.map(server => ({
+        id: server.id,
+        requests: server.requests,
+        avgLatency: server.avgLatency,
+        p95Latency: server.p95Latency,
+        p99Latency: server.p99Latency,
+        errorRate: server.errorRate,
+        throughput: server.throughput,
+        utilization: server.utilization,
+        score: server.score,
+      })),
+      count: performance.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get server performance',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get error analysis
+ * GET /api/orchestrator/analytics/errors
+ */
+export function getErrorAnalysis(req: Request, res: Response): void {
+  const { timeRange = '24h', includeRecent = 'true' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+  const orchestrator = getOrchestratorInstance();
+
+  // Update analytics with current metrics
+  analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
+
+  try {
+    const analysis = analytics.getErrorAnalysis(timeRange as AnalyticsTimeRange);
+
+    const response: Record<string, unknown> = {
+      success: true,
+      timeRange: timeRange as string,
+      totalErrors: analysis.totalErrors,
+      byType: analysis.byType,
+      byServer: analysis.byServer,
+      byModel: analysis.byModel,
+      trend: analysis.trend,
+    };
+
+    // Include recent errors if requested
+    if (includeRecent === 'true') {
+      response.recentErrors = analysis.recentErrors.slice(0, 20).map(err => ({
+        timestamp: err.timestamp,
+        serverId: err.serverId,
+        model: err.model,
+        errorType: err.errorType,
+        message: err.message,
+      }));
+    }
+
+    res.status(200).json(response);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get error analysis',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get capacity planning data
+ * GET /api/orchestrator/analytics/capacity
+ */
+export function getCapacityAnalysis(req: Request, res: Response): void {
+  const { timeRange = '24h' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+  const orchestrator = getOrchestratorInstance();
+
+  // Update analytics with current metrics
+  analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
+
+  try {
+    const capacity = analytics.getCapacityAnalysis(0, timeRange as AnalyticsTimeRange);
+
+    res.status(200).json({
+      success: true,
+      current: capacity.current,
+      forecast: capacity.forecast,
+      trends: {
+        requestsPerHour: capacity.trends.requestsPerHour,
+        saturationLevels: capacity.trends.saturationLevels.map(s => Math.round(s * 100) / 100),
+        timestamps: capacity.trends.timestamps,
+      },
+      recommendations: capacity.recommendations,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get capacity analysis',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get trend analysis for a specific metric
+ * GET /api/orchestrator/analytics/trends/:metric
+ */
+export function getTrendAnalysis(req: Request, res: Response): void {
+  const { metric } = req.params;
+  const { serverId, model, timeRange = '24h' } = req.query;
+
+  const metricValue = Array.isArray(metric) ? metric[0] : metric;
+  if (!['latency', 'errors', 'throughput'].includes(metricValue)) {
+    res.status(400).json({
+      error: 'Invalid metric. Must be one of: latency, errors, throughput',
+    });
+    return;
+  }
+
+  const analytics = getAnalyticsEngine();
+  const orchestrator = getOrchestratorInstance();
+
+  // Update analytics with current metrics
+  analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
+
+  try {
+    const trend = analytics.analyzeTrend(
+      metricValue as 'latency' | 'errors' | 'throughput',
+      serverId as string | undefined,
+      model as string | undefined,
+      timeRange as AnalyticsTimeRange
+    );
+
+    res.status(200).json({
+      success: true,
+      metric,
+      analysis: {
+        direction: trend.direction,
+        slope: Math.round(trend.slope * 1000) / 1000,
+        confidence: Math.round(trend.confidence * 100) / 100,
+      },
+      timeRange: timeRange as string,
+      ...(serverId && { serverId }),
+      ...(model && { model }),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to analyze trend',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get analytics summary
+ * GET /api/orchestrator/analytics/summary
+ */
+export function getAnalyticsSummary(req: Request, res: Response): void {
+  const analytics = getAnalyticsEngine();
+  const orchestrator = getOrchestratorInstance();
+
+  // Update analytics with current metrics
+  analytics.updateMetrics(orchestrator.getAllDetailedMetrics());
+
+  try {
+    const summary = analytics.getSummary();
+    const globalMetrics = orchestrator.getGlobalMetrics();
+
+    res.status(200).json({
+      success: true,
+      summary: {
+        ...summary,
+        requestsPerSecond: Math.round(globalMetrics.requestsPerSecond * 100) / 100,
+        errorRate:
+          summary.totalRequests > 0
+            ? Math.round((summary.totalErrors / summary.totalRequests) * 1000) / 1000
+            : 0,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get analytics summary',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get load balancer decision history
+ * GET /api/orchestrator/analytics/decisions
+ */
+export function getDecisionHistory(req: Request, res: Response): void {
+  const { limit = '100', model, serverId } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const events = analytics.getDecisionEvents(
+      parseInt(limit as string, 10),
+      model as string | undefined,
+      serverId as string | undefined
+    );
+
+    res.status(200).json({
+      success: true,
+      count: events.length,
+      events: events.map(event => ({
+        timestamp: event.timestamp,
+        model: event.model,
+        selectedServerId: event.selectedServerId,
+        algorithm: event.algorithm,
+        candidates: event.candidates,
+        selectionReason: event.selectionReason,
+        requestId: event.requestId,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get decision history',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get server model decision trends
+ * GET /api/orchestrator/analytics/decisions/trends/:serverId/:model
+ */
+export function getServerModelDecisionTrend(req: Request, res: Response): void {
+  const { serverId, model } = req.params;
+  const { hours = '24' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const trend = analytics.getServerModelDecisionTrend(
+      Array.isArray(serverId) ? serverId[0] : serverId,
+      Array.isArray(model) ? model[0] : model,
+      parseInt(hours as string, 10)
+    );
+
+    res.status(200).json({
+      success: true,
+      serverId,
+      model,
+      hours: parseInt(hours as string, 10),
+      trend: {
+        timestamps: trend.timestamps,
+        scores: trend.scores,
+        latencyScores: trend.latencyScores,
+        successRateScores: trend.successRateScores,
+        loadScores: trend.loadScores,
+        capacityScores: trend.capacityScores,
+        selectionCount: trend.selectionCount,
+        avgPosition: Math.round(trend.avgPosition * 100) / 100,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get decision trend',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get server selection statistics
+ * GET /api/orchestrator/analytics/selection-stats
+ */
+export function getSelectionStats(req: Request, res: Response): void {
+  const { hours = '24' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const stats = analytics.getServerSelectionStats(parseInt(hours as string, 10));
+
+    res.status(200).json({
+      success: true,
+      hours: parseInt(hours as string, 10),
+      stats: stats.map(stat => ({
+        serverId: stat.serverId,
+        totalSelections: stat.totalSelections,
+        byModel: stat.byModel,
+        avgScore: Math.round(stat.avgScore * 100) / 100,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get selection statistics',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get load balancer algorithm usage
+ * GET /api/orchestrator/analytics/algorithms
+ */
+export function getAlgorithmStats(req: Request, res: Response): void {
+  const { hours = '24' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const stats = analytics.getAlgorithmStats(parseInt(hours as string, 10));
+
+    res.status(200).json({
+      success: true,
+      hours: parseInt(hours as string, 10),
+      algorithms: stats,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get algorithm statistics',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get score timeline
+ * GET /api/orchestrator/analytics/score-timeline
+ */
+export function getScoreTimeline(req: Request, res: Response): void {
+  const { hours = '24', interval = '15' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const timeline = analytics.getScoreTimeline(
+      parseInt(hours as string, 10),
+      parseInt(interval as string, 10)
+    );
+
+    res.status(200).json({
+      success: true,
+      hours: parseInt(hours as string, 10),
+      intervalMinutes: parseInt(interval as string, 10),
+      dataPoints: timeline,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get score timeline',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get metrics impact analysis
+ * GET /api/orchestrator/analytics/metrics-impact
+ */
+export function getMetricsImpact(req: Request, res: Response): void {
+  const { hours = '24' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const impact = analytics.getMetricsImpact(parseInt(hours as string, 10));
+
+    res.status(200).json({
+      success: true,
+      hours: parseInt(hours as string, 10),
+      impact: {
+        latency: {
+          correlation: Math.round(impact.latency.correlation * 1000) / 1000,
+          weight: impact.latency.weight,
+        },
+        successRate: {
+          correlation: Math.round(impact.successRate.correlation * 1000) / 1000,
+          weight: impact.successRate.weight,
+        },
+        load: {
+          correlation: Math.round(impact.load.correlation * 1000) / 1000,
+          weight: impact.load.weight,
+        },
+        capacity: {
+          correlation: Math.round(impact.capacity.correlation * 1000) / 1000,
+          weight: impact.capacity.weight,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get metrics impact',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get request history for a server
+ * GET /api/orchestrator/analytics/requests/:serverId
+ * Optional query param: model (to filter by specific model)
+ */
+export function getServerRequestHistory(req: Request, res: Response): void {
+  const { serverId } = req.params;
+  const { limit = '100', offset = '0', model } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    let requests = analytics.getServerRequestHistory(
+      Array.isArray(serverId) ? serverId[0] : serverId,
+      parseInt(limit as string, 10),
+      parseInt(offset as string, 10)
+    );
+
+    // Filter by model if provided
+    if (model) {
+      const modelFilter = Array.isArray(model) ? model[0] : model;
+      requests = requests.filter(req => req.model === modelFilter);
+    }
+
+    res.status(200).json({
+      success: true,
+      serverId,
+      model: model || null,
+      count: requests.length,
+      requests: requests.map(req => ({
+        id: req.id,
+        timestamp: req.timestamp,
+        model: req.model,
+        endpoint: req.endpoint,
+        streaming: req.streaming,
+        duration: req.duration,
+        success: req.success,
+        tokensGenerated: req.tokensGenerated,
+        tokensPrompt: req.tokensPrompt,
+        errorType: req.errorType,
+        ttft: req.ttft,
+        streamingDuration: req.streamingDuration,
+        queueWaitTime: req.queueWaitTime,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get request history',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get request statistics for a server
+ * GET /api/orchestrator/analytics/request-stats/:serverId
+ */
+export function getServerRequestStats(req: Request, res: Response): void {
+  const { serverId } = req.params;
+  const { hours = '24' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const stats = analytics.getServerRequestStats(
+      Array.isArray(serverId) ? serverId[0] : serverId,
+      parseInt(hours as string, 10)
+    );
+
+    res.status(200).json({
+      success: true,
+      serverId,
+      hours: parseInt(hours as string, 10),
+      stats: {
+        totalRequests: stats.totalRequests,
+        successfulRequests: stats.successfulRequests,
+        failedRequests: stats.failedRequests,
+        avgDuration: stats.avgDuration,
+        p50Latency: stats.p50Latency,
+        p95Latency: stats.p95Latency,
+        p99Latency: stats.p99Latency,
+        avgTokensGenerated: stats.avgTokensGenerated,
+        avgTokensPrompt: stats.avgTokensPrompt,
+        requestsPerMinute: stats.requestsPerMinute,
+        errorRate: stats.errorRate,
+        byModel: stats.byModel,
+        byEndpoint: stats.byEndpoint,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get request statistics',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get request timeline
+ * GET /api/orchestrator/analytics/request-timeline
+ */
+export function getRequestTimeline(req: Request, res: Response): void {
+  const { serverId, hours = '24', interval = '15' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const timeline = analytics.getRequestTimeline(
+      serverId as string | undefined,
+      parseInt(hours as string, 10),
+      parseInt(interval as string, 10)
+    );
+
+    res.status(200).json({
+      success: true,
+      serverId: serverId ?? 'all',
+      hours: parseInt(hours as string, 10),
+      intervalMinutes: parseInt(interval as string, 10),
+      dataPoints: timeline,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get request timeline',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Search requests
+ * GET /api/orchestrator/analytics/requests/search
+ */
+export function searchRequests(req: Request, res: Response): void {
+  const { serverId, model, endpoint, success, startTime, endTime, limit = '100' } = req.query;
+
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const requests = analytics.searchRequests({
+      serverId: serverId as string | undefined,
+      model: model as string | undefined,
+      endpoint: endpoint as string | undefined,
+      success: success !== undefined ? success === 'true' : undefined,
+      startTime: startTime ? parseInt(startTime as string, 10) : undefined,
+      endTime: endTime ? parseInt(endTime as string, 10) : undefined,
+      limit: parseInt(limit as string, 10),
+    });
+
+    res.status(200).json({
+      success: true,
+      count: requests.length,
+      requests: requests.map(req => ({
+        id: req.id,
+        timestamp: req.timestamp,
+        serverId: req.serverId,
+        model: req.model,
+        endpoint: req.endpoint,
+        streaming: req.streaming,
+        duration: req.duration,
+        success: req.success,
+        tokensGenerated: req.tokensGenerated,
+        tokensPrompt: req.tokensPrompt,
+        errorType: req.errorType,
+        errorMessage: req.errorMessage,
+        ttft: req.ttft,
+        streamingDuration: req.streamingDuration,
+        queueWaitTime: req.queueWaitTime,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to search requests',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get servers with request history
+ * GET /api/orchestrator/analytics/servers-with-history
+ */
+export function getServersWithHistory(req: Request, res: Response): void {
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const serverIds = analytics.getServersWithHistory();
+
+    res.status(200).json({
+      success: true,
+      count: serverIds.length,
+      serverIds,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get servers with history',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get persisted hourly summary snapshots for long-term trend charts (up to 30 days)
+ * GET /api/orchestrator/analytics/summary-snapshots
+ */
+export function getSummarySnapshots(req: Request, res: Response): void {
+  const analytics = getAnalyticsEngine();
+
+  try {
+    const snapshots = analytics.getSummarySnapshots();
+
+    res.status(200).json({
+      success: true,
+      count: snapshots.length,
+      snapshots,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get summary snapshots',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get raw hourly rollup rows from SQLite
+ * GET /api/orchestrator/analytics/rollups/hourly
+ * Query params: serverId, model, startTime (epoch ms), endTime (epoch ms)
+ */
+export function getHourlyRollups(req: Request, res: Response): void {
+  const { serverId, model, startTime, endTime } = req.query;
+
+  try {
+    const store = getMetricsStore();
+    const rows = store.getHourlyRollups({
+      serverId: serverId as string | undefined,
+      model: model as string | undefined,
+      startTime: startTime ? parseInt(startTime as string, 10) : undefined,
+      endTime: endTime ? parseInt(endTime as string, 10) : undefined,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      rollups: rows,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get hourly rollups',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get raw daily rollup rows from SQLite
+ * GET /api/orchestrator/analytics/rollups/daily
+ * Query params: serverId, model, startTime (epoch ms), endTime (epoch ms)
+ */
+export function getDailyRollups(req: Request, res: Response): void {
+  const { serverId, model, startTime, endTime } = req.query;
+
+  try {
+    const store = getMetricsStore();
+    const rows = store.getDailyRollups({
+      serverId: serverId as string | undefined,
+      model: model as string | undefined,
+      startTime: startTime ? parseInt(startTime as string, 10) : undefined,
+      endTime: endTime ? parseInt(endTime as string, 10) : undefined,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      rollups: rows,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get daily rollups',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Paginated SQLite request browser
+ * GET /api/orchestrator/analytics/requests/browse
+ * Query params: serverId, model, endpoint, success (bool), startTime (epoch ms),
+ *   endTime (epoch ms), isRetry (bool), limit (default 100), offset (default 0)
+ */
+export function browseRequests(req: Request, res: Response): void {
+  const {
+    serverId,
+    model,
+    endpoint,
+    success,
+    startTime,
+    endTime,
+    isRetry,
+    limit = '100',
+    offset = '0',
+  } = req.query;
+
+  try {
+    const store = getMetricsStore();
+    const rows = store.getRequests({
+      serverId: serverId as string | undefined,
+      model: model as string | undefined,
+      endpoint: endpoint as string | undefined,
+      success: success !== undefined ? success === 'true' : undefined,
+      startTime: startTime ? parseInt(startTime as string, 10) : undefined,
+      endTime: endTime ? parseInt(endTime as string, 10) : undefined,
+      isRetry: isRetry !== undefined ? isRetry === 'true' : undefined,
+      limit: parseInt(limit as string, 10) || 100,
+      offset: parseInt(offset as string, 10) || 0,
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      limit: parseInt(limit as string, 10) || 100,
+      offset: parseInt(offset as string, 10) || 0,
+      requests: rows,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to browse requests',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get temporal profile for a server:model
+ * GET /api/orchestrator/analytics/temporal-profile
+ * Query params: serverId, model
+ */
+export function getTemporalProfile(req: Request, res: Response): void {
+  const { serverId, model } = req.query;
+
+  if (!serverId || !model) {
+    res.status(400).json({
+      error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED,
+    });
+    return;
+  }
+
+  try {
+    const store = getMetricsStore();
+    const profiles = store.getTemporalProfiles(serverId as string, model as string);
+
+    // Format as 7x24 grid
+    const grid: Record<string, Record<number, unknown>> = {};
+    for (const profile of profiles) {
+      const dayStr = profile.day_of_week.toString();
+      if (!grid[dayStr]) {
+        grid[dayStr] = {};
+      }
+      grid[dayStr][profile.hour_of_day] = {
+        avgLatencyMs: profile.avg_latency_ms,
+        successRate: profile.success_rate,
+        avgTokensPerSecond: profile.avg_tokens_per_second,
+        sampleCount: profile.sample_count,
+        confidence: profile.confidence,
+      };
+    }
+
+    res.status(200).json({
+      success: true,
+      serverId,
+      model,
+      grid,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get temporal profile',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get temporal adjustments for multiple servers
+ * GET /api/orchestrator/analytics/temporal-adjustment
+ * Query params: model, serverIds (comma-separated)
+ */
+export function getTemporalAdjustment(req: Request, res: Response): void {
+  const { model, serverIds } = req.query;
+
+  if (!model || !serverIds) {
+    res.status(400).json({
+      error: 'model and serverIds are required',
+    });
+    return;
+  }
+
+  const serverIdList = (serverIds as string)
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (serverIdList.length === 0) {
+    res.status(400).json({
+      error: 'At least one serverId is required',
+    });
+    return;
+  }
+
+  try {
+    const scorer = getTemporalScorer();
+    const adjustments = scorer.getComparativeAdjustments(model as string, serverIdList);
+
+    const result: Record<string, unknown> = {};
+    for (const [serverId, adj] of adjustments) {
+      result[serverId] = {
+        latencyMultiplier: adj.latencyMultiplier,
+        successRateMultiplier: adj.successRateMultiplier,
+        throughputMultiplier: adj.throughputMultiplier,
+        confidence: adj.confidence,
+        reason: adj.reason,
+      };
+    }
+
+    res.status(200).json({
+      success: true,
+      model,
+      adjustments: result,
+      config: {
+        enabled: scorer.isEnabled(),
+        shadowMode: scorer.isShadowMode(),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get temporal adjustments',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get circuit breaker analytics with state aggregation
+ * GET /api/orchestrator/analytics/circuit-breakers
+ */
+export function getCircuitBreakerAnalytics(_req: Request, res: Response): void {
+  try {
+    const orchestrator = getOrchestratorInstance();
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+    const allStates = probeOrchestrator.getAllStates();
+
+    const byState: Record<string, number> = { OPEN: 0, CLOSED: 0, HALF_OPEN: 0, UNKNOWN: 0 };
+    const topBreakers: Array<{
+      serverId: string;
+      model: string;
+      state: string;
+      failureCount: number;
+      lastFailure: number;
+    }> = [];
+
+    for (const [tupleKey, state] of allStates) {
+      const uiState = probeStateToUIState(state.state);
+      const normalizedState = uiState.replace(/-/g, '_');
+      byState[normalizedState] = (byState[normalizedState] || 0) + 1;
+      const parsed = parseTupleKey(tupleKey);
+      topBreakers.push({
+        serverId: parsed.serverId,
+        model: parsed.model,
+        state: uiState,
+        failureCount: state.consecutiveFailures || 0,
+        lastFailure: state.lastTransition || 0,
+      });
+    }
+
+    topBreakers.sort((a, b) => b.failureCount - a.failureCount);
+    const top10 = topBreakers.slice(0, 10);
+
+    res.status(200).json({
+      byState,
+      total: allStates.size,
+      topBreakers: top10,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get circuit breaker analytics',
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+}

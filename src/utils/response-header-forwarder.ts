@@ -1,0 +1,329 @@
+/**
+ * response-header-forwarder.ts
+ * Forwards upstream response headers to the client, filtering hop-by-hop headers
+ * and preserving critical provider-specific headers.
+ */
+
+import type { Response } from 'express';
+
+/**
+ * Hop-by-hop headers that should NOT be forwarded to clients.
+ * These are meaningful only for the immediate connection and are handled
+ * by the orchestrator's own proxying layer.
+ * @see RFC 7230 §6.1
+ */
+export const HOP_BY_HOP_RESPONSE_HEADERS = new Set<string>([
+  'connection',
+  'keep-alive',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+/**
+ * Orchestrator override headers — these may be transformed or stripped
+ * because the orchestrator may modify the response body (e.g., encoding,
+ * content transformation, streaming mode changes).
+ */
+export const ORCHESTRATOR_OVERRIDE_HEADERS = new Set<string>([
+  'content-encoding',
+  'content-length',
+]);
+
+/**
+ * Critical provider-specific headers that must be preserved verbatim.
+ * These carry important metadata like request IDs, rate limits, retry info.
+ */
+export const PROVIDER_HEADER_WHITELIST = new Set<string>([
+  // Request identification
+  'request-id',
+  'x-request-id',
+  // Retry and rate limit guidance
+  'retry-after-ms',
+  'retry-after',
+  // OpenAI-specific headers
+  'x-ratelimit-limit',
+  'x-ratelimit-remaining',
+  'x-ratelimit-reset',
+  'x-ratelimit-used',
+  'x-ratelimit-remaining-requests',
+  'x-ratelimit-remaining-tokens',
+  'openai-organization',
+  'openai-version',
+  'openai-processing-ms',
+  // Retry decision headers
+  'x-should-retry',
+  // Anthropic-specific headers
+  'anthropic-organization',
+  'anthropic-version',
+  'anthropic-warning',
+  // Cloudflare and other CDN/proxy headers (may be set by upstream)
+  'cf-ray',
+  'cf-cache-status',
+  'x-some-critical-header',
+]);
+
+/**
+ * Provider-specific Content-Type overrides.
+ * When streaming, some providers need their Content-Type overridden to SSE.
+ */
+export type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'unknown';
+
+export interface ForwardResponseHeadersOptions {
+  /**
+   * Override the Content-Type header for this response.
+   * Useful when transforming between NDJSON and SSE formats.
+   */
+  contentTypeOverride?: string;
+  /**
+   * Additional headers to set (e.g., Cache-Control for SSE streams).
+   * These are set AFTER forwarding upstream headers, so they can override.
+   */
+  additionalHeaders?: Record<string, string>;
+  /**
+   * Provider type for determining which headers to preserve.
+   */
+  provider?: ProviderType;
+}
+
+/**
+ * Check if a header name matches a whitelist pattern.
+ * Supports exact matches and wildcard patterns like `x-ratelimit-*`.
+ */
+function isHeaderWhitelisted(headerName: string): boolean {
+  const lowerName = headerName.toLowerCase();
+
+  // Check exact match
+  if (PROVIDER_HEADER_WHITELIST.has(lowerName)) {
+    return true;
+  }
+
+  // Check wildcard patterns
+  if (lowerName.startsWith('x-ratelimit-')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Forward upstream response headers to the client response.
+ *
+ * @param upstreamHeaders - The upstream Response headers object
+ * @param clientResponse - The Express Response object to set headers on
+ * @param options - Optional configuration for header forwarding
+ * @returns The upstream request ID (request-id or x-request-id) if found
+ */
+export function forwardResponseHeaders(
+  upstreamHeaders: Headers,
+  clientResponse: Response,
+  options: ForwardResponseHeadersOptions = {}
+): string | undefined {
+  const { contentTypeOverride, additionalHeaders, provider: _provider } = options;
+  let upstreamRequestId: string | undefined;
+
+  // Iterate through all upstream headers
+  upstreamHeaders.forEach((value, headerName) => {
+    const lowerName = headerName.toLowerCase();
+
+    // Skip hop-by-hop headers
+    if (HOP_BY_HOP_RESPONSE_HEADERS.has(lowerName)) {
+      return;
+    }
+
+    // Skip orchestrator override headers (may need transformation)
+    if (ORCHESTRATOR_OVERRIDE_HEADERS.has(lowerName)) {
+      return;
+    }
+
+    // Always preserve critical whitelisted headers
+    if (isHeaderWhitelisted(lowerName)) {
+      clientResponse.setHeader(headerName, value);
+      // Capture request IDs for traceability
+      if (lowerName === 'request-id' || lowerName === 'x-request-id') {
+        upstreamRequestId = value;
+      }
+      return;
+    }
+
+    // For non-whitelisted headers, forward them verbatim (case-preserved)
+    // This includes standard headers like Content-Type, Date, Server, etc.
+    clientResponse.setHeader(headerName, value);
+  });
+
+  // Apply Content-Type override if specified (e.g., SSE for streaming)
+  if (contentTypeOverride) {
+    clientResponse.setHeader('Content-Type', contentTypeOverride);
+  }
+
+  // Apply additional headers last (can override forwarded headers)
+  if (additionalHeaders) {
+    for (const [key, value] of Object.entries(additionalHeaders)) {
+      clientResponse.setHeader(key, value);
+    }
+  }
+
+  return upstreamRequestId;
+}
+
+/**
+ * Forward headers for a non-streaming response.
+ * Preserves all upstream headers except hop-by-hop and orchestrator overrides.
+ * @returns The upstream request ID (request-id or x-request-id) if found
+ */
+export function forwardNonStreamingResponseHeaders(
+  upstreamResponse: globalThis.Response,
+  clientResponse: Response,
+  options: Omit<ForwardResponseHeadersOptions, 'contentTypeOverride'> = {}
+): string | undefined {
+  return forwardResponseHeaders(upstreamResponse.headers, clientResponse, {
+    ...options,
+    // No content-type override for non-streaming - use upstream's
+  });
+}
+
+/**
+ * Forward headers for a streaming SSE response.
+ * Overrides Content-Type to text/event-stream and adds SSE-appropriate headers.
+ * @returns The upstream request ID (request-id or x-request-id) if found
+ */
+export function forwardStreamingResponseHeaders(
+  upstreamResponse: globalThis.Response,
+  clientResponse: Response,
+  options: Omit<ForwardResponseHeadersOptions, 'contentTypeOverride'> & {
+    contentType?: string;
+  } = {}
+): string | undefined {
+  const { contentType = 'text/event-stream', ...rest } = options;
+
+  const sseDefaults: Record<string, string> = {
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  };
+
+  return forwardResponseHeaders(upstreamResponse.headers, clientResponse, {
+    ...rest,
+    contentTypeOverride: contentType,
+    additionalHeaders: {
+      ...sseDefaults,
+      ...rest.additionalHeaders,
+    },
+  });
+}
+
+/**
+ * CORS header names that may be present in upstream responses
+ */
+const CORS_RESPONSE_HEADERS = new Set([
+  'access-control-allow-origin',
+  'access-control-allow-methods',
+  'access-control-allow-headers',
+  'access-control-allow-credentials',
+  'access-control-expose-headers',
+  'access-control-max-age',
+]);
+
+/**
+ * Extract CORS headers from upstream response headers.
+ * Returns only the CORS-related headers if present.
+ */
+export function extractCorsHeaders(headers: Headers): Record<string, string> {
+  const corsHeaders: Record<string, string> = {};
+  headers.forEach((value, headerName) => {
+    if (CORS_RESPONSE_HEADERS.has(headerName.toLowerCase())) {
+      corsHeaders[headerName] = value;
+    }
+  });
+  return corsHeaders;
+}
+
+/**
+ * Forward CORS headers from upstream response to client, merged with orchestrator's CORS policy.
+ * Uses the MORE RESTRICTIVE value when upstream and orchestrator differ:
+ * - For access-control-allow-origin: use the more restrictive (non-* wins over *)
+ * - For access-control-allow-methods: use upstream's if present, otherwise orchestrator's
+ * - For access-control-allow-headers: use upstream's if present, otherwise orchestrator's
+ * - For access-control-allow-credentials: use upstream's if present, otherwise orchestrator's
+ *
+ * NOTE: This should only be called for streaming responses where upstream CORS headers
+ * may be present. Non-streaming responses should NOT forward CORS headers from upstream
+ * as they may have been set for different request paths.
+ */
+export function forwardCorsHeaders(
+  upstreamHeaders: Headers,
+  clientResponse: Response,
+  orchestratorCorsConfig?: {
+    origin?: string | string[];
+    methods?: string[];
+    headers?: string[];
+    credentials?: boolean;
+  }
+): void {
+  const upstreamCorsHeaders = extractCorsHeaders(upstreamHeaders);
+
+  if (Object.keys(upstreamCorsHeaders).length === 0) {
+    return;
+  }
+
+  for (const [headerName, upstreamValue] of Object.entries(upstreamCorsHeaders)) {
+    const lowerName = headerName.toLowerCase();
+
+    switch (lowerName) {
+      case 'access-control-allow-origin': {
+        const orchestratorOrigin = orchestratorCorsConfig?.origin;
+        const orchestratorOriginStr = Array.isArray(orchestratorOrigin)
+          ? orchestratorOrigin.join(', ')
+          : (orchestratorOrigin ?? '');
+
+        const upstreamLower = upstreamValue.toLowerCase();
+        const orchestratorLower = orchestratorOriginStr.toLowerCase();
+
+        if (orchestratorLower === '*' && upstreamLower !== '*') {
+          clientResponse.setHeader(headerName, upstreamValue);
+        } else if (orchestratorLower !== '*' && upstreamLower === '*') {
+          // CORS: upstream allows all origins, orchestrator restricts - keep upstream's more-open policy
+        } else if (orchestratorLower !== upstreamLower) {
+          const upstreamOrigins = upstreamValue.split(',').map((o: string) => o.trim());
+          const allowedOrigins = Array.isArray(orchestratorOrigin)
+            ? orchestratorOrigin
+            : orchestratorOrigin
+              ? [orchestratorOrigin]
+              : [];
+          const commonOrigins = upstreamOrigins.filter((o: string) => allowedOrigins.includes(o));
+          if (commonOrigins.length > 0) {
+            clientResponse.setHeader(headerName, commonOrigins.join(', '));
+          }
+        } else {
+          clientResponse.setHeader(headerName, upstreamValue);
+        }
+        break;
+      }
+
+      case 'access-control-allow-methods': {
+        if (upstreamValue) {
+          clientResponse.setHeader(headerName, upstreamValue);
+        }
+        break;
+      }
+
+      case 'access-control-allow-headers': {
+        if (upstreamValue) {
+          clientResponse.setHeader(headerName, upstreamValue);
+        }
+        break;
+      }
+
+      case 'access-control-allow-credentials': {
+        const upstreamCreds = upstreamValue.toLowerCase();
+        if (upstreamCreds === 'true' && orchestratorCorsConfig?.credentials) {
+          clientResponse.setHeader(headerName, 'true');
+        }
+        break;
+      }
+
+      default:
+        clientResponse.setHeader(headerName, upstreamValue);
+        break;
+    }
+  }
+}
