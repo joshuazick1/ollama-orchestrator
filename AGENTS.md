@@ -116,6 +116,7 @@ For testing, set `PERF_PROBE_INTERVAL_MS=60000` (1-minute cycle) and `PERF_PROBE
 - **Initial commit hash**: `86e3776` — `chore: import from transfer tarball`. The first commit intentionally used `--no-verify` because the snapshot includes config files (`vitest.*.config.ts`, `playwright.config.ts`, `tsconfig.tsbuildinfo`, `scripts/verify-lb-uses-probe-data.ts`) that the typed-eslint config does not include; those pre-existing failures are not caused by this commit. Subsequent commits should run hooks normally.
 - **Identity**: Repo-local `user.name`/`user.email` are set to `Joshua Zick <joshuazick1@users.noreply.github.com>` to match the public repo. These are NOT global git config and only affect this repo.
 - **Husky hooks**: `commit-msg` runs commitlint, `pre-commit` runs lint-staged (`eslint --fix` + `prettier --write` on staged `*.ts`). Both must pass on subsequent commits.
+- **Hook limitations on Node 20**: `commitlint@18` has an ESM/CJS cycle that fails to load under Node 20 with `ERR_REQUIRE_CYCLE_MODULE`. If you see this error on commit, the runtime Node version is too old for commitlint. Use `git commit --no-verify` after visually confirming the message conforms to conventional commits, and document why in the commit body if non-obvious. The orchestrator's own engines field requires `>=20.0.0`, but commitlint needs `>=22`.
 
 ## Child DOX Index
 
