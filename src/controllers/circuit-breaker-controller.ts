@@ -2,8 +2,8 @@
  * circuitBreakerController.ts
  * Circuit breaker management API endpoints using the new probe system.
  *
- * Task 15: Update to use ProbeOrchestrator for state management,
- * replacing the old getCircuitBreaker calls with probe system APIs.
+ * Task 1.3: Refactor to support per-endpoint operations, removing the hardcoded
+ * `ollama_chat` default. All 7 ProbeEndpoint values are now first-class citizens.
  */
 
 import type { Request, Response } from 'express';
@@ -12,9 +12,10 @@ import { ERROR_MESSAGES } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
 import type { Tuple, ProbeState, UIState, StateProjection } from '../probe/types.js';
-import { tupleKey } from '../probe/types.js';
+import { KNOWN_PROBE_ENDPOINTS, tupleKey } from '../probe/types.js';
 import { logger } from '../utils/logger.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
+import { ValidationError } from '../utils/domain-errors.js';
 
 /**
  * Map internal 4-state probe system to UI 3-state.
@@ -27,7 +28,7 @@ function toUIState(internal: ProbeState): UIState {
     case 'HEALTHY':
       return 'CLOSED';
     case 'SUSPECT':
-      return 'CLOSED'; // SUSPECT is still "serving", just cautious
+      return 'CLOSED';
     case 'UNHEALTHY':
       return 'OPEN';
     case 'RECOVERING':
@@ -36,97 +37,38 @@ function toUIState(internal: ProbeState): UIState {
 }
 
 /**
- * Default endpoint to use for circuit breaker operations.
- * This is used when the API doesn't specify an endpoint.
+ * Validate that an endpoint value is one of the 7 known ProbeEndpoint values.
+ * Throws ValidationError if invalid.
  */
-const DEFAULT_ENDPOINT = 'ollama_chat';
-
-/**
- * Build a Tuple from serverId and model (using default endpoint).
- * For server-level breakers (model === 'server'), uses 'server' as model.
- */
-function buildTuple(serverId: string, model: string): Tuple {
-  return {
-    serverId,
-    model: model === 'server' ? 'server' : model,
-    endpoint: DEFAULT_ENDPOINT,
-  };
+function validateEndpoint(endpoint: string | undefined): void {
+  if (endpoint === undefined) return;
+  if (!KNOWN_PROBE_ENDPOINTS.includes(endpoint as never)) {
+    throw new ValidationError(
+      `Invalid endpoint '${endpoint}'. Must be one of: ${KNOWN_PROBE_ENDPOINTS.join(', ')}`
+    );
+  }
 }
 
 /**
- * Get circuit breaker details for a specific server and model.
- * GET /api/orchestrator/circuit-breakers/:serverId/:model
- *
- * Returns the StateProjection shape with 14+ fields matching frontend expectations.
+ * Validate required string params (trimmed, non-empty).
+ * Throws ValidationError if invalid.
  */
-export function getBreakerDetails(req: Request, res: Response): void {
-  try {
-    const serverId = req.params.serverId as string;
-    const model = decodeURIComponent(req.params.model as string);
-
-    const orchestrator = getOrchestratorInstance();
-    const probeOrchestrator = orchestrator.getProbeOrchestrator();
-
-    const tuple = buildTuple(serverId, model);
-    const tupleState = probeOrchestrator.getTupleState(tuple);
-    const state = probeOrchestrator.getState(tuple);
-
-    // Get LB score breakdown for model-level breakers
-    const lbScore =
-      model !== 'server' ? orchestrator.getLBScoreForServerModel(serverId, model) : null;
-
-    // Build error counts from tuple state
-    const errorCounts = {
-      retryable: 0,
-      'non-retryable': 0,
-      transient: 0,
-      permanent: 0,
-      rateLimited: 0,
-    };
-
-    // Build StateProjection response
-    const response: StateProjection = {
-      serverId,
-      model: model === 'server' ? 'server' : model,
-      endpoint: DEFAULT_ENDPOINT,
-      tupleKey: tupleKey(tuple),
-      state,
-      uiState: toUIState(state),
-      failureCount: tupleState?.consecutiveFailures ?? 0,
-      successCount: tupleState?.consecutiveSuccesses ?? 0,
-      totalRequestCount:
-        (tupleState?.consecutiveSuccesses ?? 0) + (tupleState?.consecutiveFailures ?? 0),
-      blockedRequestCount: 0, // Not tracked at probe level
-      consecutiveSuccesses: tupleState?.consecutiveSuccesses ?? 0,
-      lastFailure: tupleState?.lastProbeAt ?? 0,
-      lastSuccess: tupleState?.lastProbeAt ?? 0,
-      nextRetryAt: tupleState?.nextProbeAt ?? 0,
-      halfOpenStartedAt: state === 'RECOVERING' ? tupleState?.lastTransition : undefined,
-      errorRate: computeErrorRate(tupleState),
-      errorCounts,
-      modelType: undefined, // Would need endpoint registry to determine
-      lastFailureReason: tupleState?.lastErrorKind ?? undefined,
-      lastErrorType: tupleState?.lastErrorKind ?? undefined,
-      halfOpenAttempts: state === 'RECOVERING' ? tupleState?.recoveryAttempts : undefined,
-      activeTestsInProgress: undefined,
-      lbScore: lbScore
-        ? {
-            totalScore: lbScore.totalScore,
-            latencyScore: lbScore.breakdown.latencyScore,
-            successRateScore: lbScore.breakdown.successRateScore,
-            loadScore: lbScore.breakdown.loadScore,
-            capacityScore: lbScore.breakdown.capacityScore,
-            circuitBreakerScore: 1.0, // Circuit is closed if we're here
-            timeoutScore: 1.0,
-          }
-        : null,
-    };
-
-    res.json(response);
-  } catch (error) {
-    logger.error('Error getting circuit breaker details:', error);
-    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+function validateRequired(value: string | undefined, fieldName: string): void {
+  if (value === undefined || value.trim() === '') {
+    throw new ValidationError(`${fieldName} is required`);
   }
+}
+
+/**
+ * Build a Tuple from serverId, model, and endpoint.
+ * For server-level breakers (model === 'server'), uses 'server' as model.
+ */
+function buildTuple(serverId: string, model: string, endpoint: string): Tuple {
+  return {
+    serverId,
+    model: model === 'server' ? 'server' : model,
+    endpoint: endpoint as never,
+  };
 }
 
 /**
@@ -147,41 +89,176 @@ function computeErrorRate(
 }
 
 /**
+ * Build a single StateProjection entry for one endpoint of a server:model tuple.
+ */
+function buildStateProjection(
+  serverId: string,
+  model: string,
+  endpoint: string,
+  orchestrator: ReturnType<typeof getOrchestratorInstance>
+): StateProjection {
+  const tuple = buildTuple(serverId, model, endpoint);
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const tupleState = probeOrchestrator.getTupleState(tuple);
+  const state = probeOrchestrator.getState(tuple);
+
+  const lbScore =
+    model !== 'server' ? orchestrator.getLBScoreForServerModel(serverId, model) : null;
+
+  const errorCounts = {
+    retryable: 0,
+    'non-retryable': 0,
+    transient: 0,
+    permanent: 0,
+    rateLimited: 0,
+  };
+
+  return {
+    serverId,
+    model: model === 'server' ? 'server' : model,
+    endpoint: endpoint as never,
+    tupleKey: tupleKey(tuple),
+    state,
+    uiState: toUIState(state),
+    failureCount: tupleState?.consecutiveFailures ?? 0,
+    successCount: tupleState?.consecutiveSuccesses ?? 0,
+    totalRequestCount:
+      (tupleState?.consecutiveSuccesses ?? 0) + (tupleState?.consecutiveFailures ?? 0),
+    blockedRequestCount: 0,
+    consecutiveSuccesses: tupleState?.consecutiveSuccesses ?? 0,
+    lastFailure: tupleState?.lastProbeAt ?? 0,
+    lastSuccess: tupleState?.lastProbeAt ?? 0,
+    nextRetryAt: tupleState?.nextProbeAt ?? 0,
+    halfOpenStartedAt: state === 'RECOVERING' ? tupleState?.lastTransition : undefined,
+    errorRate: computeErrorRate(tupleState),
+    errorCounts,
+    modelType: undefined,
+    lastFailureReason: tupleState?.lastErrorKind ?? undefined,
+    lastErrorType: tupleState?.lastErrorKind ?? undefined,
+    halfOpenAttempts: state === 'RECOVERING' ? tupleState?.recoveryAttempts : undefined,
+    activeTestsInProgress: undefined,
+    lbScore: lbScore
+      ? {
+          totalScore: lbScore.totalScore,
+          latencyScore: lbScore.breakdown.latencyScore,
+          successRateScore: lbScore.breakdown.successRateScore,
+          loadScore: lbScore.breakdown.loadScore,
+          capacityScore: lbScore.breakdown.capacityScore,
+          circuitBreakerScore: 1.0,
+          timeoutScore: 1.0,
+        }
+      : null,
+  };
+}
+
+/**
+ * Get circuit breaker details for a specific server and model.
+ * GET /api/orchestrator/circuit-breakers/:serverId/:model
+ * GET /api/orchestrator/circuit-breakers/:serverId/:model/:endpoint
+ *
+ * When endpoint is provided, returns a single StateProjection for that endpoint.
+ * When endpoint is omitted, returns { serverId, model, endpoints: StateProjection[] }
+ * with all 7 ProbeEndpoint values (unknown tuples show as HEALTHY).
+ */
+export function getBreakerDetails(req: Request, res: Response): void {
+  try {
+    const serverId = req.params.serverId as string;
+    const model = decodeURIComponent(req.params.model as string);
+    const endpoint = req.params.endpoint as string | undefined;
+
+    validateRequired(serverId, 'serverId');
+    validateRequired(model, 'model');
+    validateEndpoint(endpoint);
+
+    const orchestrator = getOrchestratorInstance();
+    const probeOrchestrator = orchestrator.getProbeOrchestrator();
+
+    if (endpoint) {
+      // Single endpoint — return one StateProjection
+      const projection = buildStateProjection(serverId, model, endpoint, orchestrator);
+      res.json(projection);
+    } else {
+      // All 7 endpoints — return aggregated view
+      const endpoints: StateProjection[] = KNOWN_PROBE_ENDPOINTS.map(ep =>
+        buildStateProjection(serverId, model, ep, orchestrator)
+      );
+      res.json({
+        serverId,
+        model: model === 'server' ? 'server' : model,
+        endpoints,
+      });
+    }
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    logger.error('Error getting circuit breaker details:', error);
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+  }
+}
+
+/**
  * Reset a circuit breaker for a specific server and model.
  * POST /api/orchestrator/circuit-breakers/:serverId/:model/reset
+ * POST /api/orchestrator/circuit-breakers/:serverId/:model/:endpoint/reset
  *
- * Calls probeOrchestrator.resetTuple(tuple) and writes 'admin_reset' event to WAL.
+ * When endpoint is provided, resets only that endpoint.
+ * When endpoint is omitted, resets ALL 7 endpoints for the tuple.
  */
 export function resetBreaker(req: Request, res: Response): void {
   try {
     const serverId = req.params.serverId as string;
     const model = decodeURIComponent(req.params.model as string);
+    const endpoint = req.params.endpoint as string | undefined;
+
+    validateRequired(serverId, 'serverId');
+    validateRequired(model, 'model');
+    validateEndpoint(endpoint);
 
     const orchestrator = getOrchestratorInstance();
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
 
-    const tuple = buildTuple(serverId, model);
-    const previousState = probeOrchestrator.getState(tuple);
+    const results: Array<{ endpoint: string; previousState: ProbeState }> = [];
 
-    // Reset the tuple state
-    probeOrchestrator.resetTuple(tuple);
+    if (endpoint) {
+      // Single endpoint
+      const tuple = buildTuple(serverId, model, endpoint);
+      const previousState = probeOrchestrator.getState(tuple);
+      probeOrchestrator.resetTuple(tuple);
+      results.push({ endpoint, previousState });
+    } else {
+      // All 7 endpoints
+      for (const ep of KNOWN_PROBE_ENDPOINTS) {
+        const tuple = buildTuple(serverId, model, ep);
+        const previousState = probeOrchestrator.getState(tuple);
+        probeOrchestrator.resetTuple(tuple);
+        results.push({ endpoint: ep, previousState });
+      }
+    }
 
     logger.info('Circuit breaker manually reset', {
       serverId,
       model: model === 'server' ? 'server-level' : model,
-      previousState,
+      endpoint: endpoint ?? 'ALL',
+      results,
       action: 'admin_reset',
       adminUserId: req.user?.id ?? 'unknown',
     });
 
     res.json({
       success: true,
-      message: `Circuit breaker reset for ${serverId}:${model}`,
-      previousState,
+      message: `Circuit breaker reset for ${serverId}:${model}${endpoint ? `:${endpoint}` : ' (all 7 endpoints)'}`,
+      results,
+      previousStates: results.map(r => r.previousState),
       currentState: 'HEALTHY',
       uiState: 'CLOSED',
     });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     logger.error('Error resetting circuit breaker:', error);
     res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
@@ -190,46 +267,63 @@ export function resetBreaker(req: Request, res: Response): void {
 /**
  * Force open a circuit breaker for a specific server and model.
  * POST /api/orchestrator/circuit-breakers/:serverId/:model/open
+ * POST /api/orchestrator/circuit-breakers/:serverId/:model/:endpoint/open
  *
- * Forces tuple to UNHEALTHY state via setStateForTesting, writes 'admin_force_open' event.
+ * When endpoint is provided, forces only that endpoint.
+ * When endpoint is omitted, forces ALL 7 endpoints to OPEN.
  */
 export function forceOpenBreaker(req: Request, res: Response): void {
   try {
     const serverId = req.params.serverId as string;
     const model = decodeURIComponent(req.params.model as string);
+    const endpoint = req.params.endpoint as string | undefined;
 
-    if (!serverId || !model) {
-      res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
-      return;
-    }
+    validateRequired(serverId, 'serverId');
+    validateRequired(model, 'model');
+    validateEndpoint(endpoint);
 
     const orchestrator = getOrchestratorInstance();
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
 
-    const tuple = buildTuple(serverId, model);
-    const previousState = probeOrchestrator.getState(tuple);
+    const results: Array<{ endpoint: string; previousState: ProbeState }> = [];
 
-    // Force the tuple to UNHEALTHY
-    probeOrchestrator.setStateForTesting(tuple, 'UNHEALTHY');
+    if (endpoint) {
+      const tuple = buildTuple(serverId, model, endpoint);
+      const previousState = probeOrchestrator.getState(tuple);
+      probeOrchestrator.setStateForTesting(tuple, 'UNHEALTHY');
+      results.push({ endpoint, previousState });
+    } else {
+      for (const ep of KNOWN_PROBE_ENDPOINTS) {
+        const tuple = buildTuple(serverId, model, ep);
+        const previousState = probeOrchestrator.getState(tuple);
+        probeOrchestrator.setStateForTesting(tuple, 'UNHEALTHY');
+        results.push({ endpoint: ep, previousState });
+      }
+    }
 
     logger.info('admin_force_breaker', {
       adminUserId: req.user?.id ?? 'unknown',
       action: 'force_open',
       serverId,
       model,
-      previousState,
-      newState: 'UNHEALTHY',
+      endpoint: endpoint ?? 'ALL',
+      results,
       timestamp: new Date().toISOString(),
     });
 
     res.status(200).json({
       success: true,
-      message: `Circuit breaker force-opened for ${serverId}:${model}`,
-      previousState,
+      message: `Circuit breaker force-opened for ${serverId}:${model}${endpoint ? `:${endpoint}` : ' (all 7 endpoints)'}`,
+      results,
+      previousStates: results.map(r => r.previousState),
       currentState: 'UNHEALTHY',
       uiState: 'OPEN',
     });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     logger.error('Error force-opening circuit breaker:', error);
     res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
@@ -238,46 +332,63 @@ export function forceOpenBreaker(req: Request, res: Response): void {
 /**
  * Force close (reset) a circuit breaker for a specific server and model.
  * POST /api/orchestrator/circuit-breakers/:serverId/:model/close
+ * POST /api/orchestrator/circuit-breakers/:serverId/:model/:endpoint/close
  *
- * Forces tuple to HEALTHY state, writes 'admin_force_close' event.
+ * When endpoint is provided, forces only that endpoint to HEALTHY.
+ * When endpoint is omitted, forces ALL 7 endpoints to HEALTHY.
  */
 export function forceCloseBreaker(req: Request, res: Response): void {
   try {
     const serverId = req.params.serverId as string;
     const model = decodeURIComponent(req.params.model as string);
+    const endpoint = req.params.endpoint as string | undefined;
 
-    if (!serverId || !model) {
-      res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
-      return;
-    }
+    validateRequired(serverId, 'serverId');
+    validateRequired(model, 'model');
+    validateEndpoint(endpoint);
 
     const orchestrator = getOrchestratorInstance();
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
 
-    const tuple = buildTuple(serverId, model);
-    const previousState = probeOrchestrator.getState(tuple);
+    const results: Array<{ endpoint: string; previousState: ProbeState }> = [];
 
-    // Force the tuple to HEALTHY
-    probeOrchestrator.setStateForTesting(tuple, 'HEALTHY');
+    if (endpoint) {
+      const tuple = buildTuple(serverId, model, endpoint);
+      const previousState = probeOrchestrator.getState(tuple);
+      probeOrchestrator.setStateForTesting(tuple, 'HEALTHY');
+      results.push({ endpoint, previousState });
+    } else {
+      for (const ep of KNOWN_PROBE_ENDPOINTS) {
+        const tuple = buildTuple(serverId, model, ep);
+        const previousState = probeOrchestrator.getState(tuple);
+        probeOrchestrator.setStateForTesting(tuple, 'HEALTHY');
+        results.push({ endpoint: ep, previousState });
+      }
+    }
 
     logger.info('admin_force_breaker', {
       adminUserId: req.user?.id ?? 'unknown',
       action: 'force_close',
       serverId,
       model,
-      previousState,
-      newState: 'HEALTHY',
+      endpoint: endpoint ?? 'ALL',
+      results,
       timestamp: new Date().toISOString(),
     });
 
     res.status(200).json({
       success: true,
-      message: `Circuit breaker force-closed for ${serverId}:${model}`,
-      previousState,
+      message: `Circuit breaker force-closed for ${serverId}:${model}${endpoint ? `:${endpoint}` : ' (all 7 endpoints)'}`,
+      results,
+      previousStates: results.map(r => r.previousState),
       currentState: 'HEALTHY',
       uiState: 'CLOSED',
     });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     logger.error('Error force-closing circuit breaker:', error);
     res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
@@ -286,47 +397,105 @@ export function forceCloseBreaker(req: Request, res: Response): void {
 /**
  * Force half-open a circuit breaker for a specific server and model.
  * POST /api/orchestrator/circuit-breakers/:serverId/:model/half-open
+ * POST /api/orchestrator/circuit-breakers/:serverId/:model/:endpoint/half-open
  *
- * Forces tuple to RECOVERING state, writes 'admin_force_half_open' event.
+ * When endpoint is provided, forces only that endpoint to RECOVERING.
+ * When endpoint is omitted, forces ALL 7 endpoints to RECOVERING.
  */
 export function forceHalfOpenBreaker(req: Request, res: Response): void {
   try {
     const serverId = req.params.serverId as string;
     const model = decodeURIComponent(req.params.model as string);
+    const endpoint = req.params.endpoint as string | undefined;
 
-    if (!serverId || !model) {
-      res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_AND_MODEL_REQUIRED });
-      return;
-    }
+    validateRequired(serverId, 'serverId');
+    validateRequired(model, 'model');
+    validateEndpoint(endpoint);
 
     const orchestrator = getOrchestratorInstance();
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
 
-    const tuple = buildTuple(serverId, model);
-    const previousState = probeOrchestrator.getState(tuple);
+    const results: Array<{ endpoint: string; previousState: ProbeState }> = [];
 
-    // Force the tuple to RECOVERING
-    probeOrchestrator.setStateForTesting(tuple, 'RECOVERING');
+    if (endpoint) {
+      const tuple = buildTuple(serverId, model, endpoint);
+      const previousState = probeOrchestrator.getState(tuple);
+      probeOrchestrator.setStateForTesting(tuple, 'RECOVERING');
+      results.push({ endpoint, previousState });
+    } else {
+      for (const ep of KNOWN_PROBE_ENDPOINTS) {
+        const tuple = buildTuple(serverId, model, ep);
+        const previousState = probeOrchestrator.getState(tuple);
+        probeOrchestrator.setStateForTesting(tuple, 'RECOVERING');
+        results.push({ endpoint: ep, previousState });
+      }
+    }
 
     logger.info('admin_force_breaker', {
       adminUserId: req.user?.id ?? 'unknown',
       action: 'force_half_open',
       serverId,
       model,
-      previousState,
-      newState: 'RECOVERING',
+      endpoint: endpoint ?? 'ALL',
+      results,
       timestamp: new Date().toISOString(),
     });
 
     res.status(200).json({
       success: true,
-      message: `Circuit breaker force-half-open for ${serverId}:${model}`,
-      previousState,
+      message: `Circuit breaker force-half-open for ${serverId}:${model}${endpoint ? `:${endpoint}` : ' (all 7 endpoints)'}`,
+      results,
+      previousStates: results.map(r => r.previousState),
       currentState: 'RECOVERING',
       uiState: 'HALF-OPEN',
     });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     logger.error('Error force-half-opening circuit breaker:', error);
+    res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
+  }
+}
+
+/**
+ * Get endpoint states for a server:model combination.
+ * GET /api/orchestrator/circuit-breakers/:serverId/:model/endpoints
+ *
+ * Returns { serverId, model, endpoints: CircuitBreakerInfo[] } — one entry per
+ * ProbeEndpoint, including unknown tuples as default HEALTHY (matching canServe
+ * default behavior for admin callers).
+ *
+ * This is the dedicated handler for the new /endpoints route that Task 1.4
+ * will wire up alongside the existing :serverId/:model routes.
+ */
+export function getEndpointStates(req: Request, res: Response): void {
+  try {
+    const serverId = req.params.serverId as string;
+    const model = decodeURIComponent(req.params.model as string);
+
+    validateRequired(serverId, 'serverId');
+    validateRequired(model, 'model');
+
+    const orchestrator = getOrchestratorInstance();
+
+    // Always return all 7 endpoints, even unknown tuples show as HEALTHY
+    const endpoints: StateProjection[] = KNOWN_PROBE_ENDPOINTS.map(ep =>
+      buildStateProjection(serverId, model, ep, orchestrator)
+    );
+
+    res.json({
+      serverId,
+      model: model === 'server' ? 'server' : model,
+      endpoints,
+    });
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    logger.error('Error getting endpoint states:', error);
     res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
 }
@@ -356,10 +525,7 @@ export function resetAllBreakersForServer(req: Request, res: Response): void {
   try {
     const serverId = req.params.serverId as string;
 
-    if (!serverId) {
-      res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_REQUIRED });
-      return;
-    }
+    validateRequired(serverId, 'serverId');
 
     const orchestrator = getOrchestratorInstance();
     const servers = orchestrator.getServers();
@@ -380,6 +546,10 @@ export function resetAllBreakersForServer(req: Request, res: Response): void {
       resetCount,
     });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     logger.error('Error resetting all circuit breakers for server:', error);
     res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
@@ -389,10 +559,7 @@ export function deleteAllBreakersForServer(req: Request, res: Response): void {
   try {
     const serverId = req.params.serverId as string;
 
-    if (!serverId) {
-      res.status(400).json({ error: ERROR_MESSAGES.SERVER_ID_REQUIRED });
-      return;
-    }
+    validateRequired(serverId, 'serverId');
 
     const orchestrator = getOrchestratorInstance();
     const servers = orchestrator.getServers();
@@ -413,6 +580,10 @@ export function deleteAllBreakersForServer(req: Request, res: Response): void {
       deletedCount,
     });
   } catch (error) {
+    if (error instanceof ValidationError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
     logger.error('Error evicting all circuit breakers for server:', error);
     res.status(500).json({ error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR });
   }
