@@ -480,6 +480,9 @@ export class OperationalStore {
     model: string
   ):
     | {
+        serverId: string;
+        model: string;
+        endpoint: string | null;
         state: string;
         failureCount: number;
         successCount: number;
@@ -501,6 +504,9 @@ export class OperationalStore {
       return undefined;
     }
     return {
+      serverId: row.server_id,
+      model: row.model,
+      endpoint: null,
       state: row.state,
       failureCount: row.failure_count,
       successCount: row.success_count,
