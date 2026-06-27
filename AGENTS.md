@@ -106,6 +106,17 @@ The daily randomized perf-probe scheduler uses these env vars:
 
 For testing, set `PERF_PROBE_INTERVAL_MS=60000` (1-minute cycle) and `PERF_PROBE_JITTER_MS=5000` (5s jitter).
 
+### Git Workflow
+
+- **Remote**: `origin` points at `https://github.com/joshuazick1/ollama-orchestrator.git` (Joshua Zick's public repo).
+- **Local is intentionally ahead**: The local `main` is a snapshot that diverges from `origin/main` with substantial local evolution (code added, refactors, file churn). Treat the local commit as the source of truth until you choose to push.
+- **Branch tracking is OFF by default**: `main` does not have `branch.main.remote` or `branch.main.merge` set. This means `git pull` will refuse with "no upstream" rather than silently merging public commits. Verify state explicitly with `git status -sb` and `git rev-list --left-right --count main...origin/main`.
+- **Never run `git pull`, `git fetch` followed by merge, or `git reset --hard origin/main`** without confirming the divergence cost. If you need public commits, prefer `git fetch origin main && git log origin/main..main` (read-only inspection) first.
+- **Push protocol**: When ready to publish, use `git push -u origin main` (sets tracking on first push) or `git push origin main` (subsequent). Do not force-push unless explicitly told.
+- **Initial commit hash**: `86e3776` — `chore: import from transfer tarball`. The first commit intentionally used `--no-verify` because the snapshot includes config files (`vitest.*.config.ts`, `playwright.config.ts`, `tsconfig.tsbuildinfo`, `scripts/verify-lb-uses-probe-data.ts`) that the typed-eslint config does not include; those pre-existing failures are not caused by this commit. Subsequent commits should run hooks normally.
+- **Identity**: Repo-local `user.name`/`user.email` are set to `Joshua Zick <joshuazick1@users.noreply.github.com>` to match the public repo. These are NOT global git config and only affect this repo.
+- **Husky hooks**: `commit-msg` runs commitlint, `pre-commit` runs lint-staged (`eslint --fix` + `prettier --write` on staged `*.ts`). Both must pass on subsequent commits.
+
 ## Child DOX Index
 
 The DOX tree is rooted at these child docs. Each child owns a durable boundary and links to its own children. See the linked doc for scope, contracts, work guidance, and verification.
