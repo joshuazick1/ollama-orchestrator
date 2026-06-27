@@ -451,7 +451,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       useStreaming,
-      'generate',
+      'ollama_generate',
       'ollama',
       routingContext,
       undefined,
@@ -973,7 +973,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       useStreaming,
-      'generate',
+      'ollama_chat',
       'ollama',
       routingContext,
       undefined,
@@ -1103,7 +1103,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       false,
-      'embeddings',
+      'ollama_embeddings',
       'ollama',
       routingContext,
       undefined,
@@ -1264,7 +1264,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       false,
-      'generate',
+      'ollama_generate',
       'ollama',
       routingContext
     );

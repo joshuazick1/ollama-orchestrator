@@ -1128,7 +1128,7 @@ export class AIOrchestrator {
    */
   private hasAvailableServer(modelName: string, serverIds: string[]): boolean {
     for (const serverId of serverIds) {
-      const tuple: Tuple = { serverId, model: modelName, endpoint: 'ollama_generate' };
+      const tuple: Tuple = { serverId, model: modelName, endpoint: 'ollama_chat' };
       if (this.probeOrchestrator.canServe(tuple, 'routing')) {
         return true;
       }
@@ -1596,7 +1596,7 @@ export class AIOrchestrator {
     model: string,
     fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean = false,
-    endpoint: 'generate' | 'embeddings' = 'generate',
+    endpoint: ProbeEndpoint = 'ollama_generate',
     requiredCapability?: 'ollama' | 'openai' | 'anthropic',
     routingContext?: RoutingContext,
     signal?: AbortSignal,
@@ -1923,8 +1923,6 @@ export class AIOrchestrator {
 
       // Try request WITHOUT same-server retries (failover immediately)
       const attemptStart1 = Date.now();
-      const probeEndpoint: ProbeEndpoint =
-        endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
       const result = await this.tryRequestOnServerNoRetry(
         server,
         model,
@@ -1936,7 +1934,7 @@ export class AIOrchestrator {
         userRequestId,
         retryCount > 0,
         routingContext,
-        probeEndpoint
+        endpoint
       );
       const attemptLatency1 = Date.now() - attemptStart1;
 
@@ -2072,8 +2070,6 @@ export class AIOrchestrator {
       }
 
       const attemptStart2 = Date.now();
-      const probeEndpoint2: ProbeEndpoint =
-        endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
       const result = await this.tryRequestOnServerNoRetry(
         server,
         model,
@@ -2085,7 +2081,7 @@ export class AIOrchestrator {
         userRequestId,
         true, // Phase 2 is always a retry
         routingContext,
-        probeEndpoint2
+        endpoint
       );
       const attemptLatency2 = Date.now() - attemptStart2;
 
@@ -2190,8 +2186,6 @@ export class AIOrchestrator {
 
     if (totalLoad < maxConcurrency) {
       const attemptStart3 = Date.now();
-      const probeEndpoint3: ProbeEndpoint =
-        endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
       const result = await this.tryRequestOnServerWithRetries(
         initialServer,
         model,
@@ -2202,7 +2196,7 @@ export class AIOrchestrator {
         undefined,
         userRequestId,
         routingContext,
-        probeEndpoint3
+        endpoint
       );
       const attemptLatency3 = Date.now() - attemptStart3;
 
@@ -2442,7 +2436,7 @@ export class AIOrchestrator {
       startTime: Date.now(),
       serverId: server.id,
       model,
-      endpoint: 'generate',
+      endpoint,
       streaming: isStreaming,
       success: false,
       parentRequestId,
@@ -2662,7 +2656,7 @@ export class AIOrchestrator {
         startTime: Date.now(),
         serverId: server.id,
         model,
-        endpoint: 'generate',
+        endpoint,
         streaming: isStreaming,
         success: false,
         parentRequestId,
@@ -3563,13 +3557,8 @@ export class AIOrchestrator {
    * Check if server:model combo should be skipped due to probe state.
    * Uses probe system for health checking.
    */
-  public shouldSkipServerModel(
-    serverId: string,
-    model: string,
-    endpoint?: 'generate' | 'embeddings'
-  ): boolean {
-    const probeEndpoint: 'ollama_generate' | 'ollama_embeddings' =
-      endpoint === 'embeddings' ? 'ollama_embeddings' : 'ollama_generate';
+  public shouldSkipServerModel(serverId: string, model: string, endpoint?: ProbeEndpoint): boolean {
+    const probeEndpoint: ProbeEndpoint = endpoint ?? 'ollama_generate';
     const tuple = { serverId, model, endpoint: probeEndpoint };
     return !this.probeOrchestrator.canServe(tuple, 'routing');
   }

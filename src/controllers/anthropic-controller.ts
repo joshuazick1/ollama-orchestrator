@@ -791,7 +791,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       stream,
-      'generate',
+      'anthropic_messages',
       'openai',
       undefined,
       undefined,

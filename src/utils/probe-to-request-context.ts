@@ -25,7 +25,7 @@ export function buildProbeRequestContext(result: ProbeRunResult, taskId: string)
     id: `probe-${taskId}-${result.serverId}-${result.model}`,
     serverId: result.serverId,
     model: result.model,
-    endpoint: 'generate',
+    endpoint: 'ollama_generate',
     streaming: true,
     isProbe: true,
     startTime,

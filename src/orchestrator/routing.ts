@@ -12,6 +12,7 @@ import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
 import { classifyError, type ErrorType } from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 import { RetryBudget } from '../utils/retry-budget.js';
+import type { ProbeEndpoint } from '../probe/types.js';
 
 import type { AIOrchestrator } from './orchestrator.js';
 import type { RoutingContext } from './orchestrator.js';
@@ -24,7 +25,7 @@ export class OrchestratorRouter {
     model: string,
     fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean = false,
-    endpoint: 'generate' | 'embeddings' = 'generate',
+    endpoint: ProbeEndpoint = 'ollama_generate',
     requiredCapability?: 'ollama' | 'openai' | 'anthropic',
     routingContext?: RoutingContext,
     signal?: AbortSignal,
@@ -90,7 +91,8 @@ export class OrchestratorRouter {
           true,
           userRequestId,
           phaseIsRetry,
-          routingContext
+          routingContext,
+          endpoint
         );
         const attemptLatency = Date.now() - attemptStart;
         if (result.success) {
@@ -492,7 +494,8 @@ export class OrchestratorRouter {
         errors,
         undefined,
         userRequestId,
-        routingContext
+        routingContext,
+        endpoint
       );
       const attemptLatency3 = Date.now() - attemptStart3;
 
@@ -700,7 +703,8 @@ export class OrchestratorRouter {
     alreadyIncremented: boolean = false,
     parentRequestId?: string,
     isRetry: boolean = false,
-    routingContext?: RoutingContext
+    routingContext?: RoutingContext,
+    endpoint?: ProbeEndpoint
   ): Promise<{ success: true; value: T } | { success: false }> {
     const wasActiveTestAtStart = false;
 
@@ -709,7 +713,7 @@ export class OrchestratorRouter {
       startTime: Date.now(),
       serverId: server.id,
       model,
-      endpoint: 'generate',
+      endpoint: endpoint ?? 'ollama_generate',
       streaming: isStreaming,
       success: false,
       parentRequestId,
@@ -874,7 +878,8 @@ export class OrchestratorRouter {
     errors: Array<{ server: string; error: string; type?: ErrorType }>,
     _timeoutMs?: number,
     parentRequestId?: string,
-    routingContext?: RoutingContext
+    routingContext?: RoutingContext,
+    endpoint?: ProbeEndpoint
   ): Promise<{ success: true; value: T } | { success: false }> {
     let lastError: Error | undefined;
     let retryCount = 0;
@@ -896,7 +901,7 @@ export class OrchestratorRouter {
         startTime: Date.now(),
         serverId: server.id,
         model,
-        endpoint: 'generate',
+        endpoint: endpoint ?? 'ollama_generate',
         streaming: isStreaming,
         success: false,
         parentRequestId,
@@ -1089,7 +1094,14 @@ export class OrchestratorRouter {
           );
         }
 
-        this.orchestrator.handleServerError(server, model, errorMessage, errorType, errors);
+        this.orchestrator.handleServerError(
+          server,
+          model,
+          errorMessage,
+          errorType,
+          errors,
+          requestContext.endpoint
+        );
         return { success: false };
       }
     }

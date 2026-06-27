@@ -3,6 +3,8 @@
  * Type definitions for AI orchestrator
  */
 
+import type { ProbeEndpoint } from '../probe/types.js';
+
 /**
  * Structural interface for TDigest objects. Defined inline (instead of importing
  * the TDigest class from utils/tdigest.js) so that the frontend type mirror
@@ -282,7 +284,7 @@ export interface RequestContext {
   startTime: number;
   serverId?: string;
   model: string;
-  endpoint: 'generate' | 'chat' | 'embeddings';
+  endpoint: ProbeEndpoint;
   streaming: boolean;
   /** Parent request ID linking retries/failovers to the original user request */
   parentRequestId?: string;

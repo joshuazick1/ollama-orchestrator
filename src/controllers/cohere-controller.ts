@@ -84,7 +84,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       stream,
-      'generate',
+      'openai_chat',
       'openai',
       undefined,
       undefined,

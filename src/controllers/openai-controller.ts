@@ -794,7 +794,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
             return { _streamed: true } as Record<string, unknown>;
           },
           true,
-          'generate',
+          'openai_chat',
           'openai',
           routingContext,
           undefined,
@@ -1215,7 +1215,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       stream,
-      'generate',
+      'openai_chat',
       'openai',
       routingContext,
       undefined,
@@ -1271,7 +1271,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
               return (await parseResponse<Record<string, unknown>>(response))!;
             },
             false,
-            'generate',
+            'openai_chat',
             'openai',
             routingContext,
             undefined,
@@ -1536,7 +1536,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       stream,
-      'generate',
+      'openai_completions',
       'openai',
       routingContext,
       undefined,
@@ -1658,7 +1658,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
         return (await parseResponse<Record<string, unknown>>(response))!;
       },
       false,
-      'embeddings',
+      'openai_embeddings',
       'openai',
       routingContext,
       undefined,
