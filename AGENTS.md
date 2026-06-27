@@ -116,7 +116,19 @@ For testing, set `PERF_PROBE_INTERVAL_MS=60000` (1-minute cycle) and `PERF_PROBE
 - **Initial commit hash**: `86e3776` — `chore: import from transfer tarball`. The first commit intentionally used `--no-verify` because the snapshot includes config files (`vitest.*.config.ts`, `playwright.config.ts`, `tsconfig.tsbuildinfo`, `scripts/verify-lb-uses-probe-data.ts`) that the typed-eslint config does not include; those pre-existing failures are not caused by this commit. Subsequent commits should run hooks normally.
 - **Identity**: Repo-local `user.name`/`user.email` are set to `Joshua Zick <joshuazick1@users.noreply.github.com>` to match the public repo. These are NOT global git config and only affect this repo.
 - **Husky hooks**: `commit-msg` runs commitlint, `pre-commit` runs lint-staged (`eslint --fix` + `prettier --write` on staged `*.ts`). Both must pass on subsequent commits.
-- **Hook limitations on Node 20**: `commitlint@18` has an ESM/CJS cycle that fails to load under Node 20 with `ERR_REQUIRE_CYCLE_MODULE`. If you see this error on commit, the runtime Node version is too old for commitlint. Use `git commit --no-verify` after visually confirming the message conforms to conventional commits, and document why in the commit body if non-obvious. The orchestrator's own engines field requires `>=20.0.0`, but commitlint needs `>=22`.
+
+### Runtime: Node 22 LTS via nvm
+
+- **Required Node version**: 22 LTS (Jod). `package.json` `engines.node` says `>=20.0.0` but commitlint@18 + rollup-plugin-visualizer@7 both need Node 22+.
+- **Version manager**: nvm (installed via the official `nvm-sh/nvm` script). System Node at `/bin/node` is Node 20 (Debian 13 default) and is not used by this project.
+- **Setup for a fresh shell**:
+  ```bash
+  export NVM_DIR="$HOME/.nvm"
+  [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+  nvm use 22   # or `nvm use default` since 22 is the default alias
+  ```
+- **Native modules**: After switching Node major, run `npm rebuild better-sqlite3 bcrypt` from the repo root so the `.node` binaries match the active Node ABI. Pre-built binaries (`prebuild-install`) are also fine on reinstall — `npm rebuild` is the safe-when-already-installed path.
+- **Commitlint config**: `.commitlintrc.cjs` (renamed from `.js` on 2026-06-27). The repo's `package.json` sets `"type": "module"`, which made `.js` config files load as ESM and broke the CommonJS `module.exports` pattern. The `.cjs` extension is the canonical fix for ESM projects with CJS-format dotfiles.
 
 ## Child DOX Index
 
