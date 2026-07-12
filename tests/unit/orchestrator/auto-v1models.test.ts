@@ -149,4 +149,80 @@ describe('Auto-populate v1Models from discovery', () => {
     expect(updatedServer?.v1Models).toEqual(discoveredModels);
     expect(updatedServer?.discoveredV1Models).toEqual(discoveredModels);
   });
+
+  it('should record empty discoveredV1Models when /v1/models returns empty array', async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/tags')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ models: [] }),
+        });
+      }
+      if (url.includes('/api/version')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ version: '0.1.0' }),
+        });
+      }
+      if (url.includes('/v1/models')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [] }),
+        });
+      }
+      return Promise.reject(new Error('Not found'));
+    });
+
+    const server = createServer({
+      id: 'server-empty-discovery',
+      type: 'openai',
+      v1Models: undefined,
+    });
+    orchestrator.addServer(server);
+
+    await orchestrator.updateServerStatus(orchestrator.getServer('server-empty-discovery')!);
+
+    const updatedServer = orchestrator.getServer('server-empty-discovery');
+    expect(updatedServer?.discoveredV1Models).toEqual([]);
+    // Empty discovery does not seed v1Models — preserves operator-override semantics.
+    expect(updatedServer?.v1Models).toBeUndefined();
+  });
+
+  it('should accept {models:[{name|id}]} response shape (Ollama-compatible / vLLM)', async () => {
+    const discoveredModels = ['llama3:70b', 'mistral:7b'];
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/tags')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ models: [] }),
+        });
+      }
+      if (url.includes('/api/version')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ version: '0.1.0' }),
+        });
+      }
+      if (url.includes('/v1/models')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ models: discoveredModels.map(id => ({ name: id, id })) }),
+        });
+      }
+      return Promise.reject(new Error('Not found'));
+    });
+
+    const server = createServer({
+      id: 'server-vllm-shape',
+      type: 'openai',
+      v1Models: undefined,
+    });
+    orchestrator.addServer(server);
+
+    await orchestrator.updateServerStatus(orchestrator.getServer('server-vllm-shape')!);
+
+    const updatedServer = orchestrator.getServer('server-vllm-shape');
+    expect(updatedServer?.discoveredV1Models).toEqual(discoveredModels);
+    expect(updatedServer?.v1Models).toEqual(discoveredModels);
+  });
 });

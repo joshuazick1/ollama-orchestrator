@@ -111,6 +111,55 @@ function extractParameterSizeFromName(modelName: string): string | undefined {
   return undefined;
 }
 
+function extractV1ModelIds(raw: unknown): string[] {
+  if (!raw || typeof raw !== 'object') {
+    return [];
+  }
+  const obj = raw as Record<string, unknown>;
+
+  // OpenAI standard: { data: [{ id: "..." }, ...] }
+  const data = obj['data'];
+  if (Array.isArray(data)) {
+    return data
+      .map((m): string | undefined => {
+        if (typeof m === 'string') {
+          return m;
+        }
+        if (m && typeof m === 'object') {
+          const r = m as Record<string, unknown>;
+          const id = r['id'];
+          if (typeof id === 'string') {
+            return id;
+          }
+        }
+        return undefined;
+      })
+      .filter((id): id is string => typeof id === 'string');
+  }
+
+  // Ollama-compatible / vLLM fallback: { models: [{ name|id: "..." }, ...] }
+  const models = obj['models'];
+  if (Array.isArray(models)) {
+    return models
+      .map((m): string | undefined => {
+        if (typeof m === 'string') {
+          return m;
+        }
+        if (m && typeof m === 'object') {
+          const r = m as Record<string, unknown>;
+          const id = r['id'] ?? r['name'] ?? r['model'];
+          if (typeof id === 'string') {
+            return id;
+          }
+        }
+        return undefined;
+      })
+      .filter((id): id is string => typeof id === 'string');
+  }
+
+  return [];
+}
+
 export class AIOrchestrator {
   private servers: AIServer[] = [];
   private inFlightManager: InFlightManager;
@@ -914,44 +963,53 @@ export class AIOrchestrator {
         }
       }
 
-      // Extract OpenAI models from /v1/models response
+      // Extract OpenAI models from /v1/models response.
+      // Always overwrite discoveredV1Models when the endpoint returns 2xx — even with
+      // an empty list — to avoid the silent staleness caused by a first-probe empty
+      // result. Accepts {data:[{id}]} (OpenAI standard) and {models:[{name|id}]}
+      // (Ollama-compatible / vLLM) response shapes.
       if (v1Response?.ok) {
         try {
-          const data = (await v1Response.json()) as { data?: Array<{ id?: string }> };
-          if (data && Array.isArray(data.data) && data.data.length > 0) {
-            server.discoveredV1Models = data.data
-              .map((m: { id?: string }) => m.id)
-              .filter((id): id is string => typeof id === 'string');
-            if (!server.v1Models || server.v1Models.length === 0) {
-              server.v1Models = [...server.discoveredV1Models];
-              logger.info('Auto-populated v1Models from discovery', {
-                serverId: server.id,
-                models: server.v1Models.length,
-              });
-            }
+          const raw = (await v1Response.json()) as unknown;
+          const ids = extractV1ModelIds(raw);
 
-            if (isVLLMResponse(data)) {
-              const vllmParsed = VLLMModelsResponseSchema.safeParse(data);
-              if (vllmParsed.success && vllmParsed.data) {
-                const vllmMeta: Record<string, VLLMModelMeta> = {};
-                for (const model of vllmParsed.data.data) {
-                  if (model.id && model.metadata) {
-                    vllmMeta[model.id] = model.metadata;
-                  }
-                }
-                if (Object.keys(vllmMeta).length > 0) {
-                  server.vllmMetadata = vllmMeta;
-                  logger.debug('Extracted vLLM metadata from discovery', {
-                    serverId: server.id,
-                    modelCount: Object.keys(vllmMeta).length,
-                  });
+          server.discoveredV1Models = ids;
+          if (ids.length > 0) {
+            logger.debug('Discovered v1 models', {
+              serverId: server.id,
+              count: ids.length,
+            });
+          }
+
+          if (ids.length > 0 && (!server.v1Models || server.v1Models.length === 0)) {
+            server.v1Models = [...ids];
+            logger.info('Auto-populated v1Models from discovery', {
+              serverId: server.id,
+              models: server.v1Models.length,
+            });
+          }
+
+          if (isVLLMResponse(raw)) {
+            const vllmParsed = VLLMModelsResponseSchema.safeParse(raw);
+            if (vllmParsed.success && vllmParsed.data) {
+              const vllmMeta: Record<string, VLLMModelMeta> = {};
+              for (const model of vllmParsed.data.data) {
+                if (model.id && model.metadata) {
+                  vllmMeta[model.id] = model.metadata;
                 }
               }
+              if (Object.keys(vllmMeta).length > 0) {
+                server.vllmMetadata = vllmMeta;
+                logger.debug('Extracted vLLM metadata from discovery', {
+                  serverId: server.id,
+                  modelCount: Object.keys(vllmMeta).length,
+                });
+              }
             }
+          }
 
-            if (this.config.enablePersistence && !this._suppressPersistence) {
-              this.persistence.saveServersToDisk(this.servers);
-            }
+          if (this.config.enablePersistence && !this._suppressPersistence) {
+            this.persistence.saveServersToDisk(this.servers);
           }
         } catch (e) {
           logger.debug('Failed to parse v1 models response', {
