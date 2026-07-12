@@ -25,7 +25,10 @@ import { EndpointRegistry } from '../probe/endpoint-registry.js';
 import { classify } from '../probe/failure-classifier.js';
 import { getPerfProbeSchedulerInstance } from '../probe/perf-probe-scheduler-instance.js';
 import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
-import { getCapabilityProbeScheduler } from '../probe/probe-scheduler-instance.js';
+import {
+  getCapabilityProbeScheduler,
+  getHealthCheckScheduler,
+} from '../probe/probe-scheduler-instance.js';
 import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { BackoffSchedule } from '../probe/recovery-driver.js';
 import { RecoveryDriver } from '../probe/recovery-driver.js';
@@ -3503,6 +3506,11 @@ export class AIOrchestrator {
       // Start the negative-probe capability detection scheduler
       // (auto-confirm/soft-revoke endpoints every 5 minutes)
       getCapabilityProbeScheduler().start();
+
+      // Start the periodic health-check scheduler that refreshes per-server
+      // model lists (server.models, server.v1Models, server.discoveredV1Models)
+      // so /api/tags and /v1/models proxy endpoints reflect fleet reality.
+      getHealthCheckScheduler().start();
 
       const DECAY_INTERVAL_MS = 5 * 60 * 1000;
       this.escalationIntervalId = setInterval(() => {

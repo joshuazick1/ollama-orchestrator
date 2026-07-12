@@ -119,6 +119,9 @@ export function getOrchestratorInstance(): AIOrchestrator {
                 if (server.v1Models !== undefined) {
                   addedServer.v1Models = server.v1Models;
                 }
+                if (server.discoveredV1Models !== undefined) {
+                  addedServer.discoveredV1Models = server.discoveredV1Models;
+                }
                 if (server.apiKey !== undefined) {
                   addedServer.apiKey = server.apiKey;
                 }
