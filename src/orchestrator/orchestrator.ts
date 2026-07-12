@@ -45,9 +45,16 @@ import { BanManager } from '../utils/ban-manager.js';
 import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
 import { classifyError, ErrorCategory, type ErrorType } from '../utils/error-classifier.js';
+import { NdjsonResponseError, detectNdjsonResponse } from '../utils/fetch-with-timeout.js';
 import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
 import { ModelAggregator } from '../utils/model-aggregator.js';
+import {
+  attemptModelRepair,
+  CORRUPTED_MODEL_PATTERNS,
+  matchesAny,
+  RUNNER_CRASH_PATTERNS,
+} from '../utils/model-repair.js';
 import { filterValidModels } from '../utils/model-validator.js';
 import { canHandleContext, getDefaultContextSize } from '../utils/prompt-estimator.js';
 import { getQuarantinePool } from '../utils/quarantine-pool.js';
@@ -778,18 +785,14 @@ export class AIOrchestrator {
     let totalAdded = 0;
     for (const server of servers) {
       try {
-        const discovered = await discoverModels({
-          urls: [server.url],
-          model,
-          type: server.type === 'openai' ? 'openai' : 'ollama',
-          timeoutMs: 5000,
-        });
-        if (discovered.merged.length > 0 && !server.models.includes(model)) {
-          server.models = [...server.models, ...discovered.merged];
-          totalAdded += discovered.merged.length;
+        const discovered = await discoverModels(server.url, { timeoutMs: 5000 });
+        const want = discovered.merged.find(m => m === model || m.startsWith(model + ':'));
+        if (want && !server.models.includes(want)) {
+          server.models = [...server.models, want];
+          totalAdded++;
         }
       } catch {
-        // ignore per-server failures; loop continues
+        // continue with remaining servers
       }
     }
     return totalAdded;
@@ -805,22 +808,49 @@ export class AIOrchestrator {
     promptText: string | null,
     model: string
   ): { isGarbage: boolean; signals: string[] } {
+    const signals: string[] = [];
+    let confidence = 0;
+    let evidence = responseText.length > 200 ? responseText.slice(0, 200) : responseText;
+
+    // NDJSON response from a non-streaming endpoint is a strong signal in its
+    // own right — surface it before running the generic detector so the operator
+    // sees the format error specifically.
+    if (detectNdjsonResponse(responseText) !== null) {
+      signals.push('ndjson-streaming-format');
+      confidence = 1.0;
+    }
+
     const detection = detectGarbageResponse(responseText, promptText);
-    if (!detection.isGarbage) {
+    if (detection.isGarbage) {
+      for (const s of detection.signals) {
+        if (!signals.includes(s)) {
+          signals.push(s);
+        }
+      }
+      if (detection.confidence > confidence) {
+        confidence = detection.confidence;
+      }
+      if (detection.evidence && detection.evidence.length > 0) {
+        evidence = detection.evidence;
+      }
+    }
+
+    if (signals.length === 0) {
       return { isGarbage: false, signals: [] };
     }
+
     getQuarantinePool().quarantine(
       serverId,
       'garbage-response',
       {
-        signals: detection.signals,
-        confidence: detection.confidence,
-        evidence: detection.evidence,
+        signals,
+        confidence,
+        evidence,
         model,
       },
       false
     );
-    return { isGarbage: true, signals: [...detection.signals] };
+    return { isGarbage: true, signals: [...signals] };
   }
 
   /**
@@ -2827,7 +2857,40 @@ export class AIOrchestrator {
         this.inFlightManager.removeStreamingRequest(requestContext.id);
       }
 
+      // Non-streaming endpoints that return NDJSON instead of a single JSON
+      // object are a strong signal of upstream misconfiguration or compromise.
+      // Quarantine the server so the operator can investigate, but do NOT
+      // mark it unhealthy on its own — the underlying capability may still
+      // work for streaming callers.
+      if (error instanceof NdjsonResponseError) {
+        this.recordGarbageResponse(server.id, error.body, null, model);
+      }
+
       const lastError = error instanceof Error ? error : new Error(String(error));
+      const errorMessage = lastError.message;
+
+      // Detect and react to model-repair and runner-crash conditions before
+      // the generic failure handler runs. These need to fire BEFORE the
+      // generic handler so the quarantine decision is observable.
+      if (matchesAny(errorMessage, RUNNER_CRASH_PATTERNS)) {
+        getQuarantinePool().quarantine(
+          server.id,
+          'runner-crash',
+          { model, error: errorMessage },
+          false
+        );
+      } else if (matchesAny(errorMessage, CORRUPTED_MODEL_PATTERNS)) {
+        getQuarantinePool().quarantine(
+          server.id,
+          'corrupted-model',
+          { model, status: 'repair-attempting' },
+          false
+        );
+        const repairResult = await attemptModelRepair(server.url, model, 5000, 10000);
+        if (repairResult.success) {
+          getQuarantinePool().unquarantine(server.id);
+        }
+      }
 
       // Record failed request metrics
       requestContext.endTime = Date.now();
@@ -2839,7 +2902,6 @@ export class AIOrchestrator {
       getRequestHistory().recordRequest(requestContext);
       getMetricsStore().recordRequest(requestContext);
 
-      const errorMessage = lastError.message;
       const errorType = classifyError(errorMessage).type;
 
       if (errorType === 'rateLimited') {

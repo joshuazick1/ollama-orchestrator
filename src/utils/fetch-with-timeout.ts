@@ -251,13 +251,32 @@ export function createFetchWithTimeout(
  * @param response - Fetch Response object
  * @returns Parsed JSON or null on error
  */
+/**
+ * Thrown when a non-streaming endpoint returns NDJSON instead of a single JSON
+ * object — a strong signal that the upstream is misconfigured or compromised.
+ * Carries the raw body so callers can route it into garbage-response quarantine.
+ */
+export class NdjsonResponseError extends Error {
+  readonly body: string;
+  readonly contentType: string;
+
+  constructor(body: string, contentType: string) {
+    super(`NDJSON response received (Content-Type: ${contentType})`);
+    this.name = 'NdjsonResponseError';
+    this.body = body;
+    this.contentType = contentType;
+  }
+}
+
 export async function parseResponse<T = Record<string, unknown>>(
   response: Response
 ): Promise<T | null> {
   try {
-    const data = await response.json();
-    return data as T;
+    return (await parseJsonWithNdjsonDetection(response)) as T;
   } catch (error) {
+    if (error instanceof NdjsonResponseError) {
+      throw error;
+    }
     logger.debug('Failed to parse response JSON', { error });
     return null;
   }
@@ -272,14 +291,30 @@ export async function parseResponseWithError<T extends object = Record<string, u
   response: Response
 ): Promise<[T | null, string | null]> {
   try {
-    const data = (await response.json()) as T;
+    const data = (await parseJsonWithNdjsonDetection(response)) as T;
     if ('error' in data && typeof data.error === 'string') {
       return [null, data.error];
     }
     return [data, null];
-  } catch {
+  } catch (error) {
+    if (error instanceof NdjsonResponseError) {
+      throw error;
+    }
     return [null, 'Failed to parse response'];
   }
+}
+
+/**
+ * Reads the response body as text once, runs NDJSON detection, then either
+ * returns the parsed JSON object or throws NdjsonResponseError when the body
+ * is NDJSON. Standard JSON.parse failures bubble up unchanged.
+ */
+async function parseJsonWithNdjsonDetection(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (detectNdjsonResponse(text)) {
+    throw new NdjsonResponseError(text, response.headers.get('content-type') ?? '');
+  }
+  return JSON.parse(text);
 }
 
 export interface NdjsonDetection {

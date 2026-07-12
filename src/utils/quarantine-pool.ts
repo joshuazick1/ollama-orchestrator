@@ -2,7 +2,13 @@ import { getOperationalStore } from '../storage/operational-store.js';
 
 import { logger } from './logger.js';
 
-export type QuarantineReason = 'honeypot-flagged' | 'manual' | 'auto-low-confidence';
+export type QuarantineReason =
+  | 'honeypot-flagged'
+  | 'manual'
+  | 'auto-low-confidence'
+  | 'garbage-response'
+  | 'corrupted-model'
+  | 'runner-crash';
 
 export interface QuarantineEntry {
   serverId: string;
