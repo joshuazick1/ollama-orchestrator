@@ -101,6 +101,7 @@ export class CircuitBreaker {
     transient: 0,
     permanent: 0,
     rateLimited: 0,
+    quotaExhausted: 0,
   };
   private lastFailureReason?: string;
   private modelType?: 'embedding' | 'generation';

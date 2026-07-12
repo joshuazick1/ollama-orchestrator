@@ -281,3 +281,52 @@ export async function parseResponseWithError<T extends object = Record<string, u
     return [null, 'Failed to parse response'];
   }
 }
+
+export interface NdjsonDetection {
+  lineCount: number;
+  preview: string;
+}
+
+/**
+ * Detects whether a response body is newline-delimited JSON (NDJSON).
+ * Returns null when the body is empty, single-line, or not parseable JSON lines.
+ * The preview is truncated to 200 characters.
+ */
+export function detectNdjsonResponse(body: string): NdjsonDetection | null {
+  if (!body) {
+    return null;
+  }
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+
+  if (lines.length < 2) {
+    return null;
+  }
+
+  let parsed = 0;
+  for (const line of lines) {
+    try {
+      JSON.parse(line);
+      parsed++;
+    } catch {
+      return null;
+    }
+  }
+
+  if (parsed < 2) {
+    return null;
+  }
+
+  const firstLine = lines[0];
+  return {
+    lineCount: lines.length,
+    preview: firstLine.length > 200 ? firstLine.slice(0, 200) : firstLine,
+  };
+}

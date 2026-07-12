@@ -38,6 +38,7 @@ export class BanManager {
   private permanentBan: Set<string> = new Set();
   private serverFailureCount: Map<string, number> = new Map();
   private modelFailureTracker: Map<string, FailureTracker> = new Map();
+  private extendedCooldown: Map<string, number> = new Map();
   private config: BanManagerConfig;
   private cleanupInterval?: ReturnType<typeof setInterval>;
 
@@ -369,6 +370,51 @@ export class BanManager {
       logger.info(`Cleaned up ${cleaned} expired/stale entries`);
     }
 
+    cleaned += this.cleanupExtendedCooldowns();
+
+    return cleaned;
+  }
+
+  private extendedCooldownKey(serverId: string, model: string, userId: string): string {
+    return `${serverId}:${model}:${userId}`;
+  }
+
+  markExtendedCooldown(serverId: string, model: string, userId: string, durationMs: number): void {
+    this.extendedCooldown.set(
+      this.extendedCooldownKey(serverId, model, userId),
+      Date.now() + durationMs
+    );
+  }
+
+  isInExtendedCooldown(serverId: string, model: string, userId: string): boolean {
+    const expiry = this.extendedCooldown.get(this.extendedCooldownKey(serverId, model, userId));
+    if (expiry === undefined) {
+      return false;
+    }
+    return expiry > Date.now();
+  }
+
+  getExtendedCooldownExpiry(serverId: string, model: string, userId: string): number | undefined {
+    const expiry = this.extendedCooldown.get(this.extendedCooldownKey(serverId, model, userId));
+    if (expiry === undefined || expiry <= Date.now()) {
+      return undefined;
+    }
+    return expiry;
+  }
+
+  /**
+   * Sweep expired extended cooldowns. Returns the count of removed entries.
+   * Called by the periodic cleanup tick.
+   */
+  cleanupExtendedCooldowns(): number {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [key, expiry] of this.extendedCooldown) {
+      if (expiry <= now) {
+        this.extendedCooldown.delete(key);
+        cleaned++;
+      }
+    }
     return cleaned;
   }
 

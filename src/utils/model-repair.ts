@@ -32,7 +32,9 @@ export async function attemptModelRepair(
   deleteTimeoutMs = 30_000,
   pullTimeoutMs = 300_000
 ): Promise<ModelRepairResult> {
-  process.stderr.write(`[DEBUG-REPAIR-FN] attemptModelRepair called for ${serverUrl} / ${modelName}\n`);
+  process.stderr.write(
+    `[DEBUG-REPAIR-FN] attemptModelRepair called for ${serverUrl} / ${modelName}\n`
+  );
   // ── Step 1: Remove the corrupted model ──────────────────────────────
   try {
     process.stderr.write(`[DEBUG-REPAIR-FN] calling DELETE ${serverUrl}/api/delete\n`);
@@ -46,11 +48,15 @@ export async function attemptModelRepair(
     if (!delRes.ok && delRes.status !== 404) {
       // 404 = model didn't exist (maybe already removed) — still try pull
       const body = await delRes.text().catch(() => '(no body)');
-      logger.warn(`[ModelRepair] DELETE returned ${delRes.status} for ${modelName} on ${serverUrl}: ${body}`);
+      logger.warn(
+        `[ModelRepair] DELETE returned ${delRes.status} for ${modelName} on ${serverUrl}: ${body}`
+      );
       // Non-fatal — continue to pull
     }
   } catch (err) {
-    logger.warn(`[ModelRepair] DELETE failed for ${modelName} on ${serverUrl}: ${err}`);
+    logger.warn(
+      `[ModelRepair] DELETE failed for ${modelName} on ${serverUrl}: ${err instanceof Error ? err.message : String(err)}`
+    );
     // Non-fatal — continue to pull (pull might overwrite)
   }
 
@@ -76,7 +82,9 @@ export async function attemptModelRepair(
     const raw = await pullRes.text();
     for (const line of raw.split('\n')) {
       const trimmed = line.trim();
-      if (!trimmed) {continue;}
+      if (!trimmed) {
+        continue;
+      }
       try {
         const parsed = JSON.parse(trimmed);
         if (parsed.status === 'success') {
@@ -137,5 +145,5 @@ export const RUNNER_CRASH_PATTERNS = [
  */
 export function matchesAny(errorMessage: string, patterns: readonly string[]): boolean {
   const lower = errorMessage.toLowerCase();
-  return patterns.some((p) => lower.includes(p));
+  return patterns.some(p => lower.includes(p));
 }

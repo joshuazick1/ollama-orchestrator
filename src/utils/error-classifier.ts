@@ -13,7 +13,13 @@ import { logger } from './logger.js';
 /**
  * Error classification types
  */
-export type ErrorType = 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited';
+export type ErrorType =
+  | 'retryable'
+  | 'non-retryable'
+  | 'transient'
+  | 'permanent'
+  | 'rateLimited'
+  | 'quotaExhausted';
 
 /**
  * Enhanced error categories for more detailed classification
@@ -487,6 +493,38 @@ export class ErrorClassifier {
       'bandwidth limit exceeded',
       '529',
     ];
+    // quota exhaustion is more specific than rateLimited — check first
+    const quotaPatterns = [
+      'have reached your weekly usage limit',
+      'have reached your monthly usage limit',
+      'have reached your daily usage limit',
+      'quota exceeded',
+      'usage limit',
+      'usage cap',
+    ];
+    for (const pattern of quotaPatterns) {
+      if (errorLower.includes(pattern)) {
+        const result = {
+          type: 'quotaExhausted' as const,
+          isRetryable: true,
+          isTransient: false,
+          isPermanent: false,
+          shouldCircuitBreak: true,
+          category: ErrorCategory.RESOURCE,
+          severity: ErrorSeverity.HIGH,
+          retryStrategy: {
+            initialDelay: 300000, // 5 minutes
+            backoffMultiplier: 3,
+            maxAttempts: 5,
+            testType: 'lightweight' as const,
+            successThreshold: 1,
+          },
+          matchedPattern: pattern,
+        };
+        recordErrorEvent(errorMessage, result);
+        return result;
+      }
+    }
     for (const pattern of rateLimitPatterns) {
       if (errorLower.includes(pattern)) {
         const result = {

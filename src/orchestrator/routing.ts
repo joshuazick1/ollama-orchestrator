@@ -233,7 +233,9 @@ export class OrchestratorRouter {
 
       const availableModels =
         requiredCapability === 'openai' || requiredCapability === 'anthropic'
-          ? (s.v1Models ?? s.models)
+          ? Array.from(
+              new Set([...(s.v1Models ?? []), ...(s.discoveredV1Models ?? []), ...(s.models ?? [])])
+            )
           : s.models;
 
       const resolvedModel = this.orchestrator.resolveModelName(model, availableModels);
@@ -367,7 +369,13 @@ export class OrchestratorRouter {
         const modelServers = capabilityServers.filter(s => {
           const availableModels =
             requiredCapability === 'openai' || requiredCapability === 'anthropic'
-              ? (s.v1Models ?? s.models)
+              ? Array.from(
+                  new Set([
+                    ...(s.v1Models ?? []),
+                    ...(s.discoveredV1Models ?? []),
+                    ...(s.models ?? []),
+                  ])
+                )
               : s.models;
           const resolvedModel = this.orchestrator.resolveModelName(model, availableModels);
           return resolvedModel !== null;

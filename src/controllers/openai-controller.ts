@@ -1732,7 +1732,8 @@ export function handleListModels(req: Request, res: Response): Promise<void> {
   const orchestrator = getOrchestratorInstance();
 
   try {
-    const result = orchestrator.getAggregatedOpenAIModels();
+    const includeAll = parseIncludeAllQuery(req.query.include_all);
+    const result = orchestrator.getAggregatedOpenAIModels({ includeAll });
     res.json(result);
     return Promise.resolve();
   } catch (error) {
@@ -1747,6 +1748,10 @@ export function handleListModels(req: Request, res: Response): Promise<void> {
     });
     return Promise.resolve();
   }
+}
+
+function parseIncludeAllQuery(raw: unknown): boolean {
+  return raw === 'true';
 }
 
 /**

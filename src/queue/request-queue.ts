@@ -4,8 +4,6 @@
  * as capacity frees up.
  */
 
-import { logger } from '../utils/logger.js';
-
 export interface QueueEntry<T = unknown> {
   id: string;
   model: string;
@@ -50,7 +48,10 @@ export class RequestQueue {
       this.drainTimer.unref();
     }
     if (!this.expiryTimer) {
-      this.expiryTimer = setInterval(() => this.removeExpired(), this.options.expirySweepIntervalMs);
+      this.expiryTimer = setInterval(
+        () => this.removeExpired(),
+        this.options.expirySweepIntervalMs
+      );
       this.expiryTimer.unref();
     }
   }
@@ -83,7 +84,9 @@ export class RequestQueue {
       this.stats.enqueued++;
 
       this.entries.sort((a, b) => {
-        if (a.priority !== b.priority) {return b.priority - a.priority;}
+        if (a.priority !== b.priority) {
+          return b.priority - a.priority;
+        }
         return a.enqueuedAt - b.enqueuedAt;
       });
 
@@ -100,16 +103,22 @@ export class RequestQueue {
   }
 
   tryDrain(): void {
-    if (this.entries.length === 0) {return;}
+    if (this.entries.length === 0) {
+      return;
+    }
 
     const snapshot = [...this.entries];
 
     for (let i = snapshot.length - 1; i >= 0; i--) {
       const entry = snapshot[i];
-      if (this.drainingModels.has(entry.model)) {continue;}
+      if (this.drainingModels.has(entry.model)) {
+        continue;
+      }
 
       const index = this.entries.indexOf(entry);
-      if (index === -1) {continue;}
+      if (index === -1) {
+        continue;
+      }
 
       this.drainingModels.add(entry.model);
 
@@ -124,15 +133,17 @@ export class RequestQueue {
 
       entry
         .retryFn()
-        .then((result) => {
+        .then(result => {
           const idx = this.entries.indexOf(entry);
-          if (idx !== -1) {this.entries.splice(idx, 1);}
+          if (idx !== -1) {
+            this.entries.splice(idx, 1);
+          }
           this.stats.dispatched++;
           const waitMs = Date.now() - entry.enqueuedAt;
           this.options.onDispatched(entry, waitMs);
           entry.resolve(result);
         })
-        .catch((err) => {
+        .catch(err => {
           const msg = err instanceof Error ? err.message : String(err);
           if (
             msg.includes('at capacity') ||
@@ -143,7 +154,9 @@ export class RequestQueue {
             // Still at capacity — leave in queue for next drain cycle
           } else {
             const idx = this.entries.indexOf(entry);
-            if (idx !== -1) {this.entries.splice(idx, 1);}
+            if (idx !== -1) {
+              this.entries.splice(idx, 1);
+            }
             this.stats.failed++;
             entry.reject(err);
           }
@@ -154,14 +167,15 @@ export class RequestQueue {
     }
   }
 
-  onCapacityFreed(serverId: string, model: string): void {
-    if (this.entries.length === 0) {return;}
+  onCapacityFreed(_serverId: string, _model: string): void {
+    if (this.entries.length === 0) {
+      return;
+    }
     setImmediate(() => this.tryDrain());
   }
 
   private removeExpired(): void {
     const now = Date.now();
-    let removed = 0;
     for (let i = this.entries.length - 1; i >= 0; i--) {
       const entry = this.entries[i];
       if (now - entry.enqueuedAt >= entry.timeoutMs) {
@@ -169,7 +183,6 @@ export class RequestQueue {
         this.stats.expired++;
         this.options.onExpired(entry);
         entry.reject(new Error(`Request timed out in queue (${entry.timeoutMs}ms)`));
-        removed++;
       }
     }
   }

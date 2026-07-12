@@ -23,6 +23,7 @@ import { MetricsAggregator } from '../metrics/index.js';
 import { getModelManager } from '../model-manager.js';
 import { EndpointRegistry } from '../probe/endpoint-registry.js';
 import { classify } from '../probe/failure-classifier.js';
+import { detectGarbageResponse } from '../probe/garbage-response-detector.js';
 import { getPerfProbeSchedulerInstance } from '../probe/perf-probe-scheduler-instance.js';
 import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import {
@@ -49,6 +50,7 @@ import { logger } from '../utils/logger.js';
 import { ModelAggregator } from '../utils/model-aggregator.js';
 import { filterValidModels } from '../utils/model-validator.js';
 import { canHandleContext, getDefaultContextSize } from '../utils/prompt-estimator.js';
+import { getQuarantinePool } from '../utils/quarantine-pool.js';
 import { RetryBudget } from '../utils/retry-budget.js';
 import { TimeoutManager } from '../utils/timeout-manager.js';
 import { normalizeServerUrl, areUrlsEquivalent } from '../utils/url-utils.js';
@@ -165,9 +167,70 @@ function extractV1ModelIds(raw: unknown): string[] {
 
 export class AIOrchestrator {
   private servers: AIServer[] = [];
+  private lazyRefreshLastAt: Map<string, number> = new Map();
+  private lazyRefreshInFlight: Map<string, Promise<number>> = new Map();
+  private static readonly LAZY_REFRESH_WAIT_TIMEOUT_MS = 200;
+  private static readonly LAZY_REFRESH_MIN_INTERVAL_MS = 30_000;
   private inFlightManager: InFlightManager;
   private banManager: BanManager;
   private modelAggregator: ModelAggregator;
+
+  /**
+   * Returns true for model names that should be routed through the cloud LLM
+   * gateway (suffix `:cloud`, prefix `cloud-`, or substring `cloud`).
+   */
+  static isCloudModel(model: string): boolean {
+    if (!model) {
+      return false;
+    }
+    const lower = model.toLowerCase();
+    return lower.endsWith(':cloud') || lower.startsWith('cloud-') || lower.includes('cloud');
+  }
+
+  /**
+   * Trims a candidate pool of servers according to the configured caps.
+   * - For cloud models with cloudModelNoCap=true: cap to cloudModelMaxCandidates (default 100).
+   * - Otherwise (non-cloud, or cloud without the no-cap override): cap to 20.
+   */
+  static computeCandidatePoolTrim<T extends { id: string }>(
+    servers: T[],
+    model: string,
+    options: { cloudModelNoCap?: boolean; cloudModelMaxCandidates?: number } | undefined
+  ): T[] {
+    const isCloud = AIOrchestrator.isCloudModel(model);
+    const noCap = options?.cloudModelNoCap === true;
+    const maxCandidates = options?.cloudModelMaxCandidates ?? 100;
+    if (isCloud && noCap) {
+      return servers.length > maxCandidates ? servers.slice(0, maxCandidates) : servers;
+    }
+    return servers.length > 20 ? servers.slice(0, 20) : servers;
+  }
+
+  /**
+   * Returns the retry budget for a model. Cloud models use the larger
+   * cloudModelRetryBudget / cloudModelMaxCandidates ceiling so a single
+   * cloud provider outage does not consume the per-request budget.
+   */
+  computeRetryBudgetForModel(model: string): number {
+    const isCloud = AIOrchestrator.isCloudModel(model);
+    const routing =
+      (
+        this.config as unknown as {
+          routing?: { cloudModelRetryBudget?: number; cloudModelMaxCandidates?: number };
+        }
+      ).routing ?? {};
+    if (isCloud) {
+      if (typeof routing.cloudModelRetryBudget === 'number') {
+        return routing.cloudModelRetryBudget;
+      }
+      if (typeof routing.cloudModelMaxCandidates === 'number') {
+        return routing.cloudModelMaxCandidates;
+      }
+      return 100;
+    }
+    const retry = (this.config as unknown as { retry?: { maxBudget?: number } }).retry ?? {};
+    return typeof retry.maxBudget === 'number' ? retry.maxBudget : 10;
+  }
   private persistence: OrchestratorPersistence;
   private metricsAggregator: MetricsAggregator;
   private loadBalancer: LoadBalancer;
@@ -659,6 +722,108 @@ export class AIOrchestrator {
   }
 
   /**
+   * Lazily refreshes the per-server model lists for any server whose model
+   * catalog does not already include `model`. Coalesces concurrent refreshes
+   * per-model via singleflight and enforces a 200ms wait timeout: callers that
+   * time out receive `0` so request hot paths never block on slow probes.
+   */
+  async refreshServerModelsForModel(model: string): Promise<number> {
+    // Coalesce concurrent refreshes for the same model.
+    const existing = this.lazyRefreshInFlight.get(model);
+    if (existing) {
+      return existing;
+    }
+
+    // Skip if refreshed within the min interval.
+    const lastAt = this.lazyRefreshLastAt.get(model);
+    if (lastAt !== undefined && Date.now() - lastAt < AIOrchestrator.LAZY_REFRESH_MIN_INTERVAL_MS) {
+      return 0;
+    }
+
+    const serversNeedingRefresh = this.servers.filter(s => s.healthy && !s.models.includes(model));
+    if (serversNeedingRefresh.length === 0) {
+      this.lazyRefreshLastAt.set(model, Date.now());
+      return 0;
+    }
+
+    const promise = this.runLazyRefresh(model, serversNeedingRefresh);
+    this.lazyRefreshInFlight.set(model, promise);
+    try {
+      return await promise;
+    } finally {
+      this.lazyRefreshInFlight.delete(model);
+    }
+  }
+
+  private async runLazyRefresh(model: string, servers: AIServer[]): Promise<number> {
+    let totalAdded = 0;
+    try {
+      const result = await Promise.race([
+        this.performLazyRefresh(model, servers),
+        new Promise<number>(resolve =>
+          setTimeout(() => resolve(0), AIOrchestrator.LAZY_REFRESH_WAIT_TIMEOUT_MS)
+        ),
+      ]);
+      totalAdded = result;
+    } catch {
+      totalAdded = 0;
+    } finally {
+      this.lazyRefreshLastAt.set(model, Date.now());
+    }
+    return totalAdded;
+  }
+
+  private async performLazyRefresh(model: string, servers: AIServer[]): Promise<number> {
+    const { discoverModels } = await import('./discover-models.js');
+    let totalAdded = 0;
+    for (const server of servers) {
+      try {
+        const discovered = await discoverModels({
+          urls: [server.url],
+          model,
+          type: server.type === 'openai' ? 'openai' : 'ollama',
+          timeoutMs: 5000,
+        });
+        if (discovered.merged.length > 0 && !server.models.includes(model)) {
+          server.models = [...server.models, ...discovered.merged];
+          totalAdded += discovered.merged.length;
+        }
+      } catch {
+        // ignore per-server failures; loop continues
+      }
+    }
+    return totalAdded;
+  }
+
+  /**
+   * Run garbage-detection on a response and quarantine the server if any
+   * signals trigger. Returns the detection result for caller observability.
+   */
+  recordGarbageResponse(
+    serverId: string,
+    responseText: string,
+    promptText: string | null,
+    model: string
+  ): { isGarbage: boolean; signals: string[] } {
+    const detection = detectGarbageResponse(responseText, promptText);
+    if (!detection.isGarbage) {
+      return { isGarbage: false, signals: [] };
+    }
+    getQuarantinePool().quarantine(
+      serverId,
+      'garbage-response',
+      {
+        signals: detection.signals,
+        confidence: detection.confidence,
+        evidence: detection.evidence,
+        model,
+      },
+      false
+    );
+    return { isGarbage: true, signals: [...detection.signals] };
+  }
+
+  /**
    * Suppress persistence during bulk operations to prevent partial writes on interruption
    */
   setSuppressPersistence(value: boolean): void {
@@ -1093,7 +1258,7 @@ export class AIOrchestrator {
   /**
    * Get aggregated OpenAI models from servers supporting /v1/* endpoints
    */
-  getAggregatedOpenAIModels(): {
+  getAggregatedOpenAIModels(options: { includeAll?: boolean } = {}): {
     object: string;
     data: Array<{
       id: string;
@@ -1103,6 +1268,7 @@ export class AIOrchestrator {
       metadata?: VLLMModelMeta;
     }>;
   } {
+    const includeAll = options.includeAll === true;
     const seenModels = new Set<string>();
 
     const modelToServers = new Map<string, string[]>();
@@ -1156,7 +1322,7 @@ export class AIOrchestrator {
     }> = [];
 
     for (const [modelId, servers] of modelToServers) {
-      if (this.hasAvailableServer(modelId, servers)) {
+      if (includeAll || this.hasAvailableServer(modelId, servers)) {
         const model: {
           id: string;
           object: string;
@@ -1732,7 +1898,9 @@ export class AIOrchestrator {
       // Get the appropriate model list for this capability
       const availableModels =
         requiredCapability === 'openai' || requiredCapability === 'anthropic'
-          ? (s.v1Models ?? s.models)
+          ? Array.from(
+              new Set([...(s.v1Models ?? []), ...(s.discoveredV1Models ?? []), ...(s.models ?? [])])
+            )
           : s.models;
 
       // Resolve model name (try direct match, then :latest)
@@ -1868,7 +2036,13 @@ export class AIOrchestrator {
         const modelServers = capabilityServers.filter(s => {
           const availableModels =
             requiredCapability === 'openai' || requiredCapability === 'anthropic'
-              ? (s.v1Models ?? s.models)
+              ? Array.from(
+                  new Set([
+                    ...(s.v1Models ?? []),
+                    ...(s.discoveredV1Models ?? []),
+                    ...(s.models ?? []),
+                  ])
+                )
               : s.models;
           const resolvedModel = this.resolveModelName(model, availableModels);
           return resolvedModel !== null;
@@ -3032,15 +3206,28 @@ export class AIOrchestrator {
 
       case 'non-retryable':
         // Non-retryable: model-specific issue, don't mark server unhealthy
-        // Just put in cooldown for this model
-        this.banManager.markFailure(server.id, model);
+        // Just put in cooldown for this model — unless the error is an
+        // auth/permission/model-not-found/cloud-disabled condition, in
+        // which case the server is permanently banned for this model.
+        if (this.isPermanentBanError(errorMessage)) {
+          this.banManager.addBan(server.id, model);
+          logger.error(`PERMANENT BAN: Server ${server.id} banned for model ${model}`, {
+            error: errorMessage,
+            reason: 'permanent-non-retryable',
+          });
+        } else {
+          this.banManager.markFailure(server.id, model);
+          logger.warn(
+            `NON-RETRYABLE ERROR: ${server.id} for model ${model} (server stays healthy)`,
+            {
+              error: errorMessage,
+              cooldownUntil: new Date(
+                Date.now() + this.config.cooldown.failureCooldownMs
+              ).toISOString(),
+            }
+          );
+        }
         this.recordFailure(server.id, errorType, model);
-        logger.warn(`NON-RETRYABLE ERROR: ${server.id} for model ${model} (server stays healthy)`, {
-          error: errorMessage,
-          cooldownUntil: new Date(
-            Date.now() + this.config.cooldown.failureCooldownMs
-          ).toISOString(),
-        });
         break;
 
       case 'transient': {
@@ -3099,6 +3286,27 @@ export class AIOrchestrator {
               remainingBeforeCircuitBreaker: rateLimitThreshold - failureCount,
             }
           );
+        }
+        this.recordFailure(server.id, errorType, model);
+        break;
+      }
+
+      case 'quotaExhausted': {
+        // Quota exhaustion is per-user; parse the user ID out of the message and
+        // mark an extended cooldown so other users on the same server are not
+        // blocked. Falls back to a regular cooldown when no user can be parsed.
+        const quotaUserId = this.extractQuotaUserId(errorMessage);
+        if (quotaUserId !== null) {
+          this.banManager.markExtendedCooldown(server.id, model, quotaUserId, 5 * 60 * 1000);
+          logger.warn(
+            `QUOTA EXHAUSTED: extended cooldown for ${server.id}/${model} (user=${quotaUserId})`,
+            { error: errorMessage }
+          );
+        } else {
+          this.banManager.markFailure(server.id, model);
+          logger.warn(`QUOTA EXHAUSTED (unparseable): regular cooldown for ${server.id}/${model}`, {
+            error: errorMessage,
+          });
         }
         this.recordFailure(server.id, errorType, model);
         break;
@@ -3676,6 +3884,25 @@ export class AIOrchestrator {
       /service unavailable/i,
     ];
     return serverWidePatterns.some(pattern => pattern.test(errorMessage));
+  }
+
+  private isPermanentBanError(errorMessage: string): boolean {
+    const permanentPatterns = [
+      /HTTP\s*401\b/i,
+      /HTTP\s*403\b/i,
+      /HTTP\s*404\b/i,
+      /\bunauthorized\b/i,
+      /\bforbidden\b/i,
+      /\bcloud is disabled\b/i,
+      /\bmodel not found\b/i,
+      /\brequires more system memory\b/i,
+    ];
+    return permanentPatterns.some(pattern => pattern.test(errorMessage));
+  }
+
+  private extractQuotaUserId(errorMessage: string): string | null {
+    const match = errorMessage.match(/\(\s*([\w.\-@+]+)\s*\)/);
+    return match && match[1] ? match[1] : null;
   }
 
   /**
