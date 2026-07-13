@@ -8,6 +8,12 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 
 import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
 import {
+  handleAnthropicIdle,
+  handleAnthropicRecommendations,
+  handleAnthropicWarmup,
+  handleAnthropicUnload,
+} from '../controllers/anthropic-models-controller.js';
+import {
   resetBreaker,
   getBreakerDetails,
   forceOpenBreaker,
@@ -139,6 +145,16 @@ adminRouter.get(
   requireAuth(),
   asyncHandler(handleAnthropicServerCapabilities)
 );
+
+// Anthropic model management (idle, recommendations, warmup, unload)
+adminRouter.get('/anthropic/idle', requireAuth(), asyncHandler(handleAnthropicIdle));
+adminRouter.get(
+  '/anthropic/recommendations',
+  requireAuth(),
+  asyncHandler(handleAnthropicRecommendations)
+);
+adminRouter.post('/anthropic/:model/warmup', requireAuth(), asyncHandler(handleAnthropicWarmup));
+adminRouter.post('/anthropic/:model/unload', requireAuth(), asyncHandler(handleAnthropicUnload));
 
 adminRouter.post(
   '/servers/test-connection',

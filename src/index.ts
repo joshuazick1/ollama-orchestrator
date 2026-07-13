@@ -390,6 +390,8 @@ async function initialize(): Promise<void> {
       if (
         req.path.startsWith('/api') ||
         req.path.startsWith('/v1') || // REC-41: exclude /v1 from SPA fallback
+        req.path.startsWith('/chat/') || // Cohere routes mounted at /chat
+        req.path.startsWith('/model/') || // Bedrock routes mounted at /model/*
         req.path === '/metrics' ||
         req.path === '/health' ||
         req.path.startsWith('/health/')

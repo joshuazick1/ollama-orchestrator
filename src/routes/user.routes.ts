@@ -58,8 +58,14 @@ const grantModelAccessSchema = z.object({
 export const userRouter = Router();
 
 userRouter.use((req: Request, res: Response, next: NextFunction) => {
+  // Only enforce auth for user-management routes; let other paths fall through.
+  if (!req.path.startsWith('/users')) {
+    next();
+    return;
+  }
+
   // If auth is disabled AND no credentials provided, bypass token requirement
-  const hasCookie = req.cookies !== undefined;
+  const hasCookie = Object.keys(req.cookies ?? {}).length > 0;
   const hasAuth = !!req.headers.authorization;
   if (!DEFAULT_AUTH_CONFIG.enabled && !hasCookie && !hasAuth) {
     req.currentUser = {
