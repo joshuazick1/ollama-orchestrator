@@ -23,6 +23,11 @@ export const HOP_BY_HOP_HEADERS = new Set<string>([
   'transfer-encoding',
   'upgrade',
   'host',
+  // content-length must be recomputed by the sending agent — forwarding a
+  // client-supplied value that doesn't match the re-serialized body makes
+  // undici throw "fetch failed: Request body length does not match
+  // content-length header", breaking every proxied request.
+  'content-length',
 ]);
 
 /**

@@ -29,6 +29,12 @@ import { logger } from '../utils/logger.js';
 import { isBlockedUrl } from '../utils/url-safety.js';
 import { normalizeServerUrl } from '../utils/url-utils.js';
 
+let _circuitBreakerCache: {
+  timestamp: number;
+  result: Record<string, unknown>;
+} | null = null;
+const CIRCUIT_BREAKER_CACHE_TTL_MS = 10_000;
+
 /**
  * Add a new server
  * POST /api/orchestrator/servers/add
@@ -580,6 +586,12 @@ export function getCircuitBreakers(req: Request, res: Response): void {
 export function getServersCircuitBreakers(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
 
+  const cacheAge = _circuitBreakerCache ? Date.now() - _circuitBreakerCache.timestamp : Infinity;
+  if (_circuitBreakerCache && cacheAge < CIRCUIT_BREAKER_CACHE_TTL_MS) {
+    res.status(200).json(_circuitBreakerCache.result);
+    return;
+  }
+
   try {
     const probeOrchestrator = orchestrator.getProbeOrchestrator();
     const allStates = probeOrchestrator.getAllStates();
@@ -687,10 +699,10 @@ export function getServersCircuitBreakers(req: Request, res: Response): void {
       result[serverId] = info;
     }
 
-    res.status(200).json({
-      success: true,
-      circuitBreakers: result,
-    });
+    const response = { success: true, circuitBreakers: result };
+    _circuitBreakerCache = { timestamp: Date.now(), result: response };
+    res.status(200).json(response);
+    return;
   } catch (error) {
     res.status(500).json({
       error: ERROR_MESSAGES.FAILED_TO_GET_CIRCUIT_BREAKER_STATUS,

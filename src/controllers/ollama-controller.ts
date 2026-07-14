@@ -1084,9 +1084,9 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
     const result = await orchestrator.tryRequestWithFailover(
       model,
       async (server, _context) => {
-        const timeout = resolveRequestTimeout(
-          req.headers,
-          orchestrator.getTimeout(server.id, model)
+        const timeout = Math.min(
+          resolveRequestTimeout(req.headers, orchestrator.getTimeout(server.id, model)),
+          45_000
         );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',
@@ -2052,9 +2052,9 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
       serverId,
       model,
       async (server, _context) => {
-        const timeoutMs = resolveRequestTimeout(
-          req.headers,
-          orchestrator.getTimeout(server.id, model)
+        const timeoutMs = Math.min(
+          resolveRequestTimeout(req.headers, orchestrator.getTimeout(server.id, model)),
+          45_000
         );
         const response = await fetchWithTimeout(`${server.url}${API_ENDPOINTS.OLLAMA.EMBEDDINGS}`, {
           method: 'POST',

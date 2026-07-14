@@ -20,12 +20,16 @@ export class RetryBudget {
   }
 
   /**
-   * Records an attempt against the budget and tracks per-server attempts
+   * Records an attempt against the budget and tracks per-server attempts.
+   * When `latencyMs` is provided and the attempt completed in under 1 s,
+   * the attempt is tracked per-server but does NOT consume budget
+   * (fast failures are typically unreachable servers — counting them
+   * would exhaust the budget before slower-to-respond servers are tried).
    */
-  recordAttempt(serverId: string): void {
+  recordAttempt(serverId: string, latencyMs?: number): void {
+    this.serverAttempts.set(serverId, (this.serverAttempts.get(serverId) ?? 0) + 1);
+    if (latencyMs !== undefined && latencyMs < 1000) return;
     this.attemptsUsed++;
-    const current = this.serverAttempts.get(serverId) ?? 0;
-    this.serverAttempts.set(serverId, current + 1);
   }
 
   /**
