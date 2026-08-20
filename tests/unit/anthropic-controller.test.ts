@@ -558,7 +558,7 @@ describe('Anthropic Controller', () => {
         type: 'error',
         error: {
           type: 'api_error',
-          message: 'Request failed',
+          message: 'string error',
         },
       });
     });

@@ -162,7 +162,7 @@ describe('OpenAI Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: {
-          message: 'Failed to list models',
+          message: 'Unknown error',
           type: 'server_error',
           code: 'internal_error',
         },
@@ -265,7 +265,7 @@ describe('OpenAI Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: {
-          message: 'Failed to get model',
+          message: 'Database error',
           type: 'server_error',
           code: 'internal_error',
         },
@@ -391,7 +391,7 @@ describe('OpenAI Controller', () => {
         'llama3:latest',
         expect.any(Function),
         false,
-        'embeddings',
+        'openai_embeddings',
         'openai',
         expect.any(Object),
         undefined,
@@ -505,7 +505,7 @@ describe('OpenAI Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: {
-          message: 'Request failed',
+          message: 'Unknown error',
           type: 'server_error',
           code: 'internal_error',
         },
@@ -803,7 +803,7 @@ describe('OpenAI Controller', () => {
         'llama3:latest',
         expect.any(Function),
         false,
-        'generate',
+        'openai_chat',
         'openai',
         expect.any(Object),
         undefined,
@@ -903,7 +903,7 @@ describe('OpenAI Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: {
-          message: 'Request failed',
+          message: 'Unknown error',
           type: 'server_error',
           code: 'internal_error',
         },
@@ -1199,7 +1199,7 @@ describe('OpenAI Controller', () => {
         'llama3:latest',
         expect.any(Function),
         false,
-        'generate',
+        'openai_completions',
         'openai',
         expect.any(Object),
         undefined,
@@ -1291,7 +1291,7 @@ describe('OpenAI Controller', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({
         error: {
-          message: 'Request failed',
+          message: 'Unknown error',
           type: 'server_error',
           code: 'internal_error',
         },

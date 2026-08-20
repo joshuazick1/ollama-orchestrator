@@ -854,7 +854,7 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
     logger.error('Anthropic messages request failed', { error, model });
 
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const errorMessage = formatError(error);
       const { isNoServersError } = classifyOrchestratorRoutingError(errorMessage);
       const isNoServers = isNoServersError;
 
@@ -1170,7 +1170,7 @@ export async function handleMessagesToServer(req: Request, res: Response): Promi
     logger.error('Anthropic messages to server request failed', { error, serverId, model });
 
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const errorMessage = formatError(error);
       res.status(500).json({
         type: 'error',
         error: {

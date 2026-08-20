@@ -1354,7 +1354,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
     }
 
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const errorMessage = formatError(error);
       const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
@@ -1563,7 +1563,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
   } catch (error) {
     logger.error('OpenAI completions failed:', { error, model });
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const errorMessage = formatError(error);
       const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
@@ -1704,7 +1704,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
   } catch (error) {
     logger.error('OpenAI embeddings failed:', { error, model });
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : 'Request failed';
+      const errorMessage = formatError(error);
       const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
@@ -1782,7 +1782,7 @@ export function handleListModels(req: Request, res: Response): Promise<void> {
     logger.error('Failed to list models:', { error });
     res.status(500).json({
       error: {
-        message: error instanceof Error ? error.message : 'Failed to list models',
+        message: formatError(error),
         type: 'server_error',
         code: 'internal_error',
       },
@@ -1826,7 +1826,7 @@ export function handleGetModel(req: Request, res: Response): Promise<void> {
     logger.error('Failed to get model info:', { error, model });
     res.status(500).json({
       error: {
-        message: error instanceof Error ? error.message : 'Failed to get model',
+        message: formatError(error),
         type: 'server_error',
         code: 'internal_error',
       },
