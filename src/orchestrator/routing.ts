@@ -10,7 +10,7 @@ import { getRequestHistory } from '../request-history.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { sleep } from '../utils/async-helpers.js';
 import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
-import { classifyError, type ErrorType } from '../utils/error-classifier.js';
+import { classifyError, isRetryableOnSameServer, type ErrorType } from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 import { RetryBudget } from '../utils/retry-budget.js';
 
@@ -1064,17 +1064,17 @@ export class OrchestratorRouter {
           duration: requestContext.duration,
         });
 
-        const isRetryableOnSameServer = this.isRetryableOnSameServer(errorMessage, retryConfig);
+        const sameServerRetryable = isRetryableOnSameServer(errorMessage, retryConfig);
 
         logger.debug(`Error classification for ${server.id}:${model}`, {
           errorType,
-          isRetryableOnSameServer,
+          isRetryableOnSameServer: sameServerRetryable,
           retryCount,
           maxRetries: retryConfig.maxRetriesPerServer,
-          willRetry: isRetryableOnSameServer && retryCount < retryConfig.maxRetriesPerServer,
+          willRetry: sameServerRetryable && retryCount < retryConfig.maxRetriesPerServer,
         });
 
-        if (isRetryableOnSameServer && retryCount < retryConfig.maxRetriesPerServer) {
+        if (sameServerRetryable && retryCount < retryConfig.maxRetriesPerServer) {
           const adapter = fromRetryConfig(retryConfig);
           const result = calculateBackoff('exponential', {
             ...adapter.options,
@@ -1115,24 +1115,5 @@ export class OrchestratorRouter {
     }
 
     return { success: false };
-  }
-
-  private isRetryableOnSameServer(errorMessage: string, retryConfig: RetryConfig): boolean {
-    for (const code of retryConfig.retryableStatusCodes) {
-      if (errorMessage.includes(`HTTP ${code}`) || errorMessage.includes(`${code}`)) {
-        return true;
-      }
-    }
-
-    const transientPatterns = [
-      /timeout/i,
-      /temporarily unavailable/i,
-      /rate limit/i,
-      /too many requests/i,
-      /econnreset/i,
-      /etimedout/i,
-    ];
-
-    return transientPatterns.some(pattern => pattern.test(errorMessage));
   }
 }

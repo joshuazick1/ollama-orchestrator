@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 
+import type { RetryConfig } from '../config/config.js';
 import { getErrorEventStore } from '../storage/error-event-store.js';
 import type { ErrorEvent } from '../types/error-event.js';
 
@@ -901,4 +902,26 @@ export function classifyError(error: Error | string): ErrorClassification {
  */
 export function getErrorType(error: Error | string): ErrorType {
   return getErrorClassifier().getErrorType(error);
+}
+
+export const transientPatterns = [
+  /timeout/i,
+  /temporarily unavailable/i,
+  /rate limit/i,
+  /too many requests/i,
+  /econnreset/i,
+  /etimedout/i,
+] as const;
+
+export function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function isRetryableOnSameServer(errorMessage: string, retryConfig: RetryConfig): boolean {
+  for (const code of retryConfig.retryableStatusCodes) {
+    if (errorMessage.includes(`HTTP ${code}`) || errorMessage.includes(`${code}`)) {
+      return true;
+    }
+  }
+  return transientPatterns.some(pattern => pattern.test(errorMessage));
 }

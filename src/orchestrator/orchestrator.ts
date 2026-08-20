@@ -44,7 +44,7 @@ import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
 import { BanManager } from '../utils/ban-manager.js';
 import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
-import { classifyError, ErrorCategory, type ErrorType } from '../utils/error-classifier.js';
+import { classifyError, ErrorCategory, isRetryableOnSameServer, type ErrorType } from '../utils/error-classifier.js';
 import { NdjsonResponseError, detectNdjsonResponse } from '../utils/fetch-with-timeout.js';
 import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
@@ -349,7 +349,7 @@ export class AIOrchestrator {
       errors: Array<{
         serverId: string;
         error: string;
-        type: 'network' | 'server' | 'timeout' | 'unknown';
+        type: ErrorType;
       }>;
     }
   ): void {
@@ -1272,7 +1272,7 @@ export class AIOrchestrator {
     success: boolean;
     data?: any[];
     serverId: string;
-    error?: { serverId: string; error: string; type: 'network' | 'server' | 'timeout' | 'unknown' };
+    error?: { serverId: string; error: string; type: ErrorType };
   }> {
     return this.models.fetchServerTags(server);
   }
@@ -3157,17 +3157,17 @@ export class AIOrchestrator {
         });
 
         // Check if this is a retryable transient error for same-server retry
-        const isRetryableOnSameServer = this.isRetryableOnSameServer(errorMessage, retryConfig);
+        const sameServerRetryable = isRetryableOnSameServer(errorMessage, retryConfig);
 
         logger.debug(`Error classification for ${server.id}:${model}`, {
           errorType,
-          isRetryableOnSameServer,
+          isRetryableOnSameServer: sameServerRetryable,
           retryCount,
           maxRetries: retryConfig.maxRetriesPerServer,
-          willRetry: isRetryableOnSameServer && retryCount < retryConfig.maxRetriesPerServer,
+          willRetry: sameServerRetryable && retryCount < retryConfig.maxRetriesPerServer,
         });
 
-        if (isRetryableOnSameServer && retryCount < retryConfig.maxRetriesPerServer) {
+        if (sameServerRetryable && retryCount < retryConfig.maxRetriesPerServer) {
           // Calculate delay with exponential backoff + jitter to prevent thundering herd
           const adapter = fromRetryConfig(retryConfig);
           const result = calculateBackoff('exponential', {
@@ -3203,30 +3203,6 @@ export class AIOrchestrator {
     }
 
     return { success: false };
-  }
-
-  /**
-   * Check if an error should trigger a retry on the same server
-   */
-  private isRetryableOnSameServer(errorMessage: string, retryConfig: RetryConfig): boolean {
-    // Check for retryable HTTP status codes
-    for (const code of retryConfig.retryableStatusCodes) {
-      if (errorMessage.includes(`HTTP ${code}`) || errorMessage.includes(`${code}`)) {
-        return true;
-      }
-    }
-
-    // Check for transient network errors
-    const transientPatterns = [
-      /timeout/i,
-      /temporarily unavailable/i,
-      /rate limit/i,
-      /too many requests/i,
-      /econnreset/i,
-      /etimedout/i,
-    ];
-
-    return transientPatterns.some(pattern => pattern.test(errorMessage));
   }
 
   /**
