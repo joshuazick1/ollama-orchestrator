@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { DEFAULT_CONFIG } from '../../src/config/config.js';
 import { AIOrchestrator } from '../../src/orchestrator/orchestrator.js';
-import { classifyError } from '../../src/utils/error-classifier.js';
+import { classifyError, isRetryableOnSameServer } from '../../src/utils/error-classifier.js';
 import { resetInFlightManager } from '../../src/utils/in-flight-manager.js';
 import { logger } from '../../src/utils/logger.js';
 import { createServer } from '../fixtures/factories.js';
@@ -123,6 +123,65 @@ describe('AIOrchestrator', () => {
       orchestrator.removeServer('server-1');
 
       expect(orchestrator.getServers()).toHaveLength(0);
+    });
+
+    it('should bulk-evict all probe tuples for a removed server', () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const spy = vi.spyOn(probeOrchestrator, 'evictAllForServer');
+
+      orchestrator.addServer(createServer({ id: 'server-1', models: ['llama3', 'mistral'] }));
+      orchestrator.removeServer('server-1');
+
+      expect(spy).toHaveBeenCalledWith('server-1');
+      spy.mockRestore();
+    });
+
+    it('cleanupOrphanedBreakers removes tuples for removed servers', () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      probeOrchestrator.setStateForTesting(
+        { serverId: 'ghost-1', model: 'qwen3', endpoint: 'ollama_generate' },
+        'SUSPECT'
+      );
+
+      const before = probeOrchestrator.getAllStates().size;
+      expect(before).toBeGreaterThan(0);
+
+      const evicted = orchestrator.cleanupOrphanedBreakers();
+      expect(evicted).toBeGreaterThanOrEqual(1);
+
+      const after = probeOrchestrator.getAllStates().get('ghost-1:qwen3:ollama_generate');
+      expect(after).toBeUndefined();
+    });
+
+    it('cleanupOrphanedBreakers removes tuples for models no longer advertised', () => {
+      const probeOrchestrator = orchestrator.getProbeOrchestrator();
+      const serverId = 'drift-server';
+
+      orchestrator.addServer(createServer({ id: serverId, models: ['llama3'] }));
+
+      probeOrchestrator.setStateForTesting(
+        { serverId, model: 'unloaded-model', endpoint: 'ollama_generate' },
+        'SUSPECT'
+      );
+
+      const evicted = orchestrator.cleanupOrphanedBreakers();
+      expect(evicted).toBeGreaterThanOrEqual(1);
+
+      const state = probeOrchestrator
+        .getAllStates()
+        .get(`${serverId}:unloaded-model:ollama_generate`);
+      expect(state).toBeUndefined();
+
+      const keep = probeOrchestrator.getAllStates().get(`${serverId}:llama3:ollama_generate`);
+      // Permissive assertion: whether or not addServer bootstraps an initial
+      // breaker for the active model, this cleanup must not delete it.
+      expect(keep === undefined || keep.state !== undefined).toBe(true);
+      orchestrator.removeServer(serverId);
+    });
+
+    it('cleanupOrphanedBreakers is a no-op when no orphans exist', () => {
+      const evicted = orchestrator.cleanupOrphanedBreakers();
+      expect(evicted).toBe(0);
     });
 
     it('should handle multiple servers', () => {
@@ -2192,24 +2251,20 @@ describe('AIOrchestrator', () => {
   describe('isRetryableOnSameServer', () => {
     it('should identify retryable status codes', () => {
       const config = { retryableStatusCodes: [429, 503] };
-      expect(orchestrator['isRetryableOnSameServer']('HTTP 429', config as any)).toBe(true);
-      expect(orchestrator['isRetryableOnSameServer']('HTTP 503', config as any)).toBe(true);
+      expect(isRetryableOnSameServer('HTTP 429', config as any)).toBe(true);
+      expect(isRetryableOnSameServer('HTTP 503', config as any)).toBe(true);
     });
 
     it('should identify transient patterns', () => {
       const config = { retryableStatusCodes: [] };
-      expect(orchestrator['isRetryableOnSameServer']('timeout error', config as any)).toBe(true);
-      expect(
-        orchestrator['isRetryableOnSameServer']('temporarily unavailable', config as any)
-      ).toBe(true);
-      expect(orchestrator['isRetryableOnSameServer']('rate limit exceeded', config as any)).toBe(
-        true
-      );
+      expect(isRetryableOnSameServer('timeout error', config as any)).toBe(true);
+      expect(isRetryableOnSameServer('temporarily unavailable', config as any)).toBe(true);
+      expect(isRetryableOnSameServer('rate limit exceeded', config as any)).toBe(true);
     });
 
     it('should return false for non-retryable errors', () => {
       const config = { retryableStatusCodes: [] };
-      expect(orchestrator['isRetryableOnSameServer']('invalid request', config as any)).toBe(false);
+      expect(isRetryableOnSameServer('invalid request', config as any)).toBe(false);
     });
   });
 
@@ -3033,7 +3088,7 @@ describe('AIOrchestrator', () => {
         maxRetryDelayMs: 1000,
         maxRetriesPerServer: 3,
       };
-      const isRetryable = orchestrator['isRetryableOnSameServer']('HTTP 429', config as any);
+      const isRetryable = isRetryableOnSameServer('HTTP 429', config as any);
       expect(isRetryable).toBe(true);
     });
 

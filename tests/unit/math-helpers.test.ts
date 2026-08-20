@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { clamp, lerp, calculateBackoff, roundTo, inRange } from '../../src/utils/math-helpers.js';
+import { clamp, lerp, roundTo, inRange } from '../../src/utils/math-helpers.js';
 
 describe('math-helpers', () => {
   describe('clamp', () => {
@@ -43,18 +43,6 @@ describe('math-helpers', () => {
     it('should clamp t to 0-1 range', () => {
       expect(lerp(0, 100, -0.5)).toBe(0);
       expect(lerp(0, 100, 1.5)).toBe(100);
-    });
-  });
-
-  describe('calculateBackoff', () => {
-    it('should calculate exponential backoff', () => {
-      expect(calculateBackoff(0, 100, 2, 1000)).toBe(100);
-      expect(calculateBackoff(1, 100, 2, 1000)).toBe(200);
-      expect(calculateBackoff(2, 100, 2, 1000)).toBe(400);
-    });
-
-    it('should cap at maxDelay', () => {
-      expect(calculateBackoff(10, 100, 2, 1000)).toBe(1000);
     });
   });
 
