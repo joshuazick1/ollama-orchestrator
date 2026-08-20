@@ -19,19 +19,6 @@ export function lerp(start: number, end: number, t: number): number {
 }
 
 /**
- * Calculate exponential backoff delay
- */
-export function calculateBackoff(
-  attempt: number,
-  baseDelay: number,
-  multiplier: number,
-  maxDelay: number
-): number {
-  const delay = baseDelay * Math.pow(multiplier, attempt);
-  return Math.min(delay, maxDelay);
-}
-
-/**
  * Round to specified decimal places
  */
 export function roundTo(value: number, decimals: number): number {

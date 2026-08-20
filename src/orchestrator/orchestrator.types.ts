@@ -5,6 +5,8 @@
 
 import type { ProbeEndpoint } from '../probe/types.js';
 
+import type { VLLMModelMeta } from './vllm-models.js';
+
 /**
  * Structural interface for TDigest objects. Defined inline (instead of importing
  * the TDigest class from utils/tdigest.js) so that the frontend type mirror
@@ -33,13 +35,6 @@ export interface LoadedModel {
   sizeVram: number;
   expiresAt: string;
   digest: string;
-}
-
-export interface VLLMModelMeta {
-  max_model_len?: number;
-  quantization?: string;
-  supports_tool_calling?: boolean;
-  supports_vision?: boolean;
 }
 
 export interface AIServer {
@@ -465,4 +460,33 @@ export interface PrometheusMetric {
   labels?: Record<string, string>;
   value: number;
   buckets?: Record<string, number>;
+}
+
+/**
+ * Negative model cache claim — a (serverId, model) pair the routing layer is
+ * temporarily skipping. Mirrors src/utils/negative-model-cache.ts BrokenClaim.
+ */
+export interface NegativeClaim {
+  serverId: string;
+  model: string;
+  reason: string;
+  firstSeenAt: number;
+  lastFailureAt: number;
+  failureCount: number;
+  expiresAt: number;
+}
+
+/**
+ * GET /api/orchestrator/model-cache/health response shape.
+ */
+export interface NegativeModelCacheHealth {
+  success: boolean;
+  timestamp: number;
+  stats: {
+    totalRecords: number;
+    totalClears: number;
+    totalExpiredSweeps: number;
+    currentSize: number;
+  };
+  claims: NegativeClaim[];
 }
