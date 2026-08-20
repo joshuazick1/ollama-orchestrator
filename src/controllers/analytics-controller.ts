@@ -12,6 +12,7 @@ import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { parseTupleKey, probeStateToUIState } from '../probe/types.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
+import { formatError } from '../utils/error-classifier.js';
 
 /**
  * Get top models by usage
@@ -47,7 +48,7 @@ export function getTopModels(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get top models',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -87,7 +88,7 @@ export function getServerPerformance(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get server performance',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -133,7 +134,7 @@ export function getErrorAnalysis(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get error analysis',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -168,7 +169,7 @@ export function getCapacityAnalysis(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get capacity analysis',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -218,7 +219,7 @@ export function getTrendAnalysis(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to analyze trend',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -252,7 +253,7 @@ export function getAnalyticsSummary(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get analytics summary',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -289,7 +290,7 @@ export function getDecisionHistory(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get decision history',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -330,7 +331,7 @@ export function getServerModelDecisionTrend(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get decision trend',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -360,7 +361,7 @@ export function getSelectionStats(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get selection statistics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -385,7 +386,7 @@ export function getAlgorithmStats(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get algorithm statistics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -414,7 +415,7 @@ export function getScoreTimeline(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get score timeline',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -456,7 +457,7 @@ export function getMetricsImpact(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get metrics impact',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -509,7 +510,7 @@ export function getServerRequestHistory(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get request history',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -553,7 +554,7 @@ export function getServerRequestStats(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get request statistics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -584,7 +585,7 @@ export function getRequestTimeline(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get request timeline',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -633,7 +634,7 @@ export function searchRequests(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to search requests',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -656,7 +657,7 @@ export function getServersWithHistory(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get servers with history',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -679,7 +680,7 @@ export function getSummarySnapshots(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get summary snapshots',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -709,7 +710,7 @@ export function getHourlyRollups(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get hourly rollups',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -739,7 +740,7 @@ export function getDailyRollups(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get daily rollups',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -787,7 +788,7 @@ export function browseRequests(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to browse requests',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -836,7 +837,7 @@ export function getTemporalProfile(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get temporal profile',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -895,7 +896,7 @@ export function getTemporalAdjustment(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get temporal adjustments',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -944,7 +945,7 @@ export function getCircuitBreakerAnalytics(_req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get circuit breaker analytics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }

@@ -8,6 +8,7 @@ import type { StreamingTelemetryMeta } from '../streaming.js';
 import { AnthropicMessagesRequestSchema, AnthropicSystemPrompt } from '../types/anthropic.types.js';
 import { resolveApiKey } from '../utils/api-keys.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
+import { formatError } from '../utils/error-classifier.js';
 import {
   fetchWithTimeout,
   fetchWithActivityTimeout,
@@ -1189,7 +1190,7 @@ export async function handleListModels(_req: Request, res: Response): Promise<vo
     res.json(result);
   } catch (error) {
     logger.error('Failed to get aggregated Anthropic models', {
-      error: error instanceof Error ? error.message : String(error),
+      error: formatError(error),
     });
     res.status(500).json({
       type: 'error',
@@ -1282,7 +1283,7 @@ export async function handleGetModel(req: Request, res: Response): Promise<void>
     } catch (error) {
       logger.warn('Failed to fetch models from server', {
         serverId: server.id,
-        error: error instanceof Error ? error.message : String(error),
+        error: formatError(error),
       });
       return [];
     }

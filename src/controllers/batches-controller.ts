@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { API_ENDPOINTS } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { BatchCreateRequestSchema } from '../types/batch.types.js';
+import { formatError } from '../utils/error-classifier.js';
 import { fetchWithTimeout, parseResponse } from '../utils/fetch-with-timeout.js';
 import { toBodyInit } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
@@ -135,7 +136,7 @@ export async function handleCreateBatch(req: Request, res: Response): Promise<vo
     }
   } catch (error) {
     logger.error('Batch create failed', {
-      error: error instanceof Error ? error.message : String(error),
+      error: formatError(error),
     });
     res.status(500).json({
       type: 'error',
@@ -194,7 +195,7 @@ export async function handleListBatches(req: Request, res: Response): Promise<vo
     }
   } catch (error) {
     logger.error('Batch list failed', {
-      error: error instanceof Error ? error.message : String(error),
+      error: formatError(error),
     });
     res.status(500).json({
       type: 'error',
@@ -256,7 +257,7 @@ export async function handleGetBatch(req: Request, res: Response): Promise<void>
   } catch (error) {
     logger.error('Batch get failed', {
       batchId: id,
-      error: error instanceof Error ? error.message : String(error),
+      error: formatError(error),
     });
     res.status(500).json({
       type: 'error',
@@ -318,7 +319,7 @@ export async function handleCancelBatch(req: Request, res: Response): Promise<vo
   } catch (error) {
     logger.error('Batch cancel failed', {
       batchId: id,
-      error: error instanceof Error ? error.message : String(error),
+      error: formatError(error),
     });
     res.status(500).json({
       type: 'error',
@@ -386,7 +387,7 @@ export async function handleGetBatchResults(req: Request, res: Response): Promis
   } catch (error) {
     logger.error('Batch results failed', {
       batchId: id,
-      error: error instanceof Error ? error.message : String(error),
+      error: formatError(error),
     });
     res.status(500).json({
       type: 'error',

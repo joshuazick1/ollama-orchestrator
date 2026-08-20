@@ -17,6 +17,7 @@ import type { Request, Response } from 'express';
 import { API_ENDPOINTS } from '../constants/index.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
+import { formatError } from '../utils/error-classifier.js';
 import { fetchWithTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
 
@@ -90,7 +91,7 @@ async function attemptWarmup(
     logger.info('Anthropic warmup succeeded', { serverId: server.id, model });
     return { serverId: server.id, success: true };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     logger.error('Anthropic warmup error', { serverId: server.id, model, error: errorMessage });
     return { serverId: server.id, success: false, error: errorMessage };
   }
@@ -310,7 +311,7 @@ export async function handleAnthropicUnload(req: Request, res: Response): Promis
         results.push({ serverId: server.id, success: true });
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = formatError(error);
       logger.error('Anthropic unload error', { serverId: server.id, model, error: errorMessage });
       results.push({ serverId: server.id, success: false, error: errorMessage });
     }

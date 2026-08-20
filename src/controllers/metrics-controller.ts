@@ -10,7 +10,9 @@ import { PrometheusExporter } from '../metrics/prometheus-exporter.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { WALStore } from '../probe/wal-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
+import { formatError } from '../utils/error-classifier.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
+import { getNegativeModelCache } from '../utils/negative-model-cache.js';
 
 /**
  * Get comprehensive metrics for all server:model combinations
@@ -31,7 +33,7 @@ export function getMetrics(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get metrics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -80,7 +82,7 @@ export function getServerModelMetrics(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get metrics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -106,7 +108,7 @@ export function getPrometheusMetrics(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to export metrics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -176,7 +178,7 @@ export function getRecoveryTestMetrics(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get recovery test metrics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -240,7 +242,7 @@ export function getBreakerRecoveryMetrics(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get breaker recovery metrics',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -287,7 +289,39 @@ export function getInFlight(req: Request, res: Response): void {
   } catch (error) {
     res.status(500).json({
       error: 'Failed to get in-flight requests',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
+    });
+  }
+}
+
+/**
+ * Observability endpoint for the negative-model-cache. Lists currently-cached
+ * broken claims (`serverId:model` pairs the routing layer is skipping) plus
+ * lifetime counters (total records, clears, expired sweeps).
+ * GET /api/orchestrator/model-cache/health
+ */
+export function getNegativeModelCacheHealth(req: Request, res: Response): void {
+  try {
+    const cache = getNegativeModelCache();
+    const claims = cache.getAll().map(c => ({
+      serverId: c.serverId,
+      model: c.model,
+      reason: c.reason,
+      firstSeenAt: c.firstSeenAt,
+      lastFailureAt: c.lastFailureAt,
+      failureCount: c.failureCount,
+      expiresAt: c.expiresAt,
+    }));
+    res.status(200).json({
+      success: true,
+      timestamp: Date.now(),
+      stats: cache.getStats(),
+      claims,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to get negative-model-cache health',
+      details: formatError(error),
     });
   }
 }

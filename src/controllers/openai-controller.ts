@@ -14,6 +14,7 @@ import {
   type RoutingContext,
 } from '../orchestrator/orchestrator-instance.js';
 import type { AIServer } from '../orchestrator/orchestrator.types.js';
+import { GENERATION_ENDPOINTS } from '../probe/types.js';
 import { createStallDetector, type OllamaStreamChunk, type OllamaToolCall } from '../streaming.js';
 import type {
   OpenAIChatCompletionRequest,
@@ -22,6 +23,7 @@ import type {
 } from '../types/api-request.types.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
+import { formatError } from '../utils/error-classifier.js';
 import {
   fetchWithTimeout,
   fetchWithActivityTimeout,
@@ -1353,7 +1355,7 @@ export async function handleChatCompletions(req: Request, res: Response): Promis
 
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isTimeout } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
@@ -1562,7 +1564,7 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
     logger.error('OpenAI completions failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isTimeout } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
@@ -1589,12 +1591,32 @@ export async function handleCompletions(req: Request, res: Response): Promise<vo
           requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
-      } else {
-        res.status(isCapacityError ? 503 : 500).json({
+      } else if (isModelNotFound) {
+        res.status(404).json({
           error: {
             message: errorMessage,
-            type: isCapacityError ? 'capacity_error' : 'server_error',
-            code: isCapacityError ? 'service_unavailable' : 'internal_error',
+            type: 'model_not_found',
+            code: 'model_not_found',
+          },
+          requestId,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isCapacityError) {
+        res.status(503).json({
+          error: {
+            message: errorMessage,
+            type: 'capacity_error',
+            code: 'service_unavailable',
+          },
+          requestId,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else {
+        res.status(500).json({
+          error: {
+            message: errorMessage,
+            type: 'server_error',
+            code: 'internal_error',
           },
           requestId,
           ...(debugPayload && { debug: debugPayload }),
@@ -1683,7 +1705,7 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
     logger.error('OpenAI embeddings failed:', { error, model });
     if (!res.headersSent) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isTimeout } =
+      const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound, isTimeout } =
         classifyOrchestratorRoutingError(errorMessage);
       const isCapacityError = isNoServersError || isConcurrencySaturated;
       const debugPayload = isDebugRequested(req)
@@ -1710,12 +1732,32 @@ export async function handleOpenAIEmbeddings(req: Request, res: Response): Promi
           requestId,
           ...(debugPayload && { debug: debugPayload }),
         });
-      } else {
-        res.status(isCapacityError ? 503 : 500).json({
+      } else if (isModelNotFound) {
+        res.status(404).json({
           error: {
             message: errorMessage,
-            type: isCapacityError ? 'capacity_error' : 'server_error',
-            code: isCapacityError ? 'service_unavailable' : 'internal_error',
+            type: 'model_not_found',
+            code: 'model_not_found',
+          },
+          requestId,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else if (isCapacityError) {
+        res.status(503).json({
+          error: {
+            message: errorMessage,
+            type: 'capacity_error',
+            code: 'service_unavailable',
+          },
+          requestId,
+          ...(debugPayload && { debug: debugPayload }),
+        });
+      } else {
+        res.status(500).json({
+          error: {
+            message: errorMessage,
+            type: 'server_error',
+            code: 'internal_error',
           },
           requestId,
           ...(debugPayload && { debug: debugPayload }),
@@ -1792,6 +1834,125 @@ export function handleGetModel(req: Request, res: Response): Promise<void> {
     });
     return Promise.resolve();
   }
+}
+
+/**
+ * Handle GET /v1/models/availability?model=X
+ *
+ * Stable response contract consumed by chronicle's live-cross-project-verify:
+ *   {
+ *     model: string,
+ *     available: boolean,
+ *     servers: Array<{ id, state, isAvailable, confirmed }>,
+ *     alternatives: string[],
+ *     lastUpdated: number
+ *   }
+ */
+export function handleGetModelAvailability(req: Request, res: Response): Promise<void> {
+  const modelParam = typeof req.query.model === 'string' ? req.query.model.trim() : '';
+
+  if (!modelParam) {
+    res.status(400).json({
+      error: {
+        message: 'Missing required query parameter: model',
+        type: 'invalid_request_error',
+        param: 'model',
+        code: 'missing_parameter',
+      },
+    });
+    return Promise.resolve();
+  }
+
+  const orchestrator = getOrchestratorInstance();
+  const probeOrchestrator = orchestrator.getProbeOrchestrator();
+  const endpointRegistry = orchestrator.getEndpointRegistry();
+  const loadBalancer = orchestrator.getLoadBalancer();
+
+  const servers = orchestrator.getServers();
+  const matchingServers = servers.filter(s => {
+    const candidates = new Set<string>([
+      ...(s.models ?? []),
+      ...(s.v1Models ?? []),
+      ...(s.discoveredV1Models ?? []),
+    ]);
+    return orchestrator.resolveModelName(modelParam, Array.from(candidates)) !== null;
+  });
+
+  if (matchingServers.length === 0) {
+    res.status(404).json({
+      error: {
+        message: `Model '${modelParam}' not found`,
+        type: 'invalid_request_error',
+        param: 'model',
+        code: 'model_not_found',
+      },
+    });
+    return Promise.resolve();
+  }
+
+  const requestBase = modelParam.toLowerCase().split(':')[0];
+  const alternativesSet = new Set<string>();
+  for (const s of servers) {
+    for (const m of [
+      ...(s.models ?? []),
+      ...(s.v1Models ?? []),
+      ...(s.discoveredV1Models ?? []),
+    ]) {
+      const base = m.toLowerCase().split(':')[0];
+      if (base === requestBase && m !== modelParam) {
+        alternativesSet.add(m);
+      }
+    }
+  }
+
+  const generationEndpoints = GENERATION_ENDPOINTS;
+  const probeStates = probeOrchestrator.getAllStates();
+  const stateOrder: Record<string, number> = {
+    UNKNOWN: 0,
+    RECOVERING: 1,
+    SUSPECT: 2,
+    UNHEALTHY: 3,
+    HEALTHY: 4,
+  };
+
+  const serverEntries = matchingServers.map(s => {
+    let bestState: keyof typeof stateOrder = 'UNKNOWN';
+    let confirmed = false;
+
+    for (const endpoint of generationEndpoints) {
+      const cap = endpointRegistry.getCapability(s.id, endpoint);
+      if (cap?.confirmed) {
+        confirmed = true;
+      }
+      const ts = probeStates.get(`${s.id}:${modelParam}:${endpoint}`);
+      if (ts && stateOrder[ts.state] > stateOrder[bestState]) {
+        bestState = ts.state as keyof typeof stateOrder;
+      }
+    }
+
+    const isAvailable = bestState !== 'UNHEALTHY';
+
+    return {
+      id: s.id,
+      state: bestState,
+      isAvailable,
+      confirmed,
+    };
+  });
+
+  const speculativeConfig = (loadBalancer as unknown as {
+    config?: { speculativeProbing?: { enabled?: boolean; maxSamples?: number; triggerBelowEligible?: number } };
+  }).config?.speculativeProbing ?? { enabled: true, maxSamples: 3, triggerBelowEligible: 2 };
+
+  res.json({
+    model: modelParam,
+    available: serverEntries.some(e => e.isAvailable),
+    servers: serverEntries,
+    alternatives: Array.from(alternativesSet).slice(0, 20),
+    speculativeProbing: speculativeConfig,
+    lastUpdated: Date.now(),
+  });
+  return Promise.resolve();
 }
 
 /**
@@ -2058,7 +2219,7 @@ export async function handleChatCompletionsToServer(req: Request, res: Response)
       res.json(result);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     logger.error(`Chat completions to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,
@@ -2240,7 +2401,7 @@ export async function handleCompletionsToServer(req: Request, res: Response): Pr
       res.json(result);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     logger.error(`Completions to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,
@@ -2338,7 +2499,7 @@ export async function handleOpenAIEmbeddingsToServer(req: Request, res: Response
       res.json(result);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     logger.error(`Embeddings to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,

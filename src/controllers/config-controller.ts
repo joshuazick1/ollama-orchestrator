@@ -9,6 +9,7 @@ import type { Request, Response } from 'express';
 
 import { getConfigManager, type OrchestratorConfig } from '../config/config.js';
 import { applyEnvOverrides } from '../config/env-mapper.js';
+import { formatError } from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 
 // Define allowed base directories for config files
@@ -85,7 +86,7 @@ export function getConfig(req: Request, res: Response): void {
     logger.error('Failed to get configuration:', { error });
     res.status(500).json({
       error: 'Failed to get configuration',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -126,7 +127,7 @@ export function updateConfig(req: Request, res: Response): void {
     } else {
       res.status(500).json({
         error: 'Failed to update configuration',
-        details: error instanceof Error ? error.message : String(error),
+        details: formatError(error),
       });
     }
   }
@@ -221,7 +222,7 @@ export function updateConfigSection(req: Request, res: Response): void {
     } else {
       res.status(500).json({
         error: 'Failed to update configuration section',
-        details: error instanceof Error ? error.message : String(error),
+        details: formatError(error),
       });
     }
   }
@@ -250,7 +251,7 @@ export function reloadFromEnv(req: Request, res: Response): void {
     logger.error('Failed to reload from env:', { error });
     res.status(500).json({
       error: 'Failed to reload from environment',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -295,7 +296,7 @@ export async function reloadConfig(req: Request, res: Response): Promise<void> {
     logger.error('Failed to reload configuration:', { error });
     res.status(500).json({
       error: 'Failed to reload configuration',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -340,7 +341,7 @@ export async function saveConfig(req: Request, res: Response): Promise<void> {
     logger.error('Failed to save configuration:', { error });
     res.status(500).json({
       error: 'Failed to save configuration',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -465,7 +466,7 @@ export function exportConfig(req: Request, res: Response): void {
     logger.error('Failed to export configuration:', { error });
     res.status(500).json({
       error: 'Failed to export configuration',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
     });
   }
 }
@@ -546,7 +547,7 @@ export function importConfig(req: Request, res: Response): void {
     } else {
       res.status(500).json({
         error: 'Failed to import configuration',
-        details: error instanceof Error ? error.message : String(error),
+        details: formatError(error),
       });
     }
   }

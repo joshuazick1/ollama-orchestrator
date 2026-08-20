@@ -32,6 +32,7 @@ import type {
 } from '../types/api-request.types.js';
 import { shouldBypassCircuitBreaker } from '../utils/circuit-breaker-helpers.js';
 import { getDebugInfo, isDebugRequested, setDebugResponseHeaders } from '../utils/debug-headers.js';
+import { formatError } from '../utils/error-classifier.js';
 import {
   fetchWithTimeout,
   fetchWithActivityTimeout,
@@ -76,7 +77,7 @@ export async function handleTags(req: Request, res: Response): Promise<void> {
     logger.error('Failed to get aggregated tags:', { error });
     res.status(500).json({
       error: 'Failed to get tags',
-      details: error instanceof Error ? error.message : String(error),
+      details: formatError(error),
       requestId: (req as { requestId?: string }).requestId,
     });
   }
@@ -488,7 +489,7 @@ export async function handleGenerate(req: Request, res: Response): Promise<void>
     }
 
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = formatError(error);
       const {
         isNoServersError,
         isConcurrencySaturated,
@@ -1010,7 +1011,7 @@ export async function handleChat(req: Request, res: Response): Promise<void> {
     }
 
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = formatError(error);
       const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound } =
         classifyOrchestratorRoutingError(errorMessage);
 
@@ -1125,7 +1126,7 @@ export async function handleEmbeddings(req: Request, res: Response): Promise<voi
   } catch (error) {
     logger.error('Embeddings request failed:', { error, model });
 
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     const { isNoServersError, isConcurrencySaturated, isAccessDenied, isModelNotFound } =
       classifyOrchestratorRoutingError(errorMessage);
 
@@ -1296,7 +1297,7 @@ export async function handleShow(req: Request, res: Response): Promise<void> {
     logger.error('Show request failed:', { error, model });
 
     if (!res.headersSent) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = formatError(error);
       const { isNoServersError, isConcurrencySaturated } =
         classifyOrchestratorRoutingError(errorMessage);
 
@@ -1415,7 +1416,7 @@ export async function handleEmbed(req: Request, res: Response): Promise<void> {
     res.json(data);
   } catch (error) {
     logger.error('Error in handleEmbed:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     const { isAccessDenied } = classifyOrchestratorRoutingError(errorMessage);
     const requestId = (req as { requestId?: string }).requestId;
     if (isAccessDenied) {
@@ -1789,7 +1790,7 @@ export async function handleGenerateToServer(req: Request, res: Response): Promi
       res.json(result);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     logger.error(`Generate to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,
@@ -2000,7 +2001,7 @@ export async function handleChatToServer(req: Request, res: Response): Promise<v
       res.json(result);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     logger.error(`Chat to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,
@@ -2095,7 +2096,7 @@ export async function handleEmbeddingsToServer(req: Request, res: Response): Pro
       res.json(result);
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorMessage = formatError(error);
     logger.error(`Embeddings to server ${serverId} failed:`, {
       error: errorMessage,
       bypassCircuitBreaker,
