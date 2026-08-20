@@ -13,8 +13,9 @@ Files of record:
 - [failure-classifier-negative.ts](failure-classifier-negative.ts) — `classifyNegativeResult`. Classifies negative HTTP responses (model-not-found, endpoint-absent, mid-stream errors, rate limits) for capability gap detection.
 - [recovery-driver.ts](recovery-driver.ts) — `RecoveryDriver`. Manages half-open recovery testing, success counting, and automatic state transitions.
 - [endpoint-registry.ts](endpoint-registry.ts) — `EndpointRegistry`. Tracks which endpoints belong to which server:model tuples; supports soft-revoke for capability detection.
-- [wal-store.ts](wal-store.ts) — `WalStore` (singleton via `getWalStore`). Append-only WAL for probe state transitions; provides persistence and event replay.
-- [types.ts](types.ts) — Shared probe types: `ProbeState`, `ProbeKey`, `WalEvent`, `UiState`, `RecoveryConfig`.
+- [model-verifier.ts](model-verifier.ts) — `ModelVerifier` (singleton via `getModelVerifier`). Periodic background worker that probes cached `serverId:model` claims in `NegativeModelCache` to clear them when they recover and extend them while they remain broken. Pair with the post-pull verification probe in `server-models-controller.ts`.
+- [wal-store.ts](wal-store.ts) — `WalStore` (singleton via `getWalStore`). Append-only WAL for probe state transitions; provides persistence and event replay. iter63 Wave 1 removed the local `TupleKey = string` re-export that previously duplicated the canonical definition; this file now imports `TupleKey` from [types.ts](types.ts) and must not redeclare it.
+- [types.ts](types.ts) — Shared probe types: `ProbeState`, `ProbeKey`, `WalEvent`, `UiState`, `RecoveryConfig`. The canonical `TupleKey = string` lives here and is the single source of truth — `wal-store.ts` (and any new module needing the tuple-key alias) must import from this file.
 - [ps-poll-coordinator.ts](ps-poll-coordinator.ts) — `PsPollCoordinator`. Coordinates per-server `/api/ps` polling to track which models are currently loaded on each server; supports fleet-wide model availability tracking and stale-cache invalidation.
 
 ## Negative Probing

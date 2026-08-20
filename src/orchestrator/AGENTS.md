@@ -17,7 +17,7 @@ Files of record:
 - [orchestrator.ts](orchestrator.ts) — Main `Orchestrator` class (`getOrchestratorInstance` is a singleton accessor in [orchestrator-instance.ts](orchestrator-instance.ts)).
 - [routing.ts](routing.ts) — Request routing pipeline (server selection, retries, failover).
 - [models.ts](models.ts) — Model registry, fleet model stats, server model control.
-- [orchestrator.types.ts](orchestrator.types.ts) — Domain types: `AIServer`, `ServerModelMetrics`, `GlobalMetrics`, `RequestContext`, `StreamingMetrics`, `LatencyPercentiles`, `TimeWindow`, `MetricsWindow`, `MetricsExport`, plus orchestrator-stability-release types: `PrefixHashResult`, `ServerScoreBreakdown`, `SLOMode`, `TokenWeightedLoad`, `ColdStartEvent`, `ErrorTypeMetric`, `PerSizeLatencyBucket`.
+- [orchestrator.types.ts](orchestrator.types.ts) — Domain types: `AIServer`, `ServerModelMetrics`, `GlobalMetrics`, `RequestContext`, `StreamingMetrics`, `LatencyPercentiles`, `TimeWindow`, `MetricsWindow`, `MetricsExport`, plus orchestrator-stability-release types: `PrefixHashResult`, `ServerScoreBreakdown`, `SLOMode`, `TokenWeightedLoad`, `ColdStartEvent`, `ErrorTypeMetric`, `PerSizeLatencyBucket`. iter63 Wave 1 deleted the duplicate `VLLMModelMeta` interface that previously lived here; the canonical definition is now in [vllm-models.ts](vllm-models.ts) (a single source of truth shared with the Zod schema that drives vLLM metadata validation), and `orchestrator.types.ts` re-imports it via `import type { VLLMModelMeta } from './vllm-models.js'`.
 - [orchestrator-persistence.ts](orchestrator-persistence.ts) and [persistence.ts](persistence.ts) — Fleet state persistence (server list, model map).
 - [probe-executor-negative.ts](probe-executor-negative.ts) — `probeExecutorNegative`. Negative probe executor for capability detection: sends intentionally invalid model names and inspects response bodies to detect capability gaps.
 
@@ -35,6 +35,12 @@ Files of record:
 - The `CapabilityProbeScheduler` singleton (`getCapabilityProbeScheduler()` from `src/probe/probe-scheduler-instance.ts`) is started during orchestrator initialization and uses `orchestrator.getServer(id)` to resolve server descriptors for negative probing.
 - Manual capability probe is available via `POST /api/orchestrator/servers/:id/capability-probe` (admin routes, requires admin auth). The controller handler `capabilityProbe` in [servers-controller.ts](../controllers/servers-controller.ts) delegates to `capabilityProbeScheduler.runOnce(id)`.
 - The `ps-poll-coordinator` polling subsystem (in `src/probe/`) coordinates model availability polling across the server fleet.
+
+### Fleet hygiene
+
+- **`removeServer(serverId)`** evicts every probe tuple for the server via `probeOrchestrator.evictAllForServer()` (bulk), drops bans/cooldowns, clears the negative-model-cache entries, and persists the smaller server list. The previous per-model `evictTuple` loop leaked breakers for SUSPECT entries that aged out, which is what produced the 8263-vs-236 imbalance before this fix.
+- **`cleanupOrphanedBreakers()`** runs every 30 minutes (orchestrator init) and removes probe tuples for `serverId`s no longer in the fleet, plus tuples for `(serverId, model)` pairs the server no longer advertises via `/api/tags` or `/v1/models`. Also clears matching negative-cache entries so a returning server with a fresh model isn't blocked. Use `POST /api/orchestrator/servers/reap-orphan-breakers` to invoke manually.
+- **Ghost cleanup** (`cleanupGhostServers()`, every 30 minutes) flags servers that have been unhealthy for ≥ `loadBalancer.ghostServers.staleThresholdMs` (default 7 days) OR are healthy but report zero models for ≥ `staleThresholdMs` via PS poll. The default `removeOnCleanup` is `false` to avoid fleet erosion on transient outages; set `ORCHESTRATOR_GHOST_REMOVE_ON_CLEANUP=true` for fully-managed fleets where aggressive cleanup is desired. Override `staleThresholdMs` with `ORCHESTRATOR_GHOST_STALE_THRESHOLD_MS` (in ms).
 
 ## Work Guidance
 

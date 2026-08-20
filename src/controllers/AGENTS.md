@@ -21,7 +21,7 @@ Files of record (current):
 - [ollama-controller.ts](ollama-controller.ts) — Ollama-compatible `/api/tags`, `/api/generate`, `/api/chat`, `/api/embeddings`, `/api/ps`, `/api/version` plus server-specific bypass variants.
 - [openai-controller.ts](openai-controller.ts) — OpenAI-compatible `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models` plus bypass variants.
 - [recovery-failure-controller.ts](recovery-failure-controller.ts) — Recovery failure summary, history, per-server analysis, reset.
-- [server-models-controller.ts](server-models-controller.ts) — Per-server model list, pull, copy, delete.
+- [server-models-controller.ts](server-models-controller.ts) — Per-server model list, pull, copy, delete. Pull/copy stream SSE progress and run a 1-token post-pull inference probe that quarantines the server when the upstream `Ollama` "success" status is a lie (corrupted blob).
 - [servers-controller.ts](servers-controller.ts) — Add, remove, update, list servers, drain/undrain/maintenance.
 
 ## Ownership
@@ -34,6 +34,7 @@ Files of record (current):
 
 - One controller per API area. Keep the file small enough to scan; extract helpers to [src/utils/](../utils/) if a controller starts handling cross-cutting concerns.
 - Every error path must use a domain error class from [src/utils/domain-errors.ts](../utils/domain-errors.ts) so [src/middleware/](../middleware/) can map it to a stable response.
+- For ad-hoc thrown-value stringification (e.g. caught exceptions that are not domain errors), use `formatError(error)` from [src/utils/error-classifier.ts](../utils/error-classifier.ts) — never inline `error instanceof Error ? error.message : String(error)`. iter63 Wave 1 migrated eight controllers (`analytics`, `metrics`, `config`, `ollama`, `batches`, `openai`, `anthropic`, `anthropic-models`) to the shared helper; the inline form is forbidden.
 - All response shapes are part of the public API. Changing a response is a breaking change and must be reflected in [frontend/src/types/](../../frontend/src/types/) (see [frontend/AGENTS.md](../../frontend/AGENTS.md)).
 - Endpoint paths are listed in [src/constants/api-endpoints.ts](../constants/api-endpoints.ts) when reused elsewhere; ad-hoc strings are not allowed in `res.json` payloads or `req.originalUrl` checks.
 

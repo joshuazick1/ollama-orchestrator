@@ -130,6 +130,19 @@ For testing, set `PERF_PROBE_INTERVAL_MS=60000` (1-minute cycle) and `PERF_PROBE
 - **Native modules**: After switching Node major, run `npm rebuild better-sqlite3 bcrypt` from the repo root so the `.node` binaries match the active Node ABI. Pre-built binaries (`prebuild-install`) are also fine on reinstall — `npm rebuild` is the safe-when-already-installed path.
 - **Commitlint config**: `.commitlintrc.cjs` (renamed from `.js` on 2026-06-27). The repo's `package.json` sets `"type": "module"`, which made `.js` config files load as ESM and broke the CommonJS `module.exports` pattern. The `.cjs` extension is the canonical fix for ESM projects with CJS-format dotfiles.
 
+## iter62 (2026-08-13) — Validation Baseline + Bug Fixes
+
+Two minimal bug fixes applied under iter62's validation-baseline scope; test infrastructure unchanged (no new test files, no fixtures, no mocks). Both fixes are surgical and verified against the canonical test suite (`tests/unit/` + `tests/integration/`, 4087 tests, 6 stable failures matching the pre-existing `controller-error-masking-fix` baseline; 14 improvements; 1 unrelated test-pollution regression in `servers-controller-cb.test.ts`).
+
+- **Bug #1 — Model catalog sync (`src/orchestrator/orchestrator.ts:786,838`)**: Added `refreshServerModelsForModel(model)` for on-demand single-model refresh and `refreshModelMap(tagList)` for batched refresh of the `modelMap` cache. Previously the orchestrator only refreshed on a full fleet re-probe, so newly-added models on a server were invisible until the next scheduled probe. Singleflight semantics prevent thundering-herd refreshes.
+- **Bug #3 — Circuit-breaker premature OPEN detection (`src/probe/probe-orchestrator.ts:546-550,580`)**: The state machine was declaring OPEN after a single probe failure rather than waiting for the configured failure threshold. Added `_dryRunLoad(serverId, model)` to exercise the probe path without flipping the breaker; the breaker now only transitions on real load-bearing failures.
+
+Verification: `npm run typecheck` clean; targeted unit suites (`orchestrator.test.ts`, `lazy-refresh-singleflight.test.ts`, `probe/probe-orchestrator.test.ts`, `probe/probe-orchestrator-canserve.test.ts`) all green. Service restarted via `sudo systemctl restart ollama-orchestrator.service` and confirmed healthy on both `/health/ready` and `/api/orchestrator/health` (130-server live fleet preserved).
+
+## iter63 (2026-08-20) — Dedup Refactor Wave 1 (Tier 1 surgical)
+
+Tier-1 dedup pass on the `dedup-refactor` branch: extracted the `asyncHandler` route wrapper into [src/middleware/async-handler.ts](src/middleware/async-handler.ts) (replacing 10 inline copies), promoted the canonical `ErrorType = 'network' | 'server' | 'timeout' | 'unknown'` union to [src/types/error-event.ts](src/types/error-event.ts), created `formatError` / `isRetryableOnSameServer` / `transientPatterns` in [src/utils/error-classifier.ts](src/utils/error-classifier.ts), and applied `formatError` across eight controllers (`analytics`, `metrics`, `config`, `ollama`, `batches`, `openai`, `anthropic`, `anthropic-models`). Dead code removed: `calculateBackoff` from [src/utils/math-helpers.ts](src/utils/math-helpers.ts) (callers route to [src/utils/backoff/calculator.ts](src/utils/backoff/calculator.ts)), `withRetry` + `withTimeout` from [src/utils/async-helpers.ts](src/utils/async-helpers.ts), the duplicate `VLLMModelMeta` interface from [src/orchestrator/orchestrator.types.ts](src/orchestrator/orchestrator.types.ts) (now imported from [src/orchestrator/vllm-models.ts](src/orchestrator/vllm-models.ts)), and the redundant `TupleKey = string` re-export in [src/probe/wal-store.ts](src/probe/wal-store.ts) (now imported from [src/probe/types.ts](src/probe/types.ts)). Tests added/updated to cover the new error-classifier exports and the renamed symbols in async-helpers; pre-existing tests for the deleted code paths were pruned. Net test count: 4087 → 4282. Branch: `dedup-refactor`. Commits: 9 atomic commits (`45519ff2`, `d875949`, `3ad59700`, `bd39f64` (×2), `2467559`, `9a872fa`, `bf295bc`, `6cd05d36`).
+
 ## Child DOX Index
 
 The DOX tree is rooted at these child docs. Each child owns a durable boundary and links to its own children. See the linked doc for scope, contracts, work guidance, and verification.
@@ -169,7 +182,7 @@ The DOX tree is rooted at these child docs. Each child owns a durable boundary a
 
 ### Operations & Tooling
 
-- [scripts/AGENTS.md](scripts/AGENTS.md) — Repo-root operational scripts: install/uninstall, logrotate, systemd unit, sync-types, env verify, load/chaos tests.
+- [scripts/AGENTS.md](scripts/AGENTS.md) — Repo-root operational scripts: install/uninstall, logrotate, systemd unit, sync-types, env verify, load/chaos tests, fleet ops (model pulls).
 - [docs/AGENTS.md](docs/AGENTS.md) — Long-form design docs, audits, runbooks, and reference material (not user-facing README docs).
 
 ### Top-level files (no child doc; see root AGENTS.md for behavior)

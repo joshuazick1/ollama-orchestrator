@@ -9,7 +9,7 @@ Central place for types that span multiple modules. API request types live here 
 Files of record:
 
 - [api-request.types.ts](api-request.types.ts) — Request bodies for `/api/generate`, `/api/chat`, `/api/embeddings`, plus shared request context types. Audit C-5 origin.
-- [error-event.ts](error-event.ts) — `ErrorEvent` shape used by [src/utils/error-classifier.ts](../utils/error-classifier.ts) and [src/storage/error-event-store.ts](../storage/error-event-store.ts). Documented contract lives in [docs/ERROR-EVENT-SCHEMA.md](../../docs/ERROR-EVENT-SCHEMA.md).
+- [error-event.ts](error-event.ts) — `ErrorEvent` shape used by [src/utils/error-classifier.ts](../utils/error-classifier.ts) and [src/storage/error-event-store.ts](../storage/error-event-store.ts). Documented contract lives in [docs/ERROR-EVENT-SCHEMA.md](../../docs/ERROR-EVENT-SCHEMA.md). Also exports the canonical `ErrorType = 'network' | 'server' | 'timeout' | 'unknown'` union — promoted to this file in iter63 Wave 1 so the persisted error-event taxonomy has a single source of truth. Any module that records an `ErrorEvent` must use this `ErrorType`, not a locally redeclared variant.
 - [ollama/](ollama/) — Ollama upstream response types: `OllamaGenerateResponse`, `OllamaShowResponse`, `OllamaProcessListResponse`. Re-exported from [ollama/index.ts](ollama/index.ts).
 
 ## Ownership

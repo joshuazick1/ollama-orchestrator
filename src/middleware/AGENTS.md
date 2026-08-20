@@ -12,6 +12,7 @@ Files of record:
 - [rate-limiter.ts](rate-limiter.ts) — `createMonitoringRateLimiter`, `createAdminRateLimiter`, `createInferenceRateLimiter`. Built on `express-rate-limit` with window/max read from config.
 - [csrf.ts](csrf.ts) — Double-submit-cookie CSRF protection. Applies to non-GET mutating routes.
 - [validation.ts](validation.ts) — Zod-based request-body and request-params validation. Exports `ValidationError`.
+- [async-handler.ts](async-handler.ts) — `asyncHandler` wrapper that forwards synchronous throws and rejected promises to `next(err)`. The canonical replacement for the 10 inline `(req, res, next) => fn(req, res, next).catch(next)` copies that previously lived in route files (iter63 Wave 1 dedup). Exports `AsyncRequestHandler` type for route-handler signatures.
 
 ## Ownership
 
@@ -23,6 +24,7 @@ Files of record:
 
 - `requireAuth` and `requireAdmin` read their configuration from the config manager; call `refreshAuthConfig` after any config change so the middleware picks up new keys without restart.
 - Rate limiters are factories. The config manager is read inside the factory, so changes to rate-limit config take effect when the limiter is recreated (e.g. on next config reload).
+- Every rate-limiter factory honors `security.rateLimitEnabled` (default `true`), read per request, as the master switch: when `false`, the limiter passes all requests through. This flag is deliberately independent of auth state (`ENABLE_AUTH`) — auth-disabled deployments can keep rate limiting on, and vice versa. Do not couple the two.
 - `ValidationError` is a domain error; controllers and routes must let it propagate to the central error mapper, not catch it locally.
 
 ## Auth Helpers

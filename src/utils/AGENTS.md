@@ -10,7 +10,7 @@ Files of record (grouped by concern):
 
 **Classification & error**
 
-- [error-classifier.ts](error-classifier.ts) — `ErrorClassifier`, `getErrorClassifier`, `classifyError`, `ErrorCategory`. Single source of truth for error type/category.
+- [error-classifier.ts](error-classifier.ts) — `ErrorClassifier`, `getErrorClassifier`, `classifyError`, `ErrorCategory`, plus iter63-added helpers: `formatError(error: unknown): string` (safe stringification of thrown values for controller error paths — replaces `error instanceof Error ? error.message : String(error)`), `isRetryableOnSameServer(message, retryConfig)` (extracted from the orchestrator instance method), and `transientPatterns` (the regex table consumed by both `classifyError` and the same-server retry check). Single source of truth for error type/category.
 - [orchestrator-error-classifier.ts](orchestrator-error-classifier.ts) — Orchestrator-specific error classification.
 - [domain-errors.ts](domain-errors.ts) — Domain error classes (`OrchestratorError` and friends) used by controllers/middleware.
 - [error-aggregator.ts](error-aggregator.ts) — `ErrorAggregator` (singleton), `ClusterStatus`. Cluster-wide error picture.
@@ -20,6 +20,7 @@ Files of record (grouped by concern):
 **Concurrency & lifecycle**
 
 - [in-flight-manager.ts](in-flight-manager.ts) — `InFlightManager` (singleton via `getInFlightManager`). Per-server, per-server:model, and per-stream tracking. Also tracks streaming progress, handoff candidates, and stall detection.
+- [negative-model-cache.ts](negative-model-cache.ts) — `NegativeModelCache` (singleton via `getNegativeModelCache`). Per-`serverId:model` "claimed but broken" registry with TTL. `recordBroken(serverId, model, reason)` populates; `isBroken` is consulted by routing and by `refreshServerModelsForModel`; the post-pull verifier and the `ModelVerifier` worker both populate and clear entries.
 - [ban-manager.ts](ban-manager.ts) — `BanManager`. Per-server:model permanent and cooldown bans.
 - [quarantine-pool.ts](quarantine-pool.ts) — `QuarantinePool` (singleton via `getQuarantinePool`). Tarpit quarantine pool for honeypot-flagged servers. Auto-quarantine on honeypot probe failure; auto-unquarantine after clean cycles.
 - [timeout-manager.ts](timeout-manager.ts) — `TimeoutManager`, `TimeoutConfig`, `TimeoutState`. Adaptive timeouts.
@@ -66,16 +67,16 @@ Files of record (grouped by concern):
 - [model-aggregator.ts](model-aggregator.ts) — Tag aggregation across servers.
 - [token-metrics-extractor.ts](token-metrics-extractor.ts) — Token count extraction from upstream responses.
 - [deep-merge.ts](deep-merge.ts) — Deep merge for config.
-- [math-helpers.ts](math-helpers.ts) — Small math helpers.
+- [math-helpers.ts](math-helpers.ts) — Small math helpers (`clamp`, `lerp`, `roundTo`, `inRange`). `calculateBackoff` was removed in iter63 Wave 1 — use `calculateBackoff` from [backoff/calculator.ts](backoff/calculator.ts) (re-exported via [backoff/index.ts](backoff/index.ts)) instead, which honours the new `RetryConfig` shape and the strategies under [backoff/](backoff/).
 - [collection-helpers.ts](collection-helpers.ts) — Collection helpers.
 - [circuit-breaker-helpers.ts](circuit-breaker-helpers.ts) — Circuit-breaker helpers.
 - [request-context-builder.ts](request-context-builder.ts) — Build `RequestContext` for a request.
-- [async-helpers.ts](async-helpers.ts) — `sleep`, async utilities.
+- [async-helpers.ts](async-helpers.ts) — `sleep`, `debounce`, `throttle`. iter63 Wave 1 deleted the unused `withRetry` and `withTimeout` wrappers from this file; the retry budget lives in [retry-budget.ts](retry-budget.ts) and per-attempt backoff scheduling in [backoff/calculator.ts](backoff/calculator.ts), while request-level timeouts are owned by [orchestrator.ts retry-budget coordination](../orchestrator/orchestrator.ts) — do not reintroduce these helpers here.
 - [hash.ts](hash.ts) — Hashing utilities: consistent hash ring construction for prefix-cache-aware routing.
 
 **Honeypot detection**
 
-- [honeypot-probes.ts](honeypot-probes.ts) — `SchemaConformanceProbe`, `ColdStartTimingProbe`, `ZeroWidthWatermarkProbe`, `HoneypotProbeRunner`. Detects honeypot/synthetic Ollama servers via API schema fingerprinting, cold-start timing analysis, and zero-width unicode watermark detection.
+- [honeypot-probes.ts](honeypot-probes.ts) — `SchemaConformanceProbe`, `ColdStartTimingProbe`, `ZeroWidthWatermarkProbe`, `ContentHoneypotProbe`, `HoneypotProbeRunner`. Detects honeypot/synthetic Ollama servers via API schema fingerprinting, cold-start timing analysis, zero-width unicode watermark detection, and content fingerprinting (DEADBUG canaries, BTC-address canaries, Chinese profanity, tight-loop canned answers, suspicious TTFT for large models).
 
 **Metadata**
 
