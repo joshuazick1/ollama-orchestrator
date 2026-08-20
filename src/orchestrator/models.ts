@@ -4,6 +4,7 @@
  */
 
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
+import type { ErrorType } from '../types/error-event.js';
 import { sleep } from '../utils/async-helpers.js';
 import { fetchWithTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
@@ -14,7 +15,7 @@ export interface FetchServerTagsResult {
   success: boolean;
   data?: any[];
   serverId: string;
-  error?: { serverId: string; error: string; type: 'network' | 'server' | 'timeout' | 'unknown' };
+  error?: { serverId: string; error: string; type: ErrorType };
 }
 
 export class OrchestratorModels {
@@ -48,7 +49,7 @@ export class OrchestratorModels {
     const errors: Array<{
       serverId: string;
       error: string;
-      type: 'network' | 'server' | 'timeout' | 'unknown';
+      type: ErrorType;
     }> = [];
 
     const maxConcurrent = config.tags.maxConcurrentRequests ?? 10;
@@ -178,7 +179,7 @@ export class OrchestratorModels {
         serverId: server.id,
       };
     } catch (error) {
-      let errorType: 'network' | 'server' | 'timeout' | 'unknown' = 'unknown';
+      let errorType: ErrorType = 'unknown';
       let errorMessage = 'Unknown error';
 
       if (error instanceof Error) {
@@ -274,6 +275,11 @@ export class OrchestratorModels {
       if (availableModels.includes(withLatestSuffix)) {
         return withLatestSuffix;
       }
+    }
+
+    const caseInsensitiveMatch = availableModels.find(m => m.toLowerCase() === model.toLowerCase());
+    if (caseInsensitiveMatch) {
+      return caseInsensitiveMatch;
     }
 
     return null;

@@ -1,5 +1,6 @@
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
 import type { Tuple } from '../probe/types.js';
+import type { ErrorType } from '../types/error-event.js';
 import { sleep } from '../utils/async-helpers.js';
 import { fetchWithTimeout } from '../utils/fetch-with-timeout.js';
 import { logger } from '../utils/logger.js';
@@ -22,7 +23,7 @@ export interface FetchAnthropicModelsResult {
   success: boolean;
   data?: AnthropicModel[];
   serverId: string;
-  error?: { serverId: string; error: string; type: 'network' | 'server' | 'timeout' | 'unknown' };
+  error?: { serverId: string; error: string; type: ErrorType };
 }
 
 const ANTHROPIC_MODELS_MAX_CONCURRENT = 10;
@@ -65,7 +66,7 @@ export class AnthropicModels {
     const errors: Array<{
       serverId: string;
       error: string;
-      type: 'network' | 'server' | 'timeout' | 'unknown';
+      type: ErrorType;
     }> = [];
     let totalRequests = 0;
     let successfulRequests = 0;
@@ -208,7 +209,7 @@ export class AnthropicModels {
         serverId: server.id,
       };
     } catch (error) {
-      let errorType: 'network' | 'server' | 'timeout' | 'unknown' = 'unknown';
+      let errorType: ErrorType = 'unknown';
       let errorMessage = 'Unknown error';
 
       if (error instanceof Error) {

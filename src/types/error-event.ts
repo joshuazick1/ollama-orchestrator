@@ -22,7 +22,7 @@ export type ErrorSeverity = 'low' | 'medium' | 'high' | 'critical';
 /**
  * Error types from ErrorClassifier
  */
-export type ErrorType = 'retryable' | 'non_retryable' | 'transient' | 'permanent' | 'rate_limited';
+export type ErrorType = 'network' | 'server' | 'timeout' | 'unknown';
 
 /**
  * Error event record for persistence.

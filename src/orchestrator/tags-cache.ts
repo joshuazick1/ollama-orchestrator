@@ -22,6 +22,8 @@ export interface TagsCache {
   metadata: TagsCacheMetadata;
 }
 
+import type { ErrorType } from '../types/error-event.js';
+
 export interface TagsCacheMetadata {
   totalRequests: number;
   successfulRequests: number;
@@ -31,7 +33,7 @@ export interface TagsCacheMetadata {
   errors: Array<{
     serverId: string;
     error: string;
-    type: 'network' | 'server' | 'timeout' | 'unknown';
+    type: ErrorType;
   }>;
 }
 
