@@ -1,5 +1,7 @@
 import type { OperationalStore } from '../storage/operational-store.js';
 
+import type { TupleKey } from './types.js';
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
 // ──────────────────────────────────────────────────────────────────────────────

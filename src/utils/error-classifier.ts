@@ -274,18 +274,24 @@ const DEFAULT_RETRY_STRATEGIES: Record<ErrorCategory, RetryStrategy> = {
 };
 
 /**
- * Map ErrorClassifier ErrorType to ErrorEvent ErrorType
- * ErrorClassifier uses: 'retryable' | 'non-retryable' | 'transient' | 'permanent' | 'rateLimited'
- * ErrorEvent uses: 'retryable' | 'non_retryable' | 'transient' | 'permanent' | 'rate_limited'
+ * Bridges the local ErrorClassifier ErrorType to the canonical ErrorEvent
+ * ErrorType (src/types/error-event.ts). Local union has 6 literals;
+ * canonical union is 'network' | 'server' | 'timeout' | 'unknown'. Each
+ * branch picks the closest canonical bucket for the persisted envelope.
  */
 function mapErrorTypeToEvent(type: ErrorType): import('../types/error-event.js').ErrorType {
   switch (type) {
-    case 'non-retryable':
-      return 'non_retryable';
+    case 'retryable':
+      return 'network';
+    case 'transient':
     case 'rateLimited':
-      return 'rate_limited';
+      return 'timeout';
+    case 'non-retryable':
+    case 'permanent':
+    case 'quotaExhausted':
+      return 'server';
     default:
-      return type as import('../types/error-event.js').ErrorType;
+      return 'unknown';
   }
 }
 
