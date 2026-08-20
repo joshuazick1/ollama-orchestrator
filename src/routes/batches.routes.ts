@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router } from 'express';
 
 import {
   handleCreateBatch,
@@ -7,15 +7,8 @@ import {
   handleCancelBatch,
   handleGetBatchResults,
 } from '../controllers/batches-controller.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 import { requireAuth } from '../middleware/auth.js';
-
-const asyncHandler =
-  (fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>) =>
-  (req: any, res: any, next: any) => {
-    void Promise.resolve(fn(req as Request, res as Response, next as NextFunction)).catch(
-      next as (err: unknown) => void
-    );
-  };
 
 export const batchesRouter = Router();
 

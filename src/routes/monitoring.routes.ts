@@ -4,7 +4,7 @@
  * Covers server status, metrics, analytics, and circuit-breaker read endpoints.
  */
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 
 import {
   getTopModels,
@@ -44,6 +44,7 @@ import {
   getRecoveryTestMetrics,
   getBreakerRecoveryMetrics,
   getInFlight,
+  getNegativeModelCacheHealth,
   streamMetrics,
 } from '../controllers/metrics-controller.js';
 import {
@@ -75,19 +76,10 @@ import {
   getCircuitBreakers,
   getCircuitBreakerDetails,
 } from '../controllers/servers-controller.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 import { requireAuth } from '../middleware/auth.js';
 import { createMonitoringRateLimiter } from '../middleware/rate-limiter.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
-
-// Async handler wrapper
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asyncHandler =
-  (fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>) =>
-  (req: any, res: any, next: any) => {
-    void Promise.resolve(fn(req as Request, res as Response, next as NextFunction)).catch(
-      next as (err: unknown) => void
-    );
-  };
 
 const monitoringRateLimit = createMonitoringRateLimiter();
 
@@ -113,6 +105,9 @@ monitoringRouter.get('/metrics/:serverId/:model', requireAuth(), getServerModelM
 
 // In-flight requests
 monitoringRouter.get('/in-flight', requireAuth(), getInFlight);
+
+// Negative-model-cache health (broken claims tracker)
+monitoringRouter.get('/model-cache/health', requireAuth(), getNegativeModelCacheHealth);
 
 // Recovery Test Metrics
 monitoringRouter.get('/metrics/recovery-tests', requireAuth(), getRecoveryTestMetrics);

@@ -3,9 +3,10 @@
  * Authentication endpoints: login, logout, refresh, me
  */
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 
+import { asyncHandler } from '../middleware/async-handler.js';
 import { requireAuth, isAuthEnabled, DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
 import { generateCsrfToken, validateCsrfToken } from '../middleware/csrf.js';
 import { createAuthRateLimiter } from '../middleware/rate-limiter.js';
@@ -30,14 +31,6 @@ const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
 });
-
-const asyncHandler =
-  (fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>) =>
-  (req: any, res: any, next: any) => {
-    void Promise.resolve(fn(req as Request, res as Response, next as NextFunction)).catch(
-      next as (err: unknown) => void
-    );
-  };
 
 function safeUserResponse(user: { id: string; username: string; email: string; role: string }) {
   return {

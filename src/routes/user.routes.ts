@@ -1,24 +1,12 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import { z } from 'zod';
 
+import { asyncHandler } from '../middleware/async-handler.js';
 import { DEFAULT_AUTH_CONFIG } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
 import { getUserStore, type User } from '../storage/user-store.js';
 import { verifyAccessToken, getTokenFromCookie } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
-
-const asyncHandler =
-  (fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>) =>
-  (req: any, res: any, next: any) => {
-    try {
-      const result = fn(req as Request, res as Response, next as NextFunction);
-      if (result && typeof result.catch === 'function') {
-        result.catch(next as (err: unknown) => void);
-      }
-    } catch (err) {
-      next(err);
-    }
-  };
 
 function safeUserResponseNoApiKey(user: User) {
   return {

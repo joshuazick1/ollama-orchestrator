@@ -3,7 +3,7 @@
  * Ollama-compatible inference endpoints mounted at /api/*.
  */
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router } from 'express';
 
 import {
   handleTags,
@@ -19,6 +19,7 @@ import {
   handleChatToServer,
   handleEmbeddingsToServer,
 } from '../controllers/ollama-controller.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { createInferenceRateLimiter } from '../middleware/rate-limiter.js';
 import {
@@ -28,15 +29,6 @@ import {
   embeddingsRequestSchema,
   embedRequestSchema,
 } from '../middleware/validation.js';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asyncHandler =
-  (fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>) =>
-  (req: any, res: any, next: any) => {
-    void Promise.resolve(fn(req as Request, res as Response, next as NextFunction)).catch(
-      next as (err: unknown) => void
-    );
-  };
 
 const inferenceRateLimit = createInferenceRateLimiter();
 

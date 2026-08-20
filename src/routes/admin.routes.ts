@@ -4,7 +4,7 @@
  * Covers server management, model actions, config, bans, circuit breakers, and recovery failure tracking.
  */
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router } from 'express';
 
 import { handleAnthropicServerCapabilities } from '../controllers/anthropic-controller.js';
 import {
@@ -15,6 +15,7 @@ import {
 } from '../controllers/anthropic-models-controller.js';
 import {
   resetBreaker,
+  resetBreakersForModel,
   getBreakerDetails,
   forceOpenBreaker,
   forceCloseBreaker,
@@ -88,6 +89,7 @@ import {
   testExistingServer,
   getGhostStats,
 } from '../controllers/servers-controller.js';
+import { asyncHandler } from '../middleware/async-handler.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { validateCsrfToken } from '../middleware/csrf.js';
 import {
@@ -100,15 +102,6 @@ import {
   unloadModelSchema,
   testConnectionSchema,
 } from '../middleware/validation.js';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const asyncHandler =
-  (fn: (req: Request, res: Response, next: NextFunction) => void | Promise<void>) =>
-  (req: any, res: any, next: any) => {
-    void Promise.resolve(fn(req as Request, res as Response, next as NextFunction)).catch(
-      next as (err: unknown) => void
-    );
-  };
 
 export const adminRouter = Router();
 
@@ -261,6 +254,11 @@ adminRouter.post(
   '/circuit-breakers/server/:serverId/reset-all',
   requireAdmin(),
   asyncHandler(resetAllBreakersForServer)
+);
+adminRouter.post(
+  '/circuit-breakers/model/:model/reset-all',
+  requireAdmin(),
+  asyncHandler(resetBreakersForModel)
 );
 adminRouter.delete(
   '/circuit-breakers/server/:serverId',
