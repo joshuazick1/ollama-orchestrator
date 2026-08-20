@@ -4,8 +4,6 @@ import type { OperationalStore } from '../storage/operational-store.js';
 // Types
 // ──────────────────────────────────────────────────────────────────────────────
 
-export type TupleKey = string;
-
 export interface TupleSnapshotState {
   state: string;
   consecutiveSuccesses: number;
