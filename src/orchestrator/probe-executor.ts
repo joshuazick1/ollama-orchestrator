@@ -9,6 +9,7 @@
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
 import { classify } from '../probe/failure-classifier.js';
 import type { Tuple, Classification } from '../probe/types.js';
+import { httpProbeWithTimeout } from '../utils/http-probe-with-timeout.js';
 
 /**
  * Maps ProbeEndpoint types to their HTTP URL paths.
@@ -70,51 +71,32 @@ export async function probeExecutor(
   const body = ENDPOINT_BODIES[tuple.endpoint];
   const url = `${serverUrl.replace(/\/$/, '')}${path}`;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
 
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+  const result = await httpProbeWithTimeout(url, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers,
+    timeoutMs,
+    apiKey,
+  });
 
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      return { success: true };
-    }
-
-    // Classify non-OK responses based on status code and headers
-    const retryAfterHeader = response.headers.get('Retry-After') ?? undefined;
-    const classification = classify(new Error(`HTTP ${response.status}`), {
-      endpoint: tuple.endpoint,
-      httpStatus: response.status,
-      retryAfterHeader,
-    });
-
-    return { success: false, classification };
-  } catch (error) {
-    clearTimeout(timeoutId);
-
-    if (error instanceof Error && error.name === 'AbortError') {
-      const classification = classify(new Error('AbortError'), { endpoint: tuple.endpoint });
-      return { success: false, classification };
-    }
-
-    const classification = classify(error instanceof Error ? error : String(error), {
-      endpoint: tuple.endpoint,
-    });
+  if (result.aborted) {
+    const classification = classify(new Error('AbortError'), { endpoint: tuple.endpoint });
     return { success: false, classification };
   }
+
+  if (result.ok) {
+    return { success: true };
+  }
+
+  const retryAfterHeader = result.headers?.get('Retry-After') ?? undefined;
+  const classification = classify(new Error(`HTTP ${result.status}`), {
+    endpoint: tuple.endpoint,
+    httpStatus: result.status,
+    retryAfterHeader,
+  });
+  return { success: false, classification };
 }

@@ -8,6 +8,7 @@
 import { TTFTTracker } from '../metrics/ttft-tracker.js';
 import type { ProbeRunResult } from '../types/perf-probe.types.js';
 import { classifyError } from '../utils/error-classifier.js';
+import { httpProbeWithTimeout } from '../utils/http-probe-with-timeout.js';
 import { logger } from '../utils/logger.js';
 
 export interface RunProbeOptions {
@@ -43,60 +44,92 @@ export async function runProbe(
   // Create fresh TTFT tracker for this probe
   const tracker = new TTFTTracker({ serverId, model });
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  const url = `${serverUrl}/api/generate`;
+  logger.debug('[perf-probe] Starting probe', { serverId, model, serverUrl, prompt, timeoutMs });
+
+  const probe = await httpProbeWithTimeout(url, {
+    method: 'POST',
+    body: JSON.stringify({ model, prompt, stream: true }),
+    headers: { 'Content-Type': 'application/json' },
+    timeoutMs,
+    stream: true,
+  });
+
+  if (probe.aborted) {
+    const classification = classifyError(`Timeout after ${timeoutMs}ms`);
+    logger.debug('[perf-probe] Probe timeout', { serverId, model, timeoutMs });
+    return {
+      serverId,
+      model,
+      success: false,
+      totalDurationMs: Date.now() - startTime,
+      error: `Timeout after ${timeoutMs}ms`,
+      errorType: 'timeout',
+      classification: classification.type,
+    };
+  }
+
+  if (!probe.ok && probe.status === 0) {
+    const classification = classifyError('Network error reaching upstream');
+    logger.debug('[perf-probe] Probe network error', { serverId, model });
+    return {
+      serverId,
+      model,
+      success: false,
+      totalDurationMs: Date.now() - startTime,
+      error: 'Network error reaching upstream',
+      errorType: 'network_error',
+      classification: classification.type,
+    };
+  }
+
+  if (!probe.ok) {
+    let errorText = 'Unknown error';
+    if (probe.response) {
+      try {
+        errorText = await probe.response.text();
+      } catch {
+        errorText = 'Unknown error';
+      }
+    }
+    const classification = classifyError(`HTTP ${probe.status}: ${errorText}`);
+    probe.clearTimeout?.();
+    return {
+      serverId,
+      model,
+      success: false,
+      totalDurationMs: Date.now() - startTime,
+      error: `HTTP ${probe.status}: ${errorText.slice(0, 200)}`,
+      errorType: 'http_error',
+      classification: classification.type,
+    };
+  }
+
+  const response = probe.response;
+  if (!response || !response.body) {
+    const classification = classifyError('Response body is null');
+    probe.clearTimeout?.();
+    return {
+      serverId,
+      model,
+      success: false,
+      totalDurationMs: Date.now() - startTime,
+      error: 'Response body is null',
+      errorType: 'http_error',
+      classification: classification.type,
+    };
+  }
+
+  // Stream the response and parse NDJSON
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalData: Record<string, unknown> | null = null;
+  let firstChunkProcessed = false;
+  let chunkCount = 0;
+  let totalBytes = 0;
 
   try {
-    const url = `${serverUrl}/api/generate`;
-    logger.debug('[perf-probe] Starting probe', { serverId, model, serverUrl, prompt, timeoutMs });
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt, stream: true }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unknown error');
-      const classification = classifyError(`HTTP ${response.status}: ${errorText}`);
-      clearTimeout(timeoutId);
-      return {
-        serverId,
-        model,
-        success: false,
-        totalDurationMs: Date.now() - startTime,
-        error: `HTTP ${response.status}: ${errorText.slice(0, 200)}`,
-        errorType: 'http_error',
-        classification: classification.type,
-      };
-    }
-
-    if (!response.body) {
-      const classification = classifyError('Response body is null');
-      clearTimeout(timeoutId);
-      return {
-        serverId,
-        model,
-        success: false,
-        totalDurationMs: Date.now() - startTime,
-        error: 'Response body is null',
-        errorType: 'http_error',
-        classification: classification.type,
-      };
-    }
-
-    // Stream the response and parse NDJSON
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let finalData: Record<string, unknown> | null = null;
-    let firstChunkProcessed = false;
-    let chunkCount = 0;
-    let totalBytes = 0;
-
     for (;;) {
       const { done, value } = await reader.read();
 
@@ -160,7 +193,7 @@ export async function runProbe(
       }
     }
 
-    clearTimeout(timeoutId);
+    probe.clearTimeout?.();
 
     if (!finalData) {
       const classification = classifyError('No valid response data received');
@@ -211,21 +244,20 @@ export async function runProbe(
       totalBytes,
     };
   } catch (error) {
-    clearTimeout(timeoutId);
+    probe.clearTimeout?.();
     const totalDurationMs = Date.now() - startTime;
 
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        // Timeout
-        const classification = classifyError(`Timeout after ${timeoutMs}ms`);
-        logger.debug('[perf-probe] Probe timeout', { serverId, model, timeoutMs });
+        const classification = classifyError(error);
+        logger.debug('[perf-probe] Probe stream aborted', { serverId, model });
         return {
           serverId,
           model,
           success: false,
           totalDurationMs,
-          error: `Timeout after ${timeoutMs}ms`,
-          errorType: 'timeout',
+          error: error.message,
+          errorType: 'network_error',
           classification: classification.type,
         };
       }

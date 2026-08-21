@@ -1,4 +1,5 @@
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
+import { httpProbeWithTimeout } from '../utils/http-probe-with-timeout.js';
 
 import { discoverModels, type DiscoverModelsResult } from './discover-models.js';
 import {
@@ -69,34 +70,24 @@ async function probeStreamingSupport(
 ): Promise<boolean> {
   const url = `${serverUrl.replace(/\/$/, '')}${API_ENDPOINTS.OPENAI.CHAT_COMPLETIONS}`;
   const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
+  const result = await httpProbeWithTimeout(url, {
+    method: 'POST',
+    body: JSON.stringify({
+      model: '__probe__',
+      messages: [{ role: 'user', content: 'probe' }],
+      stream: true,
+    }),
+    headers: { 'Content-Type': 'application/json' },
+    timeoutMs: timeout,
+    apiKey,
+  });
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: '__probe__',
-        messages: [{ role: 'user', content: 'probe' }],
-        stream: true,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    return response.status !== 400;
-  } catch {
-    clearTimeout(timeoutId);
+  if (result.aborted || (!result.ok && result.status === 0)) {
     return false;
   }
+
+  return result.status !== 400;
 }
 
 function computeCapabilities(

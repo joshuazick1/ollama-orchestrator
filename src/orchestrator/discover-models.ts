@@ -1,4 +1,5 @@
 import { API_ENDPOINTS } from '../constants/api-endpoints.js';
+import { httpProbeWithTimeout } from '../utils/http-probe-with-timeout.js';
 import { logger } from '../utils/logger.js';
 
 import { probeVLLMModels, isVLLMServer, type VLLMModelMeta } from './vllm-models.js';
@@ -51,61 +52,62 @@ async function probeOllamaTags(
   error?: { endpoint: '/api/tags'; status?: number; reason: string };
 }> {
   const url = `${serverUrl.replace(/\/$/, '')}${API_ENDPOINTS.OLLAMA.TAGS}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const result = await httpProbeWithTimeout(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    timeoutMs,
+  });
 
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        logger.error('Authentication error probing /api/tags', { status: response.status });
-      }
-      return {
-        models: [],
-        error: {
-          // eslint-disable-next-line no-restricted-syntax
-          endpoint: '/api/tags',
-          status: response.status,
-          reason: response.status === 401 ? 'unauthorized' : 'request failed',
-        },
-      };
-    }
-
-    let body: OllamaResponse = {};
-    try {
-      body = await response.json();
-    } catch {
-      // eslint-disable-next-line no-restricted-syntax
-      return { models: [], error: { endpoint: '/api/tags', reason: 'invalid JSON response' } };
-    }
-
-    const models: string[] = [];
-    if (body.models && Array.isArray(body.models)) {
-      for (const item of body.models) {
-        const name = item.name || item.model;
-        if (name && typeof name === 'string') {
-          models.push(name);
-        }
-      }
-    }
-
-    return { models };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    const reason = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'network error';
+  if (result.aborted) {
     return {
       models: [],
       // eslint-disable-next-line no-restricted-syntax
-      error: { endpoint: '/api/tags', reason },
+      error: { endpoint: '/api/tags', reason: 'timeout' },
     };
   }
+
+  if (!result.ok && result.status === 0) {
+    return {
+      models: [],
+      // eslint-disable-next-line no-restricted-syntax
+      error: { endpoint: '/api/tags', reason: 'network error' },
+    };
+  }
+
+  if (!result.ok) {
+    if (result.status === 401) {
+      logger.error('Authentication error probing /api/tags', { status: result.status });
+    }
+    return {
+      models: [],
+      error: {
+        // eslint-disable-next-line no-restricted-syntax
+        endpoint: '/api/tags',
+        status: result.status,
+        reason: result.status === 401 ? 'unauthorized' : 'request failed',
+      },
+    };
+  }
+
+  let body: OllamaResponse = {};
+  try {
+    body = ((await result.response?.json()) ?? {}) as OllamaResponse;
+  } catch {
+    // eslint-disable-next-line no-restricted-syntax
+    return { models: [], error: { endpoint: '/api/tags', reason: 'invalid JSON response' } };
+  }
+
+  const models: string[] = [];
+  if (body.models && Array.isArray(body.models)) {
+    for (const item of body.models) {
+      const name = item.name || item.model;
+      if (name && typeof name === 'string') {
+        models.push(name);
+      }
+    }
+  }
+
+  return { models };
 }
 
 async function probeOpenAIModels(
@@ -118,63 +120,60 @@ async function probeOpenAIModels(
   error?: { endpoint: '/v1/models'; status?: number; reason: string };
 }> {
   const url = `${serverUrl.replace(/\/$/, '')}${API_ENDPOINTS.OPENAI.MODELS}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const result = await httpProbeWithTimeout(url, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    timeoutMs,
+    apiKey,
+  });
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      return {
-        models: [],
-        // eslint-disable-next-line no-restricted-syntax
-        error: {
-          endpoint: '/v1/models',
-          status: response.status,
-          reason: response.status === 401 ? 'unauthorized' : 'request failed',
-        },
-      };
-    }
-
-    let body: OpenAIResponse = {};
-    try {
-      body = await response.json();
-    } catch {
-      // eslint-disable-next-line no-restricted-syntax
-      return { models: [], error: { endpoint: '/v1/models', reason: 'invalid JSON response' } };
-    }
-
-    const models: string[] = [];
-    if (body.data && Array.isArray(body.data)) {
-      for (const item of body.data) {
-        const id = item.id;
-        if (id && typeof id === 'string') {
-          models.push(id);
-        }
-      }
-    }
-
-    return { models };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    const reason = err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'network error';
+  if (result.aborted) {
     return {
       models: [],
       // eslint-disable-next-line no-restricted-syntax
-      error: { endpoint: '/v1/models', reason },
+      error: { endpoint: '/v1/models', reason: 'timeout' },
     };
   }
+
+  if (!result.ok && result.status === 0) {
+    return {
+      models: [],
+      // eslint-disable-next-line no-restricted-syntax
+      error: { endpoint: '/v1/models', reason: 'network error' },
+    };
+  }
+
+  if (!result.ok) {
+    return {
+      models: [],
+      // eslint-disable-next-line no-restricted-syntax
+      error: {
+        endpoint: '/v1/models',
+        status: result.status,
+        reason: result.status === 401 ? 'unauthorized' : 'request failed',
+      },
+    };
+  }
+
+  let body: OpenAIResponse = {};
+  try {
+    body = ((await result.response?.json()) ?? {}) as OpenAIResponse;
+  } catch {
+    // eslint-disable-next-line no-restricted-syntax
+    return { models: [], error: { endpoint: '/v1/models', reason: 'invalid JSON response' } };
+  }
+
+  const models: string[] = [];
+  if (body.data && Array.isArray(body.data)) {
+    for (const item of body.data) {
+      const id = item.id;
+      if (id && typeof id === 'string') {
+        models.push(id);
+      }
+    }
+  }
+
+  return { models };
 }
 
 function dedupeAndSort(models: string[]): string[] {
