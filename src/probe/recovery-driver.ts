@@ -12,11 +12,13 @@
  * The backoff schedule determines when to run the next recovery probe after a
  * tuple transitions to UNHEALTHY (or after a failed recovery probe attempt).
  *
- * - recoveryAttempts 0–4: use `config.recoveryBackoffMs[recoveryAttempts]` directly
- * - recoveryAttempts 5+: exponential doubling, capped at 1 hour (3,600,000 ms)
- *   - attempt 5: max(1_800_000, recoveryBackoffMs[4] * 2) = 1_800_000 ms (30 min)
- *   - attempt 6: max(3_600_000, 1_800_000 * 2) = 3_600_000 ms (1 h, capped)
- *   - attempt 7+: 3_600_000 ms (remains capped)
+ * The actual delay calculation is delegated to the canonical `calculateBackoff`
+ * in `utils/backoff.ts`, which implements schedule-array lookup with exponential
+ * doubling, capped at 1 hour (3,600,000 ms). Per the canonical implementation:
+ *
+ * - recoveryAttempts < schedule.length: use `config.recoveryBackoffMs[recoveryAttempts]`
+ * - recoveryAttempts ≥ schedule.length: start from the last schedule value and
+ *   double once per extra attempt, capped at 1 hour (3,600,000 ms).
  *
  * The schedule is fully deterministic (no jitter). Per-tuple state is held in
  * an in-memory Map and is NOT persisted — it is recovered from the WAL by the
@@ -30,11 +32,14 @@
  * - On UNHEALTHY transition: backoff.recordRecoveryAttempt(tuple)
  * - On RECOVERING → HEALTHY transition: backoff.resetRecoveryAttempts(tuple)
  *
- * The ProbeOrchestrator independently sets nextProbeAt via its own _getRecoveryBackoff
- * (to avoid a synchronous dependency on BackoffSchedule during state transitions).
- * RecoveryDriver's BackoffSchedule is the authoritative source for the recoveryAttempts
- * counter used by the recovery probe scheduler.
+ * The ProbeOrchestrator independently sets nextProbeAt via the canonical
+ * `calculateBackoff` (to avoid a synchronous dependency on BackoffSchedule
+ * during state transitions). RecoveryDriver's BackoffSchedule is the
+ * authoritative source for the recoveryAttempts counter used by the recovery
+ * probe scheduler.
  */
+
+import { calculateBackoff } from '../utils/backoff.js';
 
 import type { EndpointRegistry } from './endpoint-registry.js';
 import type { ProbeOrchestrator } from './probe-orchestrator.js';
@@ -70,7 +75,11 @@ export class BackoffSchedule {
    * @returns timestamp (ms since epoch) when the next probe should run
    */
   getNextProbeTime(tuple: Tuple, recoveryAttempts: number): number {
-    const delay = this.#getDelay(recoveryAttempts);
+    const delay = calculateBackoff({
+      attempt: recoveryAttempts,
+      schedule: this.config.recoveryBackoffMs,
+      maxDelayMs: ONE_HOUR_MS,
+    }).delayMs;
     return Date.now() + delay;
   }
 
@@ -100,28 +109,14 @@ export class BackoffSchedule {
   /**
    * Compute the delay in milliseconds for a given recovery attempt count.
    *
-   * - Attempts 0–4: indexed lookup from config.recoveryBackoffMs
-   * - Attempts 5+: exponential doubling from the last config value, capped at 1 hour
+   * Delegates to the canonical schedule-array backoff in `utils/backoff.ts`:
+   *   - Attempts within the configured schedule: indexed lookup.
+   *   - Attempts beyond the schedule: exponential doubling from the last value,
+   *     capped at 1 hour.
+   *
+   * Inlined into `getNextProbeTime` to keep this class private-method-free with
+   * respect to the canonical backoff algorithm.
    */
-  #getDelay(recoveryAttempts: number): number {
-    const schedule = this.config.recoveryBackoffMs;
-
-    // Attempts 0–4: use the config schedule directly
-    if (recoveryAttempts < schedule.length) {
-      return schedule[recoveryAttempts];
-    }
-
-    // Attempts 5+: exponential doubling, capped at 1 hour
-    // Start from the last schedule value and double once for each attempt beyond the last slot.
-    // e.g. schedule.length=5, recoveryAttempts=5 → 1 doubling (5-4=1); 6 → 2 doublings (6-4=2)
-    let delay = schedule[schedule.length - 1];
-    const doublings = recoveryAttempts - (schedule.length - 1);
-    for (let i = 0; i < doublings; i++) {
-      delay = Math.min(ONE_HOUR_MS, delay * 2);
-    }
-
-    return delay;
-  }
 }
 
 /**

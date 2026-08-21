@@ -6,8 +6,10 @@
  * Task 9: WAL integration for crash-safe state persistence.
  */
 
+import { calculateBackoff } from '../utils/backoff.js';
 import { logger } from '../utils/logger.js';
 
+import { getPsPollCoordinator } from './ps-poll-coordinator-instance.js';
 import type {
   ProbeState,
   Tuple,
@@ -85,7 +87,7 @@ export class ProbeOrchestrator {
     ts.lastProbeAt = now;
 
     if (success) {
-      this._handleSuccess(ts, now);
+      this._handleSuccess(ts, tuple, now);
     } else {
       this._handleFailure(ts, key, classification, now);
     }
@@ -156,6 +158,24 @@ export class ProbeOrchestrator {
     const prefix = `${serverId}:`;
     for (const [key] of this.states) {
       if (key.startsWith(prefix)) {
+        this.states.set(key, this._createInitialState());
+        resetCount++;
+      }
+    }
+    return resetCount;
+  }
+
+  /**
+   * Reset all circuit breakers for a given model across every server and endpoint.
+   * Tuple keys are formatted `serverId:model:endpoint`; this resets any key whose
+   * `:model:` segment matches. Does NOT write WAL events - this is a bulk admin
+   * operation intended to clear stale SUSPECT/UNHEALTHY state after fleet churn.
+   */
+  resetAllForModel(model: string): number {
+    let resetCount = 0;
+    for (const [key] of this.states) {
+      const parsed = parseTupleKey(key);
+      if (parsed.model === model) {
         this.states.set(key, this._createInitialState());
         resetCount++;
       }
@@ -468,7 +488,7 @@ export class ProbeOrchestrator {
     };
   }
 
-  private _handleSuccess(ts: TupleState, now: number): void {
+  private _handleSuccess(ts: TupleState, tuple: Tuple, now: number): void {
     ts.consecutiveSuccesses++;
     ts.consecutiveFailures = 0;
 
@@ -476,18 +496,37 @@ export class ProbeOrchestrator {
       case 'HEALTHY':
         break;
       case 'SUSPECT':
-        ts.state = 'HEALTHY';
+        // dry-run load: block HEALTHY transition if model not loaded
+        if (this._dryRunLoad(tuple.serverId, tuple.model)) {
+          ts.state = 'HEALTHY';
+        }
         break;
       case 'UNHEALTHY':
         ts.state = 'RECOVERING';
-        ts.nextProbeAt = now + this._getRecoveryBackoff(ts.recoveryAttempts);
+        ts.nextProbeAt =
+          now +
+          calculateBackoff({
+            attempt: ts.recoveryAttempts,
+            schedule: this.config.recoveryBackoffMs,
+            maxDelayMs: 3_600_000,
+          }).delayMs;
         break;
-      case 'RECOVERING':
-        if (ts.consecutiveSuccesses >= this.config.recoverySuccessThreshold) {
-          ts.state = 'HEALTHY';
-          ts.recoveryAttempts = 0;
+      case 'RECOVERING': {
+        // Rate-limit (429) recovery is cheap to confirm, so close after the
+        // lower rate-limited threshold rather than the full success threshold.
+        const closeThreshold =
+          ts.lastErrorKind === 'rate_limited'
+            ? this.config.rateLimitedRecoverySuccessThreshold
+            : this.config.recoverySuccessThreshold;
+        if (ts.consecutiveSuccesses >= closeThreshold) {
+          // dry-run load: block HEALTHY transition if model not loaded
+          if (this._dryRunLoad(tuple.serverId, tuple.model)) {
+            ts.state = 'HEALTHY';
+            ts.recoveryAttempts = 0;
+          }
         }
         break;
+      }
     }
   }
 
@@ -526,7 +565,15 @@ export class ProbeOrchestrator {
             this.cbPrematureOpenTotal++;
           }
           ts.state = 'UNHEALTHY';
-          ts.nextProbeAt = now + this._getRecoveryBackoff(ts.recoveryAttempts);
+          const openDelayMs =
+            ts.lastErrorKind === 'rate_limited'
+              ? ProbeOrchestrator.RATE_LIMITED_BACKOFF_MS
+              : calculateBackoff({
+                  attempt: ts.recoveryAttempts,
+                  schedule: this.config.recoveryBackoffMs,
+                  maxDelayMs: 3_600_000,
+                }).delayMs;
+          ts.nextProbeAt = now + openDelayMs;
         }
         break;
 
@@ -539,6 +586,30 @@ export class ProbeOrchestrator {
         ts.recoveryAttempts++;
         ts.consecutiveSuccesses = 0;
         break;
+    }
+  }
+
+  // dry-run load: verifies model is loaded before allowing HEALTHY transition.
+  // Why: probes check /api/tags health but don't verify model can be loaded.
+  // A server with 24GB RAM failing to load a 24GB model still returns healthy
+  // on /api/tags, causing premature circuit breaker opens.
+  private _dryRunLoad(serverId: string, model: string): boolean {
+    try {
+      const psCoordinator = getPsPollCoordinator();
+      // If never polled, fail open (allow transition until ps-poll runs)
+      if (psCoordinator.getServerLastPollAt(serverId) === 0) {
+        return true;
+      }
+      const loadedModels = psCoordinator.getModelsOnServer(serverId);
+      if (!loadedModels.has(model)) {
+        logger.debug(
+          `[ProbeOrchestrator] dry-run load: model=${model} not loaded on server=${serverId}`
+        );
+        return false;
+      }
+      return true;
+    } catch {
+      return true; // fail open if ps-poll unavailable
     }
   }
 
@@ -555,15 +626,12 @@ export class ProbeOrchestrator {
     return ts.errorWindow.length / Math.max(1, total);
   }
 
-  private _getRecoveryBackoff(recoveryAttempts: number): number {
-    const schedule = this.config.recoveryBackoffMs;
-    if (recoveryAttempts < schedule.length) {
-      return schedule[recoveryAttempts];
-    }
-    const lastValue = schedule[schedule.length - 1];
-    const excess = recoveryAttempts - schedule.length + 1;
-    return Math.min(lastValue * Math.pow(2, excess), 3_600_000);
-  }
+  /**
+   * Flat backoff for rate-limited (429) tuples. Receiving a 429 costs nothing
+   * and a 200 only spends a few tokens, so we re-probe often to pick the
+   * server back up the moment its quota resets — no climb to the 1h cap.
+   */
+  private static readonly RATE_LIMITED_BACKOFF_MS = 30_000;
 
   private _emitStateChange(tuple: Tuple, from: ProbeState, to: ProbeState, reason: string): void {
     for (const cb of this.stateChangeCallbacks) {

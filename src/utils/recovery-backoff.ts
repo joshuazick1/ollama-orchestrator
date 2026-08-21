@@ -1,111 +1,23 @@
 /**
  * Unified backoff calculation for recovery testing
  * Consolidates logic from circuit-breaker.ts and health-check-scheduler.ts
+ *
+ * `calculateRecoveryBackoff` (and its `BackoffOptions` / `BackoffResult`
+ * types / `DEFAULT_RECOVERY_BACKOFF` constant) now live in `./backoff.ts`.
+ * This module re-exports them for backward compatibility with existing
+ * callers and tests, and retains the other helpers
+ * (`calculateActiveTestTimeout`, `calculateCircuitBreakerBackoff`).
  */
 
-import { calculateBackoff } from './backoff/calculator.js';
+import { calculateBackoff as calculateBackoffStrategy } from './backoff/calculator.js';
 import type { ErrorType } from './error-classifier.js';
 
-export const DEFAULT_RECOVERY_BACKOFF = {
-  modelCapability: [30000, 30000],
-  modelFile: [60000, 300000, 600000],
-  permanent: [300000, 600000, 1200000, 2400000, 3600000],
-  standard: [30000, 60000, 120000, 240000, 480000, 900000, 1800000, 1800000],
-};
-
-export interface BackoffOptions {
-  attempt: number;
-  errorType?: ErrorType;
-  failureReason?: string;
-  baseDelay?: number;
-  maxDelay?: number;
-  recoveryBackoff?: typeof DEFAULT_RECOVERY_BACKOFF;
-}
-
-export interface BackoffResult {
-  /** Delay in ms before next attempt */
-  delayMs: number;
-  /** Whether to stop testing entirely */
-  shouldStop: boolean;
-  /** Reason for stopping (if shouldStop is true) */
-  stopReason?: string;
-}
-
-function categorizeError(options: BackoffOptions): {
-  category: 'model_capability' | 'model_file' | 'permanent' | 'standard';
-  priority: number;
-} {
-  const reason = options.failureReason?.toLowerCase() || '';
-  const errorType = options.errorType;
-
-  // Model capability errors - will never succeed
-  if (
-    reason.includes('does not support generate') ||
-    reason.includes('does not support chat') ||
-    reason.includes('unsupported operation')
-  ) {
-    return { category: 'model_capability', priority: 1 };
-  }
-
-  // Model file errors - need manual intervention
-  if (
-    reason.includes('unable to load model') ||
-    reason.includes('invalid file magic') ||
-    reason.includes('unsupported model format') ||
-    reason.includes('model file not found') ||
-    (reason.includes('blob') && reason.includes('sha256'))
-  ) {
-    return { category: 'model_file', priority: 2 };
-  }
-
-  // Permanent errors
-  if (errorType === 'non-retryable' || errorType === 'permanent') {
-    return { category: 'permanent', priority: 3 };
-  }
-
-  return { category: 'standard', priority: 4 };
-}
-
-/**
- * Calculate unified backoff delay
- * Consolidates backoff logic from circuit-breaker.ts and health-check-scheduler.ts
- */
-export function calculateRecoveryBackoff(options: BackoffOptions): BackoffResult {
-  const { attempt, maxDelay = 1800000, recoveryBackoff } = options;
-
-  const category = categorizeError(options);
-
-  const config = recoveryBackoff ?? DEFAULT_RECOVERY_BACKOFF;
-
-  const delays: Record<string, number[]> = {
-    model_capability: config.modelCapability,
-    model_file: config.modelFile,
-    permanent: config.permanent,
-    standard: config.standard,
-  };
-
-  const categoryDelays = delays[category.category] || delays.standard;
-
-  // Check if we should stop
-  const maxAttempts = categoryDelays.length;
-  if (attempt >= maxAttempts) {
-    return {
-      delayMs: 0,
-      shouldStop: true,
-      stopReason: `Max attempts (${maxAttempts}) reached for ${category.category} errors`,
-    };
-  }
-
-  const delayMs = Math.min(
-    categoryDelays[attempt] || categoryDelays[categoryDelays.length - 1],
-    maxDelay
-  );
-
-  return {
-    delayMs,
-    shouldStop: false,
-  };
-}
+export {
+  calculateRecoveryBackoff,
+  DEFAULT_RECOVERY_BACKOFF,
+  type RecoveryBackoffOptions as BackoffOptions,
+  type RecoveryBackoffResult as BackoffResult,
+} from './backoff.js';
 
 /**
  * Get timeout for active test based on attempt and error
@@ -180,7 +92,7 @@ export function calculateCircuitBreakerBackoff(
         return retryAfterMs;
       }
       // Use strategy system for exponential backoff
-      return calculateBackoff('exponential', {
+      return calculateBackoffStrategy('exponential', {
         attempt: consecutiveFailures,
         baseDelayMs: rateLimitBase,
         maxDelayMs: rateLimitMax,
