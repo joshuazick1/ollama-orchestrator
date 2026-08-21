@@ -298,70 +298,18 @@ export interface DecisionDetail extends DecisionRow {
 // Storage configuration
 // ============================================================
 
-export interface StorageRetentionConfig {
-  /** Days to retain individual request rows (default: 30) */
-  requests: number;
-  /** Days to retain decision + candidate rows (default: 30) */
-  decisions: number;
-  /** Days to retain hourly/daily rollup rows (default: 90) */
-  rollups: number;
-  /** Trailing days used to build temporal profiles (default: 14) */
-  profiles: number;
-}
-
-export interface StoragePerformanceConfig {
-  /** Max requests buffered before forced flush (default: 100) */
-  batchSize: number;
-  /** Max ms between forced flushes (default: 1000) */
-  batchFlushIntervalMs: number;
-  /**
-   * Minutes past the hour before rollup runs regardless of in-flight count.
-   * Rollup runs earlier if in-flight drops to 0 (default: 10).
-   */
-  rollupDeadlineMinutes: number;
-  /** Ms between daily profile rebuild jobs (default: 86_400_000) */
-  profileRebuildIntervalMs: number;
-  /** Ms between retention pruning runs (default: 3_600_000) */
-  retentionCheckIntervalMs: number;
-}
-
-export interface StorageTemporalConfig {
-  /** Enable temporal scoring adjustments in load balancer (default: true) */
-  enabled: boolean;
-  /**
-   * Minimum effective confidence required to apply a temporal adjustment.
-   * Below this threshold the adjustment is treated as 1.0 (neutral). (default: 0.3)
-   */
-  minConfidence: number;
-  /**
-   * Maximum latency multiplier the temporal scorer can apply. Caps
-   * extreme outlier adjustments. (default: 2.0 = at most 2× worse)
-   */
-  maxAdjustment: number;
-  /**
-   * When true, temporal adjustments are computed and logged but NOT
-   * applied to routing decisions. Use to validate profiles before enabling.
-   * (default: false)
-   */
-  shadowMode: boolean;
-  /**
-   * Confidence multiplier applied to model-wide (Level 2) fallback profiles.
-   * (default: 0.6)
-   */
-  modelFallbackConfidence: number;
-  /**
-   * Confidence multiplier applied to server-wide (Level 3) fallback profiles.
-   * (default: 0.4)
-   */
-  serverFallbackConfidence: number;
-}
+export type {
+  StorageRetentionConfig,
+  StoragePerformanceConfig,
+  StorageTemporalConfig,
+} from '../config/config.js';
 
 export interface MetricsStoreConfig {
   /** Path to the SQLite database file (default: './data/metrics.db') */
   dbPath: string;
-  retention: StorageRetentionConfig;
-  performance: StoragePerformanceConfig;
-  temporal: StorageTemporalConfig;
+  retention: import('../config/config.js').StorageRetentionConfig;
+  performance: import('../config/config.js').StoragePerformanceConfig;
+  temporal: import('../config/config.js').StorageTemporalConfig;
   /**
    * Callback returning the current number of in-flight requests.
    * Used by the rollup scheduler to wait for a quiet moment.
