@@ -881,16 +881,16 @@ export class OrchestratorRouter {
       }
 
       const lastError = error instanceof Error ? error : new Error(String(error));
+      const errorMessage = lastError.message;
+      const errorType = classifyError(errorMessage).type;
 
       requestContext.endTime = Date.now();
       requestContext.duration = requestContext.endTime - requestContext.startTime;
       requestContext.success = false;
       requestContext.error = lastError;
       requestContext.queueWaitTime = routingContext?.queueWaitTime;
+      requestContext.errorType = errorType;
       this.telemetry.recordRequest(requestContext);
-
-      const errorMessage = lastError.message;
-      const errorType = classifyError(errorMessage).type;
 
       if (errorType === 'rateLimited') {
         this.orchestrator.getErrorAggregator().recordError(server.id, 'rateLimited');

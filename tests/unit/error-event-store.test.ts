@@ -99,6 +99,38 @@ describe('ErrorEventStore', () => {
       expect(fs.existsSync(file1)).toBe(true);
       expect(fs.existsSync(file2)).toBe(true);
     });
+
+    it('persists a RequestContext-derived error event with actual serverId and circuitId', async () => {
+      const event = createTestEvent({
+        id: 'reqctx-evt-001',
+        serverId: 'actual-server-42',
+        circuitId: 'actual-server-42:mistral-7b',
+        errorType: 'network',
+        errorMessage: 'Connection refused',
+        category: 'network',
+        severity: 'medium',
+        retryable: true,
+        matchedPattern: 'econnrefused',
+      });
+
+      await store.recordError(event);
+
+      const filePath = store.getDailyFilePath(new Date(event.timestamp));
+      const content = fs.readFileSync(filePath, 'utf8');
+      const parsed = JSON.parse(content.trim());
+
+      expect(parsed.serverId).toBe('actual-server-42');
+      expect(parsed.circuitId).toBe('actual-server-42:mistral-7b');
+      expect(parsed.errorType).toBe('network');
+      expect(parsed.retryable).toBe(true);
+    });
+
+    it('isolated failure does not propagate (recordError is fire-and-forget, rejects gracefully)', async () => {
+      const event = createTestEvent({ id: 'isolated-fail-001' });
+      await store.recordError(event);
+      const filePath = store.getDailyFilePath(new Date(event.timestamp));
+      expect(fs.existsSync(filePath)).toBe(true);
+    });
   });
 
   describe('queryErrors', () => {

@@ -180,6 +180,17 @@ describe('AnalyticsEngine', () => {
       expect(topModels).toHaveLength(0);
     });
 
+    it('should ignore probe-only request history', () => {
+      analytics.recordRequest(
+        createMockRequestContext({
+          model: 'probe-model',
+          isProbe: true,
+        })
+      );
+
+      expect(analytics.getTopModels()).toEqual([]);
+    });
+
     it('should rank models by request count', () => {
       const metrics1 = createMockMetrics('server-1', 'model-a');
       const metrics2 = createMockMetrics('server-1', 'model-b');
@@ -881,6 +892,95 @@ describe('AnalyticsEngine', () => {
         analytics.getErrorAnalysis('24h');
         expect(mockStore.getRequests).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  // ============================================================
+  // Task 4: production failure populates errorHistory
+  // ============================================================
+  describe('recordRequest failure path (errorHistory)', () => {
+    const now = Date.now();
+
+    const successContext: RequestContext = {
+      id: 'req-success-1',
+      startTime: now - 1000,
+      endTime: now,
+      duration: 1000,
+      serverId: 'server-1',
+      model: 'llama3',
+      endpoint: 'ollama_generate',
+      streaming: false,
+      success: true,
+    };
+
+    const failureContext: RequestContext = {
+      id: 'req-fail-1',
+      startTime: now - 1000,
+      endTime: now,
+      duration: 1000,
+      serverId: 'server-2',
+      model: 'mistral',
+      endpoint: 'ollama_chat',
+      streaming: false,
+      success: false,
+      error: new Error('upstream 503 Service Unavailable'),
+      errorType: 'network',
+    };
+
+    it('recordRequest with success=true does NOT populate errorHistory', () => {
+      analytics.recordRequest(successContext);
+      // Access the private errorHistory via getErrorAnalysis
+      const result = analytics.getErrorAnalysis('1h');
+      const server2Errors = result.byServer['server-2'] ?? 0;
+      expect(server2Errors).toBe(0);
+    });
+
+    it('recordRequest with success=false populates errorHistory', () => {
+      analytics.recordRequest(failureContext);
+      const result = analytics.getErrorAnalysis('1h');
+      const server2Errors = result.byServer['server-2'] ?? 0;
+      expect(server2Errors).toBeGreaterThan(0);
+    });
+
+    it('recordRequest with success=false populates errorHistory with correct serverId', () => {
+      analytics.recordRequest(failureContext);
+      const result = analytics.getErrorAnalysis('1h');
+      expect(result.byServer['server-2']).toBeGreaterThan(0);
+      expect(result.byModel['mistral']).toBeGreaterThan(0);
+    });
+
+    it('recordRequest isProbe=true does NOT populate errorHistory (probe errors are excluded)', () => {
+      const probeFailure: RequestContext = {
+        ...failureContext,
+        id: 'probe-fail-1',
+        isProbe: true,
+      };
+      analytics.recordRequest(probeFailure);
+      const result = analytics.getErrorAnalysis('1h');
+      // The short-range path should NOT include probe errors
+      const server2Errors = result.byServer['server-2'] ?? 0;
+      expect(server2Errors).toBe(0);
+    });
+
+    it('getErrorAnalysis 7d falls back to SQLite (isLongRange=true)', () => {
+      mockStore.getRequests.mockReturnValue([]);
+      const result = analytics.getErrorAnalysis('7d');
+      // Should call SQLite store for 7d
+      expect(mockStore.getRequests).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, isProbe: false })
+      );
+      void result; // just verify it doesn't throw
+    });
+
+    it('getErrorAnalysis 1h uses in-memory errorHistory (not SQLite)', () => {
+      // First record a failure
+      analytics.recordRequest(failureContext);
+      mockStore.getRequests.mockClear();
+      const result = analytics.getErrorAnalysis('1h');
+      // Should NOT call SQLite getRequests for short range
+      expect(mockStore.getRequests).not.toHaveBeenCalled();
+      // Should have the server-2 error from in-memory history
+      expect(result.byServer['server-2']).toBeGreaterThan(0);
     });
   });
 });

@@ -21,6 +21,8 @@
  */
 
 import type { RequestContext } from '../orchestrator/orchestrator.types.js';
+import type { ErrorEvent } from '../types/error-event.js';
+import { classifyError } from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -33,7 +35,10 @@ import { logger } from '../utils/logger.js';
  */
 export interface RequestTelemetryDeps {
   /** In-process sliding-window metrics aggregator (`MetricsAggregator`). */
-  metricsAggregators: { recordRequest: (ctx: RequestContext) => unknown };
+  metricsAggregators: {
+    recordRequest: (ctx: RequestContext) => unknown;
+    recordProbeRequest?: (ctx: RequestContext) => unknown;
+  };
   /** Request history store (`RequestHistory`). */
   getRequestHistory: () => {
     recordRequest: (ctx: RequestContext, queueWaitTime?: number) => unknown;
@@ -76,16 +81,39 @@ export class RequestTelemetry {
    * request.
    */
   recordRequest(context: RequestContext): void {
+    if (context.isProbe) {
+      this.recordProbeRequest(context);
+      return;
+    }
+    this.dispatchRequest(context, this.deps.metricsAggregators.recordRequest);
+    if (context.success === false) {
+      this.recordError(context);
+    }
+  }
+
+  recordProbeRequest(context: RequestContext): void {
+    this.dispatchRequest(
+      context,
+      this.deps.metricsAggregators.recordProbeRequest?.bind(this.deps.metricsAggregators)
+    );
+  }
+
+  private dispatchRequest(
+    context: RequestContext,
+    recordMetrics: ((ctx: RequestContext) => unknown) | undefined
+  ): void {
     const queueWaitTime = context.queueWaitTime;
 
-    try {
-      this.deps.metricsAggregators.recordRequest(context);
-    } catch (err) {
-      logger.warn('[RequestTelemetry] metricsAggregators.recordRequest failed', {
-        serverId: context.serverId,
-        model: context.model,
-        err: formatError(err),
-      });
+    if (recordMetrics) {
+      try {
+        recordMetrics(context);
+      } catch (err) {
+        logger.warn('[RequestTelemetry] metricsAggregators.recordRequest failed', {
+          serverId: context.serverId,
+          model: context.model,
+          err: formatError(err),
+        });
+      }
     }
 
     try {
@@ -109,7 +137,7 @@ export class RequestTelemetry {
       });
     }
 
-    if (this.deps.getAnalyticsEngine) {
+    if (!context.isProbe && this.deps.getAnalyticsEngine) {
       try {
         this.deps.getAnalyticsEngine().recordRequest(context);
       } catch (err) {
@@ -137,15 +165,21 @@ export class RequestTelemetry {
     if (context.isProbe) {
       return;
     }
-    const event = {
+    const err = context.error;
+    const classification = classifyError(err);
+    const event: ErrorEvent = {
       id: `${context.id}-err`,
-      timestamp: context.endTime ?? Date.now(),
-      serverId: context.serverId,
-      model: context.model,
-      errorMessage: context.error.message,
-      decisionId: context.decisionId,
-      parentRequestId: context.parentRequestId,
-      isRetry: context.isRetry,
+      timestamp: new Date(context.endTime ?? Date.now()).toISOString(),
+      serverId: context.serverId ?? 'unknown',
+      circuitId: `${context.serverId ?? 'unknown'}:${context.model}`,
+      errorType:
+        (context.errorType as ErrorEvent['errorType']) ??
+        this.mapErrorTypeToEvent(classification.type),
+      errorMessage: err.message,
+      retryable: classification.isRetryable,
+      category: classification.category,
+      severity: classification.severity,
+      matchedPattern: classification.matchedPattern ?? null,
     };
     try {
       void this.errorDeps
@@ -164,6 +198,33 @@ export class RequestTelemetry {
         model: context.model,
         err: formatError(err),
       });
+    }
+  }
+
+  /**
+   * Map the error-classifier ErrorType to the ErrorEvent ErrorType.
+   */
+  private mapErrorTypeToEvent(
+    type:
+      | 'retryable'
+      | 'non-retryable'
+      | 'transient'
+      | 'permanent'
+      | 'rateLimited'
+      | 'quotaExhausted'
+  ): ErrorEvent['errorType'] {
+    switch (type) {
+      case 'retryable':
+        return 'network';
+      case 'transient':
+      case 'rateLimited':
+        return 'timeout';
+      case 'non-retryable':
+      case 'permanent':
+      case 'quotaExhausted':
+        return 'server';
+      default:
+        return 'unknown';
     }
   }
 }

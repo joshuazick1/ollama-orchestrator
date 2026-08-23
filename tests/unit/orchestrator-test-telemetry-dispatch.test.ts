@@ -44,6 +44,24 @@ describe('RequestTelemetry (sink-failure isolation)', () => {
     expect(typeof t.recordRequest).toBe('function');
   });
 
+  it('routes probe contexts to recordProbeRequest without calling recordRequest', () => {
+    const recordRequest = vi.fn();
+    const recordProbeRequest = vi.fn();
+    const analyticsEngine = { recordRequest: vi.fn() };
+    const t = new RequestTelemetry({
+      metricsAggregators: { recordRequest, recordProbeRequest },
+      getRequestHistory: () => ({ recordRequest: vi.fn() }),
+      getMetricsStore: () => ({ recordRequest: vi.fn() }),
+      getAnalyticsEngine: () => analyticsEngine,
+    });
+
+    t.recordRequest({ ...baseContext, isProbe: true });
+
+    expect(recordProbeRequest).toHaveBeenCalledWith(expect.objectContaining({ isProbe: true }));
+    expect(recordRequest).not.toHaveBeenCalled();
+    expect(analyticsEngine.recordRequest).not.toHaveBeenCalled();
+  });
+
   it('invokes all five sinks exactly once per recordRequest call (success)', () => {
     const metricsAggregators = { recordRequest: vi.fn() };
     const requestHistory = { recordRequest: vi.fn() };
@@ -283,5 +301,156 @@ describe('RequestTelemetry (sink-failure isolation)', () => {
     expect(analyticsEngine.recordRequest).toHaveBeenCalledWith(
       expect.objectContaining({ decisionId: 'dec-task2-1' })
     );
+  });
+
+  it('recordRequest with success=false triggers ErrorEventStore with serverId and circuitId', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorEventStore = { recordError };
+    const metricsAggregators = { recordRequest: vi.fn() };
+    const requestHistory = { recordRequest: vi.fn() };
+    const metricsStore = { recordRequest: vi.fn() };
+    const analyticsEngine = { recordRequest: vi.fn() };
+
+    const t = new RequestTelemetry(
+      {
+        metricsAggregators,
+        getRequestHistory: () => requestHistory,
+        getMetricsStore: () => metricsStore,
+        getAnalyticsEngine: () => analyticsEngine,
+      },
+      {
+        getErrorEventStore: () => errorEventStore,
+      }
+    );
+
+    const failureCtx: RequestContext = {
+      ...baseContext,
+      success: false,
+      error: new Error('upstream 503'),
+      serverId: 'server-task4-1',
+      model: 'llama3.1',
+      decisionId: 'dec-task4-1',
+      parentRequestId: 'parent-req-1',
+      isRetry: false,
+    };
+
+    t.recordRequest(failureCtx);
+
+    // Wait for the async recordError call to be made
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(recordError).toHaveBeenCalledTimes(1);
+    const calledEvent = recordError.mock.calls[0][0] as Record<string, unknown>;
+    expect(calledEvent.serverId).toBe('server-task4-1');
+    expect(calledEvent.circuitId).toBe('server-task4-1:llama3.1');
+    expect(calledEvent.errorMessage).toBe('upstream 503');
+    expect(calledEvent.errorType).toBeTruthy();
+    expect(calledEvent.id).toBeTruthy();
+    expect(calledEvent.timestamp).toBeTruthy();
+    expect(calledEvent.retryable).toBe(true);
+  });
+
+  it('recordRequest with success=false builds ErrorEvent with all required ErrorEvent fields', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorEventStore = { recordError };
+    const metricsAggregators = { recordRequest: vi.fn() };
+    const requestHistory = { recordRequest: vi.fn() };
+    const metricsStore = { recordRequest: vi.fn() };
+    const analyticsEngine = { recordRequest: vi.fn() };
+
+    const t = new RequestTelemetry(
+      {
+        metricsAggregators,
+        getRequestHistory: () => requestHistory,
+        getMetricsStore: () => metricsStore,
+        getAnalyticsEngine: () => analyticsEngine,
+      },
+      {
+        getErrorEventStore: () => errorEventStore,
+      }
+    );
+
+    const failureCtx: RequestContext = {
+      ...baseContext,
+      success: false,
+      error: new Error('context length exceeded'),
+      serverId: 'server-abc',
+      model: 'gemma2',
+      errorType: 'server',
+    };
+
+    t.recordRequest(failureCtx);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(recordError).toHaveBeenCalledTimes(1);
+    const calledEvent = recordError.mock.calls[0][0] as Record<string, unknown>;
+    expect(calledEvent).toHaveProperty('id');
+    expect(calledEvent).toHaveProperty('serverId', 'server-abc');
+    expect(calledEvent).toHaveProperty('circuitId');
+    expect(calledEvent).toHaveProperty('errorType');
+    expect(calledEvent).toHaveProperty('errorMessage', 'context length exceeded');
+    expect(calledEvent).toHaveProperty('timestamp');
+    expect(calledEvent).toHaveProperty('retryable');
+    expect(calledEvent).toHaveProperty('category');
+    expect(calledEvent).toHaveProperty('severity');
+    expect(calledEvent).toHaveProperty('matchedPattern');
+  });
+
+  it('recordRequest with success=false does NOT call ErrorEventStore when getErrorEventStore is not wired', () => {
+    const metricsAggregators = { recordRequest: vi.fn() };
+    const requestHistory = { recordRequest: vi.fn() };
+    const metricsStore = { recordRequest: vi.fn() };
+    const analyticsEngine = { recordRequest: vi.fn() };
+
+    const t = new RequestTelemetry({
+      metricsAggregators,
+      getRequestHistory: () => requestHistory,
+      getMetricsStore: () => metricsStore,
+      getAnalyticsEngine: () => analyticsEngine,
+      // no getErrorEventStore
+    });
+
+    const failureCtx: RequestContext = {
+      ...baseContext,
+      success: false,
+      error: new Error('boom'),
+    };
+
+    expect(() => t.recordRequest(failureCtx)).not.toThrow();
+  });
+
+  it('recordRequest with success=false does NOT trigger ErrorEventStore for probe context', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined);
+    const errorEventStore = { recordError };
+    const metricsAggregators = { recordRequest: vi.fn(), recordProbeRequest: vi.fn() };
+    const requestHistory = { recordRequest: vi.fn() };
+    const metricsStore = { recordRequest: vi.fn() };
+    const analyticsEngine = { recordRequest: vi.fn() };
+
+    const t = new RequestTelemetry(
+      {
+        metricsAggregators,
+        getRequestHistory: () => requestHistory,
+        getMetricsStore: () => metricsStore,
+        getAnalyticsEngine: () => analyticsEngine,
+      },
+      {
+        getErrorEventStore: () => errorEventStore,
+      }
+    );
+
+    const probeFailure: RequestContext = {
+      ...baseContext,
+      isProbe: true,
+      success: false,
+      error: new Error('probe network error'),
+    };
+
+    t.recordRequest(probeFailure);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(recordError).not.toHaveBeenCalled();
   });
 });
