@@ -1,0 +1,82 @@
+# Manual QA: Probe Outcome Shifts Score, Organic Totals Unchanged
+
+## Test: Probe Success Changes Live Score
+
+### Setup
+1. Service running with 1+ registered server and model
+2. Fresh metrics aggregator (no prior data)
+
+### Probe metric affects live score
+1. Record an organic request with high latency (e.g., 900ms)
+2. Calculate organic score via calculateServerScore
+3. Record a probe request with low latency (e.g., 50ms)  
+4. Calculate new score via calculateServerScore
+5. Assert: new_total_score > organic_total_score
+
+VERIFIED by: tests/unit/load-balancer/loaded-model-source.test.ts
+  "uses a fresh probe outcome for live scoring without changing organic metrics"
+  - probeScore.totalScore > organicScore.totalScore ✓
+  - organicExportedAfterProbe === organicExportedBeforeProbe (count unchanged) ✓
+
+### When includeProbeInLiveScoring=false, score unchanged
+1. Configure metrics.includeProbeInLiveScoring = false
+2. Record organic (900ms) + probe (50ms)
+3. Calculate score with includeProbe=false
+4. Assert: score === organic_score
+
+VERIFIED by: tests/unit/load-balancer/loaded-model-source.test.ts
+  "keeps the conservative organic score when probe scoring is disabled"
+
+### Stale probe cannot make unknown server hot
+1. Record only a probe request
+2. Age the probe metrics entry past staleThresholdMs
+3. Call getMetricsWithFallback
+4. Assert: returns undefined
+
+VERIFIED by: tests/unit/load-balancer/loaded-model-source.test.ts
+  "does not make an unknown server hot from a stale probe snapshot"
+
+## Test: Organic Totals Unchanged
+
+### Setup
+1. Record organic request with specific metrics
+2. Capture exportMetrics() output (organic only)
+3. Record probe request with different metrics  
+4. Capture exportMetrics() output again
+
+### Assert: organic export unchanged
+- organicExportedBeforeProbe.windows['5m'].count === organicExportedAfterProbe.windows['5m'].count
+- organicExportedBeforeProbe.windows['5m'].latencySum === organicExportedAfterProbe.windows['5m'].latencySum
+
+VERIFIED by: tests/unit/load-balancer/loaded-model-source.test.ts
+  "uses a fresh probe outcome for live scoring without changing organic metrics"
+  line 87: expect(organicExportedAfterProbe).toEqual(organicExportedBeforeProbe)
+
+## Integration: probe freshness query
+
+### probe-only rows satisfy probe freshness
+1. Record organic request (isProbe: false)
+2. Call hasFreshProbeSnapshot(store, serverId, model)
+3. Assert: returns false
+4. Record probe request (isProbe: true)
+5. Assert: returns true
+
+VERIFIED by: tests/integration/perf-probe-freshness.test.ts
+  "rejects organic-only rows and accepts probe-only rows"
+
+## Config: includeProbeInLiveScoring
+
+### Default is true
+1. Load default config
+2. Assert: config.metrics.includeProbeInLiveScoring === true
+
+VERIFIED by: tests/unit/config.test.ts
+  "should default probe measurements into live scoring"
+
+### Hot reload propagates change
+1. Configure manager with includeProbeInLiveScoring = false
+2. Call updateConfig({ metrics: { includeProbeInLiveScoring: false }})
+3. Assert: manager.getConfig().metrics.includeProbeInLiveScoring === false
+
+VERIFIED by: tests/unit/config.test.ts
+  "should propagate probe scoring setting through hot reload"

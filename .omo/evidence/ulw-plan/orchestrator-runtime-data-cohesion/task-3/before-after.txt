@@ -1,0 +1,26 @@
+# Before/After: Probe Metrics in Load Balancer
+
+## Evidence: No early-return skip in MetricsAggregator.recordRequest
+
+$ rg "recordRequest.*isProbe" src/metrics/metrics-aggregator.ts
+(No output - early-return pattern gone)
+
+## Explanation
+
+After Task 2's RequestTelemetry refactor, probe outcomes flow through:
+  - feedThreeSinks → RequestTelemetry.recordProbeRequest → MetricsAggregator.recordProbeRequest → probeMetrics map
+
+The old early-return pattern `if (isProbe) return` in MetricsAggregator.recordRequest 
+was already removed by the Task 2 work. The recordRequest method now processes organic
+requests only, while probe requests go through the separate recordProbeRequest path.
+
+## Key behaviors verified by tests
+
+1. recordProbeRequest updates probeMetrics map, NOT organic metrics map
+2. getMetricsWithFallback(includeProbe=true) returns probe when organic is missing  
+3. getMetricsWithFallback(includeProbe=true) returns probe when organic is stale
+4. getMetricsWithFallback(includeProbe=false) ignores probe entirely
+5. exportMetrics() returns organic only (probe not included)
+6. Analytics/dashboards use organic scope only
+7. probe freshness queries filter isProbe:true (already done in Task 2)
+8. metrics.includeProbeInLiveScoring defaults to true (already in config)

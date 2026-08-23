@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
+import { DEFAULT_CONFIG, setConfigManager, ConfigManager } from '../../src/config/config.js';
 import { MetricsAggregator } from '../../src/metrics/metrics-aggregator.js';
 import type { RequestContext } from '../../src/orchestrator/orchestrator.types.js';
 
@@ -778,6 +779,178 @@ describe('MetricsAggregator', () => {
       const metrics = aggregator.getMetricsWithFallback('server-1', 'llama3:8b', '8B');
 
       expect(metrics).toBeUndefined();
+    });
+
+    it('getMetricsWithFallback includeProbe:true returns probe when organic is missing', () => {
+      const manager = new ConfigManager();
+      manager.updateConfig({
+        metrics: { ...DEFAULT_CONFIG.metrics, includeProbeInLiveScoring: true },
+      });
+      setConfigManager(manager);
+
+      aggregator.recordProbeRequest({
+        id: 'probe-1',
+        startTime: Date.now(),
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'ollama_generate',
+        streaming: false,
+        success: true,
+        duration: 50,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback(
+        'server-1',
+        'llama3:latest',
+        undefined,
+        true
+      );
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.windows['5m'].count).toBe(1);
+      expect(metrics?.windows['5m'].latencySum).toBe(50);
+    });
+
+    it('getMetricsWithFallback includeProbe:false ignores probe even when organic is missing', () => {
+      const manager = new ConfigManager();
+      manager.updateConfig({
+        metrics: { ...DEFAULT_CONFIG.metrics, includeProbeInLiveScoring: false },
+      });
+      setConfigManager(manager);
+
+      aggregator.recordProbeRequest({
+        id: 'probe-1',
+        startTime: Date.now(),
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'ollama_generate',
+        streaming: false,
+        success: true,
+        duration: 50,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback(
+        'server-1',
+        'llama3:latest',
+        undefined,
+        false
+      );
+
+      expect(metrics).toBeUndefined();
+    });
+  });
+
+  describe('probe metrics', () => {
+    afterEach(() => {
+      setConfigManager(new ConfigManager());
+    });
+
+    it('recordProbeRequest updates probe map without changing organic', () => {
+      aggregator.recordProbeRequest({
+        id: 'probe-1',
+        startTime: Date.now(),
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'ollama_generate',
+        streaming: false,
+        success: true,
+        duration: 50,
+      });
+
+      const probeMetrics = aggregator.getMetrics('server-1', 'llama3:latest', 'probe');
+      const organicMetrics = aggregator.getMetrics('server-1', 'llama3:latest', 'organic');
+
+      expect(probeMetrics?.windows['5m'].count).toBe(1);
+      expect(probeMetrics?.windows['5m'].latencySum).toBe(50);
+      expect(organicMetrics).toBeUndefined();
+    });
+
+    it('organic and probe maps are completely separate', () => {
+      aggregator.recordRequest({
+        id: 'organic-1',
+        startTime: Date.now(),
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 200,
+      });
+
+      const organicEntry = (
+        aggregator as unknown as Record<string, Map<string, { lastUpdated: number }>>
+      ).metrics.get('server-1:llama3:latest');
+      if (organicEntry) {
+        organicEntry.lastUpdated = Date.now() - 10;
+      }
+
+      aggregator.recordProbeRequest({
+        id: 'probe-1',
+        startTime: Date.now(),
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'ollama_generate',
+        streaming: false,
+        success: true,
+        duration: 50,
+      });
+
+      const organicMetrics = aggregator.getMetrics('server-1', 'llama3:latest', 'organic');
+      const probeMetrics = aggregator.getMetrics('server-1', 'llama3:latest', 'probe');
+      const allMetrics = aggregator.getMetrics('server-1', 'llama3:latest', 'all');
+
+      expect(organicMetrics?.windows['5m'].count).toBe(1);
+      expect(organicMetrics?.windows['5m'].latencySum).toBe(200);
+      expect(probeMetrics?.windows['5m'].count).toBe(1);
+      expect(probeMetrics?.windows['5m'].latencySum).toBe(50);
+      expect(allMetrics?.windows['5m'].latencySum).toBe(50);
+    });
+
+    it('getMetricsWithFallback includeProbe:true uses probe when organic is stale', () => {
+      const manager = new ConfigManager();
+      manager.updateConfig({
+        metrics: { ...DEFAULT_CONFIG.metrics, includeProbeInLiveScoring: true },
+      });
+      setConfigManager(manager);
+
+      aggregator.recordRequest({
+        id: 'organic-1',
+        startTime: Date.now() - 200_000,
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'generate',
+        streaming: false,
+        success: true,
+        duration: 500,
+      });
+
+      const organicEntry = (
+        aggregator as unknown as Record<string, Map<string, { lastUpdated: number }>>
+      ).metrics.get('server-1:llama3:latest');
+      if (organicEntry) {
+        organicEntry.lastUpdated = Date.now() - DEFAULT_CONFIG.metrics.decay.staleThresholdMs - 1;
+      }
+
+      aggregator.recordProbeRequest({
+        id: 'probe-1',
+        startTime: Date.now(),
+        serverId: 'server-1',
+        model: 'llama3:latest',
+        endpoint: 'ollama_generate',
+        streaming: false,
+        success: true,
+        duration: 50,
+      });
+
+      const metrics = aggregator.getMetricsWithFallback(
+        'server-1',
+        'llama3:latest',
+        undefined,
+        true
+      );
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.windows['5m'].latencySum).toBe(50);
     });
   });
 

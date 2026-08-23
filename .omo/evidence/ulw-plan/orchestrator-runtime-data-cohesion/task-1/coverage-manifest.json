@@ -309,7 +309,7 @@
           ]
         }
       ],
-      "deleted_lines_proof": "none — new file"
+      "deleted_lines_proof": "none \u2014 new file"
     },
     {
       "file": "src/probe/three-sink-feeder.ts",
@@ -396,7 +396,7 @@
       "file": "src/utils/request-context-builder.ts",
       "purpose": "Added .withDecisionId(decisionId) setter. Preserved all existing builder methods.",
       "lines_observed": [
-        "withDecisionId method (lines 73-65) — fluent setter that assigns decisionId on the partial context"
+        "withDecisionId method (lines 73-65) \u2014 fluent setter that assigns decisionId on the partial context"
       ],
       "tests_reaching_these_lines": [
         {
@@ -410,7 +410,7 @@
           ]
         }
       ],
-      "deleted_lines_proof": "none — purely additive"
+      "deleted_lines_proof": "none \u2014 purely additive"
     },
     {
       "file": "src/orchestrator/orchestrator.types.ts",
@@ -422,17 +422,17 @@
         {
           "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
           "covers": [
-            "propagates the decisionId field to all sinks — exercises the new field end-to-end through the boundary"
+            "propagates the decisionId field to all sinks \u2014 exercises the new field end-to-end through the boundary"
           ]
         },
         {
           "file": "tests/unit/request-context-builder.test.ts",
           "covers": [
-            "withDecisionId > should set decisionId on the context — exercises the builder path that populates the new field"
+            "withDecisionId > should set decisionId on the context \u2014 exercises the builder path that populates the new field"
           ]
         }
       ],
-      "deleted_lines_proof": "none — purely additive"
+      "deleted_lines_proof": "none \u2014 purely additive"
     },
     {
       "file": "src/utils/probe-to-request-context.ts",
@@ -444,7 +444,7 @@
         {
           "file": "tests/unit/probe/three-sink-feeder.test.ts",
           "covers": [
-            "builds the request context from the probe result — exercises this builder end-to-end via feedThreeSinks"
+            "builds the request context from the probe result \u2014 exercises this builder end-to-end via feedThreeSinks"
           ]
         }
       ],
@@ -482,7 +482,7 @@
             ]
           }
         ],
-        "deleted_lines_proof": "none — new file"
+        "deleted_lines_proof": "none \u2014 new file"
       },
       {
         "file": "src/probe/three-sink-feeder.ts",
@@ -569,7 +569,7 @@
         "file": "src/utils/request-context-builder.ts",
         "purpose": "Added .withDecisionId(decisionId) setter. Preserved all existing builder methods.",
         "lines_observed": [
-          "withDecisionId method (lines 73-65) — fluent setter that assigns decisionId on the partial context"
+          "withDecisionId method (lines 73-65) \u2014 fluent setter that assigns decisionId on the partial context"
         ],
         "tests_reaching_these_lines": [
           {
@@ -583,7 +583,7 @@
             ]
           }
         ],
-        "deleted_lines_proof": "none — purely additive"
+        "deleted_lines_proof": "none \u2014 purely additive"
       },
       {
         "file": "src/orchestrator/orchestrator.types.ts",
@@ -595,17 +595,17 @@
           {
             "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
             "covers": [
-              "propagates the decisionId field to all sinks — exercises the new field end-to-end through the boundary"
+              "propagates the decisionId field to all sinks \u2014 exercises the new field end-to-end through the boundary"
             ]
           },
           {
             "file": "tests/unit/request-context-builder.test.ts",
             "covers": [
-              "withDecisionId > should set decisionId on the context — exercises the builder path that populates the new field"
+              "withDecisionId > should set decisionId on the context \u2014 exercises the builder path that populates the new field"
             ]
           }
         ],
-        "deleted_lines_proof": "none — purely additive"
+        "deleted_lines_proof": "none \u2014 purely additive"
       },
       {
         "file": "src/utils/probe-to-request-context.ts",
@@ -617,12 +617,33 @@
           {
             "file": "tests/unit/probe/three-sink-feeder.test.ts",
             "covers": [
-              "builds the request context from the probe result — exercises this builder end-to-end via feedThreeSinks"
+              "builds the request context from the probe result \u2014 exercises this builder end-to-end via feedThreeSinks"
             ]
           }
         ],
         "deleted_lines_proof": "Doc-comment lines 12-15 (pre-Task-2: `metricsAggregator.recordRequest(), getRequestHistory().recordRequest(), and getMetricsStore().recordRequest()`); replaced with single reference to `RequestTelemetry.recordRequest()`."
       }
     ]
+  },
+  "task_3": {
+    "changed_files": [
+      "tests/unit/metrics-aggregator.test.ts"
+    ],
+    "test_files": [
+      "tests/unit/metrics-aggregator.test.ts",
+      "tests/unit/load-balancer/loaded-model-source.test.ts",
+      "tests/integration/perf-probe-freshness.test.ts",
+      "tests/unit/config.test.ts"
+    ],
+    "tests_added": 5,
+    "focused_exit": 0,
+    "unit_suite_exit": 0,
+    "assertions": {
+      "probe_metrics_separate": "recordProbeRequest updates probe map without changing organic",
+      "probe_metrics_all_scope": "organic and probe maps are completely separate",
+      "includeProbe_missing": "getMetricsWithFallback includeProbe:true returns probe when organic is missing",
+      "includeProbe_stale": "getMetricsWithFallback includeProbe:true uses probe when organic is stale",
+      "includeProbe_false": "getMetricsWithFallback includeProbe:false ignores probe even when organic is missing"
+    }
   }
 }

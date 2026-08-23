@@ -1,0 +1,61 @@
+{
+  "task_3": {
+    "changed_files": [
+      "tests/unit/metrics-aggregator.test.ts"
+    ],
+    "test_files": [
+      "tests/unit/metrics-aggregator.test.ts",
+      "tests/unit/load-balancer/loaded-model-source.test.ts",
+      "tests/integration/perf-probe-freshness.test.ts",
+      "tests/unit/config.test.ts"
+    ],
+    "tests_added": 5,
+    "focused_exit": 0,
+    "unit_suite_exit": 0,
+    "total_tests": 4245,
+    "assertions": {
+      "probe_metrics_separate": "recordProbeRequest updates probe map without changing organic",
+      "probe_metrics_all_scope": "organic and probe maps are completely separate",
+      "includeProbe_missing": "getMetricsWithFallback includeProbe:true returns probe when organic is missing",
+      "includeProbe_stale": "getMetricsWithFallback includeProbe:true uses probe when organic is stale",
+      "includeProbe_false": "getMetricsWithFallback includeProbe:false ignores probe even when organic is missing",
+      "loaded_model_source": "probe outcome shifts live score, organic unchanged",
+      "perf_probe_freshness": "probe-only rows satisfy probe freshness, organic-only rows do not",
+      "config_default": "metrics.includeProbeInLiveScoring defaults true",
+      "config_hot_reload": "hot-reload propagates includeProbeInLiveScoring change"
+    },
+    "pre_existing_infrastructure": [
+      "MetricsAggregator.probeMetrics map (line 64)",
+      "MetricsAggregator.recordProbeRequest (line 141)",
+      "MetricsAggregator.getMetricsWithFallback includeProbe param (line 775)",
+      "RequestTelemetry.recordProbeRequest (line 89)",
+      "feedThreeSinks delegates to RequestTelemetry.recordProbeRequest (line 79)",
+      "hasFreshProbeSnapshot filters isProbe:true (line 80)",
+      "metrics.includeProbeInLiveScoring config (default true)",
+      "MetricsStore.getTemporalProfile scope param (default organic)",
+      "getMetricsData scope param (default organic)"
+    ],
+    "gates": {
+      "typecheck": {
+        "exit": 0
+      },
+      "lint": {
+        "exit": 2,
+        "note": "pre-existing errors in dirty worktree, 0 from task-3"
+      },
+      "validate_types": {
+        "exit": 0
+      },
+      "focused_tests": {
+        "exit": 0,
+        "passed": 96,
+        "failed": 0
+      },
+      "unit_suite": {
+        "exit": 0,
+        "passed": 4245,
+        "skipped": 83
+      }
+    }
+  }
+}
