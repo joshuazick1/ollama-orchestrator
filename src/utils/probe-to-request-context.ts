@@ -1,7 +1,7 @@
 /**
  * probe-to-request-context.ts
  * Builds a RequestContext from a ProbeRunResult so probe metrics can be
- * recorded through the standard metrics pipeline (recordRequest).
+ * recorded through the shared completion boundary (`RequestTelemetry`).
  */
 
 import type { RequestContext } from '../orchestrator/orchestrator.types.js';
@@ -11,8 +11,7 @@ import { logger } from './logger.js';
 
 /**
  * Converts a ProbeRunResult into a RequestContext suitable for passing to
- * metricsAggregator.recordRequest(), getRequestHistory().recordRequest(),
- * and getMetricsStore().recordRequest().
+ * `RequestTelemetry.recordRequest()`.
  *
  * @param result  - The probe run result
  * @param taskId - The task ID of the probe that produced this result

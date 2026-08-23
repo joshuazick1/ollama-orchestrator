@@ -1,0 +1,173 @@
+{
+  "task": "2 (RequestTelemetry single-dispatch boundary)",
+  "plan": "orchestrator-runtime-data-cohesion",
+  "scope": "Files added, modified, or directly interacted with during Task 2: new RequestTelemetry class, three-sink-feeder delegation, manual triplet removal in routing.ts and orchestrator.ts, withDecisionId builder setter, decisionId field on RequestContext.",
+  "files": [
+    {
+      "file": "src/metrics/request-telemetry.ts",
+      "purpose": "New module. Thin dispatcher (sync, single try/catch per sink) for the normalized request-completion contract. Accepts one immutable RequestContext and routes it to MetricsAggregators, RequestHistory, MetricsStore, and AnalyticsEngine through injected accessor callbacks; optional recordError method documented for Task 4 wiring. Never a state owner; never persists a second copy.",
+      "lines_observed": [
+        "constructor + deps parameter wiring",
+        "recordRequest: 4 sink invocations (metricsAggregators, requestHistory, metricsStore, analyticsEngine) each in its own try/catch",
+        "recordError: stub for Task 4 (returns early when no error store wired)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
+          "covers": [
+            "exposes a recordRequest method on the class (covers constructor + class shape)",
+            "invokes all five sinks exactly once per recordRequest call (covers the success hot path with all five sinks)",
+            "isolates a throwing metricsAggregators sink from the rest of the dispatch (covers the metricsAggregators try/catch)",
+            "isolates a throwing requestHistory sink from the rest of the dispatch (covers the requestHistory try/catch)",
+            "isolates a throwing metricsStore sink from the rest of the dispatch (covers the metricsStore try/catch)",
+            "isolates a throwing analyticsEngine sink from the rest of the dispatch (covers the analyticsEngine try/catch)",
+            "propagates the malformed-context failure as a domain error (covers the boundary swallows sink errors)",
+            "dispatches a structured error event when the context is a failure (covers the success-path branch)",
+            "does NOT invoke ErrorEventStore.recordError on the success hot path (covers the recordRequest short-circuit)",
+            "propagates the decisionId field to all sinks (covers the field passthrough)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none — new file"
+    },
+    {
+      "file": "src/probe/three-sink-feeder.ts",
+      "purpose": "Refactored to delegate through RequestTelemetry. The body is now a single dispatch wrapper around RequestTelemetry.recordRequest(); per-sink try/catch fan-out moved into the boundary. Public `feedThreeSinks` export retained.",
+      "lines_observed": [
+        "lazy `getTelemetry()` accessor (one RequestTelemetry instance per orchestrator)",
+        "feedThreeSinks body: buildProbeRequestContext + try/catch + getTelemetry().recordRequest(ctx)",
+        "getTelemetry wiring: metricsAggregators, getRequestHistory, getMetricsStore, getAnalyticsEngine, getErrorEventStore"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/probe/three-sink-feeder.test.ts",
+          "covers": [
+            "exports feedThreeSinks as a function (covers the export)",
+            "returns void without throwing when invoked with a normal probe result (covers happy path)",
+            "delegates to RequestTelemetry.recordRequest exactly once per probe (covers the new dispatch contract)",
+            "builds the request context from the probe result (covers the buildProbeRequestContext call)",
+            "passes the RequestContext from buildProbeRequestContext into RequestTelemetry.recordRequest (covers the ctx passthrough)",
+            "does not invoke getOrchestratorInstance on the hot path (covers that the boundary hides orchestrator access)",
+            "short-circuits on dryRun=true (covers the early-return)",
+            "short-circuits when result.skipped=true (covers the early-return)",
+            "swallows a sink throw without bubbling the error (covers the wrapper-level try/catch)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Per-sink try/catch + 3 individual .recordRequest calls (lines 18-51 of pre-Task-2 file). Replaced by a single getTelemetry().recordRequest(ctx) call."
+    },
+    {
+      "file": "src/orchestrator/routing.ts",
+      "purpose": "Replaced 4 manual triplet call sites in OrchestratorRouter.tryRequestOnServerNoRetry and tryRequestOnServerWithRetries with one RequestTelemetry.recordRequest() call each (8 total: 4 in orchestrator.ts, 4 in routing.ts). Added RequestTelemetry constructor injection. Routing logic, retry counts, and error classification unchanged.",
+      "lines_observed": [
+        "OrchestratorRouter constructor wires RequestTelemetry with the same five accessor callbacks",
+        "tryRequestOnServerNoRetry success path (line 841): telemetry.recordRequest",
+        "tryRequestOnServerNoRetry failure path (line 885): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries success path (line 1039): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries failure path (line 1075): telemetry.recordRequest"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator/routing.test.ts",
+          "covers": [
+            "tryRequestOnServerNoRetry invokes RequestTelemetry.recordRequest exactly once on success (covers line 841)",
+            "tryRequestOnServerNoRetry invokes RequestTelemetry.recordRequest exactly once on failure (covers line 885)",
+            "tryRequestOnServerNoRetry does not call MetricsAggregator/RequestHistory/MetricsStore directly (covers triplet removal)",
+            "tryRequestOnServerNoRetry passes a populated RequestContext to the boundary (covers context population)",
+            "tryRequestOnServerNoRetry returns success on the happy path (covers happy-path semantics)",
+            "tryRequestOnServerWithRetries invokes RequestTelemetry.recordRequest exactly once on first-attempt success (covers line 1039)",
+            "tryRequestOnServerWithRetries invokes RequestTelemetry.recordRequest exactly once per retry attempt (covers line 1075 with retry loop)",
+            "tryRequestOnServerWithRetries does not call MetricsAggregator/RequestHistory/MetricsStore directly on retries (covers triplet removal on retry path)",
+            "tryRequestOnServerWithRetries returns success on the first-attempt happy path (covers happy-path semantics)"
+          ]
+        },
+        {
+          "file": "tests/unit/orchestrator.test.ts",
+          "covers": [
+            "Existing tryRequestOnServerNoRetry/WithRetries test suite (lines 2615-3719) drives these same private methods through the orchestrator; after the refactor these tests still pass, confirming the routing.ts refactor preserves the existing retry/streaming behaviour."
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Four manual triplet blocks (orchestrator.getMetricsAggregator().recordRequest + getRequestHistory().recordRequest + getMetricsStore().recordRequest) at routing.ts lines 812-814, 858-860, 1014-1016, 1052-1054 (pre-Task-2)."
+    },
+    {
+      "file": "src/orchestrator/orchestrator.ts",
+      "purpose": "Same refactor as routing.ts but for the canonical orchestrator private methods (tryRequestOnServerNoRetry + tryRequestOnServerWithRetries). 4 manual triplet call sites replaced with one this.telemetry.recordRequest(requestContext) call each. Added RequestTelemetry field + constructor wiring.",
+      "lines_observed": [
+        "field declaration `private telemetry: RequestTelemetry` (line 254)",
+        "constructor wiring of RequestTelemetry with the same five accessor callbacks",
+        "tryRequestOnServerNoRetry success path (line 2881): telemetry.recordRequest",
+        "tryRequestOnServerNoRetry failure path (line 2969): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries success path (line 3168): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries failure path (line 3208): telemetry.recordRequest"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator.test.ts",
+          "covers": [
+            "All 209 existing tests in tests/unit/orchestrator.test.ts continue to drive these same private methods through the AIOrchestrator instance; after the refactor the full suite still passes (4230/4230 in the full unit suite)."
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Four manual triplet blocks at orchestrator.ts lines 2851-2853, 2941-2943, 3142-3144, 3184-3186 (pre-Task-2)."
+    },
+    {
+      "file": "src/utils/request-context-builder.ts",
+      "purpose": "Added .withDecisionId(decisionId) setter. Preserved all existing builder methods.",
+      "lines_observed": [
+        "withDecisionId method (lines 73-65) — fluent setter that assigns decisionId on the partial context"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/request-context-builder.test.ts",
+          "covers": [
+            "withDecisionId > should set decisionId on the context",
+            "withDecisionId > should be fluent (return this)",
+            "withDecisionId > should preserve other fields when adding decisionId",
+            "withDecisionId > should allow overwriting decisionId (last write wins)",
+            "withDecisionId > should leave decisionId undefined when never set"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none — purely additive"
+    },
+    {
+      "file": "src/orchestrator/orchestrator.types.ts",
+      "purpose": "Added optional `decisionId?: string` field on the RequestContext interface for Task 6 propagation. Purely additive, no public response shape change.",
+      "lines_observed": [
+        "RequestContext.decisionId?: string (after isProbe)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
+          "covers": [
+            "propagates the decisionId field to all sinks — exercises the new field end-to-end through the boundary"
+          ]
+        },
+        {
+          "file": "tests/unit/request-context-builder.test.ts",
+          "covers": [
+            "withDecisionId > should set decisionId on the context — exercises the builder path that populates the new field"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none — purely additive"
+    },
+    {
+      "file": "src/utils/probe-to-request-context.ts",
+      "purpose": "Updated doc comment: was referencing the manual triplet fan-out; now references the shared completion boundary.",
+      "lines_observed": [
+        "Doc comment lines 1-15 reference RequestTelemetry instead of metricsAggregator.recordRequest/getRequestHistory().recordRequest/getMetricsStore().recordRequest"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/probe/three-sink-feeder.test.ts",
+          "covers": [
+            "builds the request context from the probe result — exercises this builder end-to-end via feedThreeSinks"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Doc-comment lines 12-15 (pre-Task-2: `metricsAggregator.recordRequest(), getRequestHistory().recordRequest(), and getMetricsStore().recordRequest()`); replaced with single reference to `RequestTelemetry.recordRequest()`."
+    }
+  ]
+}

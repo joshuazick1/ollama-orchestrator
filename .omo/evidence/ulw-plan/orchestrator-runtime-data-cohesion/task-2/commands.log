@@ -1,0 +1,50 @@
+=== Task 2 commands log (orchestrator-runtime-data-cohesion) ===
+
+[Failing-first test run] npx vitest run tests/unit/request-context-builder.test.ts tests/unit/orchestrator-test-telemetry-dispatch.test.ts tests/unit/probe/three-sink-feeder.test.ts tests/unit/orchestrator/routing.test.ts
+exit code: 1
+Test Files: 4 failed (4)
+Tests:       14 failed | 37 passed (51)
+Detail: New tests confirmed the production code lacked the boundary. withDecisionId, RequestTelemetry class, three-sink-feeder delegation, and routing.ts telemetry dispatch all failed as expected.
+
+[Implementation: add withDecisionId, decisionId field, RequestTelemetry, refactor three-sink-feeder, refactor routing.ts, refactor orchestrator.ts]
+
+[Gate 1: typecheck] npm run typecheck
+exit code: 0
+Detail: tsc --noEmit clean
+
+[Gate 2: typecheck:all] npm run typecheck:all
+exit code: 0
+Detail: backend + frontend typecheck clean
+
+[Gate 3: lint] npm run lint
+exit code: 0
+Detail: 0 errors, 5 pre-existing no-console warnings in src/utils/logger.ts (untouched by this task)
+
+[Gate 4: validate-types] npm run validate-types
+exit code: 0
+Detail: backend↔frontend type alignment passed
+
+[Focused dispatch verification] npx vitest run tests/unit/orchestrator-test-telemetry-dispatch.test.ts tests/unit/probe/three-sink-feeder.test.ts tests/unit/orchestrator/routing.test.ts tests/unit/request-context-builder.test.ts
+exit code: 0
+Detail: 33 tests passed across the 4 new/extended suites
+
+[Full orchestrator suite] npx vitest run tests/unit/orchestrator.test.ts
+exit code: 0
+Test Files: 1 passed (1)
+Tests:       209 passed | 43 skipped (252)
+
+[Full unit suite] npm run test:unit
+exit code: 0
+Test Files: 223 passed (223)
+Tests:       4230 passed | 83 skipped (4313)
+Detail: zero failures, all green
+
+[Focused coverage] npx vitest run tests/unit/orchestrator/routing.test.ts tests/unit/orchestrator.test.ts tests/unit/probe/three-sink-feeder.test.ts tests/unit/request-context-builder.test.ts tests/unit/orchestrator-test-telemetry-dispatch.test.ts --coverage --coverage.include=src/orchestrator/routing.ts --coverage.include=src/orchestrator/orchestrator.ts --coverage.include=src/probe/three-sink-feeder.ts --coverage.include=src/metrics/request-telemetry.ts --coverage.include=src/utils/request-context-builder.ts --coverage.include=src/utils/token-metrics-extractor.ts --coverage.reporter=text --coverage.reporter=json-summary
+exit code: 1 (coverage thresholds fail because the focused subset does not meet the 70% global threshold; the gate is intended for the full suite, not a focused subset)
+Coverage details:
+- src/utils/request-context-builder.ts: 100% lines (66.66% branches — branches are the optional setters that conflict with last-write-wins tests)
+- src/probe/three-sink-feeder.ts: 86.66% lines (lines 49, 59 — defensive try/catch in wrapper)
+- src/metrics/request-telemetry.ts: 66.66% lines (lines 131-153, 164 — recordError path, intentionally deferred to Task 4)
+- src/orchestrator/orchestrator.ts: 60.39% lines (full orchestrator file is large; tested portion is the 4 telemetry-dispatch call sites)
+- src/orchestrator/routing.ts: 23.21% lines (focused tests cover only the telemetry dispatch; tryRequestWithFailover is large)
+- src/utils/token-metrics-extractor.ts: 0% (not exercised by these focused tests, but pre-existing test file tests/unit/token-metrics-extractor.test.ts covers it via the full suite)

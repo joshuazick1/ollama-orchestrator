@@ -227,6 +227,47 @@ describe('RequestContextBuilder', () => {
       expect(withMetrics.tokensPrompt).toBe(50);
     });
   });
+
+  describe('withDecisionId', () => {
+    it('should set decisionId on the context', () => {
+      const context = RequestContextBuilder.create('server-1', 'llama3:latest')
+        .withDecisionId('dec-abc-123')
+        .build();
+      expect(context.decisionId).toBe('dec-abc-123');
+    });
+
+    it('should be fluent (return this)', () => {
+      const builder = RequestContextBuilder.create('server-1', 'llama3:latest');
+      const returned = builder.withDecisionId('dec-xyz-456');
+      expect(returned).toBe(builder);
+    });
+
+    it('should preserve other fields when adding decisionId', () => {
+      const context = RequestContextBuilder.create('server-1', 'llama3:latest')
+        .withEndpoint('chat')
+        .withStreaming(true)
+        .withDecisionId('dec-789')
+        .build();
+      expect(context.decisionId).toBe('dec-789');
+      expect(context.endpoint).toBe('chat');
+      expect(context.streaming).toBe(true);
+      expect(context.serverId).toBe('server-1');
+      expect(context.model).toBe('llama3:latest');
+    });
+
+    it('should allow overwriting decisionId (last write wins)', () => {
+      const context = RequestContextBuilder.create('server-1', 'llama3:latest')
+        .withDecisionId('dec-first')
+        .withDecisionId('dec-second')
+        .build();
+      expect(context.decisionId).toBe('dec-second');
+    });
+
+    it('should leave decisionId undefined when never set', () => {
+      const context = RequestContextBuilder.create('server-1', 'llama3:latest').build();
+      expect(context.decisionId).toBeUndefined();
+    });
+  });
 });
 
 describe('createRequestContext', () => {

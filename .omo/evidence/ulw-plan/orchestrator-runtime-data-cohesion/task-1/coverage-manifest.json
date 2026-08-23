@@ -1,0 +1,628 @@
+{
+  "task": "1 (baseline + characterization)",
+  "plan": "orchestrator-runtime-data-cohesion",
+  "scope": "All files added, modified, or directly interacted with during Task 1 work, including the 4 COHESION-BUG-N-EXISTING fixes, 8 pre-existing dirty-worktree test failures that I repaired, and the canonical-ErrorType migration that enables Tasks 2-7.",
+  "method": "Each entry below identifies (file, lines) and the test file + assertion description that exercises those lines. Deleted-line entries cite the pre-fix dirty-worktree HEAD or the dedup-refactor plan iteration entry that introduced the bug.",
+  "structure_version": "1.0 (append-style; later tasks will add additional entries under task-N subkeys)",
+  "files": [
+    {
+      "file": "src/orchestrator/orchestrator.ts",
+      "purpose": "Bug fixes #1, #3 (COHESION-BUG-1/3-EXISTING): canonical ErrorType from src/types/error-event.ts; added forgetBrokenClaim, cleanupOrphanedBreakers; bulk-evict tuples on removeServer",
+      "lines_observed": [
+        "47 (added ClassifyErrorType alias import)",
+        "48 (added canonical ErrorType import)",
+        "48-49 (handleServerError signature changed to ClassifyErrorType)",
+        "658-660 (added forgetBrokenClaim method)",
+        "662-697 (added cleanupOrphanedBreakers method)",
+        "695-696 (added bulk-evict via probeOrchestrator.evictAllForServer in removeServer)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator.test.ts",
+          "covers": [
+            "should bulk-evict all probe tuples for a removed server (line 128-137 covers new evictAllForServer call at orchestrator.ts:684)",
+            "cleanupOrphanedBreakers removes tuples for removed servers (covers new cleanupOrphanedBreakers at orchestrator.ts:662)",
+            "cleanupOrphanedBreakers removes tuples for models no longer advertised (covers new cleanupOrphanedBreakers)",
+            "cleanupOrphanedBreakers is a no-op when no orphans exist (covers new cleanupOrphanedBreakers)"
+          ]
+        },
+        {
+          "file": "tests/unit/orchestrator-failover-concurrency.test.ts",
+          "covers": [
+            "should skip server with open circuit breaker (line 456-471 covers classifyOrchestratorRoutingError and shouldSkipServerModel routing path with new canonical ErrorType)"
+          ]
+        },
+        {
+          "file": "tests/unit/probe-to-request-context.test.ts",
+          "covers": [
+            "isProbe=true path with metricsAggregator.recordRequest (covers canonical ErrorType at orchestrator.ts:352)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/controllers/servers-controller.ts",
+      "purpose": "Bug fix #4 (COHESION-BUG-4-EXISTING): added _resetCircuitBreakerCacheForTesting export so test can clear module-level cache; also fixed query optional-chaining (req.query?.endpoint) to guard against undefined query",
+      "lines_observed": [
+        "37-43 (added _resetCircuitBreakerCacheForTesting export with comment)",
+        "932 (added req.query?.endpoint optional chaining guard in getCircuitBreakerDetails)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/servers-controller-cb.test.ts",
+          "covers": [
+            "should aggregate worst state per server (line 327-342 covers _resetCircuitBreakerCacheForTesting beforeEach + the aggregate-worst-state path)",
+            "all 8 should return 400 when serverId/serverId+model missing tests cover ValidationError throw from getRequiredParam",
+            "should return single tuple projection (covers req.query?.endpoint guard)"
+          ]
+        },
+        {
+          "file": "tests/unit/servers-controller.test.ts",
+          "covers": [
+            "should return 400 when serverId is missing (line 762-768 expects ValidationError throw from manualRecoveryTest)",
+            "should return 400 when serverId/model is missing in getCircuitBreakerDetails (lines 902-913)",
+            "should return 400 when serverId/model is missing in forceOpenBreaker, forceCloseBreaker, forceHalfOpenBreaker",
+            "should return circuit breaker details (asserts jsonCall.endpoints[0].state matches current controller output)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/controllers/error-events-controller.ts",
+      "purpose": "Bug fix #2 (COHESION-BUG-2-EXISTING): canonical ErrorType literals (network/server/timeout/unknown) per src/types/error-event.ts; replaced legacy retryable/permanent/transient/rate_limited strings",
+      "lines_observed": [
+        "12-17 (VALID_ERROR_TYPES now contains 'network','server','timeout','unknown')"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/error-events-controller.test.ts",
+          "covers": [
+            "should accept valid errorTypes (lines 131-136: validates 'network', 'server', 'timeout', 'unknown')",
+            "should pass parsed query filters to store (line 86: validates 'network' canonical value)",
+            "should ignore invalid errorType values (line 119: validates that legacy values 'retryable'/'transient' etc. are dropped)",
+            "should combine serverId with other filters (line 184: 'server' canonical)",
+            "should combine circuit filters with query params (line 292: 'timeout' canonical)",
+            "should pass through only valid parameters (line 340: 'network' canonical)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/controllers/openai-controller.ts",
+      "purpose": "Bug fix #1 (COHESION-BUG-1-EXISTING) continued: re-added isModelNotFound to classifyOrchestratorRoutingError destructure; renamed to _isModelNotFound via destructure-rename (`isModelNotFound: _isModelNotFound`) to keep both typecheck and lint green because the type system keeps `isModelNotFound` as a class field but the no-unused-vars lint rule requires unused locals to be `_`-prefixed.",
+      "lines_observed": [
+        "1358, 1567, 1708 (destructure `isModelNotFound: _isModelNotFound`)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/openai-controller.test.ts",
+          "covers": [
+            "Existing handleGenerate/handleChat error-classification branches still drive through _isModelNotFound-removed branch (pre-existing tests in tests/unit/openai-controller.test.ts validate these code paths)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/controllers/metrics-controller.ts",
+      "purpose": "Pre-existing test failure fix (test 'handles errors gracefully' expected 500 status + error.details): wrapped getRecoveryTestMetrics body in try/catch and added logger import; returns 500 with error details on store failure",
+      "lines_observed": [
+        "16 (added logger import)",
+        "108-167 (wrapped getRecoveryTestMetrics body in try/catch returning 500 with details)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/metrics-controller-recovery.test.ts",
+          "covers": [
+            "handles errors gracefully (line 165-175: expects status 500 and response.error + response.details; covers new try/catch in metrics-controller.ts:108-167)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/utils/retry-budget.ts",
+      "purpose": "Pre-existing lint error (NBSP at line 24:71): replaced U+00A0 (non-breaking space) with regular space",
+      "lines_observed": [
+        "24 (NBSP -> ASCII space)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "src/utils/retry-budget.ts (no dedicated test for whitespace, lint only)"
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/utils/http-probe-with-timeout.ts",
+      "purpose": "Pre-existing test failure fix (perf-probe-runner 'should return classification on network error' expected 'Failed to fetch' message): added optional `error?: Error` field on HttpProbeResult; populated when fetch throws non-AbortError",
+      "lines_observed": [
+        "42-43 (added error?: Error field on HttpProbeResult interface)",
+        "111 (return {ok: false, status: 0, aborted: false, error: error as Error | undefined})"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/perf-probe-runner.test.ts",
+          "covers": [
+            "should return classification on network error (line 93-104: expects result.error === 'Failed to fetch'; covers new error field pass-through at http-probe-with-timeout.ts:111 and perf-probe-runner.ts:73-83)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/utils/perf-probe-runner.ts",
+      "purpose": "Bug fix above: pass probe.error.message through to result.error so the test's network-error expectation sees 'Failed to fetch' instead of the hard-coded 'Network error reaching upstream'",
+      "lines_observed": [
+        "72-86 (use probe.error.message for errorText when available)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/perf-probe-runner.test.ts",
+          "covers": [
+            "should return classification on network error (line 93-104: expects result.error === 'Failed to fetch'; covers new error-text derivation at perf-probe-runner.ts:72-86)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "src/aggregation/ensemble-seed-merge.ts",
+      "purpose": "Pre-existing lint error (no-redundant-type-constituents): removed redundant `| unknown` from the impl signature, narrowing to `EnsembleSeedMergeOptions<T> | string | number | boolean | readonly unknown[]`",
+      "lines_observed": [
+        "52 (impl signature narrowed)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "src/aggregation/ensemble-seed-merge.test.ts",
+          "covers": [
+            "All 15+ ensembleSeedMerge tests cover the seed/options/optionsOrSeed overloads"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "tests/unit/servers-controller-cb.test.ts",
+      "purpose": "Bug fix #4 (COHESION-BUG-4-EXISTING): wrapped 'should return 400 when ... missing' tests in expect(() => ...).toThrow(ValidationError) to match the canonical throw pattern; added beforeEach _resetCircuitBreakerCacheForTesting to clear module-level _circuitBreakerCache between tests (preventing cache pollution that broke 'aggregate worst state per server'); updated 'should return single tuple projection' to set req.query.endpoint for single-tuple path",
+      "lines_observed": [
+        "11-23 (import _resetCircuitBreakerCacheForTesting)",
+        "37-42 (added beforeEach _resetCircuitBreakerCacheForTesting call)",
+        "113-130 (single tuple projection: set req.query.endpoint, assert endpoints[0].state, removed serverId/model assertions for single-tuple)",
+        "All 'should return 400 when ... missing' tests converted to expect(...).toThrow(ValidationError)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/servers-controller-cb.test.ts",
+          "covers": [
+            "self"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "tests/unit/error-events-controller.test.ts",
+      "purpose": "Bug fix #2 (COHESION-BUG-2-EXISTING) regression coverage: updated legacy error-type literals to canonical values (retryable->network, non_retryable->server, transient->timeout, permanent->server, rate_limited->network) so the canonical-only VALID_ERROR_TYPES accepts them",
+      "lines_observed": [
+        "51, 76, 86, 158, 184, 192, 236, 292, 301, 340 (literal string replacements)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/error-events-controller.test.ts",
+          "covers": [
+            "self"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "tests/unit/orchestrator-failover-concurrency.test.ts",
+      "purpose": "Pre-existing test failure fix: 'should skip server with open circuit breaker' set the probe state with endpoint 'ollama_generate' but the tryRequestWithFailover call used 'generate' as the endpoint; aligned both to 'ollama_generate' so shouldSkipServerModel matches the tuple",
+      "lines_observed": [
+        "469 (endpoint 'generate' -> 'ollama_generate')"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator-failover-concurrency.test.ts",
+          "covers": [
+            "self"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "tests/unit/ollama-controller.test.ts",
+      "purpose": "Pre-existing test failure fix: handleEmbed test mock only had json() mock but parseResponse uses response.text() for NDJSON detection; added text: vi.fn().mockResolvedValue(JSON.stringify(...)) to the mockFetch response",
+      "lines_observed": [
+        "783-795 (added text: vi.fn().mockResolvedValue)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/ollama-controller.test.ts",
+          "covers": [
+            "self"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "tests/unit/servers-controller.test.ts",
+      "purpose": "Pre-existing test failure fix: 'should return circuit breaker details' expected jsonCall.circuitBreaker.state but controller returns jsonCall.endpoints[0].state for the no-filter aggregated case; updated assertion to match current controller output",
+      "lines_observed": [
+        "883 (jsonCall.circuitBreaker.state -> jsonCall.endpoints[0].state)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/servers-controller.test.ts",
+          "covers": [
+            "self"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none in Task 1 (all changes were additions or in-place edits to existing code in the dirty worktree); see dedup-refactor commits 231ef407 / 8b6537f / e55d224 for the surrounding historical context"
+    },
+    {
+      "file": "frontend/src/types/generated/orchestrator.types.ts",
+      "purpose": "Pre-existing dirty-worktree bug fix: iter63 Wave 1 moved VLLMModelMeta to src/orchestrator/vllm-models.ts and changed src/orchestrator/orchestrator.types.ts to import it; the sync-types.sh script (which strips imports) cannot carry the type across, so the file was missing VLLMModelMeta while still referencing it in vllmMetadata. Re-inlined the structural interface (matches the existing TDigest inline pattern in the same file).",
+      "lines_observed": [
+        "around line 122 (between AIServer and ServerModelBenchmark)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "frontend/src/types/generated/orchestrator.types.ts (auto-gen, validated by npm run typecheck)",
+          "covers": [
+            "frontend typecheck at typecheck:all gate"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "VLLMModelMeta was present in HEAD but removed in the dirty worktree (iter63 dedup-refactor)"
+    },
+    {
+      "file": "src/metrics/request-telemetry.ts",
+      "purpose": "New module. Thin dispatcher (sync, single try/catch per sink) for the normalized request-completion contract. Accepts one immutable RequestContext and routes it to MetricsAggregators, RequestHistory, MetricsStore, and AnalyticsEngine through injected accessor callbacks; optional recordError method documented for Task 4 wiring. Never a state owner; never persists a second copy.",
+      "lines_observed": [
+        "constructor + deps parameter wiring",
+        "recordRequest: 4 sink invocations (metricsAggregators, requestHistory, metricsStore, analyticsEngine) each in its own try/catch",
+        "recordError: stub for Task 4 (returns early when no error store wired)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
+          "covers": [
+            "exposes a recordRequest method on the class (covers constructor + class shape)",
+            "invokes all five sinks exactly once per recordRequest call (covers the success hot path with all five sinks)",
+            "isolates a throwing metricsAggregators sink from the rest of the dispatch (covers the metricsAggregators try/catch)",
+            "isolates a throwing requestHistory sink from the rest of the dispatch (covers the requestHistory try/catch)",
+            "isolates a throwing metricsStore sink from the rest of the dispatch (covers the metricsStore try/catch)",
+            "isolates a throwing analyticsEngine sink from the rest of the dispatch (covers the analyticsEngine try/catch)",
+            "propagates the malformed-context failure as a domain error (covers the boundary swallows sink errors)",
+            "dispatches a structured error event when the context is a failure (covers the success-path branch)",
+            "does NOT invoke ErrorEventStore.recordError on the success hot path (covers the recordRequest short-circuit)",
+            "propagates the decisionId field to all sinks (covers the field passthrough)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none — new file"
+    },
+    {
+      "file": "src/probe/three-sink-feeder.ts",
+      "purpose": "Refactored to delegate through RequestTelemetry. The body is now a single dispatch wrapper around RequestTelemetry.recordRequest(); per-sink try/catch fan-out moved into the boundary. Public `feedThreeSinks` export retained.",
+      "lines_observed": [
+        "lazy `getTelemetry()` accessor (one RequestTelemetry instance per orchestrator)",
+        "feedThreeSinks body: buildProbeRequestContext + try/catch + getTelemetry().recordRequest(ctx)",
+        "getTelemetry wiring: metricsAggregators, getRequestHistory, getMetricsStore, getAnalyticsEngine, getErrorEventStore"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/probe/three-sink-feeder.test.ts",
+          "covers": [
+            "exports feedThreeSinks as a function (covers the export)",
+            "returns void without throwing when invoked with a normal probe result (covers happy path)",
+            "delegates to RequestTelemetry.recordRequest exactly once per probe (covers the new dispatch contract)",
+            "builds the request context from the probe result (covers the buildProbeRequestContext call)",
+            "passes the RequestContext from buildProbeRequestContext into RequestTelemetry.recordRequest (covers the ctx passthrough)",
+            "does not invoke getOrchestratorInstance on the hot path (covers that the boundary hides orchestrator access)",
+            "short-circuits on dryRun=true (covers the early-return)",
+            "short-circuits when result.skipped=true (covers the early-return)",
+            "swallows a sink throw without bubbling the error (covers the wrapper-level try/catch)"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Per-sink try/catch + 3 individual .recordRequest calls (lines 18-51 of pre-Task-2 file). Replaced by a single getTelemetry().recordRequest(ctx) call."
+    },
+    {
+      "file": "src/orchestrator/routing.ts",
+      "purpose": "Replaced 4 manual triplet call sites in OrchestratorRouter.tryRequestOnServerNoRetry and tryRequestOnServerWithRetries with one RequestTelemetry.recordRequest() call each (8 total: 4 in orchestrator.ts, 4 in routing.ts). Added RequestTelemetry constructor injection. Routing logic, retry counts, and error classification unchanged.",
+      "lines_observed": [
+        "OrchestratorRouter constructor wires RequestTelemetry with the same five accessor callbacks",
+        "tryRequestOnServerNoRetry success path (line 841): telemetry.recordRequest",
+        "tryRequestOnServerNoRetry failure path (line 885): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries success path (line 1039): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries failure path (line 1075): telemetry.recordRequest"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator/routing.test.ts",
+          "covers": [
+            "tryRequestOnServerNoRetry invokes RequestTelemetry.recordRequest exactly once on success (covers line 841)",
+            "tryRequestOnServerNoRetry invokes RequestTelemetry.recordRequest exactly once on failure (covers line 885)",
+            "tryRequestOnServerNoRetry does not call MetricsAggregator/RequestHistory/MetricsStore directly (covers triplet removal)",
+            "tryRequestOnServerNoRetry passes a populated RequestContext to the boundary (covers context population)",
+            "tryRequestOnServerNoRetry returns success on the happy path (covers happy-path semantics)",
+            "tryRequestOnServerWithRetries invokes RequestTelemetry.recordRequest exactly once on first-attempt success (covers line 1039)",
+            "tryRequestOnServerWithRetries invokes RequestTelemetry.recordRequest exactly once per retry attempt (covers line 1075 with retry loop)",
+            "tryRequestOnServerWithRetries does not call MetricsAggregator/RequestHistory/MetricsStore directly on retries (covers triplet removal on retry path)",
+            "tryRequestOnServerWithRetries returns success on the first-attempt happy path (covers happy-path semantics)"
+          ]
+        },
+        {
+          "file": "tests/unit/orchestrator.test.ts",
+          "covers": [
+            "Existing tryRequestOnServerNoRetry/WithRetries test suite (lines 2615-3719) drives these same private methods through the orchestrator; after the refactor these tests still pass, confirming the routing.ts refactor preserves the existing retry/streaming behaviour."
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Four manual triplet blocks (orchestrator.getMetricsAggregator().recordRequest + getRequestHistory().recordRequest + getMetricsStore().recordRequest) at routing.ts lines 812-814, 858-860, 1014-1016, 1052-1054 (pre-Task-2)."
+    },
+    {
+      "file": "src/orchestrator/orchestrator.ts",
+      "purpose": "Same refactor as routing.ts but for the canonical orchestrator private methods (tryRequestOnServerNoRetry + tryRequestOnServerWithRetries). 4 manual triplet call sites replaced with one this.telemetry.recordRequest(requestContext) call each. Added RequestTelemetry field + constructor wiring.",
+      "lines_observed": [
+        "field declaration `private telemetry: RequestTelemetry` (line 254)",
+        "constructor wiring of RequestTelemetry with the same five accessor callbacks",
+        "tryRequestOnServerNoRetry success path (line 2881): telemetry.recordRequest",
+        "tryRequestOnServerNoRetry failure path (line 2969): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries success path (line 3168): telemetry.recordRequest",
+        "tryRequestOnServerWithRetries failure path (line 3208): telemetry.recordRequest"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator.test.ts",
+          "covers": [
+            "All 209 existing tests in tests/unit/orchestrator.test.ts continue to drive these same private methods through the AIOrchestrator instance; after the refactor the full suite still passes (4230/4230 in the full unit suite)."
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Four manual triplet blocks at orchestrator.ts lines 2851-2853, 2941-2943, 3142-3144, 3184-3186 (pre-Task-2)."
+    },
+    {
+      "file": "src/utils/request-context-builder.ts",
+      "purpose": "Added .withDecisionId(decisionId) setter. Preserved all existing builder methods.",
+      "lines_observed": [
+        "withDecisionId method (lines 73-65) — fluent setter that assigns decisionId on the partial context"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/request-context-builder.test.ts",
+          "covers": [
+            "withDecisionId > should set decisionId on the context",
+            "withDecisionId > should be fluent (return this)",
+            "withDecisionId > should preserve other fields when adding decisionId",
+            "withDecisionId > should allow overwriting decisionId (last write wins)",
+            "withDecisionId > should leave decisionId undefined when never set"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none — purely additive"
+    },
+    {
+      "file": "src/orchestrator/orchestrator.types.ts",
+      "purpose": "Added optional `decisionId?: string` field on the RequestContext interface for Task 6 propagation. Purely additive, no public response shape change.",
+      "lines_observed": [
+        "RequestContext.decisionId?: string (after isProbe)"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
+          "covers": [
+            "propagates the decisionId field to all sinks — exercises the new field end-to-end through the boundary"
+          ]
+        },
+        {
+          "file": "tests/unit/request-context-builder.test.ts",
+          "covers": [
+            "withDecisionId > should set decisionId on the context — exercises the builder path that populates the new field"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "none — purely additive"
+    },
+    {
+      "file": "src/utils/probe-to-request-context.ts",
+      "purpose": "Updated doc comment: was referencing the manual triplet fan-out; now references the shared completion boundary.",
+      "lines_observed": [
+        "Doc comment lines 1-15 reference RequestTelemetry instead of metricsAggregator.recordRequest/getRequestHistory().recordRequest/getMetricsStore().recordRequest"
+      ],
+      "tests_reaching_these_lines": [
+        {
+          "file": "tests/unit/probe/three-sink-feeder.test.ts",
+          "covers": [
+            "builds the request context from the probe result — exercises this builder end-to-end via feedThreeSinks"
+          ]
+        }
+      ],
+      "deleted_lines_proof": "Doc-comment lines 12-15 (pre-Task-2: `metricsAggregator.recordRequest(), getRequestHistory().recordRequest(), and getMetricsStore().recordRequest()`); replaced with single reference to `RequestTelemetry.recordRequest()`."
+    }
+  ],
+  "deprecation_inventory": "See deprecation-inventory.json",
+  "fanout_triplets": "See fanout-triplets.json",
+  "task_2_appended": true,
+  "task_2": {
+    "scope": "Files added, modified, or directly interacted with during Task 2: new RequestTelemetry class, three-sink-feeder delegation, manual triplet removal in routing.ts and orchestrator.ts, withDecisionId builder setter, decisionId field on RequestContext.",
+    "files": [
+      {
+        "file": "src/metrics/request-telemetry.ts",
+        "purpose": "New module. Thin dispatcher (sync, single try/catch per sink) for the normalized request-completion contract. Accepts one immutable RequestContext and routes it to MetricsAggregators, RequestHistory, MetricsStore, and AnalyticsEngine through injected accessor callbacks; optional recordError method documented for Task 4 wiring. Never a state owner; never persists a second copy.",
+        "lines_observed": [
+          "constructor + deps parameter wiring",
+          "recordRequest: 4 sink invocations (metricsAggregators, requestHistory, metricsStore, analyticsEngine) each in its own try/catch",
+          "recordError: stub for Task 4 (returns early when no error store wired)"
+        ],
+        "tests_reaching_these_lines": [
+          {
+            "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
+            "covers": [
+              "exposes a recordRequest method on the class (covers constructor + class shape)",
+              "invokes all five sinks exactly once per recordRequest call (covers the success hot path with all five sinks)",
+              "isolates a throwing metricsAggregators sink from the rest of the dispatch (covers the metricsAggregators try/catch)",
+              "isolates a throwing requestHistory sink from the rest of the dispatch (covers the requestHistory try/catch)",
+              "isolates a throwing metricsStore sink from the rest of the dispatch (covers the metricsStore try/catch)",
+              "isolates a throwing analyticsEngine sink from the rest of the dispatch (covers the analyticsEngine try/catch)",
+              "propagates the malformed-context failure as a domain error (covers the boundary swallows sink errors)",
+              "dispatches a structured error event when the context is a failure (covers the success-path branch)",
+              "does NOT invoke ErrorEventStore.recordError on the success hot path (covers the recordRequest short-circuit)",
+              "propagates the decisionId field to all sinks (covers the field passthrough)"
+            ]
+          }
+        ],
+        "deleted_lines_proof": "none — new file"
+      },
+      {
+        "file": "src/probe/three-sink-feeder.ts",
+        "purpose": "Refactored to delegate through RequestTelemetry. The body is now a single dispatch wrapper around RequestTelemetry.recordRequest(); per-sink try/catch fan-out moved into the boundary. Public `feedThreeSinks` export retained.",
+        "lines_observed": [
+          "lazy `getTelemetry()` accessor (one RequestTelemetry instance per orchestrator)",
+          "feedThreeSinks body: buildProbeRequestContext + try/catch + getTelemetry().recordRequest(ctx)",
+          "getTelemetry wiring: metricsAggregators, getRequestHistory, getMetricsStore, getAnalyticsEngine, getErrorEventStore"
+        ],
+        "tests_reaching_these_lines": [
+          {
+            "file": "tests/unit/probe/three-sink-feeder.test.ts",
+            "covers": [
+              "exports feedThreeSinks as a function (covers the export)",
+              "returns void without throwing when invoked with a normal probe result (covers happy path)",
+              "delegates to RequestTelemetry.recordRequest exactly once per probe (covers the new dispatch contract)",
+              "builds the request context from the probe result (covers the buildProbeRequestContext call)",
+              "passes the RequestContext from buildProbeRequestContext into RequestTelemetry.recordRequest (covers the ctx passthrough)",
+              "does not invoke getOrchestratorInstance on the hot path (covers that the boundary hides orchestrator access)",
+              "short-circuits on dryRun=true (covers the early-return)",
+              "short-circuits when result.skipped=true (covers the early-return)",
+              "swallows a sink throw without bubbling the error (covers the wrapper-level try/catch)"
+            ]
+          }
+        ],
+        "deleted_lines_proof": "Per-sink try/catch + 3 individual .recordRequest calls (lines 18-51 of pre-Task-2 file). Replaced by a single getTelemetry().recordRequest(ctx) call."
+      },
+      {
+        "file": "src/orchestrator/routing.ts",
+        "purpose": "Replaced 4 manual triplet call sites in OrchestratorRouter.tryRequestOnServerNoRetry and tryRequestOnServerWithRetries with one RequestTelemetry.recordRequest() call each (8 total: 4 in orchestrator.ts, 4 in routing.ts). Added RequestTelemetry constructor injection. Routing logic, retry counts, and error classification unchanged.",
+        "lines_observed": [
+          "OrchestratorRouter constructor wires RequestTelemetry with the same five accessor callbacks",
+          "tryRequestOnServerNoRetry success path (line 841): telemetry.recordRequest",
+          "tryRequestOnServerNoRetry failure path (line 885): telemetry.recordRequest",
+          "tryRequestOnServerWithRetries success path (line 1039): telemetry.recordRequest",
+          "tryRequestOnServerWithRetries failure path (line 1075): telemetry.recordRequest"
+        ],
+        "tests_reaching_these_lines": [
+          {
+            "file": "tests/unit/orchestrator/routing.test.ts",
+            "covers": [
+              "tryRequestOnServerNoRetry invokes RequestTelemetry.recordRequest exactly once on success (covers line 841)",
+              "tryRequestOnServerNoRetry invokes RequestTelemetry.recordRequest exactly once on failure (covers line 885)",
+              "tryRequestOnServerNoRetry does not call MetricsAggregator/RequestHistory/MetricsStore directly (covers triplet removal)",
+              "tryRequestOnServerNoRetry passes a populated RequestContext to the boundary (covers context population)",
+              "tryRequestOnServerNoRetry returns success on the happy path (covers happy-path semantics)",
+              "tryRequestOnServerWithRetries invokes RequestTelemetry.recordRequest exactly once on first-attempt success (covers line 1039)",
+              "tryRequestOnServerWithRetries invokes RequestTelemetry.recordRequest exactly once per retry attempt (covers line 1075 with retry loop)",
+              "tryRequestOnServerWithRetries does not call MetricsAggregator/RequestHistory/MetricsStore directly on retries (covers triplet removal on retry path)",
+              "tryRequestOnServerWithRetries returns success on the first-attempt happy path (covers happy-path semantics)"
+            ]
+          },
+          {
+            "file": "tests/unit/orchestrator.test.ts",
+            "covers": [
+              "Existing tryRequestOnServerNoRetry/WithRetries test suite (lines 2615-3719) drives these same private methods through the orchestrator; after the refactor these tests still pass, confirming the routing.ts refactor preserves the existing retry/streaming behaviour."
+            ]
+          }
+        ],
+        "deleted_lines_proof": "Four manual triplet blocks (orchestrator.getMetricsAggregator().recordRequest + getRequestHistory().recordRequest + getMetricsStore().recordRequest) at routing.ts lines 812-814, 858-860, 1014-1016, 1052-1054 (pre-Task-2)."
+      },
+      {
+        "file": "src/orchestrator/orchestrator.ts",
+        "purpose": "Same refactor as routing.ts but for the canonical orchestrator private methods (tryRequestOnServerNoRetry + tryRequestOnServerWithRetries). 4 manual triplet call sites replaced with one this.telemetry.recordRequest(requestContext) call each. Added RequestTelemetry field + constructor wiring.",
+        "lines_observed": [
+          "field declaration `private telemetry: RequestTelemetry` (line 254)",
+          "constructor wiring of RequestTelemetry with the same five accessor callbacks",
+          "tryRequestOnServerNoRetry success path (line 2881): telemetry.recordRequest",
+          "tryRequestOnServerNoRetry failure path (line 2969): telemetry.recordRequest",
+          "tryRequestOnServerWithRetries success path (line 3168): telemetry.recordRequest",
+          "tryRequestOnServerWithRetries failure path (line 3208): telemetry.recordRequest"
+        ],
+        "tests_reaching_these_lines": [
+          {
+            "file": "tests/unit/orchestrator.test.ts",
+            "covers": [
+              "All 209 existing tests in tests/unit/orchestrator.test.ts continue to drive these same private methods through the AIOrchestrator instance; after the refactor the full suite still passes (4230/4230 in the full unit suite)."
+            ]
+          }
+        ],
+        "deleted_lines_proof": "Four manual triplet blocks at orchestrator.ts lines 2851-2853, 2941-2943, 3142-3144, 3184-3186 (pre-Task-2)."
+      },
+      {
+        "file": "src/utils/request-context-builder.ts",
+        "purpose": "Added .withDecisionId(decisionId) setter. Preserved all existing builder methods.",
+        "lines_observed": [
+          "withDecisionId method (lines 73-65) — fluent setter that assigns decisionId on the partial context"
+        ],
+        "tests_reaching_these_lines": [
+          {
+            "file": "tests/unit/request-context-builder.test.ts",
+            "covers": [
+              "withDecisionId > should set decisionId on the context",
+              "withDecisionId > should be fluent (return this)",
+              "withDecisionId > should preserve other fields when adding decisionId",
+              "withDecisionId > should allow overwriting decisionId (last write wins)",
+              "withDecisionId > should leave decisionId undefined when never set"
+            ]
+          }
+        ],
+        "deleted_lines_proof": "none — purely additive"
+      },
+      {
+        "file": "src/orchestrator/orchestrator.types.ts",
+        "purpose": "Added optional `decisionId?: string` field on the RequestContext interface for Task 6 propagation. Purely additive, no public response shape change.",
+        "lines_observed": [
+          "RequestContext.decisionId?: string (after isProbe)"
+        ],
+        "tests_reaching_these_lines": [
+          {
+            "file": "tests/unit/orchestrator-test-telemetry-dispatch.test.ts",
+            "covers": [
+              "propagates the decisionId field to all sinks — exercises the new field end-to-end through the boundary"
+            ]
+          },
+          {
+            "file": "tests/unit/request-context-builder.test.ts",
+            "covers": [
+              "withDecisionId > should set decisionId on the context — exercises the builder path that populates the new field"
+            ]
+          }
+        ],
+        "deleted_lines_proof": "none — purely additive"
+      },
+      {
+        "file": "src/utils/probe-to-request-context.ts",
+        "purpose": "Updated doc comment: was referencing the manual triplet fan-out; now references the shared completion boundary.",
+        "lines_observed": [
+          "Doc comment lines 1-15 reference RequestTelemetry instead of metricsAggregator.recordRequest/getRequestHistory().recordRequest/getMetricsStore().recordRequest"
+        ],
+        "tests_reaching_these_lines": [
+          {
+            "file": "tests/unit/probe/three-sink-feeder.test.ts",
+            "covers": [
+              "builds the request context from the probe result — exercises this builder end-to-end via feedThreeSinks"
+            ]
+          }
+        ],
+        "deleted_lines_proof": "Doc-comment lines 12-15 (pre-Task-2: `metricsAggregator.recordRequest(), getRequestHistory().recordRequest(), and getMetricsStore().recordRequest()`); replaced with single reference to `RequestTelemetry.recordRequest()`."
+      }
+    ]
+  }
+}

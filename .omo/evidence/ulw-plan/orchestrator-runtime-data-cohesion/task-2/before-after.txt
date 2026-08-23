@@ -1,0 +1,28 @@
+=== Task 2: Manual-triplet removal audit ===
+
+# After-task grep (plan contract):
+# rg "metricsAggregator.recordRequest" src/ tests/ | rg -v "request-telemetry|three-sink-feeder"
+# should return zero hits.
+
+# Verification — direct call to the three-sink triplet in the four completion sites:
+grep -rn "metricsAggregator.recordRequest" src/ tests/ 2>/dev/null | grep -v "request-telemetry" | grep -v "three-sink-feeder" | grep -v "\.bak" | grep -v "probe-to-request-context"
+# exit 0, output: empty
+
+# Verification — direct call to the manual triplet fan-out (getRequestHistory().recordRequest + getMetricsStore().recordRequest paired with metricsAggregator.recordRequest):
+grep -rn "metricsAggregator.recordRequest(requestContext)\|getMetricsAggregator().recordRequest(requestContext)" src/ 2>/dev/null | grep -v "request-telemetry" | grep -v "\.bak"
+# exit 0, output: empty
+
+# Verification — OrchestratorRouter and orchestrator.ts both route through RequestTelemetry:
+grep -rn "telemetry.recordRequest(requestContext)" src/orchestrator/ 2>/dev/null
+# Expected: 8 hits (4 in orchestrator.ts tryRequestOnServerNoRetry/tryRequestOnServerWithRetries success/failure,
+#           4 in routing.ts OrchestratorRouter.tryRequestOnServerNoRetry/tryRequestOnServerWithRetries success/failure)
+
+# Direct verification:
+src/orchestrator/orchestrator.ts:2881:      this.telemetry.recordRequest(requestContext);
+src/orchestrator/orchestrator.ts:2969:      this.telemetry.recordRequest(requestContext);
+src/orchestrator/orchestrator.ts:3168:        this.telemetry.recordRequest(requestContext);
+src/orchestrator/orchestrator.ts:3208:        this.telemetry.recordRequest(requestContext);
+src/orchestrator/routing.ts:841:      this.telemetry.recordRequest(requestContext);
+src/orchestrator/routing.ts:885:      this.telemetry.recordRequest(requestContext);
+src/orchestrator/routing.ts:1039:        this.telemetry.recordRequest(requestContext);
+src/orchestrator/routing.ts:1075:        this.telemetry.recordRequest(requestContext);

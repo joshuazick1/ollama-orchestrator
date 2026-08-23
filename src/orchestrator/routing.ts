@@ -3,14 +3,20 @@
  * Orchestrator Router - Handles request routing, failover, and retry logic
  */
 
+import { getAnalyticsEngine } from '../analytics/analytics-engine.js';
 import type { RetryConfig } from '../config/config.js';
 import { getDecisionHistory } from '../decision-history.js';
+import { RequestTelemetry } from '../metrics/request-telemetry.js';
 import type { ProbeEndpoint } from '../probe/types.js';
-import { getRequestHistory } from '../request-history.js';
+import { getErrorEventStore } from '../storage/error-event-store.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { sleep } from '../utils/async-helpers.js';
 import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
-import { classifyError, isRetryableOnSameServer, type ErrorType } from '../utils/error-classifier.js';
+import {
+  classifyError,
+  isRetryableOnSameServer,
+  type ErrorType,
+} from '../utils/error-classifier.js';
 import { logger } from '../utils/logger.js';
 import { RetryBudget } from '../utils/retry-budget.js';
 
@@ -19,7 +25,35 @@ import type { RoutingContext } from './orchestrator.js';
 import type { AIServer, RequestContext } from './orchestrator.types.js';
 
 export class OrchestratorRouter {
-  constructor(private readonly orchestrator: AIOrchestrator) {}
+  private readonly telemetry: RequestTelemetry;
+
+  constructor(private readonly orchestrator: AIOrchestrator) {
+    this.telemetry = new RequestTelemetry(
+      {
+        metricsAggregators: this.orchestrator.getMetricsAggregator() as unknown as {
+          recordRequest: (ctx: RequestContext) => unknown;
+        },
+        getRequestHistory: () =>
+          this.orchestrator.getRequestHistory() as unknown as {
+            recordRequest: (ctx: RequestContext, queueWaitTime?: number) => unknown;
+          },
+        getMetricsStore: () =>
+          this.orchestrator.getMetricsStore() as unknown as {
+            recordRequest: (ctx: RequestContext, opts?: unknown) => unknown;
+          },
+        getAnalyticsEngine: () =>
+          getAnalyticsEngine() as unknown as {
+            recordRequest: (ctx: RequestContext) => unknown;
+          },
+      },
+      {
+        getErrorEventStore: () =>
+          getErrorEventStore() as unknown as {
+            recordError: (event: unknown) => Promise<unknown>;
+          },
+      }
+    );
+  }
 
   async tryRequestWithFailover<T>(
     model: string,
@@ -809,9 +843,7 @@ export class OrchestratorRouter {
       }
 
       requestContext.queueWaitTime = routingContext?.queueWaitTime;
-      this.orchestrator.getMetricsAggregator().recordRequest(requestContext);
-      getRequestHistory().recordRequest(requestContext);
-      getMetricsStore().recordRequest(requestContext);
+      this.telemetry.recordRequest(requestContext);
       if (isStreaming) {
         this.orchestrator.getInFlightManager().removeStreamingRequest(requestContext.id);
       }
@@ -855,9 +887,7 @@ export class OrchestratorRouter {
       requestContext.success = false;
       requestContext.error = lastError;
       requestContext.queueWaitTime = routingContext?.queueWaitTime;
-      this.orchestrator.getMetricsAggregator().recordRequest(requestContext);
-      getRequestHistory().recordRequest(requestContext);
-      getMetricsStore().recordRequest(requestContext);
+      this.telemetry.recordRequest(requestContext);
 
       const errorMessage = lastError.message;
       const errorType = classifyError(errorMessage).type;
@@ -1011,9 +1041,7 @@ export class OrchestratorRouter {
         }
 
         requestContext.queueWaitTime = routingContext?.queueWaitTime;
-        this.orchestrator.getMetricsAggregator().recordRequest(requestContext);
-        getRequestHistory().recordRequest(requestContext);
-        getMetricsStore().recordRequest(requestContext);
+        this.telemetry.recordRequest(requestContext);
         if (isStreaming) {
           this.orchestrator.getInFlightManager().removeStreamingRequest(requestContext.id);
         }
@@ -1049,9 +1077,7 @@ export class OrchestratorRouter {
         requestContext.success = false;
         requestContext.error = lastError;
         requestContext.queueWaitTime = routingContext?.queueWaitTime;
-        this.orchestrator.getMetricsAggregator().recordRequest(requestContext);
-        getRequestHistory().recordRequest(requestContext);
-        getMetricsStore().recordRequest(requestContext);
+        this.telemetry.recordRequest(requestContext);
 
         const errorMessage = lastError.message;
         const errorType = classifyError(errorMessage).type;

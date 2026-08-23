@@ -287,6 +287,12 @@ export interface RequestContext {
   isRetry?: boolean;
   /** Whether this request is a health-check probe (not a user request) */
   isProbe?: boolean;
+  /**
+   * Decision ID from the load balancer that selected this attempt.
+   * Propagated by Task 2 RequestTelemetry and consumed by Task 6 to persist
+   * the direct decision-to-outcome correlation. Optional and additive.
+   */
+  decisionId?: string;
   /** Protocol used for this request — used to interpret usage/duration fields */
   protocol?: 'ollama' | 'openai' | 'anthropic';
   firstTokenTime?: number;

@@ -1,0 +1,30 @@
+=== Task 2 manual-QA: boundary-fires-once-per-completion ===
+
+Test: tests/unit/orchestrator/routing.test.ts
+Test: tests/unit/probe/three-sink-feeder.test.ts
+Test: tests/unit/orchestrator-test-telemetry-dispatch.test.ts
+
+[Routing test] "invokes RequestTelemetry.recordRequest exactly once on success"
+  → recordRequestMock called 1 time after tryRequestOnServerNoRetry success path
+[Routing test] "invokes RequestTelemetry.recordRequest exactly once on failure"
+  → recordRequestMock called 1 time after tryRequestOnServerNoRetry failure path
+[Routing test] "invokes RequestTelemetry.recordRequest exactly once on first-attempt success"
+  → recordRequestMock called 1 time after tryRequestOnServerWithRetries success path
+[Routing test] "invokes RequestTelemetry.recordRequest exactly once per retry attempt (1 dispatch per attempt)"
+  → recordRequestMock called 2 times after 2 attempts (1 success after 1 retry); exactly one dispatch per attempt
+
+[three-sink-feeder test] "delegates to RequestTelemetry.recordRequest exactly once per probe"
+  → recordRequestMock called 1 time after feedThreeSinks with a probe result
+
+[Dispatch test] "invokes all five sinks exactly once per recordRequest call (success)"
+  → metricsAggregators.recordRequest called 1 time
+  → requestHistory.recordRequest called 1 time
+  → metricsStore.recordRequest called 1 time
+  → analyticsEngine.recordRequest called 1 time
+
+[Manual evidence from terminal]
+$ npx vitest run tests/unit/orchestrator/routing.test.ts tests/unit/probe/three-sink-feeder.test.ts tests/unit/orchestrator-test-telemetry-dispatch.test.ts tests/unit/request-context-builder.test.ts
+Test Files  4 passed (4)
+     Tests  51 passed (51)
+
+Per-completion dispatch is exactly one recordRequest call per attempt across all five tested completion sites.

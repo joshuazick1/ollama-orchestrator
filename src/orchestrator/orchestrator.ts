@@ -20,6 +20,7 @@ import {
 } from '../load-balancer/load-balancer.js';
 import { getTemporalScorer } from '../load-balancer/temporal-scorer.js';
 import { MetricsAggregator } from '../metrics/index.js';
+import { RequestTelemetry } from '../metrics/request-telemetry.js';
 import { getModelManager } from '../model-manager.js';
 import { EndpointRegistry } from '../probe/endpoint-registry.js';
 import { classify } from '../probe/failure-classifier.js';
@@ -33,18 +34,32 @@ import {
 import { getPsPollCoordinator } from '../probe/ps-poll-coordinator-instance.js';
 import { BackoffSchedule } from '../probe/recovery-driver.js';
 import { RecoveryDriver } from '../probe/recovery-driver.js';
-import type { Tuple, ProbeState, ProbeEndpoint } from '../probe/types.js';
-import { GENERATION_ENDPOINTS, EMBEDDING_ENDPOINTS, DEFAULT_PROBE_CONFIG } from '../probe/types.js';
+import {
+  parseTupleKey,
+  type Tuple,
+  type ProbeState,
+  type ProbeEndpoint,
+  GENERATION_ENDPOINTS,
+  EMBEDDING_ENDPOINTS,
+  DEFAULT_PROBE_CONFIG,
+} from '../probe/types.js';
 import { WALStore } from '../probe/wal-store.js';
 import { getRequestHistory } from '../request-history.js';
+import { getErrorEventStore } from '../storage/error-event-store.js';
 import { getMetricsStore } from '../storage/metrics-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
+import type { ErrorType } from '../types/error-event.js';
 import { sleep } from '../utils/async-helpers.js';
 import { calculateBackoff, fromRetryConfig } from '../utils/backoff/index.js';
 import { BanManager } from '../utils/ban-manager.js';
 import { ErrorAggregator } from '../utils/error-aggregator.js';
 import type { ClusterStatus } from '../utils/error-aggregator.js';
-import { classifyError, ErrorCategory, isRetryableOnSameServer, type ErrorType } from '../utils/error-classifier.js';
+import {
+  classifyError,
+  ErrorCategory,
+  isRetryableOnSameServer,
+  type ErrorType as ClassifyErrorType,
+} from '../utils/error-classifier.js';
 import { NdjsonResponseError, detectNdjsonResponse } from '../utils/fetch-with-timeout.js';
 import { InFlightManager, getInFlightManager } from '../utils/in-flight-manager.js';
 import { logger } from '../utils/logger.js';
@@ -56,6 +71,7 @@ import {
   RUNNER_CRASH_PATTERNS,
 } from '../utils/model-repair.js';
 import { filterValidModels } from '../utils/model-validator.js';
+import { getNegativeModelCache } from '../utils/negative-model-cache.js';
 import { canHandleContext, getDefaultContextSize } from '../utils/prompt-estimator.js';
 import { getQuarantinePool } from '../utils/quarantine-pool.js';
 import { RetryBudget } from '../utils/retry-budget.js';
@@ -240,6 +256,7 @@ export class AIOrchestrator {
   }
   private persistence: OrchestratorPersistence;
   private metricsAggregator: MetricsAggregator;
+  private telemetry: RequestTelemetry;
   private loadBalancer: LoadBalancer;
   private probeOrchestrator: ProbeOrchestrator;
   private recoveryDriver: RecoveryDriver;
@@ -407,6 +424,32 @@ export class AIOrchestrator {
     this.metricsAggregator.startPruneScheduler(
       this.config.metrics.pruneIntervalMs,
       24 * 60 * 60 * 1000 // 24h default maxAge
+    );
+
+    this.telemetry = new RequestTelemetry(
+      {
+        metricsAggregators: this.metricsAggregator as unknown as {
+          recordRequest: (ctx: RequestContext) => unknown;
+        },
+        getRequestHistory: () =>
+          getRequestHistory() as unknown as {
+            recordRequest: (ctx: RequestContext, queueWaitTime?: number) => unknown;
+          },
+        getMetricsStore: () =>
+          getMetricsStore() as unknown as {
+            recordRequest: (ctx: RequestContext, opts?: unknown) => unknown;
+          },
+        getAnalyticsEngine: () =>
+          getAnalyticsEngine() as unknown as {
+            recordRequest: (ctx: RequestContext) => unknown;
+          },
+      },
+      {
+        getErrorEventStore: () =>
+          getErrorEventStore() as unknown as {
+            recordError: (event: unknown) => Promise<unknown>;
+          },
+      }
     );
     // maxStickySessions is constructor-only — the BoundedMap cap is fixed
     // at construction; runtime changes to this knob require LoadBalancer
@@ -651,6 +694,35 @@ export class AIOrchestrator {
       cb('added', newServer);
     }
   }
+  // Clear one (serverId, model) negative-model-cache claim. Used by the ModelVerifier
+  // (src/probe/model-verifier.ts) after a successful re-verification probe.
+  forgetBrokenClaim(serverId: string, model: string): boolean {
+    return getNegativeModelCache().clear(serverId, model);
+  }
+
+  cleanupOrphanedBreakers(): number {
+    const fleetIds = new Set(this.servers.map(s => s.id));
+    const advertisedModelsByServer = new Map<string, Set<string>>();
+    for (const server of this.servers) {
+      advertisedModelsByServer.set(server.id, new Set(server.models ?? []));
+    }
+    let evicted = 0;
+    for (const [key] of this.probeOrchestrator.getAllStates()) {
+      const parsed = parseTupleKey(key);
+      if (!fleetIds.has(parsed.serverId)) {
+        this.probeOrchestrator.evictTuple(parsed);
+        evicted += 1;
+        continue;
+      }
+      const advertised = advertisedModelsByServer.get(parsed.serverId);
+      if (advertised && !advertised.has(parsed.model)) {
+        this.probeOrchestrator.evictTuple(parsed);
+        evicted += 1;
+      }
+    }
+    return evicted;
+  }
+
   removeServer(serverId: string): void {
     const initialCount = this.servers.length;
     const removedServer = this.servers.find(s => s.id === serverId);
@@ -682,6 +754,8 @@ export class AIOrchestrator {
           }
         }
       }
+      // Bulk-evict any remaining tuples for models the server no longer advertises.
+      this.probeOrchestrator.evictAllForServer(serverId);
 
       // Persist servers to disk if enabled
       if (this.config.enablePersistence) {
@@ -1862,7 +1936,7 @@ export class AIOrchestrator {
     isAdmin?: boolean,
     requestId?: string
   ): Promise<T> {
-    const errors: Array<{ server: string; error: string; type?: ErrorType }> = [];
+    const errors: Array<{ server: string; error: string; type?: ClassifyErrorType }> = [];
     const routingStartTime = Date.now();
 
     const retryBudget = new RetryBudget(
@@ -2686,7 +2760,7 @@ export class AIOrchestrator {
     model: string,
     fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean,
-    errors: Array<{ server: string; error: string; type?: ErrorType }>,
+    errors: Array<{ server: string; error: string; type?: ClassifyErrorType }>,
     _timeoutMs?: number,
     alreadyIncremented: boolean = false,
     parentRequestId?: string,
@@ -2808,9 +2882,7 @@ export class AIOrchestrator {
       }
 
       requestContext.queueWaitTime = routingContext?.queueWaitTime;
-      this.metricsAggregator.recordRequest(requestContext);
-      getRequestHistory().recordRequest(requestContext);
-      getMetricsStore().recordRequest(requestContext);
+      this.telemetry.recordRequest(requestContext);
       // Remove streaming request tracking
       if (isStreaming) {
         this.inFlightManager.removeStreamingRequest(requestContext.id);
@@ -2898,9 +2970,7 @@ export class AIOrchestrator {
       requestContext.success = false;
       requestContext.error = lastError;
       requestContext.queueWaitTime = routingContext?.queueWaitTime;
-      this.metricsAggregator.recordRequest(requestContext);
-      getRequestHistory().recordRequest(requestContext);
-      getMetricsStore().recordRequest(requestContext);
+      this.telemetry.recordRequest(requestContext);
 
       const errorType = classifyError(errorMessage).type;
 
@@ -2925,7 +2995,7 @@ export class AIOrchestrator {
     fn: (server: AIServer, context?: { requestId?: string }) => Promise<T>,
     isStreaming: boolean,
     retryConfig: RetryConfig,
-    errors: Array<{ server: string; error: string; type?: ErrorType }>,
+    errors: Array<{ server: string; error: string; type?: ClassifyErrorType }>,
     _timeoutMs?: number,
     parentRequestId?: string,
     routingContext?: RoutingContext,
@@ -3099,9 +3169,7 @@ export class AIOrchestrator {
         }
 
         requestContext.queueWaitTime = routingContext?.queueWaitTime;
-        this.metricsAggregator.recordRequest(requestContext);
-        getRequestHistory().recordRequest(requestContext);
-        getMetricsStore().recordRequest(requestContext);
+        this.telemetry.recordRequest(requestContext);
         // Remove streaming request tracking
         if (isStreaming) {
           this.inFlightManager.removeStreamingRequest(requestContext.id);
@@ -3141,9 +3209,7 @@ export class AIOrchestrator {
         requestContext.success = false;
         requestContext.error = lastError;
         requestContext.queueWaitTime = routingContext?.queueWaitTime;
-        this.metricsAggregator.recordRequest(requestContext);
-        getRequestHistory().recordRequest(requestContext);
-        getMetricsStore().recordRequest(requestContext);
+        this.telemetry.recordRequest(requestContext);
 
         const errorMessage = lastError.message;
         const errorType = classifyError(errorMessage).type;
@@ -3212,8 +3278,8 @@ export class AIOrchestrator {
     server: AIServer,
     model: string,
     errorMessage: string,
-    errorType: ErrorType,
-    errors: Array<{ server: string; error: string; type?: ErrorType }>,
+    errorType: ClassifyErrorType,
+    errors: Array<{ server: string; error: string; type?: ClassifyErrorType }>,
     endpoint: ProbeEndpoint = 'ollama_generate'
   ): void {
     logger.info(`Handling server error for ${server.id}:${model}`, {

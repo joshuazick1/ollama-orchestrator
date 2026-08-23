@@ -62,6 +62,15 @@ export class RequestContextBuilder {
   }
 
   /**
+   * Set the deterministic decision ID for this attempt. Consumed by
+   * RequestTelemetry.recordRequest and (Task 6) persisted as requests.decision_id.
+   */
+  withDecisionId(decisionId: string): this {
+    this.context.decisionId = decisionId;
+    return this;
+  }
+
+  /**
    * Build the context (immutable)
    */
   build(): RequestContext {
