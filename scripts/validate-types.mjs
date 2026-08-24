@@ -9,7 +9,13 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const FRONTEND_TYPES_PATH = join(process.cwd(), 'frontend/src/types.ts');
-const BACKEND_TYPES_PATH = join(process.cwd(), 'src/orchestrator/orchestrator.types.ts');
+// Primary backend type file; additional files are checked for multi-file types
+const BACKEND_TYPES_PATHS = [
+  join(process.cwd(), 'src/orchestrator/orchestrator.types.ts'),
+  join(process.cwd(), 'src/types/runtime-snapshot.ts'),
+  join(process.cwd(), 'src/probe/probe-orchestrator.ts'),
+  join(process.cwd(), 'src/probe/types.ts'),
+];
 
 const FRONTEND_TYPES_TO_CHECK = [
   'AIServer',
@@ -18,6 +24,9 @@ const FRONTEND_TYPES_TO_CHECK = [
   'LatencyPercentiles',
   'TimeWindow',
   'CircuitBreakerState',
+  'RuntimeSnapshotV1',
+  'TupleState',
+  'TupleKey',
 ];
 
 // Patterns to match (interface OR type)
@@ -26,7 +35,13 @@ const TYPE_PATTERNS = [/export interface NAME\s*\{/, /export type NAME\s*=/];
 console.log('Checking frontend-backend type alignment...\n');
 
 const frontendTypes = readFileSync(FRONTEND_TYPES_PATH, 'utf-8');
-const backendTypes = readFileSync(BACKEND_TYPES_PATH, 'utf-8');
+const backendFileContents = BACKEND_TYPES_PATHS.map(p => {
+  try {
+    return readFileSync(p, 'utf-8');
+  } catch {
+    return '';
+  }
+});
 
 let hasIssues = false;
 
@@ -34,7 +49,10 @@ for (const type of FRONTEND_TYPES_TO_CHECK) {
   const patterns = TYPE_PATTERNS.map(p => new RegExp(p.source.replace('NAME', type)));
 
   const frontendMatch = patterns.some(p => p.test(frontendTypes));
-  const backendMatch = patterns.some(p => p.test(backendTypes));
+  // Check against all backend files — type may live in any of them
+  const backendMatch = backendFileContents.some(content =>
+    patterns.some(p => p.test(content))
+  );
 
   if (frontendMatch && !backendMatch) {
     console.log(`⚠️  ${type} exists in frontend but not in backend`);

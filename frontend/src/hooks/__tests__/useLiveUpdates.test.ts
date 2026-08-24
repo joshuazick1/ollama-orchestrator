@@ -1,6 +1,7 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, cleanup } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useLiveUpdates } from '../useLiveUpdates';
+import { resetLiveEventBusForTests } from '../liveEventBus';
 
 const mockQueryClient = {
   invalidateQueries: vi.fn(),
@@ -9,6 +10,8 @@ const mockQueryClient = {
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => mockQueryClient,
 }));
+
+const instances: MockEventSource[] = [];
 
 class MockEventSource {
   onopen: (() => void) | null = null;
@@ -21,18 +24,30 @@ class MockEventSource {
   addEventListener = vi.fn();
   removeEventListener = vi.fn();
   dispatchEvent = vi.fn();
+
+  constructor() {
+    instances.push(this);
+  }
 }
 
 vi.stubGlobal('EventSource', MockEventSource);
 
+const latestSource = () => instances[instances.length - 1];
+
+const sendMessage = (data: unknown) =>
+  act(() => {
+    latestSource()?.onmessage?.({ data: JSON.stringify(data) } as MessageEvent);
+  });
+
 describe('useLiveUpdates', () => {
   beforeEach(() => {
-    vi.useFakeTimers();
+    resetLiveEventBusForTests();
+    instances.length = 0;
     vi.clearAllMocks();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    cleanup();
   });
 
   describe('connection status', () => {
@@ -46,7 +61,7 @@ describe('useLiveUpdates', () => {
       const { result } = renderHook(() => useLiveUpdates());
 
       act(() => {
-        MockEventSource.prototype.onopen?.();
+        latestSource()?.onopen?.();
       });
 
       expect(result.current.status).toBe('connected');
@@ -57,7 +72,7 @@ describe('useLiveUpdates', () => {
       const { result } = renderHook(() => useLiveUpdates());
 
       act(() => {
-        MockEventSource.prototype.onerror?.();
+        latestSource()?.onerror?.();
       });
 
       expect(result.current.status).toBe('error');
@@ -76,14 +91,10 @@ describe('useLiveUpdates', () => {
       const mockOnMessage = vi.fn();
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({
-            type: 'server_status',
-            payload: { id: 'srv-1' },
-            timestamp: 1234567890,
-          }),
-        } as MessageEvent);
+      sendMessage({
+        type: 'server_status',
+        payload: { id: 'srv-1' },
+        timestamp: 1234567890,
       });
 
       expect(mockOnMessage).toHaveBeenCalledWith(
@@ -99,14 +110,10 @@ describe('useLiveUpdates', () => {
       const mockOnMessage = vi.fn();
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({
-            type: 'model_status',
-            payload: { model: 'llama2' },
-            timestamp: 1234567891,
-          }),
-        } as MessageEvent);
+      sendMessage({
+        type: 'model_status',
+        payload: { model: 'llama2' },
+        timestamp: 1234567891,
       });
 
       expect(mockOnMessage).toHaveBeenCalledWith(
@@ -120,14 +127,10 @@ describe('useLiveUpdates', () => {
       const mockOnMessage = vi.fn();
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({
-            type: 'stats_update',
-            payload: { requests: 100 },
-            timestamp: 1234567892,
-          }),
-        } as MessageEvent);
+      sendMessage({
+        type: 'stats_update',
+        payload: { requests: 100 },
+        timestamp: 1234567892,
       });
 
       expect(mockOnMessage).toHaveBeenCalledWith(
@@ -141,11 +144,7 @@ describe('useLiveUpdates', () => {
       const mockOnMessage = vi.fn();
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({ type: 'metrics', payload: {}, timestamp: 1234567893 }),
-        } as MessageEvent);
-      });
+      sendMessage({ type: 'metrics', payload: {}, timestamp: 1234567893 });
 
       expect(mockOnMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -158,14 +157,10 @@ describe('useLiveUpdates', () => {
       const mockOnMessage = vi.fn();
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({
-            type: 'error',
-            payload: { message: 'Connection failed' },
-            timestamp: 1234567894,
-          }),
-        } as MessageEvent);
+      sendMessage({
+        type: 'error',
+        payload: { message: 'Connection failed' },
+        timestamp: 1234567894,
       });
 
       expect(mockOnMessage).toHaveBeenCalledWith(
@@ -179,11 +174,7 @@ describe('useLiveUpdates', () => {
       const mockOnMessage = vi.fn();
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({ type: 'some_random_type', payload: {}, timestamp: 1234567895 }),
-        } as MessageEvent);
-      });
+      sendMessage({ type: 'some_random_type', payload: {}, timestamp: 1234567895 });
 
       expect(mockOnMessage).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -204,11 +195,7 @@ describe('useLiveUpdates', () => {
 
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify(testMessage),
-        } as MessageEvent);
-      });
+      sendMessage(testMessage);
 
       expect(mockOnMessage).toHaveBeenCalledTimes(1);
       expect(mockOnMessage).toHaveBeenCalledWith({
@@ -224,14 +211,10 @@ describe('useLiveUpdates', () => {
 
       renderHook(() => useLiveUpdates({ onMessage: mockOnMessage }));
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({
-            type: 'stats_update',
-            payload: testPayload,
-            timestamp: 1111111111,
-          }),
-        } as MessageEvent);
+      sendMessage({
+        type: 'stats_update',
+        payload: testPayload,
+        timestamp: 1111111111,
       });
 
       const calledMessage = mockOnMessage.mock.calls[0][0];
@@ -249,11 +232,7 @@ describe('useLiveUpdates', () => {
 
       const { result } = renderHook(() => useLiveUpdates());
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify(testMessage),
-        } as MessageEvent);
-      });
+      sendMessage(testMessage);
 
       expect(result.current.lastMessage).toEqual({
         type: 'server_status',
@@ -271,24 +250,39 @@ describe('useLiveUpdates', () => {
         })
       );
 
-      act(() => {
-        MockEventSource.prototype.onmessage?.({
-          data: JSON.stringify({ type: 'metrics', timestamp: 1234567890 }),
-        } as MessageEvent);
-      });
+      sendMessage({ type: 'metrics', timestamp: 1234567890 });
 
       expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['stats'] });
       expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['metrics'] });
+    });
+
+    it('should invalidate analyticsSummary key (camelCase) on SSE events', () => {
+      renderHook(() =>
+        useLiveUpdates({
+          invalidateQueries: [['analyticsSummary']],
+        })
+      );
+
+      sendMessage({ type: 'metrics', timestamp: 1234567890 });
+
+      expect(mockQueryClient.invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['analyticsSummary'],
+      });
+      // Must NOT use the incorrect hyphenated form
+      expect(mockQueryClient.invalidateQueries).not.toHaveBeenCalledWith({
+        queryKey: ['analytics-summary'],
+      });
     });
   });
 
   describe('cleanup', () => {
     it('should close EventSource on unmount', () => {
       const { unmount } = renderHook(() => useLiveUpdates());
+      const source = latestSource();
 
       unmount();
 
-      expect(MockEventSource.prototype.close).toHaveBeenCalled();
+      expect(source?.close).toHaveBeenCalled();
     });
   });
 });

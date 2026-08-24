@@ -21,6 +21,7 @@ import {
   getMetrics,
   getSummarySnapshots,
 } from '../../api';
+import { useLiveUpdates } from '../../hooks/useLiveUpdates';
 import {
   BarChart2,
   Server,
@@ -69,6 +70,9 @@ export const Analytics = () => {
   const [expandedRequests, setExpandedRequests] = useState<ExpandedRequest>({});
   const [page, setPage] = useState(0);
   const ITEMS_PER_PAGE = 50;
+
+  // Auto-refresh analyticsSummary when SSE metrics events arrive
+  useLiveUpdates({ invalidateQueries: [['analyticsSummary']] });
 
   const hours = timeRange === '1h' ? 1 : timeRange === '6h' ? 6 : timeRange === '24h' ? 24 : 168;
 

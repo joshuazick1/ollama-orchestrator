@@ -7,11 +7,13 @@ import type { Request, Response } from 'express';
 
 import type { MetricsAggregator } from '../metrics/metrics-aggregator.js';
 import { PrometheusExporter } from '../metrics/prometheus-exporter.js';
+import { getRequiredParam } from '../middleware/query-parsers.js';
 import { getOrchestratorInstance } from '../orchestrator/orchestrator-instance.js';
 import { WALStore } from '../probe/wal-store.js';
 import { getOperationalStore } from '../storage/operational-store.js';
 import { formatError } from '../utils/error-classifier.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
+import { logger } from '../utils/logger.js';
 import { getNegativeModelCache } from '../utils/negative-model-cache.js';
 
 /**
@@ -21,21 +23,15 @@ import { getNegativeModelCache } from '../utils/negative-model-cache.js';
 export function getMetrics(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
 
-  try {
-    const metrics = orchestrator.exportMetrics();
+  const metrics = orchestrator.exportMetrics();
 
-    res.status(200).json({
-      success: true,
-      timestamp: metrics.timestamp,
-      global: metrics.global,
-      servers: metrics.servers,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: 'Failed to get metrics',
-      details: formatError(error),
-    });
-  }
+  res.status(200).json({
+    success: true,
+    timestamp: metrics.timestamp,
+    global: metrics.global,
+    servers: metrics.servers,
+  });
+
 }
 
 /**
@@ -44,47 +40,41 @@ export function getMetrics(req: Request, res: Response): void {
  */
 export function getServerModelMetrics(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
-  const serverId = req.params.serverId as string;
+  const serverId = getRequiredParam(req, 'serverId');
   // Model may contain slashes and therefore might be captured as a wildcard segment
   // on the route (e.g. '/metrics/:serverId/*'). Prefer explicit param if present,
   // otherwise fall back to the wildcard capture at req.params[0]. Decode to be safe.
   const rawModel = (req.params.model as string) || req.params[0] || '';
   const model = rawModel ? decodeURIComponent(rawModel) : '';
 
-  try {
-    const metrics = orchestrator.getDetailedMetrics(serverId, model);
+  const metrics = orchestrator.getDetailedMetrics(serverId, model);
 
-    if (!metrics) {
-      res.status(404).json({
-        error: `No metrics found for server '${serverId}' and model '${model}'`,
-      });
-      return;
-    }
-
-    res.status(200).json({
-      success: true,
-      serverId,
-      model,
-      metrics: {
-        realtime: {
-          inFlight: metrics.inFlight,
-          queued: metrics.queued,
-        },
-        historical: metrics.windows,
-        percentiles: metrics.percentiles,
-        derived: {
-          successRate: metrics.successRate,
-          throughput: metrics.throughput,
-          avgTokensPerRequest: metrics.avgTokensPerRequest,
-        },
-      },
+  if (!metrics) {
+    res.status(404).json({
+      error: `No metrics found for server '${serverId}' and model '${model}'`,
     });
-  } catch (error) {
-    res.status(500).json({
-      error: 'Failed to get metrics',
-      details: formatError(error),
-    });
+    return;
   }
+
+  res.status(200).json({
+    success: true,
+    serverId,
+    model,
+    metrics: {
+      realtime: {
+        inFlight: metrics.inFlight,
+        queued: metrics.queued,
+      },
+      historical: metrics.windows,
+      percentiles: metrics.percentiles,
+      derived: {
+        successRate: metrics.successRate,
+        throughput: metrics.throughput,
+        avgTokensPerRequest: metrics.avgTokensPerRequest,
+      },
+    },
+  });
+
 }
 
 /**
@@ -94,23 +84,17 @@ export function getServerModelMetrics(req: Request, res: Response): void {
 export function getPrometheusMetrics(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
 
-  try {
-    const allMetrics = orchestrator.getAllDetailedMetrics();
-    const exporter = new PrometheusExporter({
-      getAllMetrics: () => allMetrics,
-      getGlobalMetrics: () => orchestrator.getGlobalMetrics(),
-    } as unknown as MetricsAggregator);
+  const allMetrics = orchestrator.getAllDetailedMetrics();
+  const exporter = new PrometheusExporter({
+    getAllMetrics: () => allMetrics,
+    getGlobalMetrics: () => orchestrator.getGlobalMetrics(),
+  } as unknown as MetricsAggregator);
 
-    const output = exporter.export();
+  const output = exporter.export();
 
-    res.setHeader('Content-Type', 'text/plain; version=0.0.4');
-    res.status(200).send(output);
-  } catch (error) {
-    res.status(500).json({
-      error: 'Failed to export metrics',
-      details: formatError(error),
-    });
-  }
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+  res.status(200).send(output);
+
 }
 
 /**
@@ -125,60 +109,61 @@ export function getPrometheusMetrics(req: Request, res: Response): void {
 export function getRecoveryTestMetrics(req: Request, res: Response): void {
   try {
     const wal = new WALStore(getOperationalStore());
-
     const allEvents = wal.getEventsAfter(0);
 
-    const recoveryAttempts = { count: 0, byTuple: new Map<string, number>() };
-    const recoverySuccesses = { count: 0, byTuple: new Map<string, number>() };
-    const recoveryFailures = { count: 0, byTuple: new Map<string, number>() };
-    const allTuples = new Set<string>();
+  const recoveryAttempts = { count: 0, byTuple: new Map<string, number>() };
+  const recoverySuccesses = { count: 0, byTuple: new Map<string, number>() };
+  const recoveryFailures = { count: 0, byTuple: new Map<string, number>() };
+  const allTuples = new Set<string>();
 
-    for (const event of allEvents) {
-      const { tupleKey, fromState, toState } = event;
-      allTuples.add(tupleKey);
+  for (const event of allEvents) {
+    const { tupleKey, fromState, toState } = event;
+    allTuples.add(tupleKey);
 
-      if (fromState === 'UNHEALTHY' && toState === 'RECOVERING') {
-        recoveryAttempts.count++;
-        recoveryAttempts.byTuple.set(tupleKey, (recoveryAttempts.byTuple.get(tupleKey) ?? 0) + 1);
-      }
-
-      if (fromState === 'RECOVERING' && toState === 'HEALTHY') {
-        recoverySuccesses.count++;
-        recoverySuccesses.byTuple.set(tupleKey, (recoverySuccesses.byTuple.get(tupleKey) ?? 0) + 1);
-      }
-
-      if (fromState === 'RECOVERING' && toState === 'UNHEALTHY') {
-        recoveryFailures.count++;
-        recoveryFailures.byTuple.set(tupleKey, (recoveryFailures.byTuple.get(tupleKey) ?? 0) + 1);
-      }
+    if (fromState === 'UNHEALTHY' && toState === 'RECOVERING') {
+      recoveryAttempts.count++;
+      recoveryAttempts.byTuple.set(tupleKey, (recoveryAttempts.byTuple.get(tupleKey) ?? 0) + 1);
     }
 
-    const recoveryProbabilities: Record<string, number> = {};
-    for (const tupleKey of allTuples) {
-      const attempts = recoveryAttempts.byTuple.get(tupleKey) ?? 0;
-      const successes = recoverySuccesses.byTuple.get(tupleKey) ?? 0;
-      recoveryProbabilities[tupleKey] = attempts > 0 ? successes / attempts : -1;
+    if (fromState === 'RECOVERING' && toState === 'HEALTHY') {
+      recoverySuccesses.count++;
+      recoverySuccesses.byTuple.set(tupleKey, (recoverySuccesses.byTuple.get(tupleKey) ?? 0) + 1);
     }
 
-    const totalRecoveryAttempts = recoveryAttempts.count;
-    const totalRecoverySuccesses = recoverySuccesses.count;
-    const totalRecoveryFailures = recoveryFailures.count;
+    if (fromState === 'RECOVERING' && toState === 'UNHEALTHY') {
+      recoveryFailures.count++;
+      recoveryFailures.byTuple.set(tupleKey, (recoveryFailures.byTuple.get(tupleKey) ?? 0) + 1);
+    }
+  }
 
-    res.status(200).json({
-      success: true,
-      timestamp: Date.now(),
-      aggregate: {
-        totalRecoveryAttempts,
-        totalRecoverySuccesses,
-        totalRecoveryFailures,
-        successRate: totalRecoveryAttempts > 0 ? totalRecoverySuccesses / totalRecoveryAttempts : 0,
-      },
-      recoveryProbabilities,
-    });
+  const recoveryProbabilities: Record<string, number> = {};
+  for (const tupleKey of allTuples) {
+    const attempts = recoveryAttempts.byTuple.get(tupleKey) ?? 0;
+    const successes = recoverySuccesses.byTuple.get(tupleKey) ?? 0;
+    recoveryProbabilities[tupleKey] = attempts > 0 ? successes / attempts : -1;
+  }
+
+  const totalRecoveryAttempts = recoveryAttempts.count;
+  const totalRecoverySuccesses = recoverySuccesses.count;
+  const totalRecoveryFailures = recoveryFailures.count;
+
+  res.status(200).json({
+    success: true,
+    timestamp: Date.now(),
+    aggregate: {
+      totalRecoveryAttempts,
+      totalRecoverySuccesses,
+      totalRecoveryFailures,
+      successRate: totalRecoveryAttempts > 0 ? totalRecoverySuccesses / totalRecoveryAttempts : 0,
+    },
+    recoveryProbabilities,
+  });
   } catch (error) {
+    logger.error('getRecoveryTestMetrics failed', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({
+      success: false,
       error: 'Failed to get recovery test metrics',
-      details: formatError(error),
+      details: error instanceof Error ? error.message : String(error),
     });
   }
 }
@@ -191,60 +176,54 @@ export function getRecoveryTestMetrics(req: Request, res: Response): void {
  * list of recovery events with timestamps.
  */
 export function getBreakerRecoveryMetrics(req: Request, res: Response): void {
-  try {
-    const breakerName = decodeURIComponent(req.params.breakerName as string);
-    const wal = new WALStore(getOperationalStore());
+  const breakerName = decodeURIComponent(getRequiredParam(req, 'breakerName'));
+  const wal = new WALStore(getOperationalStore());
 
-    const events = wal.getEventsForTuple(breakerName);
+  const events = wal.getEventsForTuple(breakerName);
 
-    const recoveryEvents: Array<{
-      timestamp: number;
-      fromState: string;
-      toState: string;
-      eventType: string;
-      reason: string | null;
-    }> = [];
+  const recoveryEvents: Array<{
+    timestamp: number;
+    fromState: string;
+    toState: string;
+    eventType: string;
+    reason: string | null;
+  }> = [];
 
-    for (const event of events) {
-      const isRecoveryTransition =
-        (event.fromState === 'UNHEALTHY' && event.toState === 'RECOVERING') ||
-        (event.fromState === 'RECOVERING' && event.toState === 'HEALTHY') ||
-        (event.fromState === 'RECOVERING' && event.toState === 'UNHEALTHY');
+  for (const event of events) {
+    const isRecoveryTransition =
+      (event.fromState === 'UNHEALTHY' && event.toState === 'RECOVERING') ||
+      (event.fromState === 'RECOVERING' && event.toState === 'HEALTHY') ||
+      (event.fromState === 'RECOVERING' && event.toState === 'UNHEALTHY');
 
-      if (isRecoveryTransition) {
-        recoveryEvents.push({
-          timestamp: event.createdAt,
-          fromState: event.fromState ?? '',
-          toState: event.toState ?? '',
-          eventType: event.eventType,
-          reason: event.reason,
-        });
-      }
+    if (isRecoveryTransition) {
+      recoveryEvents.push({
+        timestamp: event.createdAt,
+        fromState: event.fromState ?? '',
+        toState: event.toState ?? '',
+        eventType: event.eventType,
+        reason: event.reason,
+      });
     }
-
-    const attempts = events.filter(
-      e => e.fromState === 'UNHEALTHY' && e.toState === 'RECOVERING'
-    ).length;
-    const successes = events.filter(
-      e => e.fromState === 'RECOVERING' && e.toState === 'HEALTHY'
-    ).length;
-    const probability = attempts > 0 ? successes / attempts : -1;
-
-    res.status(200).json({
-      success: true,
-      timestamp: Date.now(),
-      breakerName,
-      recoveryEvents,
-      recoveryProbability: probability,
-      totalRecoveryAttempts: attempts,
-      totalRecoverySuccesses: successes,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: 'Failed to get breaker recovery metrics',
-      details: formatError(error),
-    });
   }
+
+  const attempts = events.filter(
+    e => e.fromState === 'UNHEALTHY' && e.toState === 'RECOVERING'
+  ).length;
+  const successes = events.filter(
+    e => e.fromState === 'RECOVERING' && e.toState === 'HEALTHY'
+  ).length;
+  const probability = attempts > 0 ? successes / attempts : -1;
+
+  res.status(200).json({
+    success: true,
+    timestamp: Date.now(),
+    breakerName,
+    recoveryEvents,
+    recoveryProbability: probability,
+    totalRecoveryAttempts: attempts,
+    totalRecoverySuccesses: successes,
+  });
+
 }
 
 /**
@@ -252,46 +231,40 @@ export function getBreakerRecoveryMetrics(req: Request, res: Response): void {
  * GET /api/orchestrator/in-flight
  */
 export function getInFlight(req: Request, res: Response): void {
-  try {
-    const orchestrator = getOrchestratorInstance();
-    const inFlightManager = getInFlightManager();
+  const orchestrator = getOrchestratorInstance();
+  const inFlightManager = getInFlightManager();
 
-    const detailed = inFlightManager.getInFlightDetailed();
-    const streamingByServer = inFlightManager.getStreamingRequestsByServer();
-    const servers = orchestrator.getServers();
+  const detailed = inFlightManager.getInFlightDetailed();
+  const streamingByServer = inFlightManager.getStreamingRequestsByServer();
+  const servers = orchestrator.getServers();
 
-    // Build a map of serverId -> server metadata for quick lookup
-    const serverMap = new Map(servers.map(s => [s.id, s]));
+  // Build a map of serverId -> server metadata for quick lookup
+  const serverMap = new Map(servers.map(s => [s.id, s]));
 
-    // Collect all active server IDs (from in-flight + streaming)
-    const activeServerIds = new Set<string>([
-      ...Object.keys(detailed),
-      ...Object.keys(streamingByServer),
-    ]);
+  // Collect all active server IDs (from in-flight + streaming)
+  const activeServerIds = new Set<string>([
+    ...Object.keys(detailed),
+    ...Object.keys(streamingByServer),
+  ]);
 
-    let total = 0;
-    const inFlight = Array.from(activeServerIds).map(serverId => {
-      const serverInfo = serverMap.get(serverId);
-      const perServer = detailed[serverId] ?? { total: 0, byModel: {} };
-      const streaming = streamingByServer[serverId] ?? [];
-      total += perServer.total;
-      return {
-        serverId,
-        serverUrl: serverInfo?.url,
-        healthy: serverInfo?.healthy ?? false,
-        total: perServer.total,
-        byModel: perServer.byModel,
-        streamingRequests: streaming,
-      };
-    });
+  let total = 0;
+  const inFlight = Array.from(activeServerIds).map(serverId => {
+    const serverInfo = serverMap.get(serverId);
+    const perServer = detailed[serverId] ?? { total: 0, byModel: {} };
+    const streaming = streamingByServer[serverId] ?? [];
+    total += perServer.total;
+    return {
+      serverId,
+      serverUrl: serverInfo?.url,
+      healthy: serverInfo?.healthy ?? false,
+      total: perServer.total,
+      byModel: perServer.byModel,
+      streamingRequests: streaming,
+    };
+  });
 
-    res.status(200).json({ total, inFlight });
-  } catch (error) {
-    res.status(500).json({
-      error: 'Failed to get in-flight requests',
-      details: formatError(error),
-    });
-  }
+  res.status(200).json({ total, inFlight });
+
 }
 
 /**
@@ -336,6 +309,7 @@ export function streamMetrics(req: Request, res: Response): void {
   const orchestrator = getOrchestratorInstance();
   const inFlightManager = getInFlightManager();
   let isClosed = false;
+  let sequence = 0;
 
   const sendUpdate = () => {
     if (isClosed) {
@@ -393,8 +367,15 @@ export function streamMetrics(req: Request, res: Response): void {
         };
       });
 
+      const circuitBreakerDetails: Record<string, object> = {};
+      for (const [key, state] of circuitBreakers) {
+        circuitBreakerDetails[key] = state;
+      }
+
       const data = JSON.stringify({
         type: 'metrics',
+        schemaVersion: '1',
+        sequence: sequence++,
         timestamp: Date.now(),
         stats,
         metrics: { timestamp: metrics.timestamp, global: metrics.global },
@@ -402,6 +383,7 @@ export function streamMetrics(req: Request, res: Response): void {
         servers: serversData,
         modelMap: { modelToServers: modelMap, serverToModels },
         inFlight: { total: totalInFlight, inFlight },
+        circuitBreakerDetails,
       });
 
       res.write(`data: ${data}\n\n`);

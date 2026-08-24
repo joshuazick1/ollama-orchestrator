@@ -1,8 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { subscribeLiveEvents, type LiveUpdateMessage } from './liveEventBus';
 
 interface ServerEvent {
   type: 'metrics';
+  schemaVersion?: string;
+  sequence?: number;
   timestamp: number;
   stats: {
     totalServers: number;
@@ -56,30 +59,53 @@ interface ServerEvent {
       }>;
     }>;
   };
+  /** Rich circuit-breaker state map (added in schemaVersion '1'). */
+  circuitBreakerDetails?: Record<string, {
+    state: string;
+    consecutiveSuccesses: number;
+    consecutiveFailures: number;
+    errorWindow: number[];
+    lastTransition: number;
+    lastProbeAt: number;
+    nextProbeAt: number;
+    recoveryAttempts: number;
+    lastErrorKind?: string;
+  }>;
+}
+
+function isMetricsEvent(message: LiveUpdateMessage): message is LiveUpdateMessage & { payload: ServerEvent } {
+  return (message.payload as unknown as ServerEvent)?.type === 'metrics';
 }
 
 export function useServerEvents() {
   const queryClient = useQueryClient();
-  const eventSourceRef = useRef<EventSource | null>(null);
 
   const handleEvent = useCallback(
-    (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data) as ServerEvent;
+    (message: LiveUpdateMessage) => {
+      if (!isMetricsEvent(message)) return;
 
-        if (data.type === 'metrics') {
-          queryClient.setQueryData(['stats'], { stats: data.stats });
-          queryClient.setQueryData(['metrics'], {
-            timestamp: data.metrics.timestamp,
-            global: data.metrics.global,
+      try {
+        const data = message.payload as unknown as ServerEvent;
+
+        queryClient.setQueryData(['stats'], { stats: data.stats });
+        queryClient.setQueryData(['metrics'], (old: { timestamp?: number; global?: object } | undefined) => ({
+          ...(old ?? {}),
+          timestamp: data.metrics.timestamp,
+          global: data.metrics.global,
+        }));
+        if (data.circuitBreakerDetails) {
+          queryClient.setQueryData(['circuitBreakers'], {
+            circuitBreakers: data.circuitBreakers,
+            details: data.circuitBreakerDetails,
           });
+        } else {
           queryClient.setQueryData(['circuitBreakers'], {
             circuitBreakers: data.circuitBreakers,
           });
-          queryClient.setQueryData(['servers'], data.servers);
-          queryClient.setQueryData(['modelMap'], data.modelMap.modelToServers);
-          queryClient.setQueryData(['in-flight'], data.inFlight);
         }
+        queryClient.setQueryData(['servers'], data.servers);
+        queryClient.setQueryData(['modelMap'], data.modelMap.modelToServers);
+        queryClient.setQueryData(['in-flight'], data.inFlight);
       } catch (error) {
         console.error('Failed to parse server event:', error);
       }
@@ -87,27 +113,7 @@ export function useServerEvents() {
     [queryClient]
   );
 
-  useEffect(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-
-    const eventSource = new EventSource('/api/orchestrator/events');
-    eventSourceRef.current = eventSource;
-
-    eventSource.onmessage = handleEvent;
-
-    eventSource.onerror = () => {
-      console.error('SSE connection error, closing...');
-      eventSource.close();
-      eventSourceRef.current = null;
-    };
-
-    return () => {
-      eventSource.close();
-      eventSourceRef.current = null;
-    };
-  }, [handleEvent]);
+  useEffect(() => subscribeLiveEvents({ onMessage: handleEvent }), [handleEvent]);
 
   return null;
 }

@@ -5,16 +5,13 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$REPO_ROOT/src/orchestrator/orchestrator.types.ts"
+SRC_DIR="$REPO_ROOT/src"
 DEST_DIR="$REPO_ROOT/frontend/src/types/generated"
-DEST="$DEST_DIR/orchestrator.types.ts"
-
 mkdir -p "$DEST_DIR"
 
-# Write header, inline-redefine any types that come from backend-only relative
-# imports, then dump the source with those imports stripped. Keeping the bodies
-# of the file unmodified means backend and frontend stay structurally identical
-# for review, with the only divergence being the inlined type aliases at the top.
+# ── orchestrator.types.ts ────────────────────────────────────────────────────
+SRC="$SRC_DIR/orchestrator/orchestrator.types.ts"
+DEST="$DEST_DIR/orchestrator.types.ts"
 {
   echo "// AUTO-GENERATED — do not edit. Run scripts/sync-types.sh to update."
   echo ""
@@ -35,5 +32,50 @@ export type ProbeEndpoint =
 EOF
   grep -vE "^import .* from ['\"]\\.\\.?/" "$SRC"
 } > "$DEST"
+echo "✓ Synced $SRC → $DEST"
 
+# ── runtime-snapshot.ts ─────────────────────────────────────────────────────
+SRC="$SRC_DIR/types/runtime-snapshot.ts"
+DEST="$DEST_DIR/runtime-snapshot.ts"
+{
+  echo "// AUTO-GENERATED — do not edit. Run scripts/sync-types.sh to update."
+  echo ""
+  cat <<'EOF'
+/**
+ * Frontend-side mirror of backend-only types referenced by runtime-snapshot.ts.
+ * Keep these aligned with the source-of-truth in src/**\/*.ts.
+ */
+
+/** Maps serverId:model:endpoint → circuit-breaker state (backend probe system). */
+export type TupleKey = string;
+
+/** Probe state machine states. */
+export type ProbeState = 'HEALTHY' | 'SUSPECT' | 'UNHEALTHY' | 'RECOVERING';
+
+/** Failure kind classification (partial — add remaining variants as needed). */
+export type FailureKind =
+  | 'timeout'
+  | 'network'
+  | 'server'
+  | 'rate_limit'
+  | 'model_not_found'
+  | 'invalid_response'
+  | 'unknown';
+
+/** Rich per-tuple circuit-breaker state (mirrors backend TupleState). */
+export interface TupleState {
+  state: ProbeState;
+  consecutiveSuccesses: number;
+  consecutiveFailures: number;
+  errorWindow: number[];
+  lastTransition: number;
+  lastProbeAt: number;
+  nextProbeAt: number;
+  recoveryAttempts: number;
+  lastErrorKind?: FailureKind;
+}
+
+EOF
+  grep -vE "^import .* from ['\"]\\.\\.?/" "$SRC"
+} > "$DEST"
 echo "✓ Synced $SRC → $DEST"
