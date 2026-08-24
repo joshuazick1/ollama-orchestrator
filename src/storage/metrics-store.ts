@@ -22,7 +22,7 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
-import type { RequestContext } from '../orchestrator/orchestrator.types.js';
+import type { MetricsScope, RequestContext } from '../orchestrator/orchestrator.types.js';
 import { logger } from '../utils/logger.js';
 
 import { applySchema } from './schema.js';
@@ -56,6 +56,8 @@ interface BufferedRequest {
 }
 
 interface BufferedDecision {
+  id: string;
+  requestId?: string;
   timestamp: number;
   model: string;
   selectedServerId: string;
@@ -352,6 +354,11 @@ export class MetricsStore {
     return this.stmts.getRequestsByParent.all(parentId) as RequestRow[];
   }
 
+  getRequestsByDecisionId(decisionId: string, options?: { limit?: number }): RequestRow[] {
+    const limit = options?.limit ?? 100;
+    return this.stmts.getRequestsByDecisionId.all(decisionId, limit) as RequestRow[];
+  }
+
   getRequestStats(serverId?: string, model?: string, since?: number): RequestStats {
     const cutoff = since ?? Date.now() - 86_400_000;
     const params: (string | number)[] = [cutoff];
@@ -583,8 +590,19 @@ export class MetricsStore {
     serverId: string,
     model: string,
     hourOfDay: number,
-    dayOfWeek: number
+    dayOfWeek: number,
+    scope: MetricsScope = 'organic'
   ): TemporalProfileRow | null {
+    if (scope === 'probe') {
+      return (
+        (this.db
+          .prepare(
+            'SELECT * FROM temporal_profiles WHERE server_id = ? AND model = ? AND hour_of_day = ? AND day_of_week = ? AND profile_type = ?'
+          )
+          .get(serverId, model, hourOfDay, dayOfWeek, 'probe') as TemporalProfileRow | undefined) ??
+        null
+      );
+    }
     return (
       (this.stmts.getProfile.get(serverId, model, hourOfDay, dayOfWeek) as
         | TemporalProfileRow
@@ -620,6 +638,7 @@ export class MetricsStore {
           max_chunk_gap_ms, avg_chunk_size,
           eval_duration, prompt_eval_duration, total_duration, load_duration,
           is_cold_start, queue_wait_ms, is_probe,
+          decision_id,
           hour_of_day, day_of_week, date_str
         ) VALUES (
           ?, ?, ?, ?,
@@ -630,6 +649,7 @@ export class MetricsStore {
           ?, ?,
           ?, ?, ?, ?,
           ?, ?, ?,
+          ?,
           ?, ?, ?
         )
       `),
@@ -641,6 +661,7 @@ export class MetricsStore {
           total_score, latency_score, success_rate_score, load_score,
           capacity_score, cb_score, timeout_score, throughput_score, vram_score,
           p95_latency, success_rate, in_flight, throughput,
+          request_id,
           hour_of_day, day_of_week
         ) VALUES (
           ?, ?, ?, ?,
@@ -648,6 +669,7 @@ export class MetricsStore {
           ?, ?, ?, ?,
           ?, ?, ?, ?, ?,
           ?, ?, ?, ?,
+          ?,
           ?, ?
         )
       `),
@@ -677,6 +699,10 @@ export class MetricsStore {
 
       getRequestsByParent: this.db.prepare(
         'SELECT * FROM requests WHERE parent_request_id = ? ORDER BY timestamp ASC'
+      ),
+
+      getRequestsByDecisionId: this.db.prepare(
+        'SELECT * FROM requests WHERE decision_id = ? ORDER BY timestamp ASC LIMIT ?'
       ),
 
       getProfile: this.db.prepare(
@@ -740,6 +766,7 @@ export class MetricsStore {
             c.isColdStart ? 1 : 0,
             queueWaitMs ?? null,
             (isProbe ?? c.isProbe) ? 1 : 0,
+            c.decisionId ?? null,
             utcHourOfDay(ts),
             utcDayOfWeek(ts),
             utcDateStr(ts)
@@ -768,6 +795,7 @@ export class MetricsStore {
             winner?.successRate ?? null,
             winner?.inFlight ?? null,
             winner?.throughput ?? null,
+            d.requestId ?? null,
             utcHourOfDay(d.timestamp),
             utcDayOfWeek(d.timestamp)
           );
@@ -850,7 +878,7 @@ export class MetricsStore {
 
     for (const hourStart of toCompute) {
       this.pendingRollupHours.delete(hourStart);
-      this.computeHourlyRollup(hourStart);
+      this.computeHourlyRollup(hourStart, 'organic');
     }
 
     // Reschedule check if there are still pending rollups
@@ -860,7 +888,7 @@ export class MetricsStore {
     }
   }
 
-  computeHourlyRollup(hourStart: number): void {
+  computeHourlyRollup(hourStart: number, _scope: MetricsScope = 'organic'): void {
     const hourEnd = hourStart + 3_600_000;
     const hourOfDay = utcHourOfDay(hourStart);
     const dayOfWeek = utcDayOfWeek(hourStart);
@@ -917,7 +945,7 @@ export class MetricsStore {
         const groups = this.db
           .prepare(
             `SELECT DISTINCT server_id, model FROM requests
-             WHERE timestamp >= ? AND timestamp < ?`
+             WHERE timestamp >= ? AND timestamp < ? AND is_probe = 0`
           )
           .all(hourStart, hourEnd) as Array<{ server_id: string; model: string }>;
 
@@ -947,8 +975,9 @@ export class MetricsStore {
         .prepare(
           `SELECT duration_ms FROM requests
            WHERE server_id = ? AND model = ?
-             AND timestamp >= ? AND timestamp < ?
-             AND duration_ms IS NOT NULL
+              AND timestamp >= ? AND timestamp < ?
+              AND is_probe = 0
+              AND duration_ms IS NOT NULL
            ORDER BY duration_ms`
         )
         .all(serverId, model, hourStart, hourEnd) as Array<{ duration_ms: number }>
@@ -959,8 +988,9 @@ export class MetricsStore {
         .prepare(
           `SELECT ttft_ms FROM requests
            WHERE server_id = ? AND model = ?
-             AND timestamp >= ? AND timestamp < ?
-             AND ttft_ms IS NOT NULL
+              AND timestamp >= ? AND timestamp < ?
+              AND is_probe = 0
+              AND ttft_ms IS NOT NULL
            ORDER BY ttft_ms`
         )
         .all(serverId, model, hourStart, hourEnd) as Array<{ ttft_ms: number }>
@@ -985,7 +1015,7 @@ export class MetricsStore {
       );
   }
 
-  computeDailyRollup(dateStr: string): void {
+  computeDailyRollup(dateStr: string, _scope: MetricsScope = 'organic'): void {
     // Aggregate from hourly rollups for the given date
     const dayOfWeek = utcDayOfWeek(new Date(dateStr + 'T00:00:00Z').getTime());
 
@@ -1243,7 +1273,7 @@ export class MetricsStore {
         const prevDate = utcDateStr(Date.now() - 86_400_000);
         if (utcHourOfDay(Date.now()) === 1) {
           // ~1 AM UTC — yesterday's data is complete
-          this.computeDailyRollup(prevDate);
+          this.computeDailyRollup(prevDate, 'organic');
           logger.info(`[MetricsStore] Triggered daily rollup for ${prevDate}`);
         }
         lastScheduledHour = currentHour;

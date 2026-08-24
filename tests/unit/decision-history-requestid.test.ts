@@ -111,5 +111,22 @@ describe('DecisionHistory requestId', () => {
       expect(eventWithoutReq).toBeDefined();
       expect(eventWithoutReq?.selectionReason).toBe('best_score');
     });
+
+    it('should pass requestId through to MetricsStore.recordDecision', async () => {
+      const mod = vi.mocked(await import('../../src/storage/metrics-store.js'));
+      const requestId = 'test-req-xyz-789';
+      history.recordDecision(
+        'llama3:latest',
+        mockServer,
+        'weighted',
+        mockScores,
+        'best_score',
+        requestId
+      );
+      const calls = mod._mockStore.recordDecision.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const lastCall = calls[calls.length - 1][0] as { requestId?: string };
+      expect(lastCall.requestId).toBe(requestId);
+    });
   });
 });

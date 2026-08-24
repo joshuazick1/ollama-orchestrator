@@ -71,6 +71,33 @@ describe('DecisionHistory', () => {
       history.recordDecision('llama2:latest', mockServer, 'round-robin', mockScores);
       expect(history.getEventCount()).toBe(2);
     });
+
+    it('should return DecisionEvent with stable id field', () => {
+      const returned = history.recordDecision(
+        'llama3:latest',
+        mockServer,
+        'weighted',
+        mockScores,
+        'best_score',
+        'req-abc-123'
+      );
+      expect(returned).not.toBeUndefined();
+      expect(typeof returned.id).toBe('string');
+      expect(returned.id.length).toBeGreaterThan(0);
+      const events = history.getRecentEvents(1);
+      expect(events[0].id).toBe(returned.id);
+    });
+
+    it('should generate unique ids for each decision', () => {
+      const returned1 = history.recordDecision('llama3:latest', mockServer, 'weighted', mockScores);
+      const returned2 = history.recordDecision(
+        'llama2:latest',
+        mockServer,
+        'round-robin',
+        mockScores
+      );
+      expect(returned1.id).not.toBe(returned2.id);
+    });
   });
 
   describe('getRecentEvents', () => {

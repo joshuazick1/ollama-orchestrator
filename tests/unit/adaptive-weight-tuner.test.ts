@@ -66,9 +66,14 @@ interface MockLoadBalancer {
   updateConfig: ReturnType<typeof vi.fn>;
 }
 
+interface MockMetricsStore {
+  getRequestsByDecisionId: ReturnType<typeof vi.fn>;
+}
+
 function createMocks(): {
   history: MockDecisionHistory;
   lb: MockLoadBalancer;
+  metricsStore: MockMetricsStore;
 } {
   return {
     history: {
@@ -77,6 +82,9 @@ function createMocks(): {
     },
     lb: {
       updateConfig: vi.fn(),
+    },
+    metricsStore: {
+      getRequestsByDecisionId: vi.fn().mockReturnValue([]),
     },
   };
 }
@@ -112,7 +120,9 @@ describe('AdaptiveWeightTuner', () => {
     return new AdaptiveWeightTuner(
       { ...BASE_CONFIG, ...configOverride },
       () => mocks.history as unknown as import('../../src/decision-history.js').DecisionHistory,
-      () => mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer
+      () => mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer,
+      () =>
+        mocks.metricsStore as unknown as import('../../src/storage/metrics-store.js').MetricsStore
     );
   }
 
@@ -650,7 +660,10 @@ describe('AdaptiveWeightTuner', () => {
       const t1 = getAdaptiveWeightTuner(
         BASE_CONFIG,
         () => mocks.history as unknown as import('../../src/decision-history.js').DecisionHistory,
-        () => mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer
+        () =>
+          mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer,
+        () =>
+          mocks.metricsStore as unknown as import('../../src/storage/metrics-store.js').MetricsStore
       );
       const t2 = getAdaptiveWeightTuner();
       expect(t1).toBe(t2);
@@ -658,7 +671,7 @@ describe('AdaptiveWeightTuner', () => {
 
     it('throws when first call lacks factory functions', () => {
       expect(() => getAdaptiveWeightTuner({})).toThrow(
-        'getDecisionHistory and getLoadBalancer are required on first call'
+        'getDecisionHistory, getLoadBalancer, and getMetricsStore are required on first call'
       );
     });
 
@@ -666,13 +679,19 @@ describe('AdaptiveWeightTuner', () => {
       const t1 = getAdaptiveWeightTuner(
         BASE_CONFIG,
         () => mocks.history as unknown as import('../../src/decision-history.js').DecisionHistory,
-        () => mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer
+        () =>
+          mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer,
+        () =>
+          mocks.metricsStore as unknown as import('../../src/storage/metrics-store.js').MetricsStore
       );
       resetAdaptiveWeightTuner();
       const t2 = getAdaptiveWeightTuner(
         BASE_CONFIG,
         () => mocks.history as unknown as import('../../src/decision-history.js').DecisionHistory,
-        () => mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer
+        () =>
+          mocks.lb as unknown as import('../../src/load-balancer/load-balancer.js').LoadBalancer,
+        () =>
+          mocks.metricsStore as unknown as import('../../src/storage/metrics-store.js').MetricsStore
       );
       expect(t1).not.toBe(t2);
     });
@@ -762,6 +781,115 @@ describe('AdaptiveWeightTuner', () => {
       expect(result).toBeDefined();
       expect(result!.timestamp).toBeDefined();
       expect(result!.reason).toBe('insufficient_samples');
+    });
+  });
+
+  describe('tune() — getRequestsByDecisionId direct correlation', () => {
+    it('prefers getRequestsByDecisionId over failover heuristic when decisionId is present', () => {
+      const now = Date.now();
+      const decId = 'dec-direct-001';
+      // Decision with low scores — correlated via decisionId as failure (success: 0)
+      const badDecision = makeDecision({
+        id: decId,
+        timestamp: now - 500,
+        model: 'llama3',
+        breakdown: { latencyScore: 0.2, successRateScore: 0.2, loadScore: 0.2, capacityScore: 0.2 },
+      });
+      // Legacy decision with high scores — no correlation data, no failover match → assumed good
+      const goodDecision = makeDecision({
+        id: 'dec-legacy',
+        timestamp: now - 400,
+        model: 'llama3',
+        breakdown: { latencyScore: 0.9, successRateScore: 0.9, loadScore: 0.9, capacityScore: 0.9 },
+      });
+      const decisions = [badDecision, goodDecision];
+
+      mocks.history.getRecentEvents.mockReturnValue(decisions);
+      mocks.history.getRecentFailoverAttempts.mockReturnValue([]);
+
+      mocks.metricsStore.getRequestsByDecisionId.mockImplementation((id: string) => {
+        if (id === decId) {
+          return [
+            { id: 'req-1', decision_id: decId, success: 0, timestamp: now - 300 },
+          ] as unknown as import('../../src/storage/types.js').RequestRow[];
+        }
+        return [] as unknown as import('../../src/storage/types.js').RequestRow[];
+      });
+
+      const tuner = createTuner({ minSamplesForTuning: 1 });
+      tuner.tune();
+
+      const result = tuner.getLastTuningResult()!;
+      expect(result.reason).toBe('weights_adjusted');
+      // Bad: low latency (0.2), Good: high latency (0.9) → avgGood(0.9) - avgBad(0.2) = 0.7 → positive delta
+      expect(result.adjustments.latency).toBeGreaterThan(0);
+    });
+
+    it('falls back to getRecentFailoverAttempts when getRequestsByDecisionId returns empty', () => {
+      const now = Date.now();
+      const decId = 'dec-no-correlation';
+      // Decision with no matching correlation data and no matching failover (different model)
+      const decisions = [
+        makeDecision({
+          id: decId,
+          timestamp: now - 500,
+          model: 'llama3',
+          breakdown: {
+            latencyScore: 0.1,
+            successRateScore: 0.1,
+            loadScore: 0.1,
+            capacityScore: 0.1,
+          },
+        }),
+      ];
+
+      mocks.history.getRecentEvents.mockReturnValue(decisions);
+      mocks.history.getRecentFailoverAttempts.mockReturnValue([
+        makeFailover({
+          timestamp: now - 200,
+          model: 'different-model',
+          serverId: 'srv-1',
+          result: 'failure',
+        }),
+      ]);
+      mocks.metricsStore.getRequestsByDecisionId.mockReturnValue([]);
+
+      const tuner = createTuner({ minSamplesForTuning: 1 });
+      tuner.tune();
+
+      const result = tuner.getLastTuningResult()!;
+      expect(result.reason).toBe('weights_adjusted');
+    });
+
+    it('uses decisionId from DecisionEvent when available', () => {
+      const now = Date.now();
+      const decId = 'dec-id-abc';
+      const decisions = [
+        makeDecision({
+          id: decId,
+          timestamp: now,
+          model: 'mistral',
+          breakdown: {
+            latencyScore: 0.5,
+            successRateScore: 0.5,
+            loadScore: 0.5,
+            capacityScore: 0.5,
+          },
+        }),
+      ];
+
+      mocks.history.getRecentEvents.mockReturnValue(decisions);
+      mocks.history.getRecentFailoverAttempts.mockReturnValue([]);
+      mocks.metricsStore.getRequestsByDecisionId.mockReturnValue([
+        { id: 'req-x', decision_id: decId, success: 1, timestamp: now + 100 },
+      ] as unknown as import('../../src/storage/types.js').RequestRow[]);
+
+      const tuner = createTuner({ minSamplesForTuning: 1 });
+      tuner.tune();
+
+      expect(mocks.metricsStore.getRequestsByDecisionId).toHaveBeenCalledWith(decId);
+      const result = tuner.getLastTuningResult()!;
+      expect(result.reason).toBe('weights_adjusted');
     });
   });
 });

@@ -8,7 +8,7 @@
 
 import type Database from 'better-sqlite3';
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 /**
  * All DDL statements for schema version 1.
@@ -488,6 +488,19 @@ ALTER TABLE decision_candidates ADD COLUMN throughput_score REAL;
 ALTER TABLE decision_candidates ADD COLUMN vram_score REAL;
 `;
 
+export const SCHEMA_V8_MIGRATION = `SELECT 1;`;
+
+export const SCHEMA_V9_MIGRATION = `
+ALTER TABLE decisions ADD COLUMN request_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_decisions_request_id
+  ON decisions (request_id)
+  WHERE request_id IS NOT NULL;
+ALTER TABLE requests ADD COLUMN decision_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_requests_decision_id
+  ON requests (decision_id)
+  WHERE decision_id IS NOT NULL;
+`;
+
 export const SCHEMA_V7_MIGRATION = `
 -- ============================================================
 -- V7: Add probe_state table for direct probe state persistence
@@ -551,6 +564,8 @@ export const MIGRATIONS: Record<number, string> = {
   5: SCHEMA_V5_MIGRATION,
   6: SCHEMA_V6_MIGRATION,
   7: SCHEMA_V7_MIGRATION,
+  8: 'SELECT 1;', // placeholder — no-op
+  9: SCHEMA_V9_MIGRATION,
 };
 
 /**

@@ -59,6 +59,7 @@ export interface RequestRow {
 
   is_probe: number; // 0 or 1
 
+  decision_id: string | null;
   hour_of_day: number;
   day_of_week: number;
   date_str: string;
@@ -88,6 +89,7 @@ export interface DecisionRow {
   in_flight: number | null;
   throughput: number | null;
 
+  request_id: string | null;
   hour_of_day: number;
   day_of_week: number;
 }

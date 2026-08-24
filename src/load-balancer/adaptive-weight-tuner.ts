@@ -4,6 +4,7 @@
  */
 
 import type { DecisionHistory, DecisionEvent, FailoverAttempt } from '../decision-history.js';
+import type { MetricsStore } from '../storage/metrics-store.js';
 import { logger } from '../utils/logger.js';
 
 import type { LoadBalancerConfig } from './load-balancer.js';
@@ -51,6 +52,7 @@ export class AdaptiveWeightTuner {
   private config: AdaptiveWeightTunerConfig;
   private getDecisionHistory: () => DecisionHistory;
   private getLoadBalancer: () => LoadBalancer;
+  private getMetricsStore: () => MetricsStore;
   private intervalHandle?: NodeJS.Timeout;
   private lastTuningResult?: TuningResult;
   // Track current weights for the 4 tunable dims (start from LB defaults)
@@ -64,11 +66,13 @@ export class AdaptiveWeightTuner {
   constructor(
     config: Partial<AdaptiveWeightTunerConfig>,
     getDecisionHistory: () => DecisionHistory,
-    getLoadBalancer: () => LoadBalancer
+    getLoadBalancer: () => LoadBalancer,
+    getMetricsStore: () => MetricsStore
   ) {
     this.config = { ...DEFAULT_TUNER_CONFIG, ...config };
     this.getDecisionHistory = getDecisionHistory;
     this.getLoadBalancer = getLoadBalancer;
+    this.getMetricsStore = getMetricsStore;
   }
 
   isEnabled(): boolean {
@@ -130,8 +134,10 @@ export class AdaptiveWeightTuner {
       return;
     }
 
-    // Step 4: Correlate decisions with failover outcomes
-    // For each decision, find a matching failover attempt by model+serverId within CORRELATION_WINDOW_MS
+    // Step 4: Correlate decisions with outcomes
+    // Prefer direct correlation via getRequestsByDecisionId when decision.id is a real UUID.
+    // Fall back to failover heuristic (model+server+proximity) for legacy decisions
+    // whose ids are the SQLite row-derived "row-N" format.
     const goodBreakdowns: Array<Record<TunableDim, number>> = [];
     const badBreakdowns: Array<Record<TunableDim, number>> = [];
 
@@ -143,17 +149,32 @@ export class AdaptiveWeightTuner {
         continue;
       }
 
-      const matchingFailover = findMatchingFailover(decision, failovers, CORRELATION_WINDOW_MS);
+      const isLegacyDecision = !decision.id || decision.id.startsWith('row-');
+      let outcome: 'good' | 'bad' | 'unknown' = 'unknown';
 
-      if (!matchingFailover) {
-        // No failover recorded → assume success (common case: request completed normally)
-        goodBreakdowns.push(breakdownToRecord(selectedCandidate.breakdown));
-        continue;
+      if (!isLegacyDecision) {
+        const requests = this.getMetricsStore().getRequestsByDecisionId(decision.id);
+        if (requests.length > 0) {
+          const allSuccess = requests.every(r => r.success === 1);
+          const anyFailure = requests.some(r => r.success === 0);
+          outcome = anyFailure ? 'bad' : allSuccess ? 'good' : 'unknown';
+        }
       }
 
-      if (matchingFailover.result === 'failure') {
+      if (outcome === 'unknown') {
+        const matchingFailover = findMatchingFailover(decision, failovers, CORRELATION_WINDOW_MS);
+        if (!matchingFailover) {
+          outcome = 'good';
+        } else if (matchingFailover.result === 'failure') {
+          outcome = 'bad';
+        } else {
+          outcome = 'good';
+        }
+      }
+
+      if (outcome === 'bad') {
         badBreakdowns.push(breakdownToRecord(selectedCandidate.breakdown));
-      } else if (matchingFailover.result === 'success') {
+      } else if (outcome === 'good') {
         goodBreakdowns.push(breakdownToRecord(selectedCandidate.breakdown));
       }
     }
@@ -289,15 +310,21 @@ let instance: AdaptiveWeightTuner | null = null;
 export function getAdaptiveWeightTuner(
   config?: Partial<AdaptiveWeightTunerConfig>,
   getDecisionHistory?: () => DecisionHistory,
-  getLoadBalancer?: () => LoadBalancer
+  getLoadBalancer?: () => LoadBalancer,
+  getMetricsStore?: () => MetricsStore
 ): AdaptiveWeightTuner {
   if (!instance) {
-    if (!getDecisionHistory || !getLoadBalancer) {
+    if (!getDecisionHistory || !getLoadBalancer || !getMetricsStore) {
       throw new Error(
-        'AdaptiveWeightTuner: getDecisionHistory and getLoadBalancer are required on first call'
+        'AdaptiveWeightTuner: getDecisionHistory, getLoadBalancer, and getMetricsStore are required on first call'
       );
     }
-    instance = new AdaptiveWeightTuner(config ?? {}, getDecisionHistory, getLoadBalancer);
+    instance = new AdaptiveWeightTuner(
+      config ?? {},
+      getDecisionHistory,
+      getLoadBalancer,
+      getMetricsStore
+    );
   }
   return instance;
 }

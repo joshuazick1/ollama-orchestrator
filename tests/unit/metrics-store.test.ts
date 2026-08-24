@@ -278,6 +278,127 @@ describe('MetricsStore — decision recording', () => {
 
     s.close();
   });
+
+  it('recordDecision accepts and persists requestId in decisions table', () => {
+    const s = makeStore({ performance: { batchSize: 1 } });
+    const ts = Date.now();
+
+    s.recordDecision({
+      timestamp: ts,
+      model: 'llama3.2',
+      selectedServerId: 'srv-a',
+      algorithm: 'weighted',
+      selectionReason: 'best_score',
+      requestId: 'parent-req-555',
+      candidates: [
+        {
+          serverId: 'srv-a',
+          totalScore: 0.9,
+          latencyScore: 0.85,
+          successRateScore: 0.95,
+          loadScore: 0.8,
+          capacityScore: 0.9,
+        },
+      ],
+    });
+
+    const decisions = s.getDecisions({ model: 'llama3.2' });
+    expect(decisions.length).toBe(1);
+    const [dec] = decisions;
+    expect((dec as Record<string, unknown>).request_id).toBe('parent-req-555');
+
+    s.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRequestsByDecisionId
+// ---------------------------------------------------------------------------
+
+describe('MetricsStore — getRequestsByDecisionId', () => {
+  it('returns requests matching the given decisionId ordered by timestamp ASC', () => {
+    const s = makeStore({ performance: { batchSize: 1 } });
+    const decId = 'dec-abc-123';
+    const ts = Date.now();
+
+    s.recordRequest(
+      makeContext({ id: 'req-3', decisionId: decId, serverId: 'srv-a', startTime: ts + 200 })
+    );
+    s.recordRequest(
+      makeContext({ id: 'req-1', decisionId: decId, serverId: 'srv-a', startTime: ts })
+    );
+    s.recordRequest(
+      makeContext({ id: 'req-2', decisionId: decId, serverId: 'srv-b', startTime: ts + 100 })
+    );
+    s.recordRequest(
+      makeContext({ id: 'req-other', decisionId: 'dec-other', serverId: 'srv-a', startTime: ts })
+    );
+
+    const rows = s.getRequestsByDecisionId(decId);
+    expect(rows).toHaveLength(3);
+    expect(rows[0].id).toBe('req-1');
+    expect(rows[1].id).toBe('req-2');
+    expect(rows[2].id).toBe('req-3');
+
+    s.close();
+  });
+
+  it('returns empty array when no requests match the decisionId', () => {
+    const s = makeStore({ performance: { batchSize: 1 } });
+    const rows = s.getRequestsByDecisionId('dec-nonexistent');
+    expect(rows).toHaveLength(0);
+    s.close();
+  });
+
+  it('getRequestsByDecisionId respects limit option', () => {
+    const s = makeStore({ performance: { batchSize: 1 } });
+    const decId = 'dec-limited';
+
+    for (let i = 0; i < 5; i++) {
+      s.recordRequest(
+        makeContext({ id: `req-${i}`, decisionId: decId, startTime: Date.now() + i * 10 })
+      );
+    }
+
+    const rows = s.getRequestsByDecisionId(decId, { limit: 2 });
+    expect(rows).toHaveLength(2);
+
+    s.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Request decisionId persistence
+// ---------------------------------------------------------------------------
+
+describe('MetricsStore — request decisionId persistence', () => {
+  it('persists decisionId from RequestContext into requests.decision_id', () => {
+    const s = makeStore({ performance: { batchSize: 1 } });
+    const ctx = makeContext({
+      id: 'req-with-decision',
+      decisionId: 'dec-persist-999',
+      success: true,
+    });
+
+    s.recordRequest(ctx);
+
+    const row = s.getRequestById('req-with-decision') as Record<string, unknown> | null;
+    expect(row).not.toBeNull();
+    expect(row?.decision_id).toBe('dec-persist-999');
+    s.close();
+  });
+
+  it('request without decisionId has NULL decision_id', () => {
+    const s = makeStore({ performance: { batchSize: 1 } });
+    const ctx = makeContext({ id: 'req-no-decision', success: true });
+
+    s.recordRequest(ctx);
+
+    const row = s.getRequestById('req-no-decision') as Record<string, unknown> | null;
+    expect(row).not.toBeNull();
+    expect(row?.decision_id).toBeNull();
+    s.close();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -397,6 +518,44 @@ describe('MetricsStore — hourly rollup', () => {
     expect(r.errors_oom).toBe(1);
     expect(r.latency_p50).not.toBeNull();
     expect(r.latency_p95).not.toBeNull();
+
+    s.close();
+  });
+
+  it('excludes probe outcomes from the organic hourly rollup and its percentiles', () => {
+    const s = makeStore({ performance: { batchSize: 100 } });
+    const hourStart = Math.floor(Date.now() / 3_600_000) * 3_600_000 - 3_600_000;
+
+    s.recordRequest(
+      makeContext({
+        id: 'organic-rollup-req',
+        serverId: 'srv-organic',
+        model: 'gemma2',
+        duration: 100,
+        startTime: hourStart + 1_000,
+        endTime: hourStart + 1_100,
+      }),
+      { isProbe: false }
+    );
+    s.recordRequest(
+      makeContext({
+        id: 'probe-rollup-req',
+        serverId: 'srv-organic',
+        model: 'gemma2',
+        duration: 9_900,
+        startTime: hourStart + 2_000,
+        endTime: hourStart + 11_900,
+      }),
+      { isProbe: true }
+    );
+
+    s.computeHourlyRollup(hourStart, 'organic');
+
+    const rollups = s.getHourlyRollups({ serverId: 'srv-organic', model: 'gemma2' });
+    expect(rollups).toHaveLength(1);
+    expect(rollups[0]?.total_requests).toBe(1);
+    expect(rollups[0]?.latency_p50).toBe(100);
+    expect(rollups[0]?.latency_p95).toBe(100);
 
     s.close();
   });

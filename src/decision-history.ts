@@ -3,6 +3,7 @@
  * Track load balancer decisions and scoring over time
  */
 
+import { randomUUID } from 'crypto';
 import path from 'path';
 
 import { JsonFileHandler } from './config/json-file-handler.js';
@@ -29,6 +30,7 @@ export interface FailoverAttempt {
  * A single decision event when the load balancer selects a server
  */
 export interface DecisionEvent {
+  id: string;
   timestamp: number;
   model: string;
   selectedServerId: string;
@@ -125,8 +127,9 @@ export class DecisionHistory {
     scores: ServerScore[],
     selectionReason: string = 'best_score',
     requestId?: string
-  ): void {
+  ): DecisionEvent {
     const event: DecisionEvent = {
+      id: randomUUID(),
       timestamp: Date.now(),
       model,
       selectedServerId: selectedServer.id,
@@ -182,6 +185,8 @@ export class DecisionHistory {
     // Mirror to SQLite for long-term retention (Phase 1 dual-write)
     try {
       getMetricsStore().recordDecision({
+        id: event.id,
+        requestId: event.requestId,
         timestamp: event.timestamp,
         model: event.model,
         selectedServerId: event.selectedServerId,
@@ -209,6 +214,16 @@ export class DecisionHistory {
         error: err,
       });
     }
+
+    // Prune old events if exceeded max
+    if (this.events.length > this.config.maxEvents) {
+      this.events = this.events.slice(-this.config.maxEvents);
+    }
+
+    // Also prune by age
+    this.pruneOldEvents();
+
+    return event;
 
     // Prune old events if exceeded max
     if (this.events.length > this.config.maxEvents) {
@@ -607,14 +622,19 @@ export class DecisionHistory {
    * Convert a DecisionRow (without candidates) to a lightweight DecisionEvent.
    * Candidate scores are stored in the selected-server columns only; other
    * candidates are not available via this code path.
+   * The string id is derived from the integer SQLite row id — callers that need
+   * the stable UUID should use the in-memory DecisionEvent returned by
+   * recordDecision() directly.
    */
   private rowToEvent(row: DecisionRow): DecisionEvent {
     return {
+      id: `row-${row.id}`,
       timestamp: row.timestamp,
       model: row.model,
       selectedServerId: row.selected_server,
       algorithm: row.algorithm,
       selectionReason: row.selection_reason ?? 'unknown',
+      requestId: row.request_id ?? undefined,
       candidates: [
         {
           serverId: row.selected_server,
