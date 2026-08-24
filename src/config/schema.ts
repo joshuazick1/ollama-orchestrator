@@ -28,6 +28,7 @@ export const serverConfigSchema = z.object({
  */
 export const securityConfigSchema = z.object({
   corsOrigins: z.array(z.string()).default([]),
+  rateLimitEnabled: z.boolean().default(true),
   rateLimitWindowMs: z.number().int().min(1000).default(60000), // 1 minute
   rateLimitMax: z.number().int().min(1).default(100),
   adminRateLimitMax: z.number().int().min(1).default(200),
@@ -61,6 +62,7 @@ export const metricsConfigSchema = z.object({
   batchFlushIntervalMs: z.number().int().min(100).default(100),
   pruneIntervalMs: z.number().int().min(0).default(300000), // 5 min; 0 disables
   maxEntries: z.number().int().min(1).default(100000), // reserved cap; prune scheduler is primary
+  includeProbeInLiveScoring: z.boolean().default(true),
   decay: metricsDecayConfigSchema,
 });
 
@@ -124,9 +126,34 @@ export const retryConfigSchema = z.object({
  * Cooldown/failure handling configuration schema
  */
 export const cooldownConfigSchema = z.object({
-  failureCooldownMs: z.number().int().min(1000).default(120000), // 2 minutes
+  failureCooldownMs: z.number().int().min(1000).default(30000), // 30s base, with exponential backoff
   defaultMaxConcurrency: z.number().int().min(1).max(100).default(4),
 });
+
+/**
+ * AIMD dynamic concurrency tuner configuration schema.
+ * Controls how the orchestrator adapts per-server:model maxConcurrency based
+ * on observed success/failure outcomes.
+ */
+export const aimdConcurrencyConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    increaseDelta: z.number().int().min(0).max(16).default(1),
+    decayFactor: z.number().min(0.01).max(1).default(0.5),
+    minConcurrency: z.number().int().min(1).max(100).default(1),
+    maxConcurrency: z.number().int().min(1).max(256).default(32),
+    successWindow: z.number().int().min(1).max(10000).default(10),
+    persistIntervalMs: z.number().int().min(1000).default(30_000),
+  })
+  .default({
+    enabled: true,
+    increaseDelta: 1,
+    decayFactor: 0.5,
+    minConcurrency: 1,
+    maxConcurrency: 32,
+    successWindow: 10,
+    persistIntervalMs: 30_000,
+  });
 
 /**
  * Auto warmup configuration schema
@@ -214,7 +241,7 @@ export const loadBalancerConfigSchema = z.object({
   // Load factor: how much current load affects effective latency
   loadFactorMultiplier: z.number().min(0).max(2).default(0.5),
   // Default fallback latency when no data available
-  defaultLatencyMs: z.number().int().min(100).default(1000),
+  defaultLatencyMs: z.number().int().min(100).default(200),
   // Default max concurrency for servers
   defaultMaxConcurrency: z.number().int().min(1).max(100).default(4),
   // Streaming-optimized algorithm weights
@@ -288,10 +315,35 @@ export const loadBalancerConfigSchema = z.object({
   // Ghost server cleanup settings
   ghostServers: z
     .object({
-      staleThresholdMs: z.number().int().min(60000).default(86400000), // 24 hours - PS poll shows 0 models for this duration = ghost
-      removeOnCleanup: z.boolean().default(true), // Whether to auto-remove ghosts (default true, enabled for fleet hygiene)
+      staleThresholdMs: z.number().int().min(60000).default(604800000), // 7 days - PS poll shows 0 models for this duration before the server is considered a ghost
+      removeOnCleanup: z.boolean().default(false), // When false (default), log ghost candidates but do not remove them. Set to true for aggressive fleet hygiene (e.g. fully-managed fleets). Default is conservative because aggressive removal of large external fleets erodes fleet size on transient outages.
     })
-    .default({ staleThresholdMs: 86400000, removeOnCleanup: true }),
+    .default({ staleThresholdMs: 604800000, removeOnCleanup: false }),
+  // Speculative probing: when the scored-eligible set can't accommodate the
+  // request's concurrency footprint, sample UNKNOWN-state servers in-band so
+  // the request itself acts as the probe. Promotes fast fleet warmup when
+  // probe scheduler coverage is sparse.
+  //
+  // Capacity-based trigger: we sample enough servers to cover the deficit
+  //   deficit = max(0, requestFootprint - sum(maxConcurrency - inFlight))
+  // subject to `maxSamples` ceiling. `requestFootprint` is 1 per request by
+  // default (set higher for batch or fan-out callers).
+  //
+  // `triggerBelowEligible` is a secondary safety net: if the eligible set is
+  // smaller than this count, always sample (catches warm-up races).
+  speculativeProbing: z
+    .object({
+      enabled: z.boolean().default(true),
+      maxSamples: z.number().int().min(0).max(20).default(5),
+      requestFootprint: z.number().int().min(1).max(50).default(1),
+      triggerBelowEligible: z.number().int().min(0).max(50).default(2),
+    })
+    .default({ enabled: true, maxSamples: 5, requestFootprint: 1, triggerBelowEligible: 2 }),
+  // Source of truth for loaded-model data used in VRAM/cold-start scoring.
+  // 'psPoll' (default): read from PsPollCoordinator (live fleet view, stale → fallback)
+  // 'hardware': read from AIServer.hardware.loadedModels (server self-report, deprecated)
+  // 'fallback': always return stale/fallback snapshots (useful for testing)
+  loadedModelSource: z.enum(['psPoll', 'hardware', 'fallback']).default('psPoll'),
 });
 
 /**
@@ -546,6 +598,7 @@ export const probeConfigSchema = z.object({
     .array(z.number().int().positive())
     .default([10000, 30000, 60000, 300000, 900000]),
   recoverySuccessThreshold: z.number().int().positive().default(5),
+  rateLimitedRecoverySuccessThreshold: z.number().int().positive().default(2),
   probeTimeoutMs: z.number().int().positive().default(5000),
   maxConcurrentProbes: z.number().int().positive().default(10),
   snapshotIntervalMs: z.number().int().positive().default(300000),
@@ -628,6 +681,23 @@ export const errorAggregatorConfigSchema = z.object({
 
 export const adaptiveWeightTunerConfigSchema = z.object({
   enabled: z.boolean().default(true),
+});
+
+/**
+ * AIMD (Additive-Increase Multiplicative-Decrease) concurrency tuner.
+ * Auto-adjusts each server's `maxConcurrency` based on observed success/failure
+ * rates. Same approach as TCP congestion control.
+ */
+export const aimdConcurrencyTunerConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  tickMs: z.number().int().min(1000).default(30000),
+  initialConcurrency: z.number().int().min(1).max(100).default(1),
+  maxConcurrency: z.number().int().min(1).max(100).default(16),
+  increaseStep: z.number().int().min(1).max(10).default(1),
+  decreaseFactor: z.number().min(0.1).max(0.9).default(0.5),
+  minSuccessRate: z.number().min(0).max(1).default(0.9),
+  minSampleSize: z.number().int().min(1).max(1000).default(10),
+  windowSize: z.number().int().min(10).max(1000).default(100),
 });
 
 export const recoveryBackoffConfigSchema = z.object({
@@ -747,6 +817,8 @@ export const orchestratorConfigSchema = z.object({
   adaptiveWeightTuner: z.object({
     enabled: z.boolean().default(true),
   }),
+  aimdConcurrency: aimdConcurrencyConfigSchema,
+  aimdConcurrencyTuner: aimdConcurrencyTunerConfigSchema,
   honeypotProbes: honeypotProbesConfigSchema,
   recoveryBackoff: recoveryBackoffConfigSchema,
 
@@ -768,6 +840,7 @@ export type HealthCheckConfig = z.infer<typeof healthCheckConfigSchema>;
 export type TagsConfig = z.infer<typeof tagsConfigSchema>;
 export type RetryConfig = z.infer<typeof retryConfigSchema>;
 export type CooldownConfig = z.infer<typeof cooldownConfigSchema>;
+export type AIMDConcurrencyConfig = z.infer<typeof aimdConcurrencyConfigSchema>;
 export type AutoWarmupConfig = z.infer<typeof autoWarmupConfigSchema>;
 export type RateLimitConfig = z.infer<typeof rateLimitConfigSchema>;
 export type LoadBalancerConfig = z.infer<typeof loadBalancerConfigSchema>;
@@ -791,6 +864,7 @@ export type ErrorAggregatorConfig = z.infer<typeof errorAggregatorConfigSchema>;
 export type TimeoutConfig = z.infer<typeof timeoutConfigSchema>;
 export type RecoveryBackoffConfig = z.infer<typeof recoveryBackoffConfigSchema>;
 export type OrchestratorConfig = z.infer<typeof orchestratorConfigSchema>;
+export type AIMDConcurrencyTunerConfig = z.infer<typeof aimdConcurrencyTunerConfigSchema>;
 
 /**
  * Validate configuration against schema

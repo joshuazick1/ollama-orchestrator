@@ -33,6 +33,7 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
 
   // Load balancer settings
   ORCHESTRATOR_LB_WEIGHT_LATENCY: 'loadBalancer.weights.latency',
+  LOAD_BALANCER_LOADED_MODEL_SOURCE: 'loadBalancer.loadedModelSource',
   ORCHESTRATOR_GHOST_STALE_THRESHOLD_MS: 'loadBalancer.ghostServers.staleThresholdMs',
   ORCHESTRATOR_GHOST_REMOVE_ON_CLEANUP: 'loadBalancer.ghostServers.removeOnCleanup',
   ORCHESTRATOR_LB_WEIGHT_SUCCESS_RATE: 'loadBalancer.weights.successRate',
@@ -57,6 +58,7 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
 
   // Security settings
   ORCHESTRATOR_CORS_ORIGINS: 'security.corsOrigins',
+  ORCHESTRATOR_RATE_LIMIT_ENABLED: 'security.rateLimitEnabled',
   ORCHESTRATOR_RATE_LIMIT_WINDOW: 'security.rateLimitWindowMs',
   ORCHESTRATOR_RATE_LIMIT_MAX: 'security.rateLimitMax',
   ORCHESTRATOR_ADMIN_RATE_LIMIT_MAX: 'security.adminRateLimitMax',
@@ -70,6 +72,7 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_METRICS_ENABLED: 'metrics.enabled',
   ORCHESTRATOR_METRICS_PROMETHEUS_ENABLED: 'metrics.prometheusEnabled',
   ORCHESTRATOR_METRICS_PROMETHEUS_PORT: 'metrics.prometheusPort',
+  METRICS_INCLUDE_PROBE_IN_LIVE_SCORING: 'metrics.includeProbeInLiveScoring',
 
   // Streaming settings
   ORCHESTRATOR_STREAMING_ENABLED: 'streaming.enabled',
@@ -126,6 +129,15 @@ export const ENV_CONFIG_MAPPING: Record<string, string> = {
   ORCHESTRATOR_MM_GB_PER_BILLION_PARAMS: 'modelManager.gbPerBillionParams',
 
   ORCHESTRATOR_ADAPTIVE_WEIGHT_TUNER_ENABLED: 'adaptiveWeightTuner.enabled',
+  ORCHESTRATOR_AIMD_TUNER_ENABLED: 'aimdConcurrencyTuner.enabled',
+  ORCHESTRATOR_AIMD_TUNER_TICK_MS: 'aimdConcurrencyTuner.tickMs',
+  ORCHESTRATOR_AIMD_TUNER_MAX_CONCURRENCY: 'aimdConcurrencyTuner.maxConcurrency',
+  AIMD_INCREASE_DELTA: 'aimdConcurrency.increaseDelta',
+  AIMD_DECAY_FACTOR: 'aimdConcurrency.decayFactor',
+  AIMD_MIN_CONCURRENCY: 'aimdConcurrency.minConcurrency',
+  AIMD_MAX_CONCURRENCY: 'aimdConcurrency.maxConcurrency',
+  AIMD_SUCCESS_WINDOW: 'aimdConcurrency.successWindow',
+  AIMD_ENABLED: 'aimdConcurrency.enabled',
   ORCHESTRATOR_PERSISTENCE_PATH: 'persistencePath',
 
   // Auto warmup settings

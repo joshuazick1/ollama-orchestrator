@@ -25,6 +25,7 @@ import { getModelManager } from '../model-manager.js';
 import { EndpointRegistry } from '../probe/endpoint-registry.js';
 import { classify } from '../probe/failure-classifier.js';
 import { detectGarbageResponse } from '../probe/garbage-response-detector.js';
+import type { ModelAvailabilityProvider } from '../probe/model-availability-provider.js';
 import { getPerfProbeSchedulerInstance } from '../probe/perf-probe-scheduler-instance.js';
 import { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
 import {
@@ -259,6 +260,7 @@ export class AIOrchestrator {
   private telemetry: RequestTelemetry;
   private loadBalancer: LoadBalancer;
   private probeOrchestrator: ProbeOrchestrator;
+  private modelAvailabilityProvider?: ModelAvailabilityProvider;
   private recoveryDriver: RecoveryDriver;
   private backoffSchedule: BackoffSchedule;
   private endpointRegistry: EndpointRegistry;
@@ -313,6 +315,10 @@ export class AIOrchestrator {
   }
   public getProbeOrchestrator(): ProbeOrchestrator {
     return this.probeOrchestrator;
+  }
+  public setModelAvailabilityProvider(provider: ModelAvailabilityProvider): void {
+    this.modelAvailabilityProvider = provider;
+    this.loadBalancer.setModelAvailabilityProvider(provider);
   }
   public getEndpointRegistry(): EndpointRegistry {
     return this.endpointRegistry;
@@ -3939,6 +3945,59 @@ export class AIOrchestrator {
     const probeEndpoint: ProbeEndpoint = endpoint ?? 'ollama_generate';
     const tuple = { serverId, model, endpoint: probeEndpoint };
     return !this.probeOrchestrator.canServe(tuple, 'routing');
+  }
+
+  /**
+   * Central route eligibility predicate — aggregates all routing gates into one call.
+   * Returns { eligible: boolean, reasons: string[] } so callers can inspect why
+   * a server was excluded without making multiple calls.
+   *
+   * Gates checked (in order):
+   * a. AIServer.healthy
+   * b. probeOrchestrator.canServe(serverId, model, endpoint)
+   * c. BanManager.isBanned(serverId, model)
+   * d. QuarantinePool.isQuarantined(serverId)
+   * e. modelAvailabilityProvider snapshot source !== 'fallback'
+   */
+  isServerModelEligible(
+    serverId: string,
+    model: string,
+    endpoint?: ProbeEndpoint
+  ): { eligible: boolean; reasons: string[] } {
+    const reasons: string[] = [];
+    const probeEndpoint: ProbeEndpoint = endpoint ?? 'ollama_generate';
+
+    // Gate a: server healthy
+    const server = this.getServer(serverId);
+    if (!server || server.healthy === false) {
+      reasons.push('server unhealthy');
+    }
+
+    // Gate b: probe canServe
+    const tuple = { serverId, model, endpoint: probeEndpoint };
+    if (!this.probeOrchestrator.canServe(tuple, 'routing')) {
+      reasons.push('probe canServe=false');
+    }
+
+    // Gate c: not banned
+    if (this.banManager.isBanned(serverId, model)) {
+      reasons.push('banned');
+    }
+
+    // Gate d: not quarantined
+    if (getQuarantinePool().isQuarantined(serverId)) {
+      reasons.push('quarantined');
+    }
+
+    // Gate e: model availability snapshot is not stale (source !== 'fallback')
+    if (this.modelAvailabilityProvider) {
+      const snapshot = this.modelAvailabilityProvider.getLoadedSnapshot(serverId, model);
+      if (snapshot?.source === 'fallback') {
+        reasons.push('model availability stale (fallback)');
+      }
+    }
+
+    return { eligible: reasons.length === 0, reasons };
   }
 
   /**

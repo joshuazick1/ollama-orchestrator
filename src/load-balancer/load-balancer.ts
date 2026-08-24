@@ -5,7 +5,9 @@
 
 import type { AIServer, ServerModelMetrics } from '../orchestrator/orchestrator.types.js';
 import type { EndpointRegistry } from '../probe/endpoint-registry.js';
+import type { ModelAvailabilityProvider } from '../probe/model-availability-provider.js';
 import type { ProbeOrchestrator } from '../probe/probe-orchestrator.js';
+import { GENERATION_ENDPOINTS } from '../probe/types.js';
 import { getUserStore } from '../storage/user-store.js';
 import { BoundedMap } from '../utils/bounded-map.js';
 import { getInFlightManager } from '../utils/in-flight-manager.js';
@@ -74,8 +76,9 @@ export interface LoadBalancerConfig {
   latencyBlendHistorical: number; // Weight for P95 (default: 0.4)
   // Load factor: how much current load affects effective latency
   loadFactorMultiplier: number; // (default: 0.5)
+  saturationDiversificationThreshold: number; // (default: 0.5) — above this utilization, score penalty accelerates
   // Default fallback latency when no data available
-  defaultLatencyMs: number; // (default: 1000)
+  defaultLatencyMs: number; // (default: 200)
   // Default max concurrency for servers without explicit setting
   defaultMaxConcurrency: number; // (default: 4)
   // Streaming-optimized algorithm weights
@@ -128,6 +131,14 @@ export interface LoadBalancerConfig {
     staleThresholdMs: number;
     removeOnCleanup: boolean;
   };
+  // Speculative probing: when the scored-eligible set can't cover the
+  // request's concurrency footprint, sample UNKNOWN servers in-band.
+  speculativeProbing?: {
+    enabled: boolean;
+    maxSamples: number;
+    requestFootprint: number;
+    triggerBelowEligible: number;
+  };
   // Token-weighted load tracking settings
   tokenWeightedLoad?: {
     enabled: boolean;
@@ -140,6 +151,8 @@ export interface LoadBalancerConfig {
     autoUnquarantineAfterCleanCycles: number;
     lastResortFallback: boolean;
   };
+  // Source of loaded-model data for VRAM/cold-start scoring: 'psPoll' | 'hardware' | 'fallback'
+  loadedModelSource?: 'psPoll' | 'hardware' | 'fallback';
 }
 
 /**
@@ -172,7 +185,8 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
   latencyBlendRecent: 0.6,
   latencyBlendHistorical: 0.4,
   loadFactorMultiplier: 0.5,
-  defaultLatencyMs: 1000,
+  saturationDiversificationThreshold: 0.5,
+  defaultLatencyMs: 200,
   defaultMaxConcurrency: 4,
   streaming: {
     ttftWeight: 0.6,
@@ -216,11 +230,18 @@ export const DEFAULT_LB_CONFIG: LoadBalancerConfig = {
     staleThresholdMs: 86400000,
     removeOnCleanup: false,
   },
+  speculativeProbing: {
+    enabled: true,
+    maxSamples: 5,
+    requestFootprint: 1,
+    triggerBelowEligible: 2,
+  },
   tokenWeightedLoad: {
     enabled: true,
     promptTokenWeight: 1.0,
     outputTokenWeight: 4.0,
   },
+  loadedModelSource: 'psPoll',
 };
 
 /**
@@ -235,7 +256,8 @@ export function calculateServerScore(
   config: LoadBalancerConfig = DEFAULT_LB_CONFIG,
   timeoutMs?: number,
   estimatedPromptTokens?: number,
-  getContextLimit?: (serverId: string, model: string) => number
+  getContextLimit?: (serverId: string, model: string) => number,
+  modelAvailabilityProvider?: ModelAvailabilityProvider
 ): ServerScore {
   const maxConcurrency = server.maxConcurrency ?? config.defaultMaxConcurrency;
 
@@ -278,14 +300,29 @@ export function calculateServerScore(
   // B.1: Cold start penalty — penalize latency score when model is NOT loaded in VRAM
   // Mirrors selectFastestResponse() hot/cold awareness for the weighted algorithm.
   // Hot model: latency reflects reality. Cold model: latency will spike from model loading.
-  const loadedModel = server.hardware?.loadedModels?.find(m => m.name === model);
-  if (!loadedModel) {
-    // Model is cold — apply penalty proportional to observed cold starts
+  // Use model availability provider when available; fall back to hardware snapshot.
+  let loadedSnapshot = modelAvailabilityProvider?.getLoadedSnapshot(server.id, model);
+  if (!loadedSnapshot && config.loadedModelSource !== 'fallback') {
+    // @deprecated fallback to AIServer.hardware.loadedModels — use PsPollBackedProvider in production
+    const hwLoaded = server.hardware?.loadedModels?.find(m => m.name === model);
+    if (hwLoaded) {
+      loadedSnapshot = {
+        serverId: server.id,
+        model,
+        loadedAt: 0,
+        sizeVram: hwLoaded.sizeVram ?? 0,
+        expiresAt: hwLoaded.expiresAt ? new Date(hwLoaded.expiresAt).getTime() : 0,
+        lastPolledAt: 0,
+        source: 'hardware' as const,
+      };
+    }
+  }
+  if (!loadedSnapshot || loadedSnapshot.source === 'fallback') {
+    // Model is cold (or stale) — apply penalty proportional to observed cold starts
     // Base penalty: reduce latency score by 15% (cold load adds significant latency)
-    let coldPenalty = 0.85;
+    let coldPenalty = loadedSnapshot?.source === 'fallback' ? 0.8 : 0.85;
     if (metrics && metrics.coldStartCount > 0) {
-      // If we've seen many cold starts, increase penalty (max 30% reduction)
-      coldPenalty = Math.max(0.7, 0.85 - metrics.coldStartCount * 0.01);
+      coldPenalty = Math.max(0.65, coldPenalty - metrics.coldStartCount * 0.01);
     }
     latencyScore *= coldPenalty;
   }
@@ -294,13 +331,11 @@ export function calculateServerScore(
   // Mirrors selectFastestResponse() expiresAt thresholds for the weighted algorithm.
   // Near-eviction means the next request will likely trigger a cold reload.
   let evictionPenalty = 1.0;
-  if (loadedModel?.expiresAt) {
-    const expiresIn = new Date(loadedModel.expiresAt).getTime() - Date.now();
+  if (loadedSnapshot?.expiresAt && loadedSnapshot.expiresAt > 0) {
+    const expiresIn = loadedSnapshot.expiresAt - Date.now();
     if (expiresIn < 30_000) {
-      // < 30s: imminent eviction — treat almost like cold start
       evictionPenalty = 0.6;
     } else if (expiresIn < 120_000) {
-      // < 2min: approaching eviction — moderate penalty
       evictionPenalty = 0.85;
     }
     if (evictionPenalty < 1.0) {
@@ -356,11 +391,10 @@ export function calculateServerScore(
   // If model is already loaded (hot), score = 100. Otherwise compute free VRAM ratio.
   let vramScore = 50; // Neutral when no hardware data available
   const hw = server.hardware;
-  if (hw) {
-    if (loadedModel) {
-      // Model already in VRAM — best case, but reduce if near eviction (B.2)
-      vramScore = 100 * evictionPenalty;
-    } else if (hw.totalVram !== undefined && hw.totalVram > 0) {
+  if (loadedSnapshot && loadedSnapshot.source !== 'fallback') {
+    vramScore = loadedSnapshot.sizeVram > 0 ? 100 * evictionPenalty : 75 * evictionPenalty;
+  } else if (hw) {
+    if (hw.totalVram !== undefined && hw.totalVram > 0) {
       // We have total VRAM info — estimate free VRAM
       const freeVram = hw.totalVram - (hw.usedVram ?? 0);
       // Estimate model size from any loaded model of similar name, or use usedVram as proxy
@@ -582,11 +616,21 @@ export class LoadBalancer {
    * re-instantiating the LoadBalancer — the cap is NOT hot-reloaded.
    */
   private stickySessions!: BoundedMap<string, StickySessionEntry>;
+
+  /**
+   * IDs of servers that were speculatively probed on the most recent
+   * `select()` call. Set when the eligible set was below
+   * `config.speculativeProbing.triggerBelowEligible` and we sampled
+   * UNKNOWN-state servers to act as in-band probes. Cleared at the start
+   * of every `select()` call.
+   */
+  private currentSpeculativeIds: string[] = [];
   private stickySessionCleanupInterval?: NodeJS.Timeout;
   private probeOrchestrator?: ProbeOrchestrator;
   private endpointRegistry?: EndpointRegistry;
   private prefixCacheRouter?: PrefixCacheRouter;
   private sloFallbackMonitor?: SLOFallbackMonitor;
+  private modelAvailabilityProvider?: ModelAvailabilityProvider;
   /**
    * Round-robin state per model for diversity tie-breaking in fastest-response.
    * When multiple servers are within 5% of the best score, we round-robin
@@ -771,6 +815,15 @@ export class LoadBalancer {
   }
 
   /**
+   * Set the model availability provider for hot/cold and VRAM scoring.
+   * When set, the load balancer reads loaded-model state through the provider
+   * instead of directly from server.hardware.loadedModels.
+   */
+  setModelAvailabilityProvider(provider: ModelAvailabilityProvider): void {
+    this.modelAvailabilityProvider = provider;
+  }
+
+  /**
    * Get current algorithm
    */
   getAlgorithm(): LoadBalancerAlgorithm {
@@ -792,6 +845,7 @@ export class LoadBalancer {
     isAdmin?: boolean,
     prompt?: string
   ): AIServer | undefined {
+    this.currentSpeculativeIds = [];
     // Apply user access filtering before scoring
     const filteredCandidates = this.filterByUserAccess(candidates, model, userId, isAdmin);
 
@@ -899,7 +953,7 @@ export class LoadBalancer {
     }
     const endpoints = this.endpointRegistry.getActiveEndpoints(serverId, model);
     if (endpoints.length === 0) {
-      return false;
+      return true;
     }
     return endpoints.some(endpoint =>
       this.probeOrchestrator!.canServe({ serverId, model, endpoint }, 'routing')
@@ -947,7 +1001,8 @@ export class LoadBalancer {
         this.config,
         timeoutMs,
         estimatedPromptTokens,
-        getContextLimit
+        getContextLimit,
+        this.modelAvailabilityProvider
       );
     });
 
@@ -1134,11 +1189,44 @@ export class LoadBalancer {
       return undefined;
     }
 
-    if (eligible.length === 1) {
-      return eligible[0];
+    const speculativeConfig = this.config.speculativeProbing;
+    let augmentedEligible = eligible;
+    if (speculativeConfig?.enabled && eligible.length < candidates.length) {
+      const requestFootprint = speculativeConfig.requestFootprint ?? 1;
+      let availableSlots = 0;
+      for (const server of eligible) {
+        const maxConcurrency = server.maxConcurrency ?? this.config.defaultMaxConcurrency;
+        const inFlight = getTotalLoad(server.id);
+        availableSlots += Math.max(0, maxConcurrency - inFlight);
+      }
+      const eligibleShort = eligible.length <= (speculativeConfig.triggerBelowEligible ?? 2);
+      const deficit = Math.max(0, requestFootprint - availableSlots);
+      const sampleCount = Math.min(
+        speculativeConfig.maxSamples ?? 5,
+        eligibleShort || deficit > 0 ? deficit || 1 : 0
+      );
+
+      if (sampleCount > 0) {
+        const eligibleIds = new Set(eligible.map(s => s.id));
+        const untested = candidates.filter(s => !eligibleIds.has(s.id));
+        const speculativePicks = this._selectSpeculativeServers(
+          untested,
+          model,
+          sampleCount,
+          getLoad,
+          getTotalLoad
+        );
+        if (speculativePicks.length > 0) {
+          augmentedEligible = [...eligible, ...speculativePicks];
+        }
+      }
     }
 
-    const scored = eligible.map(server => {
+    if (augmentedEligible.length === 1) {
+      return augmentedEligible[0];
+    }
+
+    const scored = augmentedEligible.map(server => {
       const metrics = getMetrics(server.id, model);
       const currentLoad = getLoad(server.id, model);
       const maxConcurrency = server.maxConcurrency ?? this.config.defaultMaxConcurrency;
@@ -1152,20 +1240,46 @@ export class LoadBalancer {
           metrics.percentiles.p95 * this.config.latencyBlendHistorical;
       }
 
-      // Adjust for current load (higher load = higher effective latency)
-      const loadFactor = 1 + (currentLoad / maxConcurrency) * this.config.loadFactorMultiplier;
+      // Adjust for current load (higher load = higher effective latency). The
+      // loadFactorMultiplier (default 0.5) gives a soft linear penalty up to 1.5x
+      // at full saturation. We layer a tiered penalty on top so that once a server
+      // crosses the configured threshold (default 50% saturation), the penalty
+      // accelerates — a saturated hot server should score worse than a cold
+      // unprobed server so load spreads when the close group gets too small.
+      const utilization = currentLoad / maxConcurrency;
+      const loadFactor = 1 + utilization * this.config.loadFactorMultiplier;
       let adjustedLatency = latency * loadFactor;
+      const saturationThreshold = this.config.saturationDiversificationThreshold ?? 0.5;
+      if (utilization > saturationThreshold) {
+        const overshoot = (utilization - saturationThreshold) / (1 - saturationThreshold);
+        adjustedLatency *= 1 + overshoot * 2;
+      }
 
       // Hot/cold model awareness: prefer servers where model is already loaded
-      const loadedModel = server.hardware?.loadedModels?.find(m => m.name === model);
-      if (loadedModel) {
+      let loadedSnapshot = this.modelAvailabilityProvider?.getLoadedSnapshot(server.id, model);
+      if (!loadedSnapshot && this.config.loadedModelSource !== 'fallback') {
+        const hwLoaded = server.hardware?.loadedModels?.find(m => m.name === model);
+        if (hwLoaded) {
+          loadedSnapshot = {
+            serverId: server.id,
+            model,
+            loadedAt: 0,
+            sizeVram: hwLoaded.sizeVram ?? 0,
+            expiresAt: hwLoaded.expiresAt ? new Date(hwLoaded.expiresAt).getTime() : 0,
+            lastPolledAt: 0,
+            source: 'hardware' as const,
+          };
+        }
+      }
+      const isHot = !!(loadedSnapshot && loadedSnapshot.source !== 'fallback');
+      if (isHot) {
         // Model is hot - apply moderate boost (lower latency = higher priority)
         // Reduced from 0.5x to 0.8x to allow diversity when multiple servers are competitive
         adjustedLatency *= 0.8;
 
         // Penalize servers near eviction (model about to be unloaded)
-        if (loadedModel.expiresAt) {
-          const expiresIn = new Date(loadedModel.expiresAt).getTime() - Date.now();
+        if (loadedSnapshot && loadedSnapshot.expiresAt && loadedSnapshot.expiresAt > 0) {
+          const expiresIn = loadedSnapshot.expiresAt - Date.now();
           if (expiresIn < 30000) {
             // Expires in < 30s - heavy penalty
             adjustedLatency *= 2.0;
@@ -1176,7 +1290,8 @@ export class LoadBalancer {
         }
       } else {
         // Model is cold - slight penalty to prefer hot servers
-        adjustedLatency *= 1.1;
+        // Stale fallback gets a slightly worse penalty than truly cold (no data)
+        adjustedLatency *= loadedSnapshot?.source === 'fallback' ? 1.15 : 1.1;
       }
 
       // Add success rate consideration
@@ -1223,17 +1338,70 @@ export class LoadBalancer {
         latency: adjustedLatency,
         rawLatency: latency,
         load: currentLoad,
-        isHot: !!loadedModel,
+        isHot,
       };
     });
 
     // Sort by adjusted latency (ascending - lower is better)
     scored.sort((a, b) => a.latency - b.latency);
 
-    // Diversity tie-breaker: if top candidates are within 5% of best score, round-robin among them
+    // Diversity tie-breaker: include enough servers in the close group to
+    // satisfy the request footprint. The legacy 5% threshold is the floor;
+    // for high-footprint loads (orchestrators fanning out, batch jobs) we
+    // widen by 5% increments until the group can carry `requestFootprint`
+    // concurrent slots at `defaultMaxConcurrency` per server. We cap at
+    // 50% widening to keep the algorithm latency-oriented.
+    const requestFootprint = this.config.speculativeProbing?.requestFootprint ?? 1;
+    const defaultMaxConcurrency = this.config.defaultMaxConcurrency;
+    const minCloseGroup = Math.max(
+      2,
+      Math.ceil(requestFootprint / Math.max(defaultMaxConcurrency, 1))
+    );
+
+    // Saturation penalty: if the close-group is too small to satisfy the
+    // request footprint, the hot-server penalty is too weak to push load
+    // onto unprobed servers (hot 117ms vs cold 1100ms is 9.4× apart).
+    // Strengthen the per-server loadFactor by squaring the (1+load/cap)
+    // multiplier for already-saturated servers, then re-sort so they fall
+    // out of the close-group. This nudges the LB to consider cold-but-empty
+    // servers instead of repeatedly hammering a saturated hot one.
+    const saturationThreshold = Math.max(
+      1,
+      Math.ceil(requestFootprint / Math.max(defaultMaxConcurrency, 1))
+    );
+    if (augmentedEligible.length > saturationThreshold) {
+      let needsDiversification = false;
+      for (const s of augmentedEligible) {
+        const maxC = s.maxConcurrency ?? defaultMaxConcurrency;
+        const load = getLoad(s.id, model);
+        if (load / maxC >= 0.5) {
+          needsDiversification = true;
+          break;
+        }
+      }
+      if (needsDiversification) {
+        for (const s of scored) {
+          const maxC = s.server.maxConcurrency ?? defaultMaxConcurrency;
+          const load = getLoad(s.server.id, model);
+          if (load > 0 && maxC > 0) {
+            const saturationRatio = load / maxC;
+            // Quadratic penalty: at 50% load → 1.25×; at 100% load → 4×.
+            // Pushes saturated hot servers past the unprobed 1100ms floor.
+            const penalty = Math.pow(1 + saturationRatio, 2);
+            s.latency *= penalty;
+          }
+        }
+        scored.sort((a, b) => a.latency - b.latency);
+      }
+    }
+
     const bestLatency = scored[0].latency;
-    const threshold = bestLatency * 1.05;
-    const closeCandidates = scored.filter(s => s.latency <= threshold);
+    let closeCandidates = scored.filter(s => s.latency <= bestLatency * 1.05);
+    let widenedPct = 5;
+    while (closeCandidates.length < minCloseGroup && widenedPct <= 200) {
+      closeCandidates = scored.filter(s => s.latency <= bestLatency * (1 + widenedPct / 100));
+      widenedPct += 5;
+    }
 
     let selectedEntry: (typeof scored)[0];
     if (closeCandidates.length > 1) {
@@ -1257,7 +1425,7 @@ export class LoadBalancer {
         rawLatency: s.rawLatency,
         load: s.load,
         isHot: s.isHot,
-        inCloseGroup: s.latency <= threshold,
+        inCloseGroup: closeCandidates.some(c => c.server.id === s.server.id),
       })),
       selected: selectedEntry.server.id,
       closeGroupSize: closeCandidates.length,
@@ -1265,6 +1433,63 @@ export class LoadBalancer {
     });
 
     return selectedEntry.server;
+  }
+
+  getSpeculativeIds(): string[] {
+    return [...this.currentSpeculativeIds];
+  }
+
+  /**
+   * Pick up to `maxSamples` servers from the candidate pool that are not yet
+   * in the eligible set. Excludes UNHEALTHY probe-state tuples; prefers
+   * servers with lower current load; tracks picks in `currentSpeculativeIds`
+   * so the routing layer can surface them in debug headers.
+   */
+  private _selectSpeculativeServers(
+    candidates: AIServer[],
+    model: string,
+    maxSamples: number,
+    getLoad: (serverId: string, model: string) => number,
+    getTotalLoad: (serverId: string) => number
+  ): AIServer[] {
+    if (candidates.length === 0 || maxSamples <= 0) {
+      return [];
+    }
+
+    const generationEndpoints = GENERATION_ENDPOINTS;
+    const eligibleSpeculative: AIServer[] = [];
+
+    for (const server of candidates) {
+      if (!this.probeOrchestrator) {
+        eligibleSpeculative.push(server);
+        continue;
+      }
+      let hasUnhealthyTuple = false;
+      for (const ep of generationEndpoints) {
+        const ts = this.probeOrchestrator.getTupleState({
+          serverId: server.id,
+          model,
+          endpoint: ep,
+        });
+        if (ts && ts.state === 'UNHEALTHY') {
+          hasUnhealthyTuple = true;
+          break;
+        }
+      }
+      if (!hasUnhealthyTuple) {
+        eligibleSpeculative.push(server);
+      }
+    }
+
+    eligibleSpeculative.sort((a, b) => {
+      const loadA = getTotalLoad(a.id) + getLoad(a.id, model);
+      const loadB = getTotalLoad(b.id) + getLoad(b.id, model);
+      return loadA - loadB;
+    });
+
+    const picks = eligibleSpeculative.slice(0, maxSamples);
+    this.currentSpeculativeIds = picks.map(s => s.id);
+    return picks;
   }
 
   selectFastestResponse(
@@ -1397,8 +1622,17 @@ export class LoadBalancer {
         });
       }
 
-      // Adjust for load using config value
+      // Adjust for load using config value. Layer a tiered penalty on top so
+      // that saturated hot servers score worse than cold unprobed ones, so load
+      // spreads when the close group gets too small.
       const loadFactor = 1 + (currentLoad / maxConcurrency) * this.config.loadFactorMultiplier;
+      const saturationThreshold = this.config.saturationDiversificationThreshold ?? 0.5;
+      if (currentLoad / maxConcurrency > saturationThreshold) {
+        const overshoot =
+          (currentLoad / maxConcurrency - saturationThreshold) / (1 - saturationThreshold);
+        const extraPenalty = 1 + overshoot * 2;
+        chunkGapPenalty = Math.min(chunkGapPenalty, extraPenalty);
+      }
 
       // Calculate weighted score (lower is better)
       const adjustedTTFT = ttft * loadFactor;

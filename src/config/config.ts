@@ -14,6 +14,8 @@ import { safeJsonParse, safeJsonStringify } from '../utils/json-utils.js';
 import { logger } from '../utils/logger.js';
 
 import type {
+  AIMDConcurrencyConfig,
+  AIMDConcurrencyTunerConfig,
   CircuitBreakerConfig,
   CapabilityProbeConfig,
   DebugConfig,
@@ -35,6 +37,7 @@ export interface ServerConfig {
 
 export interface SecurityConfig {
   corsOrigins: string[];
+  rateLimitEnabled: boolean;
   rateLimitWindowMs: number;
   rateLimitMax: number;
   adminRateLimitMax: number;
@@ -59,6 +62,7 @@ export interface MetricsConfig {
   batchFlushIntervalMs: number;
   pruneIntervalMs: number;
   maxEntries: number;
+  includeProbeInLiveScoring: boolean;
   decay: MetricsDecayConfig;
 }
 
@@ -296,6 +300,8 @@ export interface OrchestratorConfig {
   };
   errorAggregator: ErrorAggregatorConfig;
   adaptiveWeightTuner: { enabled: boolean };
+  aimdConcurrencyTuner: AIMDConcurrencyTunerConfig;
+  aimdConcurrency: AIMDConcurrencyConfig;
   recoveryBackoff: RecoveryBackoffConfig;
 
   // Ollama servers
@@ -355,7 +361,8 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     latencyBlendRecent: 0.6,
     latencyBlendHistorical: 0.4,
     loadFactorMultiplier: 0.5,
-    defaultLatencyMs: 1000,
+    saturationDiversificationThreshold: 0.5,
+    defaultLatencyMs: 200,
     defaultMaxConcurrency: 4,
     streaming: {
       ttftWeight: 0.6,
@@ -396,14 +403,21 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
       p95WindowMs: 60000,
     },
     ghostServers: {
-      staleThresholdMs: 86400000,
-      removeOnCleanup: true,
+      staleThresholdMs: 604800000,
+      removeOnCleanup: false,
+    },
+    speculativeProbing: {
+      enabled: true,
+      maxSamples: 5,
+      requestFootprint: 1,
+      triggerBelowEligible: 2,
     },
     tokenWeightedLoad: {
       enabled: true,
       promptTokenWeight: 1.0,
       outputTokenWeight: 4.0,
     },
+    loadedModelSource: 'psPoll' as const,
   },
 
   circuitBreaker: {
@@ -459,6 +473,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
 
   security: {
     corsOrigins: [],
+    rateLimitEnabled: true,
     rateLimitWindowMs: 60000,
     rateLimitMax: 100,
     adminRateLimitMax: 200,
@@ -473,6 +488,7 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
     batchFlushIntervalMs: 100,
     pruneIntervalMs: 300000,
     maxEntries: 100000,
+    includeProbeInLiveScoring: true,
     decay: {
       enabled: true,
       halfLifeMs: 300000, // 5 minutes
@@ -708,6 +724,28 @@ export const DEFAULT_CONFIG: OrchestratorConfig = {
 
   adaptiveWeightTuner: {
     enabled: true,
+  },
+
+  aimdConcurrencyTuner: {
+    enabled: true,
+    tickMs: 30000,
+    initialConcurrency: 1,
+    maxConcurrency: 16,
+    increaseStep: 1,
+    decreaseFactor: 0.5,
+    minSuccessRate: 0.9,
+    minSampleSize: 10,
+    windowSize: 100,
+  },
+
+  aimdConcurrency: {
+    enabled: true,
+    increaseDelta: 1,
+    decayFactor: 0.5,
+    minConcurrency: 1,
+    maxConcurrency: 32,
+    successWindow: 10,
+    persistIntervalMs: 30_000,
   },
 
   recoveryBackoff: {
@@ -1034,6 +1072,10 @@ export class ConfigManager {
       this.config.security.authMustBeEnabled = env.ORCHESTRATOR_AUTH_MUST_BE_ENABLED === 'true';
     }
 
+    if (env.ORCHESTRATOR_RATE_LIMIT_ENABLED) {
+      this.config.security.rateLimitEnabled = env.ORCHESTRATOR_RATE_LIMIT_ENABLED === 'true';
+    }
+
     // Metrics settings
     if (env.ORCHESTRATOR_PROMETHEUS_PORT) {
       const port = parseInt(env.ORCHESTRATOR_PROMETHEUS_PORT, 10);
@@ -1163,6 +1205,14 @@ export class ConfigManager {
       adaptiveWeightTuner: {
         ...DEFAULT_CONFIG.adaptiveWeightTuner,
         ...partial.adaptiveWeightTuner,
+      },
+      aimdConcurrencyTuner: {
+        ...DEFAULT_CONFIG.aimdConcurrencyTuner,
+        ...partial.aimdConcurrencyTuner,
+      },
+      aimdConcurrency: {
+        ...DEFAULT_CONFIG.aimdConcurrency,
+        ...partial.aimdConcurrency,
       },
       recoveryBackoff: { ...DEFAULT_CONFIG.recoveryBackoff, ...partial.recoveryBackoff },
       servers: partial.servers ?? DEFAULT_CONFIG.servers,
